@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -29,25 +29,22 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
 interface ApiIntegrationsProps {
-  initialTools: ITool[];
+  tools: ITool[];
+  onSaveApiTool: (tool: ITool) => void;
+  onDeleteApiTool: (toolId: string) => void;
   isReadOnly: boolean;
-  onToolsChange: (updatedTools: ITool[]) => void;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
-  initialTools,
-  isReadOnly,
-  onToolsChange
+  tools,
+  onSaveApiTool,
+  onDeleteApiTool,
+  isReadOnly
 }) => {
-  const [tools, setTools] = useState<ITool[]>(initialTools);
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
-
-  useEffect(() => {
-    setTools(initialTools);
-  }, [initialTools]);
 
   const handleSaveTool = useCallback(() => {
     if (isReadOnly || !editingTool) return;
@@ -57,20 +54,13 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     }
     setShowErrors(false);
     
-    const updatedTools = tools.some(t => t.id === editingTool.id)
-      ? tools.map(t => t.id === editingTool.id ? editingTool : t)
-      : [...tools, editingTool];
-    
-    setTools(updatedTools);
-    onToolsChange(updatedTools);
+    onSaveApiTool(editingTool);
     setEditingTool(null);
-  }, [editingTool, isReadOnly, tools, onToolsChange]);
+  }, [editingTool, isReadOnly, onSaveApiTool]);
 
   const handleDeleteTool = useCallback((toolId: string) => {
-    const updatedTools = tools.filter(tool => tool.id !== toolId);
-    setTools(updatedTools);
-    onToolsChange(updatedTools);
-  }, [tools, onToolsChange]);
+    onDeleteApiTool(toolId);
+  }, [onDeleteApiTool]);
 
   const onAddApiTool = useCallback(() => {
     const newTool: ITool = {
