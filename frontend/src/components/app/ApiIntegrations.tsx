@@ -10,10 +10,10 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { ITool, IToolApiAction } from '../types';
-import Window from './widgets/Window';
-import StringMapEditor from './widgets/StringMapEditor';
-import ClickLink from './widgets/ClickLink';
+import { ITool, IToolApiAction } from '../../types';
+import Window from '../widgets/Window';
+import StringMapEditor from '../widgets/StringMapEditor';
+import ClickLink from '../widgets/ClickLink';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
@@ -21,26 +21,31 @@ import InputLabel from '@mui/material/InputLabel';
 import { coindeskSchema } from './coindesk_schema';
 import { jobVacanciesSchema } from './jobvacancies_schema';
 import DeleteIcon from '@mui/icons-material/Delete';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import EditIcon from '@mui/icons-material/Edit';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
 interface ApiIntegrationsProps {
   tools: ITool[];
   onSaveApiTool: (tool: ITool) => void;
-  onDeleteApiTool: (toolId: string) => void;  // Add this line
+  onDeleteApiTool: (toolId: string) => void;
   isReadOnly: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   tools,
   onSaveApiTool,
-  onDeleteApiTool,  // Add this line
-  isReadOnly,
+  onDeleteApiTool,
+  isReadOnly
 }) => {
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
 
-  // Move onAddApiTool function here
   const onAddApiTool = useCallback(() => {
     const newTool: ITool = {
       id: uuidv4(),
@@ -136,13 +141,23 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       <Typography variant="h6" sx={{ mb: 1 }}>
         API Tools
       </Typography>
-      <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+      <Typography variant="body1" sx={{ mt: 1, mb: 0, fontSize: 14 }}>
         Allow Helix to call any 3rd party API to perform tasks such as querying information or updating data. To begin:
-        <ul>    
-          <li>Find the OpenAPI schema for the API you want to use.</li>      
-          <li>Click "Add API Tool" below to add your schema, URL and any additional config such as authentication headers.</li>
-        </ul>
       </Typography>
+      <List dense>
+        <ListItem disableGutters>
+          <ListItemIcon sx={{ minWidth: 20 }}>
+            <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          </ListItemIcon>
+          <ListItemText primary="Find the OpenAPI schema for the API you want to use." />
+        </ListItem>
+        <ListItem disableGutters>
+          <ListItemIcon sx={{ minWidth: 20 }}>
+            <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          </ListItemIcon>
+          <ListItemText primary="Click 'Add API Tool' below to add your schema, URL and any additional config such as authentication headers." />
+        </ListItem>
+      </List>
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
@@ -185,6 +200,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   onClick={() => handleEditTool(apiTool)}
                   sx={{ mr: 1 }}
                   disabled={isReadOnly}
+                  startIcon={<EditIcon />}
                 >
                   Edit
                 </Button>
