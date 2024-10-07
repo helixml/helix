@@ -208,7 +208,6 @@ const App: FC = () => {
   }, [api, fetchKnowledge, snackbar]);
 
   useEffect(() => {
-    // console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
     let initialApp: IApp | null = null;
     if (params.app_id === "new") {
       const now = new Date();
@@ -562,7 +561,7 @@ const App: FC = () => {
   const onSaveGptScript = useCallback((tool: ITool) => {
     if (!app) {
       console.error('App is not initialized');
-      snackbar.error('Unable to save GPT script: App is not initialized');
+      snackbar.error('Unable to save GPT script: App is not initialized, save it first');
       return;
     }
 
@@ -666,7 +665,7 @@ const App: FC = () => {
   const onDeleteTool = useCallback(async (toolId: string) => {
     if (!app) {
       console.error('App is not initialized');
-      snackbar.error('Unable to delete tool: App is not initialized');
+      snackbar.error('Unable to delete tool: App is not initialized, save it first');
       return;
     }
 
@@ -748,42 +747,9 @@ const App: FC = () => {
     snackbar.success('API Tool deleted successfully');
   }, [app, snackbar]);
 
-  const handleToolsChange = useCallback((updatedTools: ITool[]) => {
-    if (!app) return;
-
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
-      ...assistant,
-      tools: updatedTools
-    }));
-
-    setApp(prevApp => ({
-      ...prevApp!,
-      config: {
-        ...prevApp!.config,
-        helix: {
-          ...prevApp!.config.helix,
-          assistants: updatedAssistants,
-        },
-      },
-    }));
-
-    setTools(updatedTools);
-  }, [app]);
-
   if(!account.user) return null
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
-
-  const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newIsSearchMode = event.target.checked;
-    setIsSearchMode(newIsSearchMode);
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev.toString());
-      newParams.set('isSearchMode', newIsSearchMode.toString());
-      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
-      return newParams;
-    });
-  };
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setTabValue(newValue);
@@ -793,21 +759,6 @@ const App: FC = () => {
       window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
       return newParams;
     });
-  };
-
-  const handleChunkClick = (chunk: ISessionRAGResult) => {
-    setSelectedChunk(chunk);
-  };
-
-  const handleCloseDialog = () => {
-    setSelectedChunk(null);
-  };
-
-  const handleCopyContent = () => {
-    if (selectedChunk) {
-      navigator.clipboard.writeText(selectedChunk.content);
-      snackbar.success('Content copied to clipboard');
-    }
   };
 
   return (
@@ -958,8 +909,6 @@ const App: FC = () => {
                 )}
               </Box>
               
-              {/* Modify this section to include the save button for integrations */}
-              {/* Save button placed here, underneath the tab section */}
               <Box sx={{ mt: 2, pl: 3 }}>
                 <Button
                   type="button"
