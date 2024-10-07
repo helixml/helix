@@ -34,6 +34,7 @@ import useRouter from '../hooks/useRouter'
 import useApi from '../hooks/useApi'
 import useWebsocket from '../hooks/useWebsocket'
 import useThemeConfig from '../hooks/useThemeConfig'
+import { useStreaming } from '../contexts/streaming';
 
 import {
   IAssistantGPTScript,
@@ -411,6 +412,8 @@ const App: FC = () => {
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
+  const { NewSession } = useStreaming();
+
   const onInference = async () => {
     if(!app) return
     
@@ -421,30 +424,14 @@ const App: FC = () => {
     // do inference
     if(app.id == "new") return
     
-    session.setData(undefined)
-    const sessionChatRequest = {
-      mode: SESSION_MODE_INFERENCE,
-      type: SESSION_TYPE_TEXT,
-      stream: true,
-      legacy: true,
-      app_id: app.id,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [
-            inputValue,
-          ]
-        },
-      }]
+    try {
+      const newSessionData = await NewSession(inputValue, app.id);
+      setInputValue('');
+      session.loadSession(newSessionData.id);
+    } catch (error) {
+      console.error('Error creating new session:', error);
+      snackbar.error('Failed to create new session');
     }
-    
-    const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
-    if(!newSessionData) {
-      return
-    }
-    setInputValue('')
-    session.loadSession(newSessionData.id)    
   }
 
   const onSearch = async (query: string) => {
