@@ -62,8 +62,8 @@ func NewScheduler(cfg *config.ServerConfig) *scheduler {
 		placementStrategy: schedStratFunc, // TODO: Make this configurable.
 	}
 
-	// Start a goroutine to log the current state of the scheduler every 5 seconds.
-	ticker := time.NewTicker(time.Second * 1)
+	// Start a goroutine to log the current state of the scheduler.
+	ticker := time.NewTicker(time.Minute * 1)
 	go func() {
 		for range ticker.C {
 			scheduler.logState()
@@ -245,7 +245,7 @@ func (s *scheduler) logState() {
 		activeSlots := Filter(currentSlots, func(slot *Slot) bool {
 			return slot.IsActive()
 		})
-		log.Info().
+		log.Trace().
 			Str("runner_id", runnerID).
 			Int("active_slots", len(activeSlots)).
 			Int("total_slots", len(currentSlots)).
