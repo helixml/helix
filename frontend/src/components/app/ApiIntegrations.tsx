@@ -46,22 +46,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
 
-  const handleSaveTool = useCallback(() => {
-    if (isReadOnly || !editingTool) return;
-    if (!validate()) {
-      setShowErrors(true);
-      return;
-    }
-    setShowErrors(false);
-    
-    onSaveApiTool(editingTool);
-    setEditingTool(null);
-  }, [editingTool, isReadOnly, onSaveApiTool]);
-
-  const handleDeleteTool = useCallback((toolId: string) => {
-    onDeleteApiTool(toolId);
-  }, [onDeleteApiTool]);
-
   const onAddApiTool = useCallback(() => {
     const newTool: ITool = {
       id: uuidv4(),
@@ -89,6 +73,17 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
 
   const handleEditTool = (tool: ITool) => {
     setEditingTool(tool);
+  };
+
+  const handleSaveTool = () => {
+    if (isReadOnly || !editingTool) return;
+    if (!validate()) {
+      setShowErrors(true);
+      return;
+    }
+    setShowErrors(false);
+    onSaveApiTool(editingTool);
+    setEditingTool(null);
   };
 
   const validate = () => {
@@ -212,7 +207,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => handleDeleteTool(apiTool.id)}
+                  onClick={() => onDeleteApiTool(apiTool.id)}
                   disabled={isReadOnly}
                   startIcon={<DeleteIcon />}
                 >
