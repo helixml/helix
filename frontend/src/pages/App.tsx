@@ -81,6 +81,8 @@ import {
 import AppSettings from '../components/app/AppSettings';
 import GPTScriptsSection from '../components/app/GPTScriptsSection';
 import APIKeysSection from '../components/app/APIKeysSection';
+import DevelopersSection from '../components/app/DevelopersSection';
+import PreviewPanel from '../components/app/PreviewPanel';
 
 const isHelixApp = (app: IApp): boolean => {
   return app.app_source === 'helix';
@@ -1051,60 +1053,13 @@ const App: FC = () => {
                 )}
 
                 {tabValue === 'developers' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* AISpec (App Configuration) content */}
-                    <Typography variant="h6" sx={{mb: 1}}>
-                      App Configuration
-                    </Typography>
-                    <TextField
-                      error={ showErrors && !schema }
-                      value={ schema }
-                      onChange={(e) => setSchema(e.target.value)}
-                      disabled={true}
-                      fullWidth
-                      multiline
-                      rows={10}
-                      id="app-schema"
-                      name="app-schema"
-                      label="App Configuration"
-                      helperText={ showErrors && !schema ? "Please enter a schema" : "" }
-                      InputProps={{
-                        style: { fontFamily: 'monospace' }
-                      }}
-                    />
-                    <Box sx={{ textAlign: 'right', mb: 1 }}>
-                      <JsonWindowLink
-                        sx={{textDecoration: 'underline'}}
-                        data={schema}
-                      >
-                        expand
-                      </JsonWindowLink>
-                    </Box>
-                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
-                    CLI Access
-                    </Typography>
-                    <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-                      You can also access this app configuration with the CLI command:
-                    </Typography>
-                    <Box sx={{ 
-                      backgroundColor: '#1e1e2f', 
-                      padding: '10px', 
-                      borderRadius: '4px',
-                      fontFamily: 'monospace',
-                      fontSize: '0.9rem'
-                    }}>
-                      helix app inspect {app.id}
-                    </Box>
-                    <Typography variant="body2" sx={{ mt: 2, mb: 1 }}>
-                      Don't have the CLI installed? 
-                      <Link 
-                        onClick={() => navigate('account')}
-                        sx={{ ml: 1, textDecoration: 'underline', cursor: 'pointer' }}
-                      >
-                        Install it from your account page
-                      </Link>
-                    </Typography>
-                  </Box>
+                  <DevelopersSection
+                    schema={schema}
+                    setSchema={setSchema}
+                    showErrors={showErrors}
+                    appId={app.id}
+                    navigate={navigate}
+                  />
                 )}
               </Box>
               
@@ -1123,280 +1078,26 @@ const App: FC = () => {
                 </Box>
               )}
             </Grid>
-            <Grid item xs={12} md={6}
-              sx={{
-                position: 'relative',
-                backgroundImage: `url(${image || '/img/app-editor-swirl.webp'})`,
-                backgroundPosition: 'top',
-                backgroundRepeat: 'no-repeat',
-                backgroundSize: image ? 'cover' : 'auto', // Set 'cover' only when image is present
-                p: 2,
-                borderRight: '1px solid #303047',
-                borderBottom: '1px solid #303047',
-              }}
-            >
-              {image && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)', // 20% opacity (1 - 0.8)
-                    zIndex: 1,
-                  }}
-                />
-              )}
-              <Box
-                sx={{
-                  mb: 3,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  position: 'relative',
-                  zIndex: 2,
-                }}
-              >
-                <Typography variant="h6" sx={{mb: 2, color: 'white'}}>
-                  Preview
-                </Typography>
-                <Avatar
-                  src={avatar}
-                  sx={{
-                    width: 80,
-                    height: 80,
-                    mb: 2,
-                    border: '2px solid #fff',
-                  }}
-                />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={isSearchMode}
-                      onChange={handleSearchModeChange}
-                      color="primary"
-                    />
-                  }
-                  label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-                  sx={{ mb: 2, color: 'white' }}
-                />
-                <Box
-                  sx={{
-                    width: '100%',
-                    flexGrow: 0,
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <TextField
-                    id="textEntry"
-                    fullWidth
-                    inputRef={textFieldRef}
-                    autoFocus
-                    label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-                    helperText={isSearchMode ? "" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
-                    value={inputValue}
-                    onChange={(e) => {
-                      setInputValue(e.target.value);
-                      if (isSearchMode) {
-                        onSearch(e.target.value);
-                      }
-                    }}
-                    multiline={!isSearchMode}
-                    onKeyDown={handleKeyDown}
-                    disabled={isSearchMode && !hasKnowledgeSources}
-                    sx={{
-                      '& .MuiInputBase-root': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                      },
-                      '& .MuiFormHelperText-root': {
-                        color: 'white',
-                      },
-                    }}
-                  />
-                  {!isSearchMode && (
-                    <Button
-                      id="sendButton"
-                      variant='contained'
-                      onClick={onInference}
-                      sx={{
-                        color: themeConfig.darkText,
-                        ml: 2,
-                        mb: 3,
-                      }}
-                      endIcon={<SendIcon />}
-                    >
-                      Send
-                    </Button>
-                  )}
-                </Box>
-              </Box>
-              <Box
-                sx={{
-                  position: 'relative',
-                  zIndex: 2,
-                  overflowY: 'auto',
-                  maxHeight: 'calc(100vh - 300px)',
-                }}
-              >
-                {isSearchMode ? (
-                  hasKnowledgeSources ? (
-                    searchResults && searchResults.length > 0 ? (
-                      searchResults.map((result, index) => (
-                        <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-                          <CardContent>
-                            <Typography variant="h6" color="white">
-                              Knowledge: {result.knowledge.name}
-                            </Typography>
-                            <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
-                              Search completed in: {result.duration_ms}ms
-                            </Typography>
-                            {result.results.length > 0 ? (
-                              result.results.map((chunk, chunkIndex) => (
-                                <Tooltip title={chunk.content} arrow key={chunkIndex}>
-                                  <Box
-                                    sx={{
-                                      mt: 1,
-                                      p: 1,
-                                      border: '1px solid rgba(255, 255, 255, 0.3)',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                      '&:hover': {
-                                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                      },
-                                    }}
-                                    onClick={() => handleChunkClick(chunk)}
-                                  >
-                                    <Typography variant="body2" color="white">
-                                      Source: {chunk.source}
-                                      <br />
-                                      Content: {chunk.content.substring(0, 50)}...
-                                    </Typography>
-                                  </Box>
-                                </Tooltip>
-                              ))
-                            ) : (
-                              <Typography variant="body2" color="white">
-                                No matches found for this query.
-                              </Typography>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))
-                    ) : (
-                      <Typography variant="body1" color="white">No search results found.</Typography>
-                    )
-                  ) : (
-                    <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
-                  )
-                ) : (
-                  session.data && (
-                    <>
-                      {
-                        session.data?.interactions.map((interaction: any, i: number) => {
-                          const interactionsLength = session.data?.interactions.length || 0
-                          const isLastInteraction = i == interactionsLength - 1
-                          const isLive = isLastInteraction && !interaction.finished
-
-                          if(!session.data) return null
-                          return (
-                            <Interaction
-                              key={ i }
-                              serverConfig={ account.serverConfig }
-                              interaction={ interaction }
-                              session={ session.data }
-                            >
-                              {
-                                isLive && (
-                                  <InteractionLiveStream
-                                    session_id={ session.data.id }
-                                    interaction={ interaction }
-                                    session={ session.data }
-                                    serverConfig={ account.serverConfig }
-                                  />
-                                )
-                              }
-                            </Interaction>
-                          )   
-                        })
-                      }
-                    </>
-                  )
-                )}
-              </Box>
-            </Grid>
+            <PreviewPanel
+              name={name}
+              avatar={avatar}
+              image={image}
+              isSearchMode={isSearchMode}
+              setIsSearchMode={setIsSearchMode}
+              inputValue={inputValue}
+              setInputValue={setInputValue}
+              onInference={onInference}
+              onSearch={onSearch}
+              hasKnowledgeSources={hasKnowledgeSources}
+              searchResults={searchResults}
+              session={session.data}
+              serverConfig={account.serverConfig}
+              themeConfig={themeConfig}
+              snackbar={snackbar}
+            />
           </Grid>
         </Box>
       </Container>
-      <Dialog
-        open={selectedChunk !== null}
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          Content Details
-          <IconButton
-            aria-label="close"
-            onClick={handleCloseDialog}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          {selectedChunk && (
-            <>
-              <Typography variant="subtitle1" gutterBottom>
-                Source: {selectedChunk.source.startsWith('http://') || selectedChunk.source.startsWith('https://') ? (
-                  <Link href={selectedChunk.source} target="_blank" rel="noopener noreferrer">
-                    {selectedChunk.source}
-                  </Link>
-                ) : selectedChunk.source}
-              </Typography>
-              <Typography variant="subtitle2" gutterBottom>
-                Document ID: {selectedChunk.document_id}
-              </Typography>
-              <Typography variant="subtitle2" gutterBottom>
-                Document Group ID: {selectedChunk.document_group_id}
-              </Typography>
-              <Typography variant="subtitle2" gutterBottom>
-                Chunk characters: {selectedChunk.content.length}
-              </Typography>
-              <Typography variant="h6" gutterBottom>
-                Chunk content:
-              </Typography>
-              <TextField                
-                value={ selectedChunk.content }                
-                disabled={true}
-                fullWidth
-                multiline
-                rows={10}
-                id="content-details"
-                name="content-details"
-                label="Content Details"                
-                InputProps={{
-                  style: { fontFamily: 'monospace' }
-                }}
-              />
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCopyContent} startIcon={<ContentCopyIcon />}>
-            Copy
-          </Button>
-          <Button onClick={handleCloseDialog}>Close</Button>
-        </DialogActions>
-      </Dialog>
       {
         showBigSchema && (
           <Window
