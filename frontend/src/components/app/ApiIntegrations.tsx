@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -10,10 +10,10 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { ITool, IToolApiAction } from '../types';
-import Window from './widgets/Window';
-import StringMapEditor from './widgets/StringMapEditor';
-import ClickLink from './widgets/ClickLink';
+import { ITool, IToolApiAction } from '../../types';
+import Window from '../widgets/Window';
+import StringMapEditor from '../widgets/StringMapEditor';
+import ClickLink from '../widgets/ClickLink';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
@@ -29,24 +29,49 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
 interface ApiIntegrationsProps {
-  tools: ITool[];
-  onSaveApiTool: (tool: ITool) => void;
-  onDeleteApiTool: (toolId: string) => void;  // Add this line
+  initialTools: ITool[];
   isReadOnly: boolean;
+  onToolsChange: (updatedTools: ITool[]) => void;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
-  tools,
-  onSaveApiTool,
-  onDeleteApiTool,  // Add this line
+  initialTools,
   isReadOnly,
+  onToolsChange
 }) => {
+  const [tools, setTools] = useState<ITool[]>(initialTools);
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
 
-  // Move onAddApiTool function here
+  useEffect(() => {
+    setTools(initialTools);
+  }, [initialTools]);
+
+  const handleSaveTool = useCallback(() => {
+    if (isReadOnly || !editingTool) return;
+    if (!validate()) {
+      setShowErrors(true);
+      return;
+    }
+    setShowErrors(false);
+    
+    const updatedTools = tools.some(t => t.id === editingTool.id)
+      ? tools.map(t => t.id === editingTool.id ? editingTool : t)
+      : [...tools, editingTool];
+    
+    setTools(updatedTools);
+    onToolsChange(updatedTools);
+    setEditingTool(null);
+  }, [editingTool, isReadOnly, tools, onToolsChange]);
+
+  const handleDeleteTool = useCallback((toolId: string) => {
+    const updatedTools = tools.filter(tool => tool.id !== toolId);
+    setTools(updatedTools);
+    onToolsChange(updatedTools);
+  }, [tools, onToolsChange]);
+
   const onAddApiTool = useCallback(() => {
     const newTool: ITool = {
       id: uuidv4(),
@@ -74,17 +99,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
 
   const handleEditTool = (tool: ITool) => {
     setEditingTool(tool);
-  };
-
-  const handleSaveTool = () => {
-    if (isReadOnly || !editingTool) return;
-    if (!validate()) {
-      setShowErrors(true);
-      return;
-    }
-    setShowErrors(false);
-    onSaveApiTool(editingTool);
-    setEditingTool(null);
   };
 
   const validate = () => {
@@ -208,7 +222,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => onDeleteApiTool(apiTool.id)}
+                  onClick={() => handleDeleteTool(apiTool.id)}
                   disabled={isReadOnly}
                   startIcon={<DeleteIcon />}
                 >
