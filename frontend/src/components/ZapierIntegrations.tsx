@@ -10,6 +10,11 @@ import { ITool } from '../types';
 import Link from '@mui/material/Link';
 import Window from './widgets/Window';
 import DeleteIcon from '@mui/icons-material/Delete';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
 interface ZapierIntegrationsProps {
   tools: ITool[];
@@ -97,15 +102,59 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
       <Typography variant="h6" sx={{ mb: 1 }}>
         Zapier Integrations
       </Typography>
-      <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+      <Typography variant="body1" sx={{ mt: 1, mb: 0, fontSize: 14 }}>
         Zapier integration allows you to use Zapier actions in your Helix chat and apps. To begin:
-        <ul>
-          <li>Register to <Link href="https://zapier.com/" target="_blank" rel="noopener noreferrer">Zapier</Link> and connect the apps you want to use.</li>
-          <li>Visit <Link href="https://actions.zapier.com/credentials/" target="_blank" rel="noopener noreferrer">https://actions.zapier.com/credentials/</Link> and get your API key.</li>
-          <li>Use Zapier <Link href="https://actions.zapier.com/providers/" target="_blank" rel="noopener noreferrer">Providers</Link> to enable actions that will be available to Helix.</li>
-          <li>Click "Add Zapier Integration" below to add your API key. Give it a description so that Helix can decide when to use it.</li>
-        </ul>
       </Typography>
+      <List dense>
+        <ListItem disableGutters>
+          <ListItemIcon sx={{ minWidth: 20 }}>
+            <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          </ListItemIcon>
+          <ListItemText 
+            primary={
+              <Typography variant="body2">
+                Register to <Link href="https://zapier.com/" target="_blank" rel="noopener noreferrer">Zapier</Link> and connect the apps you want to use.
+              </Typography>
+            } 
+          />
+        </ListItem>
+        <ListItem disableGutters>
+          <ListItemIcon sx={{ minWidth: 20 }}>
+            <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          </ListItemIcon>
+          <ListItemText 
+            primary={
+              <Typography variant="body2">
+                Visit <Link href="https://actions.zapier.com/credentials/" target="_blank" rel="noopener noreferrer">https://actions.zapier.com/credentials/</Link> and get your API key.
+              </Typography>
+            } 
+          />
+        </ListItem>
+        <ListItem disableGutters>
+          <ListItemIcon sx={{ minWidth: 20 }}>
+            <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          </ListItemIcon>
+          <ListItemText 
+            primary={
+              <Typography variant="body2">
+                Use Zapier <Link href="https://actions.zapier.com/providers/" target="_blank" rel="noopener noreferrer">Providers</Link> to enable actions that will be available to Helix.
+              </Typography>
+            } 
+          />
+        </ListItem>
+        <ListItem disableGutters>
+          <ListItemIcon sx={{ minWidth: 20 }}>
+            <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          </ListItemIcon>
+          <ListItemText 
+            primary={
+              <Typography variant="body2">
+                Click "Add Zapier Integration" below to add your API key. Give it a description so that Helix can decide when to use it.
+              </Typography>
+            } 
+          />
+        </ListItem>
+      </List>
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
