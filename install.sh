@@ -626,11 +626,26 @@ $CADDY_HOST {
     reverse_proxy localhost:8080
 }
 EOF"
-# Ollama on Linux TODO:
-# TODO test this sudo above
-# TODO docker bridge ip instead of host.docker.internal
-# TODO: add Environment="OLLAMA_HOST=0.0.0.0" to /etc/systemd/system/ollama.service
-
+                # Add OLLAMA_HOST environment variable to ollama.service on Linux
+                if [ "$OS" = "linux" ]; then
+                    OLLAMA_SERVICE_FILE="/etc/systemd/system/ollama.service"
+                    if [ -f "$OLLAMA_SERVICE_FILE" ]; then
+                        echo "Detecting Docker bridge IP..."
+                        DOCKER_BRIDGE_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+                        if [ -n "$DOCKER_BRIDGE_IP" ]; then
+                            echo "Adding OLLAMA_HOST environment variable to ollama.service..."
+                            sudo sed -i "/^\[Service\]/a Environment=\"OLLAMA_HOST=$DOCKER_BRIDGE_IP\"" "$OLLAMA_SERVICE_FILE"
+                            sudo systemctl daemon-reload
+                            echo "Restarting Ollama service..."
+                            sudo systemctl restart ollama
+                            echo "ollama.service has been updated with OLLAMA_HOST=$DOCKER_BRIDGE_IP and restarted."
+                        else
+                            echo "Warning: Failed to detect Docker bridge IP. Please add 'Environment=\"OLLAMA_HOST=<your-docker-bridge-ip>\"' to the [Service] section of $OLLAMA_SERVICE_FILE manually and restart the service."
+                        fi
+                    else
+                        echo "Warning: $OLLAMA_SERVICE_FILE not found. Please add 'Environment=\"OLLAMA_HOST=<your-docker-bridge-ip>\"' to the [Service] section manually and restart the service."
+                    fi
+                fi
                 echo "Caddyfile has been created at $CADDYFILE"
                 echo "Please start Caddy manually after starting the Docker Compose stack:"
             fi
