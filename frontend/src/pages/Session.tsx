@@ -509,6 +509,9 @@ const Session: FC = () => {
   // those links with dangerouslySetInnerHTML so it's not easy
   // to add callback handlers to those links
   // so we just call a global function that is setup here
+  //
+  // update 2024-10-08 Luke: is it still true that we're rendering links with
+  // dangerouslySetInnerHTML?
   useEffect(() => {
     const w = window as any
     w._helixHighlightAllFiles = () => {
