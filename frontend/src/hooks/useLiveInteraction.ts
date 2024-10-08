@@ -7,11 +7,13 @@ interface LiveInteractionResult {
   status: string;
   progress: number;
   isComplete: boolean;
+  isStale: boolean;
 }
 
 const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction | null): LiveInteractionResult => {
   const [interaction, setInteraction] = useState<IInteraction | null>(initialInteraction);
   const { currentResponses } = useStreaming();
+  const [isStale, setIsStale] = useState(false);
 
   useEffect(() => {
     if (sessionId) {
@@ -26,6 +28,11 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
             ...currentResponse,
           };
         });
+        setIsStale(false);
+      } else {
+        // XXX this is not what isStale is intended to mean, it's meant to have
+        // a timer, did we lose that somewhere?
+        setIsStale(true);
       }
     }
   }, [sessionId, currentResponses]);
@@ -35,6 +42,7 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
     status: interaction?.status || '',
     progress: interaction?.progress || 0,
     isComplete: interaction?.state === 'complete',
+    isStale,
   };
 };
 

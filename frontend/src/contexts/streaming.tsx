@@ -1,7 +1,8 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback } from 'react';
-import { ISession, ISessionChatRequest, SESSION_MODE_INFERENCE, SESSION_TYPE_TEXT, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, WORKER_TASK_RESPONSE_TYPE_STREAM, IInteraction } from '../types';
+import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from 'react';
+import ReconnectingWebSocket from 'reconnecting-websocket';
+import { ISession, SESSION_MODE_INFERENCE, SESSION_TYPE_TEXT, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, WORKER_TASK_RESPONSE_TYPE_STREAM, IInteraction } from '../types';
 import useApi from '../hooks/useApi';
-import useWebsocket from '../hooks/useWebsocket';
+import useAccount from '../hooks/useAccount';
 
 interface StreamingContextType {
   NewSession: (message: string, appId: string) => Promise<ISession>;
@@ -21,6 +22,7 @@ export const useStreaming = (): StreamingContextType => {
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const api = useApi();
+  const account = useAccount();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
@@ -47,11 +49,33 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             updatedInteraction.status = workerResponse.status;
           }
         }
-
+        console.log('updatedInteraction', updatedInteraction);
         return new Map(prev).set(currentSessionId, updatedInteraction);
       });
     }
   }, [currentSessionId]);
+
+  useEffect(() => {
+    if (!account.token || !currentSessionId) return;
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.host;
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?access_token=${account.tokenUrlEscaped}&session_id=${currentSessionId}`;
+    const rws = new ReconnectingWebSocket(url);
+
+    const messageHandler = (event: MessageEvent<any>) => {
+      const parsedData = JSON.parse(event.data) as IWebsocketEvent;
+      if (parsedData.session_id !== currentSessionId) return;
+      handleWebsocketEvent(parsedData);
+    };
+
+    rws.addEventListener('message', messageHandler);
+
+    return () => {
+      rws.removeEventListener('message', messageHandler);
+      rws.close();
+    };
+  }, [account.token, currentSessionId, handleWebsocketEvent]);
 
   const NewSession = async (message: string, appId: string): Promise<ISession> => {
     console.log('NewSession', appId)
@@ -78,10 +102,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       setCurrentResponses(prev => new Map(prev).set(newSessionData.id, { message: '', status: '', progress: 0 }));
       setCurrentSessionId(newSessionData.id);
 
-      // TODO: when we have multiple concurrent streaming sessions, rather than
-      // multiple websocket connections we can just have one and filter for a
-      // set of session_ids
-      useWebsocket(newSessionData.id, handleWebsocketEvent);
       return newSessionData;
     } catch (error) {
       console.error('Error creating new session:', error);
