@@ -42,10 +42,7 @@ export const InteractionLiveStream: FC<{
     progress,
     status,
     isStale,
-  } = useLiveInteraction({
-    session_id,
-    interaction,
-  })
+  } = useLiveInteraction(session_id, interaction)
 
   const showLoading = !message && progress==0 && !status
 

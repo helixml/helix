@@ -15,14 +15,6 @@ export const useWebsocket = (
   const account = useAccount()
 
   useEffect(() => {
-    console.log('useWebsocket', session_id)
-    console.log('useWebsocket stack:');
-    const stack = new Error().stack;
-    if (stack) {
-      console.log(stack);
-    } else {
-      console.log('Stack trace not available');
-    }
     if(!account.token) return
     if(!session_id) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
