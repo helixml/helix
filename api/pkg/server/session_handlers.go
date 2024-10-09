@@ -412,6 +412,19 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
 
+	// Write an empty response to start chunk that contains the session id
+	bts, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+		Object: "chat.completion.chunk",
+		ID:     session.ID,
+		Model:  chatCompletionRequest.Model,
+	})
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
+	writeChunk(rw, bts)
+
 	var fullResponse string
 
 	// Write the stream into the response
@@ -447,8 +460,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			log.Warn().Msg("ResponseWriter does not support Flusher interface")
 		}
 	}
-
-	fmt.Println("XX updating last interaction", fullResponse)
 
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
