@@ -206,27 +206,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			newSession.LoraDir = loraSource.Config.FilestorePath
 		}
 
-		// we are still in the old frontend mode where it's listening to the websocket
-		// TODO: get the frontend to stream using the streaming api below
-		if startReq.Legacy {
-			sessionData, err := s.Controller.StartSession(ctx, user, newSession)
-			if err != nil {
-				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-				log.Error().Err(err).Msg("failed to start session")
-				return
-			}
-
-			sessionDataJSON, err := json.Marshal(sessionData)
-			if err != nil {
-				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(sessionDataJSON)
-			return
-		}
-
 		cfg = &startSessionConfig{
 			sessionID: sessionID,
 			modelName: string(newSession.ModelName),
@@ -263,31 +242,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			return
 		}
 
-		// we are still in the old frontend mode where it's listening to the websocket
-		// TODO: get the frontend to stream using the streaming api below
-		if startReq.Legacy {
-			updatedSession, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-				SessionID:       startReq.SessionID,
-				UserInteraction: interactions[0],
-				SessionMode:     types.SessionModeInference,
-			})
-			if err != nil {
-				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-				log.Error().Err(err).Msg("failed to start session")
-				return
-			}
-
-			sessionDataJSON, err := json.Marshal(updatedSession)
-			if err != nil {
-				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(sessionDataJSON)
-			return
-		}
-
 		cfg = &startSessionConfig{
 			sessionID: startReq.SessionID,
 			modelName: string(existingSession.ModelName),
@@ -306,7 +260,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			},
 		}
 	}
-	// }
 
 	if startReq.Stream {
 		s.handleStreamingResponse(rw, req, user, cfg)
