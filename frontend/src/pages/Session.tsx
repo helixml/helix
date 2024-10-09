@@ -58,6 +58,8 @@ import {
   getAssistantInteraction,
 } from '../utils/session'
 
+import { useStreaming } from '../contexts/streaming'
+
 const Session: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -68,6 +70,7 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const { NewInference } = useStreaming()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -119,7 +122,6 @@ const Session: FC = () => {
     let newSession: ISession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
-      
       const urlParams = new URLSearchParams(window.location.search)
       const appID = urlParams.get('app_id') || ''
       let assistantID = urlParams.get('assistant_id') || ''
@@ -133,45 +135,33 @@ const Session: FC = () => {
         assistantID = '0'
       }
 
-      let sessionChatRequest: ISessionChatRequest = {
+      setInputValue("")
+      newSession = await NewInference({
+        message: prompt,
+        appId: appID,
+        assistantId: assistantID,
+        ragSourceId: ragSourceID,
+        modelName: session.data.model_name,
+        loraDir: session.data.lora_dir,
+        sessionId: session.data.id,
         type: session.data.type,
-        session_id: session.data.id,
-        stream: true,
-        legacy: true,
-        app_id: appID,
-        assistant_id: assistantID,
-        rag_source_id: ragSourceID,
-        model: session.data.model_name,
-        lora_dir: session.data.lora_dir,
-        messages: [{
-          role: 'user',
-          content: {
-            content_type: 'text',
-            parts: [
-              prompt,
-            ]
-          },
-        }]
-      }
-
-      console.log(session)
-  
-      newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+      })
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
       formData.set('model_name', session.data.model_name)
 
+      setInputValue("")
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
     
     if(!newSession) return
     session.reload()
 
-    setInputValue("")
   }, [
     session.data,
     session.reload,
+    NewInference,
   ])
 
   const onUpdateSharing = useCallback(async (value: boolean) => {
@@ -509,6 +499,9 @@ const Session: FC = () => {
   // those links with dangerouslySetInnerHTML so it's not easy
   // to add callback handlers to those links
   // so we just call a global function that is setup here
+  //
+  // update 2024-10-08 Luke: is it still true that we're rendering links with
+  // dangerouslySetInnerHTML?
   useEffect(() => {
     const w = window as any
     w._helixHighlightAllFiles = () => {
