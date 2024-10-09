@@ -128,58 +128,76 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
       const reader = response.body.getReader();
       let sessionData: ISession | null = null;
+      let isSettled = false;
 
-      const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
-        if (event.type === 'event') {
-          if (!event.data || event.data === '') {
-            return;
-          }
-          if (event.data === "[DONE]") {
-            return;
-          }
-          console.log('event.data', event.data);
-          try {
-            const parsedData = JSON.parse(event.data);
-            if (!sessionData) {
-              // This is the session data
-              sessionData = parsedData;
-              if (sessionData && sessionData.id) {
-                setCurrentSessionId(sessionData.id);
+      return new Promise<ISession>((resolve, reject) => {
+        const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
+          if (event.type === 'event' && !isSettled) {
+            if (!event.data || event.data === '') {
+              return;
+            }
+            if (event.data === "[DONE]") {
+              return;
+            }
+            console.log('event.data', event.data);
+            try {
+              const parsedData = JSON.parse(event.data);
+              if (!sessionData) {
+                // This is the first chunk of data
+                sessionData = parsedData;
+                if (sessionData && sessionData.id) {
+                  setCurrentSessionId(sessionData.id);
+                  const messageSegment = parsedData.choices[0]?.delta?.content;
+                  setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
+                  
+                  // Resolve the promise with the session data
+                  isSettled = true;
+                  resolve(sessionData);
+                } else {
+                  console.error('Invalid session data received:', sessionData);
+                  isSettled = true;
+                  reject(new Error('Invalid session data'));
+                }
+              } else if (Array.isArray(parsedData?.choices) && parsedData.choices.length > 0) {
                 const messageSegment = parsedData.choices[0]?.delta?.content;
-                setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
-              } else {
-                console.error('Invalid session data received:', sessionData);
-                throw new Error('Invalid session data');
-              }
-            } else if (Array.isArray(parsedData?.choices) && parsedData.choices.length > 0) {
-              const messageSegment = parsedData.choices[0]?.delta?.content;
-              if (messageSegment) {
-                setCurrentResponses(prev => {
-                  const current = prev.get(sessionData!.id) || {};
-                  return new Map(prev).set(sessionData!.id, {
-                    ...current,
-                    message: (current.message || '') + messageSegment
+                if (messageSegment) {
+                  setCurrentResponses(prev => {
+                    const current = prev.get(sessionData!.id) || {};
+                    return new Map(prev).set(sessionData!.id, {
+                      ...current,
+                      message: (current.message || '') + messageSegment
+                    });
                   });
-                });
+                }
+              }
+            } catch (error) {
+              console.error('Error parsing SSE data:', error);
+              if (!isSettled) {
+                isSettled = true;
+                reject(error);
               }
             }
-          } catch (error) {
-            console.error('Error parsing SSE data:', error);
           }
-        }
+        });
+
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              parser.feed(new TextDecoder().decode(value));
+            }
+          } catch (error) {
+            if (!isSettled) {
+              isSettled = true;
+              reject(error);
+            }
+          }
+        };
+
+        pump();
       });
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        parser.feed(new TextDecoder().decode(value));
-      }
-
-      if (!sessionData) {
-        throw new Error('Failed to receive session data');
-      }
-
-      return sessionData;
     } catch (error) {
       console.error('Error in NewInference:', error);
       throw error;

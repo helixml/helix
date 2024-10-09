@@ -278,6 +278,10 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                 session.interactions.map((interaction: any, i: number) => {
                   const interactionsLength = session.interactions.length || 0;
                   const isLastInteraction = i == interactionsLength - 1;
+                  console.log('----')
+                  console.log('interaction', interaction);
+                  console.log('isLastInteraction', isLastInteraction);
+                  console.log('interaction.finished', interaction.finished);
                   const isLive = isLastInteraction && !interaction.finished;
 
                   if(!session) return null;

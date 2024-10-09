@@ -70,7 +70,7 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
-  const { NewInference: NewSession } = useStreaming()
+  const { NewInference } = useStreaming()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -135,7 +135,7 @@ const Session: FC = () => {
         assistantID = '0'
       }
 
-      newSession = await NewSession({
+      newSession = await NewInference({
         message: prompt,
         appId: appID,
         assistantId: assistantID,
@@ -159,7 +159,7 @@ const Session: FC = () => {
   }, [
     session.data,
     session.reload,
-    NewSession,
+    NewInference,
   ])
 
   const onUpdateSharing = useCallback(async (value: boolean) => {
