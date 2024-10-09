@@ -78,7 +78,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   };
 
   const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setIsSearchMode(event.target.checked);
+    const newSearchMode = event.target.checked;
+    setIsSearchMode(newSearchMode);
+    if (newSearchMode && inputValue.trim() !== '') {
+      onSearch(inputValue.trim());
+    }
   };
 
   const handleChunkClick = (chunk: ISessionRAGResult) => {
