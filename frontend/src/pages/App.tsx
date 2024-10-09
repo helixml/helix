@@ -40,7 +40,6 @@ import {
   IAssistantGPTScript,
   IAppUpdate,
   ISession,
-  SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ITool,
@@ -49,7 +48,6 @@ import {
   IApp,
   IKnowledgeSource,
   IKnowledgeSearchResult,
-  ISessionRAGResult,
 } from '../types'
 
 
@@ -431,6 +429,7 @@ const App: FC = () => {
         message: inputValue,
         appId: app.id,
       });
+      console.log('about to load session', newSessionData.id);
       session.loadSession(newSessionData.id);
       setLoading(false);
     } catch (error) {
