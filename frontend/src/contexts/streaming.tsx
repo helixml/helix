@@ -160,7 +160,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
                   if (parsedData.choices && parsedData.choices.length > 0) {                    
                     const messageSegment = parsedData.choices[0]?.delta?.content;
-                  setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
+                    setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
                   }                  
                   
                   if (!promiseResolved) {
