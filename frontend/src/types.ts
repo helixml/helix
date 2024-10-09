@@ -356,6 +356,7 @@ export interface ISessionSummary {
   owner: string,
   lora_dir?: string,
   summary: string,
+  app_id?: string,
 }
 
 export interface ISessionMetaUpdate {

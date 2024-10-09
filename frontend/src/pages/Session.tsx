@@ -61,7 +61,7 @@ import {
 import { useStreaming } from '../contexts/streaming'
 
 import Avatar from '@mui/material/Avatar'
-import { getAssistant, getAssistantAvatar, getAssistantName } from '../utils/apps'
+import { getAssistant, getAssistantAvatar, getAssistantName, getAssistantDescription } from '../utils/apps'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
@@ -526,9 +526,10 @@ const Session: FC = () => {
     }
   }, [session.data, appID, assistantID, apps])
 
-  const activeAssistant = apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
+  const activeAssistant = apps.app && getAssistant(apps.app, assistantID)
   const activeAssistantAvatar = activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
   const activeAssistantName = activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
+  const activeAssistantDescription = activeAssistant && apps.app && assistantID ? getAssistantDescription(apps.app, assistantID) : ''
 
   const handleBackToCreate = () => {
     if (apps.app) {
@@ -575,11 +576,9 @@ const Session: FC = () => {
         }
       </Box>
       {apps.app && (
-        <Row
-          id="HEADER"
-          vertical
-          center
+        <Box
           sx={{
+            width: '100%',
             position: 'relative',
             backgroundImage: `url(${apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
             backgroundPosition: 'top',
@@ -601,13 +600,15 @@ const Session: FC = () => {
               }}
             />
           )}
-          <Cell
+          <Box
             sx={{
-              pt: 4,
-              px: 2,
-              textAlign: 'center',
               position: 'relative',
               zIndex: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              pt: 4,
+              px: 2,
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -632,11 +633,14 @@ const Session: FC = () => {
                 />
               )}
             </Box>
-            <Typography variant="h6" sx={{ color: 'white' }}>
+            <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
               {activeAssistantName}
             </Typography>
-          </Cell>
-        </Row>
+            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
+              {activeAssistantDescription}
+            </Typography>
+          </Box>
+        </Box>
       )}
       <Box
         id="helix-session-scroller"
