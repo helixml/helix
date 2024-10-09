@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,10 +16,14 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/jmorganca/ollama/api"
 	"github.com/rs/zerolog/log"
-	openai "github.com/sashabaranov/go-openai"
+)
+
+const (
+	defaultMaxTokens = 8192
 )
 
 type InferenceModelInstanceConfig struct {
@@ -89,7 +92,7 @@ type OllamaInferenceModelInstance struct {
 	fetching atomic.Bool // If we are fetching the next request
 
 	// client is the model client
-	client *openai.Client
+	client *api.Client
 
 	ollamaClient *ollamaClient
 
@@ -268,15 +271,19 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 	config := openai.DefaultConfig("ollama")
 	config.BaseURL = fmt.Sprintf("http://localhost:%d/v1", port)
 
-	i.client = openai.NewClientWithConfig(config)
+	ollamaHost := fmt.Sprintf("0.0.0.0:%d", port)
+
+	os.Setenv("OLLAMA_HOST", ollamaHost)
+	i.client, err = api.ClientFromEnvironment()
+	if err != nil {
+		return fmt.Errorf("error creating Ollama client: %s", err.Error())
+	}
 
 	cmd := i.commander.CommandContext(i.ctx, ollamaPath, "serve")
 	// Getting base env (HOME, etc)
 	cmd.Env = append(cmd.Env,
 		os.Environ()...,
 	)
-
-	ollamaHost := fmt.Sprintf("0.0.0.0:%d", port)
 
 	cmd.Env = append(cmd.Env,
 		"OLLAMA_KEEP_ALIVE=-1",
@@ -471,51 +478,103 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 	i.inUse.Store(true)
 	defer i.inUse.Store(false)
 
+	max_tokens := defaultMaxTokens
+	if inferenceReq.Request.MaxTokens > 0 {
+		max_tokens = inferenceReq.Request.MaxTokens
+	}
+
+	messages := make([]api.Message, 0, len(inferenceReq.Request.Messages))
+	for _, m := range inferenceReq.Request.Messages {
+		messages = append(messages, api.Message{
+			Role:    m.Role,
+			Content: m.Content,
+			// ignoring Images for now
+		})
+	}
+
+	req := api.ChatRequest{
+		Model:    inferenceReq.Request.Model,
+		Messages: messages,
+		Stream:   &inferenceReq.Request.Stream,
+		Options: map[string]interface{}{
+			"temperature": inferenceReq.Request.Temperature,
+			"max_tokens":  max_tokens,
+			"num_ctx":     max_tokens,
+			"seed":        inferenceReq.Request.Seed,
+			"top_p":       inferenceReq.Request.TopP,
+			// ignoring everything else for now
+		},
+	}
+
 	switch {
 	case inferenceReq.Request.Stream:
-		stream, err := i.client.CreateChatCompletionStream(context.Background(), *inferenceReq.Request)
+		start := time.Now()
+		err := i.client.Chat(context.Background(), &req, func(resp api.ChatResponse) error {
+			finishReason := openai.FinishReasonNull
+			if resp.Metrics.EvalCount >= inferenceReq.Request.MaxTokens {
+				finishReason = openai.FinishReasonLength
+			}
+			if resp.Done {
+				finishReason = openai.FinishReasonStop
+			}
+
+			// Metrics
+			chatResp := openai.ChatCompletionStreamResponse{
+				Model: resp.Model,
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Role:    resp.Message.Role,
+							Content: resp.Message.Content,
+						},
+						FinishReason: finishReason,
+					},
+				},
+				Usage: &openai.Usage{
+					PromptTokens:     resp.Metrics.PromptEvalCount,
+					CompletionTokens: resp.Metrics.EvalCount,
+					TotalTokens:      resp.Metrics.EvalCount + resp.Metrics.PromptEvalCount,
+				},
+			}
+			i.responseStreamProcessor(inferenceReq, &chatResp, resp.Done, time.Since(start).Milliseconds())
+			return nil
+		})
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
-
-		defer stream.Close()
-
-		start := time.Now()
-
-		for {
-			response, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				log.Info().
-					Str("request_id", inferenceReq.RequestID).
-					Str("session_id", inferenceReq.SessionID).
-					Msg("stream finished")
-
-				i.responseStreamProcessor(inferenceReq, nil, true, time.Since(start).Milliseconds())
-				return nil
-			}
-
-			if err != nil {
-				log.Error().Err(err).Msg("stream error")
-				i.errorResponse(inferenceReq, err)
-				return err
-			}
-
-			i.responseStreamProcessor(inferenceReq, &response, false, time.Since(start).Milliseconds())
-		}
+		return nil
 	default:
 		start := time.Now()
+		err := i.client.Chat(context.Background(), &req, func(resp api.ChatResponse) error {
+			finishReason := openai.FinishReasonStop
+			if resp.Metrics.EvalCount >= inferenceReq.Request.MaxTokens {
+				finishReason = openai.FinishReasonLength
+			}
 
-		response, err := i.client.CreateChatCompletion(context.Background(), *inferenceReq.Request)
+			chatResp := &openai.ChatCompletionResponse{
+				Model:   resp.Model,
+				Created: resp.CreatedAt.Unix(),
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Role:    resp.Message.Role,
+							Content: resp.Message.Content,
+						},
+						FinishReason: finishReason,
+					},
+				},
+				Usage: openai.Usage{
+					PromptTokens:     resp.Metrics.PromptEvalCount,
+					CompletionTokens: resp.Metrics.EvalCount,
+					TotalTokens:      resp.Metrics.EvalCount + resp.Metrics.PromptEvalCount,
+				},
+			}
+			i.responseProcessor(inferenceReq, chatResp, time.Since(start).Milliseconds())
+			return nil
+		})
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
-
-		log.Info().
-			Str("session_id", inferenceReq.SessionID).
-			Msg("response received")
-
-		// Send the last message containing full output
-		i.responseProcessor(inferenceReq, &response, time.Since(start).Milliseconds())
 		return nil
 	}
 }
@@ -569,20 +628,6 @@ func (i *OllamaInferenceModelInstance) responseProcessor(req *types.RunnerLLMInf
 	}
 
 	err = i.responseHandler(inferenceResp)
-	if err != nil {
-		log.Error().Msgf("error writing event: %s", err.Error())
-		return
-	}
-}
-
-func (i *OllamaInferenceModelInstance) emitStreamDone(req *types.RunnerLLMInferenceRequest) {
-	err := i.responseHandler(&types.RunnerLLMInferenceResponse{
-		RequestID:     req.RequestID,
-		OwnerID:       req.OwnerID,
-		SessionID:     req.SessionID,
-		InteractionID: req.InteractionID,
-		Done:          true,
-	})
 	if err != nil {
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
