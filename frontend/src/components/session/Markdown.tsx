@@ -36,7 +36,8 @@ export const InteractionMarkdown: FC<{
       <Markdown
         children={text}
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        // TODO re-add rehypeSanitize while not breaking the flashing yellow cursor
+        rehypePlugins={[rehypeRaw]}
         className="interactionMessage"
         components={{
           code(props) {
