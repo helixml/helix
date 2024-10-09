@@ -400,6 +400,30 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
+
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+
+	// Write an empty response to start chunk that contains the session id
+	bts, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+		Object: "chat.completion.chunk",
+		ID:     session.ID,
+		Model:  chatCompletionRequest.Model,
+	})
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
+	writeChunk(rw, bts)
+	// Flush the stream to ensure the client receives the data immediately
+	if flusher, ok := rw.(http.Flusher); ok {
+		flusher.Flush()
+	} else {
+		log.Warn().Msg("ResponseWriter does not support Flusher interface")
+	}
+
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
@@ -407,10 +431,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		return nil
 	}
 	defer stream.Close()
-
-	rw.Header().Set("Content-Type", "text/event-stream")
-	rw.Header().Set("Cache-Control", "no-cache")
-	rw.Header().Set("Connection", "keep-alive")
 
 	var fullResponse string
 
@@ -447,8 +467,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			log.Warn().Msg("ResponseWriter does not support Flusher interface")
 		}
 	}
-
-	fmt.Println("XX updating last interaction", fullResponse)
 
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse

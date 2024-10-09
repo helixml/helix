@@ -260,6 +260,7 @@ export interface IWebsocketEvent {
   owner: string,
   session?: ISession,
   worker_task_response?: IWorkerTaskResponse,
+  step_info?: any,
 }
 
 export interface IServerConfig {

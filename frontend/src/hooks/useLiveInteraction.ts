@@ -8,11 +8,12 @@ interface LiveInteractionResult {
   progress: number;
   isComplete: boolean;
   isStale: boolean;
+  stepInfos: any[]; // Add this line
 }
 
 const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction | null, staleThreshold = 10000): LiveInteractionResult => {
   const [interaction, setInteraction] = useState<IInteraction | null>(initialInteraction);
-  const { currentResponses } = useStreaming();
+  const { currentResponses, stepInfos } = useStreaming();
   const [recentTimestamp, setRecentTimestamp] = useState(Date.now());
   const [staleCounter, setStaleCounter] = useState(0);
 
@@ -58,6 +59,7 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
     progress: interaction?.progress || 0,
     isComplete: interaction?.state === 'complete',
     isStale,
+    stepInfos: stepInfos.get(sessionId) || [], // Add this line
   };
 };
 

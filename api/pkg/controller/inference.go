@@ -2,12 +2,14 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/prompts"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -196,10 +198,28 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Running action",
+	})
+
 	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
+		c.emitStepInfo(ctx, &types.StepInfo{
+			Name:    selectedTool.Name,
+			Type:    types.StepInfoTypeToolUse,
+			Message: fmt.Sprintf("Action failed: %s", err),
+		})
+
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
+
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Action completed",
+	})
 
 	return &openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
@@ -229,6 +249,12 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Running action",
+	})
+
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
 		log.Warn().
@@ -237,8 +263,20 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 			Str("action", isActionable.Api).
 			Msg("failed to perform action")
 
+		c.emitStepInfo(ctx, &types.StepInfo{
+			Name:    selectedTool.Name,
+			Type:    types.StepInfoTypeToolUse,
+			Message: fmt.Sprintf("Action failed: %s", err),
+		})
+
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
+
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Action completed",
+	})
 
 	return stream, true, nil
 }
@@ -273,6 +311,12 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		vals = &oai.ContextValues{}
 	}
 
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    "is_actionable",
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Checking if we should use tools",
+	})
+
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate if the message is actionable, skipping to general knowledge")
@@ -280,6 +324,12 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	}
 
 	if !isActionable.Actionable() {
+		c.emitStepInfo(ctx, &types.StepInfo{
+			Name:    "is_actionable",
+			Type:    types.StepInfoTypeToolUse,
+			Message: "Message is not actionable",
+		})
+
 		return nil, nil, false, nil
 	}
 
@@ -413,6 +463,12 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				return nil, nil, fmt.Errorf("error getting RAG client: %w", err)
 			}
 
+			c.emitStepInfo(ctx, &types.StepInfo{
+				Name:    knowledge.Name,
+				Type:    types.StepInfoTypeRAG,
+				Message: "Searching for knowledge",
+			})
+
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -423,6 +479,12 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 			if err != nil {
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
 			}
+
+			c.emitStepInfo(ctx, &types.StepInfo{
+				Name:    knowledge.Name,
+				Type:    types.StepInfoTypeRAG,
+				Message: fmt.Sprintf("Found %d results", len(ragResults)),
+			})
 
 			for _, result := range ragResults {
 				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
@@ -440,6 +502,37 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 	}
 
 	return backgroundKnowledge, usedKnowledge, nil
+}
+
+func (c *Controller) emitStepInfo(ctx context.Context, stepInfo *types.StepInfo) error {
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		log.Warn().Msg("context values with session info not found")
+		return fmt.Errorf("context values with session info not found")
+	}
+
+	queue := pubsub.GetSessionQueue(vals.OwnerID, vals.SessionID)
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventProcessingStepInfo,
+		SessionID:     vals.SessionID,
+		InteractionID: vals.InteractionID,
+		Owner:         vals.OwnerID,
+		StepInfo:      stepInfo,
+	}
+	bts, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal step info: %w", err)
+	}
+
+	log.Info().
+		Str("queue", queue).
+		Str("step_name", stepInfo.Name).
+		Str("step_message", stepInfo.Message).
+		Msg("emitting step info")
+
+	// TODO: save in the database too
+
+	return c.Options.PubSub.Publish(ctx, queue, bts)
 }
 
 // TODO: use different struct with just document ID and content
