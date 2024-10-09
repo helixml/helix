@@ -32,7 +32,6 @@ export const useStreaming = (): StreamingContextType => {
 };
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const api = useApi();
   const account = useAccount();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -138,6 +137,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           if (event.data === "[DONE]") {
             return;
           }
+          console.log('event.data', event.data);
           try {
             const parsedData = JSON.parse(event.data);
             if (!sessionData) {
