@@ -58,6 +58,8 @@ import {
   getAssistantInteraction,
 } from '../utils/session'
 
+import { useStreaming } from '../contexts/streaming'
+
 const Session: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -68,6 +70,7 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const { NewInference: NewSession } = useStreaming()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -119,7 +122,6 @@ const Session: FC = () => {
     let newSession: ISession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
-      
       const urlParams = new URLSearchParams(window.location.search)
       const appID = urlParams.get('app_id') || ''
       let assistantID = urlParams.get('assistant_id') || ''
@@ -133,30 +135,15 @@ const Session: FC = () => {
         assistantID = '0'
       }
 
-      let sessionChatRequest: ISessionChatRequest = {
-        type: session.data.type,
-        session_id: session.data.id,
-        stream: true,
-        legacy: true,
-        app_id: appID,
-        assistant_id: assistantID,
-        rag_source_id: ragSourceID,
-        model: session.data.model_name,
-        lora_dir: session.data.lora_dir,
-        messages: [{
-          role: 'user',
-          content: {
-            content_type: 'text',
-            parts: [
-              prompt,
-            ]
-          },
-        }]
-      }
-
-      console.log(session)
-  
-      newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+      newSession = await NewSession({
+        message: prompt,
+        appId: appID,
+        assistantId: assistantID,
+        ragSourceId: ragSourceID,
+        modelName: session.data.model_name,
+        loraDir: session.data.lora_dir,
+        sessionId: session.data.id
+      })
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
@@ -172,6 +159,7 @@ const Session: FC = () => {
   }, [
     session.data,
     session.reload,
+    NewSession,
   ])
 
   const onUpdateSharing = useCallback(async (value: boolean) => {
