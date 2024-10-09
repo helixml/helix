@@ -20,6 +20,14 @@ export const InteractionMarkdown: FC<{
   const theme = useTheme()
   if(!text) return null
 
+  // Function to add <br> tags for single newlines
+  const addLineBreaks = (text: string) => {
+    return text.replace(/(?<!\n)\n(?!\n)/g, '<br>\n');
+  };
+
+  // Apply the line break transformation to the text
+  text = addLineBreaks(text);
+
   return (
     <Box
       sx={{
