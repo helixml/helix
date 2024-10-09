@@ -314,21 +314,21 @@ const App: FC = () => {
     return true;
   }, [app, name]);
 
-  const onSave = useCallback(async (quiet: boolean = false) => {    
+  const onSave = useCallback(async (quiet: boolean = false): Promise<IApp | null> => {
     if (!app) {
       snackbar.error('No app data available');
-      return;
+      return null;
     }
 
     if (!validate() || !validateKnowledge()) {
       setShowErrors(true);
-      return;
+      return null;
     }
 
     const schemaErrors = validateApiSchemas(app);
     if (schemaErrors.length > 0) {
       snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
-      return;
+      return null;
     }
 
     setShowErrors(false);
@@ -347,7 +347,6 @@ const App: FC = () => {
           assistants: app.config.helix.assistants.map(assistant => ({
             ...assistant,
             system_prompt: systemPrompt,
-            // tools: tools,
             knowledge: knowledgeSources,
             model: model,
           })),
@@ -380,11 +379,11 @@ const App: FC = () => {
       if (isNewApp) {
         result = await apps.createApp(app.app_source, updatedApp.config);
         if (result) {
-          // Redirect to the new app's URL
-          navigate('app', { app_id: result.id });
           // Update the app state with the new app data
           setApp(result);
           setIsNewApp(false);
+          // Redirect to the new app's URL
+          navigate('app', { app_id: result.id });
         }
       } else {
         result = await apps.updateApp(app.id, updatedApp);
@@ -392,6 +391,7 @@ const App: FC = () => {
           setApp(result);
         }
       }
+      console.log('finished saving app')
 
       if (!result) {
         throw new Error('No result returned from the server');
@@ -399,14 +399,14 @@ const App: FC = () => {
       if (!quiet) {
         snackbar.success(isNewApp ? 'App created' : 'App updated');
       }
+      return result;
     } catch (error: unknown) {
       if (error instanceof Error) {
-        // snackbar.error(`Error in app operation: ${error.message}`);
         console.error('Full error:', error);
       } else {
-        // snackbar.error('An unknown error occurred during the app operation');
         console.error('Unknown error:', error);
       }
+      return null;
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
@@ -416,22 +416,24 @@ const App: FC = () => {
     if(!app) return
     
     // Save the app before sending the message
-    await onSave(true);
-   
-    // saving must have failed because we didn't get an ID, so don't try and
-    // do inference
-    if(app.id == "new") return
+    const updatedApp = await onSave(true);
+
+    if (!updatedApp || updatedApp.id === "new") {
+      console.error('App not saved or ID not updated');
+      snackbar.error('Failed to save app before inference');
+      return;
+    }
     
     try {
       setLoading(true);
       setInputValue('');
       const newSessionData = await NewInference({
         message: inputValue,
-        appId: app.id,
+        appId: updatedApp.id,
         type: SESSION_TYPE_TEXT,
       });
       console.log('about to load session', newSessionData.id);
-      session.loadSession(newSessionData.id);
+      await session.loadSession(newSessionData.id);
       setLoading(false);
     } catch (error) {
       console.error('Error creating new session:', error);
