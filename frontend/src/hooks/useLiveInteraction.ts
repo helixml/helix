@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { IInteraction } from '../types';
 import { useStreaming } from '../contexts/streaming';
 
@@ -10,10 +10,15 @@ interface LiveInteractionResult {
   isStale: boolean;
 }
 
-const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction | null): LiveInteractionResult => {
+const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction | null, staleThreshold = 10000): LiveInteractionResult => {
   const [interaction, setInteraction] = useState<IInteraction | null>(initialInteraction);
   const { currentResponses } = useStreaming();
-  const [isStale, setIsStale] = useState(false);
+  const [recentTimestamp, setRecentTimestamp] = useState(Date.now());
+  const [staleCounter, setStaleCounter] = useState(0);
+
+  const isAppTryHelixDomain = useMemo(() => {
+    return window.location.hostname === 'app.tryhelix.ai';
+  }, []);
 
   useEffect(() => {
     if (sessionId) {
@@ -28,14 +33,24 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
             ...currentResponse,
           };
         });
-        setIsStale(false);
-      } else {
-        // XXX this is not what isStale is intended to mean, it's meant to have
-        // a timer, did we lose that somewhere?
-        setIsStale(true);
+        setRecentTimestamp(Date.now());
       }
     }
   }, [sessionId, currentResponses]);
+
+  useEffect(() => {
+    const intervalID = setInterval(() => {
+      setStaleCounter(c => c + 1);
+    }, 1000);
+    return () => clearInterval(intervalID);
+  }, []);
+
+  const isStale = useMemo(() => {
+    if (!isAppTryHelixDomain) {
+      return false;
+    }
+    return (Date.now() - recentTimestamp) > staleThreshold;
+  }, [recentTimestamp, staleThreshold, staleCounter, isAppTryHelixDomain]);
 
   return {
     message: interaction?.message || '',

@@ -428,6 +428,7 @@ const App: FC = () => {
       const newSessionData = await NewInference({
         message: inputValue,
         appId: app.id,
+        type: SESSION_TYPE_TEXT,
       });
       console.log('about to load session', newSessionData.id);
       session.loadSession(newSessionData.id);
