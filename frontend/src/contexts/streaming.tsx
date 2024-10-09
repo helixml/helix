@@ -1,11 +1,21 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, SESSION_MODE_INFERENCE, SESSION_TYPE_TEXT, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, WORKER_TASK_RESPONSE_TYPE_STREAM, IInteraction } from '../types';
+import { ISession, SESSION_MODE_INFERENCE, SESSION_TYPE_TEXT, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, WORKER_TASK_RESPONSE_TYPE_STREAM, IInteraction, ISessionChatRequest } from '../types';
 import useApi from '../hooks/useApi';
 import useAccount from '../hooks/useAccount';
 
+interface NewInferenceParams {
+  message: string;
+  appId?: string;
+  assistantId?: string;
+  ragSourceId?: string;
+  modelName?: string;
+  loraDir?: string;
+  sessionId?: string;
+}
+
 interface StreamingContextType {
-  NewSession: (message: string, appId: string) => Promise<ISession>;
+  NewInference: (params: NewInferenceParams) => Promise<ISession>;
   currentResponses: Map<string, Partial<IInteraction>>;
   updateCurrentResponse: (sessionId: string, interaction: Partial<IInteraction>) => void;
 }
@@ -75,14 +85,26 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     };
   }, [account.token, currentSessionId, handleWebsocketEvent]);
 
-  const NewSession = async (message: string, appId: string): Promise<ISession> => {
-    console.log('NewSession', appId)
-    const sessionChatRequest = {
-      mode: SESSION_MODE_INFERENCE,
+  const NewInference = async ({
+    message,
+    appId = '',
+    assistantId = '',
+    ragSourceId = '',
+    modelName = '',
+    loraDir = '',
+    sessionId = ''
+  }: NewInferenceParams): Promise<ISession> => {
+    console.log('NewInference', appId)
+    const sessionChatRequest: ISessionChatRequest = {
       type: SESSION_TYPE_TEXT,
       stream: true,
       legacy: true,
       app_id: appId,
+      assistant_id: assistantId,
+      rag_source_id: ragSourceId,
+      model: modelName,
+      lora_dir: loraDir,
+      session_id: sessionId,
       messages: [{
         role: 'user',
         content: {
@@ -95,14 +117,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     try {
       const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest);
       if (!newSessionData) {
-        throw new Error('Failed to create new session');
+        throw new Error('Failed to create or update session');
       }
       setCurrentResponses(prev => new Map(prev).set(newSessionData.id, { message: '', status: '', progress: 0 }));
       setCurrentSessionId(newSessionData.id);
 
       return newSessionData;
     } catch (error) {
-      console.error('Error creating new session:', error);
+      console.error('Error in NewInference:', error);
       throw error;
     }
   };
@@ -115,7 +137,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   };
 
   const value = {
-    NewSession,
+    NewInference,
     currentResponses,
     updateCurrentResponse,
   };

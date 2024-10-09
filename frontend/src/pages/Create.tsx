@@ -124,8 +124,8 @@ const Create: FC = () => {
       session,
     })
     await sessions.loadSessions()
-    router.navigate('session', { session_id: session.id })
     setLoading(false)
+    router.navigate('session', { session_id: session.id })
   }
 
   const onStartFinetune = async (eventName: string) => {

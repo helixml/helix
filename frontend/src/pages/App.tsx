@@ -412,7 +412,7 @@ const App: FC = () => {
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
-  const { NewSession } = useStreaming();
+  const { NewInference } = useStreaming();
 
   const onInference = async () => {
     if(!app) return
@@ -425,7 +425,10 @@ const App: FC = () => {
     if(app.id == "new") return
     
     try {
-      const newSessionData = await NewSession(inputValue, app.id);
+      const newSessionData = await NewInference({
+        message: inputValue,
+        appId: app.id,
+      });
       setInputValue('');
       session.loadSession(newSessionData.id);
     } catch (error) {
