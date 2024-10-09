@@ -1,8 +1,9 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, SESSION_MODE_INFERENCE, SESSION_TYPE_TEXT, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, WORKER_TASK_RESPONSE_TYPE_STREAM, IInteraction, ISessionChatRequest } from '../types';
+import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT } from '../types';
 import useApi from '../hooks/useApi';
 import useAccount from '../hooks/useAccount';
+import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
 
 interface NewInferenceParams {
   message: string;
@@ -45,12 +46,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         const current = prev.get(currentSessionId) || {};
         let updatedInteraction: Partial<IInteraction> = { ...current };
 
-        if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_STREAM && workerResponse.message) {
-          updatedInteraction.message = (current.message || '') + workerResponse.message;
-        } else if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
-          if (workerResponse.message) {
-            updatedInteraction.message = workerResponse.message;
-          }
+        if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
           if (workerResponse.progress !== undefined) {
             updatedInteraction.progress = workerResponse.progress;
           }
@@ -94,11 +90,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     loraDir = '',
     sessionId = ''
   }: NewInferenceParams): Promise<ISession> => {
-    console.log('NewInference', appId)
+    console.log('NewInference', appId);
     const sessionChatRequest: ISessionChatRequest = {
       type: SESSION_TYPE_TEXT,
       stream: true,
-      legacy: true,
       app_id: appId,
       assistant_id: assistantId,
       rag_source_id: ragSourceId,
@@ -115,14 +110,75 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     };
 
     try {
-      const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest);
-      if (!newSessionData) {
+      const response = await fetch('/api/v1/sessions/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${account.token}`,
+        },
+        body: JSON.stringify(sessionChatRequest),
+      });
+
+      if (!response.ok) {
         throw new Error('Failed to create or update session');
       }
-      setCurrentResponses(prev => new Map(prev).set(newSessionData.id, { message: '', status: '', progress: 0 }));
-      setCurrentSessionId(newSessionData.id);
 
-      return newSessionData;
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      let sessionData: ISession | null = null;
+
+      const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
+        if (event.type === 'event') {
+          if (!event.data || event.data === '') {
+            return;
+          }
+          if (event.data === "[DONE]") {
+            return;
+          }
+          try {
+            const parsedData = JSON.parse(event.data);
+            if (!sessionData) {
+              // This is the session data
+              sessionData = parsedData;
+              if (sessionData && sessionData.id) {
+                setCurrentSessionId(sessionData.id);
+                setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: '', status: '', progress: 0 }));
+              } else {
+                console.error('Invalid session data received:', sessionData);
+                throw new Error('Invalid session data');
+              }
+            } else if (Array.isArray(parsedData?.choices) && parsedData.choices.length > 0) {
+              const messageSegment = parsedData.choices[0]?.delta?.content;
+              if (messageSegment) {
+                setCurrentResponses(prev => {
+                  const current = prev.get(sessionData!.id) || {};
+                  return new Map(prev).set(sessionData!.id, {
+                    ...current,
+                    message: (current.message || '') + messageSegment
+                  });
+                });
+              }
+            }
+          } catch (error) {
+            console.error('Error parsing SSE data:', error);
+          }
+        }
+      });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.feed(new TextDecoder().decode(value));
+      }
+
+      if (!sessionData) {
+        throw new Error('Failed to receive session data');
+      }
+
+      return sessionData;
     } catch (error) {
       console.error('Error in NewInference:', error);
       throw error;
