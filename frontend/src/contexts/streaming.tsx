@@ -27,7 +27,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
   const handleWebsocketEvent = useCallback((parsedData: IWebsocketEvent) => {
-    console.log('WebSocket message received:', parsedData);
     if (!currentSessionId) return;
 
     if (parsedData.type === WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
@@ -49,7 +48,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             updatedInteraction.status = workerResponse.status;
           }
         }
-        console.log('updatedInteraction', updatedInteraction);
         return new Map(prev).set(currentSessionId, updatedInteraction);
       });
     }
