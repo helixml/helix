@@ -145,7 +145,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
               sessionData = parsedData;
               if (sessionData && sessionData.id) {
                 setCurrentSessionId(sessionData.id);
-                setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: '', status: '', progress: 0 }));
+                const messageSegment = parsedData.choices[0]?.delta?.content;
+                setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
               } else {
                 console.error('Invalid session data received:', sessionData);
                 throw new Error('Invalid session data');
