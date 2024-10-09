@@ -42,10 +42,7 @@ export const InteractionLiveStream: FC<{
     progress,
     status,
     isStale,
-  } = useLiveInteraction({
-    session_id,
-    interaction,
-  })
+  } = useLiveInteraction(session_id, interaction)
 
   const showLoading = !message && progress==0 && !status
 
@@ -64,28 +61,7 @@ export const InteractionLiveStream: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
-  // TODO: get the nice blinking cursor to work nicely with the markdown module
-  const sourceTextWithBlinkingCursor =  `
-${replaceMessageText(message, session, getFileURL)}
-<style>
-  .blinker-class {
-    animation: blink 1s linear infinite;
-  }
-
-  @keyframes blink {
-    25% {
-      opacity: 0.5;
-    }
-    50% {
-      opacity: 0;
-    }
-    75% {
-      opacity: 0.5;
-    }
-  }
-</style>
-<span style="color: yellow; font-weight:bold;" class="blinker-class">┃</span>
-`
+  const blinker = `<span class="blinker-class">┃</span>`
   
   return (
     <>
@@ -98,7 +74,7 @@ ${replaceMessageText(message, session, getFileURL)}
         message && (
           <div>
             <Markdown
-              text={ replaceMessageText(message, session, getFileURL) }
+              text={ replaceMessageText(message, session, getFileURL) + blinker }
             />
           </div>
         )

@@ -47,8 +47,11 @@ func errorLoggingMiddleware(next http.Handler) http.Handler {
 		// Wrap the ResponseWriter
 		lrw := NewLoggingResponseWriter(w)
 
+		// Create a custom ResponseWriter that supports flushing
+		flushWriter := &flushResponseWriter{lrw}
+
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(lrw, r)
+		next.ServeHTTP(flushWriter, r)
 
 		switch lrw.statusCode {
 		case http.StatusForbidden:
@@ -58,8 +61,17 @@ func errorLoggingMiddleware(next http.Handler) http.Handler {
 				log.Error().Msgf("method: %s, path: %s, status: %d\n", r.Method, r.URL.Path, lrw.statusCode)
 			}
 		}
-
 	})
+}
+
+type flushResponseWriter struct {
+	*LoggingResponseWriter
+}
+
+func (frw *flushResponseWriter) Flush() {
+	if f, ok := frw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // create a new data entity from the uploaded files

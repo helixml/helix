@@ -1,72 +1,64 @@
-import React, { useState, useMemo, useEffect } from 'react'
-import useWebsocket from './useWebsocket'
+import { useState, useEffect, useMemo } from 'react';
+import { IInteraction } from '../types';
+import { useStreaming } from '../contexts/streaming';
 
-import {
-  WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE,
-  WORKER_TASK_RESPONSE_TYPE_PROGRESS,
-  WORKER_TASK_RESPONSE_TYPE_STREAM,
-  IInteraction,
-} from '../types'
+interface LiveInteractionResult {
+  message: string;
+  status: string;
+  progress: number;
+  isComplete: boolean;
+  isStale: boolean;
+}
 
-export const useLiveInteraction = ({
-  session_id,
-  interaction,
-  staleThreshold = 10000,
-}: {
-  session_id: string,
-  interaction: IInteraction,
-  // after how much time without an event do we mark ourselves as stale?
-  // this gives the UI a chance to say "you've been in the queue for a while"
-  staleThreshold?: number,
-}) => {
-  const [ message, setMessage ] = useState(interaction.message)
-  const [ progress, setProgress ] = useState(interaction.progress)
-  const [ status, setStatus ] = useState(interaction.status)
-  const [ recentTimestamp, setRecentTimestamp ] = useState(Date.now())
-  const [ stateCounter, setStaleCounter ] = useState(0)
+const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction | null, staleThreshold = 10000): LiveInteractionResult => {
+  const [interaction, setInteraction] = useState<IInteraction | null>(initialInteraction);
+  const { currentResponses } = useStreaming();
+  const [recentTimestamp, setRecentTimestamp] = useState(Date.now());
+  const [staleCounter, setStaleCounter] = useState(0);
 
-  const isStale = useMemo(() => {
-    return (Date.now() - recentTimestamp) > staleThreshold
-  }, [
-    recentTimestamp,
-    staleThreshold,
-    stateCounter,
-  ])
+  const isAppTryHelixDomain = useMemo(() => {
+    return window.location.hostname === 'app.tryhelix.ai';
+  }, []);
 
-  useWebsocket(session_id, (parsedData) => {
-    if(!session_id) return
-    setRecentTimestamp(Date.now())
-    if(parsedData.type == WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
-      const workerResponse = parsedData.worker_task_response
-      if(workerResponse.type == WORKER_TASK_RESPONSE_TYPE_STREAM && workerResponse.message) {
-        setMessage(m => m + workerResponse.message)
-      } else if(workerResponse.type == WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
-        if(workerResponse.message) {
-          setMessage(workerResponse.message)
-        }
-        if(workerResponse.progress) {
-          setProgress(workerResponse.progress)
-        }
-        if(workerResponse.status) {
-          setStatus(workerResponse.status)
-        }
+  useEffect(() => {
+    if (sessionId) {
+      const currentResponse = currentResponses.get(sessionId);
+      if (currentResponse) {
+        setInteraction((prevInteraction: IInteraction | null): IInteraction => {
+          if (prevInteraction === null) {
+            return currentResponse as IInteraction;
+          }
+          return {
+            ...prevInteraction,
+            ...currentResponse,
+          };
+        });
+        setRecentTimestamp(Date.now());
       }
     }
-  })
+  }, [sessionId, currentResponses]);
 
   useEffect(() => {
     const intervalID = setInterval(() => {
-      setStaleCounter(c => c + 1)
-    }, 1000)
-    return () => clearInterval(intervalID)
-  }, [])
+      setStaleCounter(c => c + 1);
+    }, 1000);
+    return () => clearInterval(intervalID);
+  }, []);
+
+  const isStale = useMemo(() => {
+    if (!isAppTryHelixDomain) {
+      return false;
+    }
+    return (Date.now() - recentTimestamp) > staleThreshold;
+  }, [recentTimestamp, staleThreshold, staleCounter, isAppTryHelixDomain]);
 
   return {
-    message,
-    progress,
-    status,
+    message: interaction?.message || '',
+    status: interaction?.status || '',
+    progress: interaction?.progress || 0,
+    isComplete: interaction?.state === 'complete',
     isStale,
-  }
-}
+  };
+};
 
-export default useLiveInteraction
+export default useLiveInteraction;
