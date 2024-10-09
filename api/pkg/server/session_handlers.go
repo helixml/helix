@@ -244,13 +244,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		})
 	}
 
-	// TODO: remove once frontend is removed
-	if startReq.Legacy {
-		s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
-		return
-	}
-	// End of TODO
-
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
 		if err != nil {
@@ -329,11 +322,13 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		InteractionID: session.Interactions[len(session.Interactions)-1].ID,
 	})
 
-	// TODO: This uses the "old style" frontend websocket stream, copied from startChatSessionHandler
-	s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
+	err = s.handleStreamingSession(ctx, user, session, chatCompletionRequest, options, rw)
+	if err != nil {
+		log.Err(err).Msg("error handling blocking session")
+	}
 }
 
-func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
+func (s *HelixAPIServer) _legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
 	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -452,6 +447,8 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			log.Warn().Msg("ResponseWriter does not support Flusher interface")
 		}
 	}
+
+	fmt.Println("XX updating last interaction", fullResponse)
 
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
