@@ -39,6 +39,7 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import InputAdornment from '@mui/material/InputAdornment'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 
 import {
   ICloneInteractionMode,
@@ -51,7 +52,6 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
-  ISessionChatRequest,
 } from '../types'
 
 import {
@@ -59,6 +59,12 @@ import {
 } from '../utils/session'
 
 import { useStreaming } from '../contexts/streaming'
+
+import Avatar from '@mui/material/Avatar'
+import { getAssistant, getAssistantAvatar, getAssistantName } from '../utils/apps'
+import useApps from '../hooks/useApps'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import useLightTheme from '../hooks/useLightTheme'
 
 const Session: FC = () => {
   const snackbar = useSnackbar()
@@ -71,6 +77,9 @@ const Session: FC = () => {
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const { NewInference } = useStreaming()
+  const apps = useApps()
+  const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
+  const lightTheme = useLightTheme()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -86,6 +95,9 @@ const Session: FC = () => {
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
+  const [appID, setAppID] = useState<string | null>(null)
+  // TODO: set assistant_id to the value which we need to add to the session struct
+  const [assistantID, setAssistantID] = useState('0')
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -122,18 +134,9 @@ const Session: FC = () => {
     let newSession: ISession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
-      const urlParams = new URLSearchParams(window.location.search)
-      const appID = urlParams.get('app_id') || ''
-      let assistantID = urlParams.get('assistant_id') || ''
-      let ragSourceID = urlParams.get('rag_source_id') || ''
-
-      if (ragSourceID === '') {
-        ragSourceID = session.data.config.rag_source_data_entity_id
-      }
-      // if we have an app but no assistant ID let's default to the first one
-      if(appID && !assistantID) {
-        assistantID = '0'
-      }
+      // Get the appID from session.data.parent_app instead of URL params
+      const appID = session.data.parent_app || ''
+      const ragSourceID = session.data.config.rag_source_data_entity_id || ''
 
       setInputValue("")
       newSession = await NewInference({
@@ -512,6 +515,29 @@ const Session: FC = () => {
     }
   }, [])
 
+  useEffect(() => {
+    if (!session.data) return
+    const newAppID = session.data.parent_app
+    if (newAppID !== appID) {
+      setAppID(newAppID || null)
+      if (newAppID) {
+        apps.loadApp(newAppID)
+      }
+    }
+  }, [session.data, appID, assistantID, apps])
+
+  const activeAssistant = apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
+  const activeAssistantAvatar = activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
+  const activeAssistantName = activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
+
+  const handleBackToCreate = () => {
+    if (apps.app) {
+      router.navigate('new', { app_id: apps.app.id })
+    } else {
+      router.navigate('new')
+    }
+  }
+
   if(!session.data) return null
 
   return (    
@@ -548,6 +574,70 @@ const Session: FC = () => {
           )
         }
       </Box>
+      {apps.app && (
+        <Row
+          id="HEADER"
+          vertical
+          center
+          sx={{
+            position: 'relative',
+            backgroundImage: `url(${apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
+            backgroundPosition: 'top',
+            backgroundRepeat: 'no-repeat',
+            backgroundSize: apps.app.config.helix.image ? 'cover' : 'auto',
+            p: 2,
+          }}
+        >
+          {apps.app.config.helix.image && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                zIndex: 1,
+              }}
+            />
+          )}
+          <Cell
+            sx={{
+              pt: 4,
+              px: 2,
+              textAlign: 'center',
+              position: 'relative',
+              zIndex: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconButton
+                onClick={handleBackToCreate}
+                sx={{
+                  color: 'white',
+                  mr: 2,
+                }}
+              >
+                <ArrowBackIcon />
+              </IconButton>
+              {activeAssistantAvatar && (
+                <Avatar
+                  src={activeAssistantAvatar}
+                  sx={{
+                    width: '80px',
+                    height: '80px',
+                    mb: 2,
+                    border: '2px solid #fff',
+                  }}
+                />
+              )}
+            </Box>
+            <Typography variant="h6" sx={{ color: 'white' }}>
+              {activeAssistantName}
+            </Typography>
+          </Cell>
+        </Row>
+      )}
       <Box
         id="helix-session-scroller"
         ref={ divRef }
@@ -602,7 +692,6 @@ const Session: FC = () => {
                                   '&:hover': {
                                     color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
                                   },
-                                 
                                   
                                 }}
                               />
@@ -757,7 +846,7 @@ const Session: FC = () => {
               label={(
                 (
                   session.data?.type == SESSION_TYPE_TEXT ?
-                    'Chat with Helix...' :
+                    session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
                     'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
                 ) + " (shift+enter to add a newline)"
               )}
@@ -768,6 +857,20 @@ const Session: FC = () => {
               multiline={true}
               onKeyDown={handleKeyDown}
               InputProps={{
+                startAdornment: isBigScreen && (
+                  activeAssistant ? (
+                    activeAssistantAvatar ? (
+                      <Avatar
+                        src={activeAssistantAvatar}
+                        sx={{
+                          width: '30px',
+                          height: '30px',
+                          mr: 1,
+                        }}
+                      />
+                    ) : null
+                  ) : null
+                ),
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton

@@ -15,7 +15,6 @@ export const useSession = () => {
   
   const [ data, setData ] = useState<ISession>()
   const [ summary, setSummary ] = useState<ISessionSummary>()
-  const [ bot, setBot ] = useState<IBot>()
 
   const loadSession = useCallback(async (id: string) => {
     const result = await api.get<ISession>(`/api/v1/sessions/${id}`, undefined, {
@@ -23,13 +22,6 @@ export const useSession = () => {
     })
     if(!result) return
     setData(result)
-    if(result.parent_bot) {
-      const botResult = await api.get<IBot>(`/api/v1/bots/${result.parent_bot}`)
-      if(!botResult) return
-      setBot(botResult)
-    } else {
-      setBot(undefined)
-    }
     return result
   }, [])
 
@@ -80,7 +72,6 @@ export const useSession = () => {
   return {
     data,
     summary,
-    bot,
     reload,
     retryTextFinetune,
     loadSession,
