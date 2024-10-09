@@ -128,15 +128,24 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
       const reader = response.body.getReader();
       let sessionData: ISession | null = null;
-      let isSettled = false;
+      let promiseResolved = false;
 
-      return new Promise<ISession>((resolve, reject) => {
+      const processStream = new Promise<void>((resolveStream, rejectStream) => {
         const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
-          if (event.type === 'event' && !isSettled) {
+          if (event.type === 'event') {
             if (!event.data || event.data === '') {
               return;
             }
             if (event.data === "[DONE]") {
+              // Safely remove the completed stream from currentResponses
+              if (sessionData && sessionData.id) {
+                setCurrentResponses(prev => {
+                  const newMap = new Map(prev);
+                  newMap.delete(sessionData!.id);
+                  return newMap;
+                });
+              }
+              resolveStream();
               return;
             }
             console.log('event.data', event.data);
@@ -150,13 +159,12 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                   const messageSegment = parsedData.choices[0]?.delta?.content;
                   setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
                   
-                  // Resolve the promise with the session data
-                  isSettled = true;
-                  resolve(sessionData);
+                  if (!promiseResolved) {
+                    promiseResolved = true;
+                  }
                 } else {
                   console.error('Invalid session data received:', sessionData);
-                  isSettled = true;
-                  reject(new Error('Invalid session data'));
+                  rejectStream(new Error('Invalid session data'));
                 }
               } else if (Array.isArray(parsedData?.choices) && parsedData.choices.length > 0) {
                 const messageSegment = parsedData.choices[0]?.delta?.content;
@@ -172,10 +180,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
               }
             } catch (error) {
               console.error('Error parsing SSE data:', error);
-              if (!isSettled) {
-                isSettled = true;
-                reject(error);
-              }
+              rejectStream(error);
             }
           }
         });
@@ -184,19 +189,50 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           try {
             while (true) {
               const { done, value } = await reader.read();
-              if (done) break;
+              if (done) {
+                // Safely remove the completed stream from currentResponses
+                if (sessionData && sessionData.id) {
+                  setCurrentResponses(prev => {
+                    const newMap = new Map(prev);
+                    newMap.delete(sessionData!.id);
+                    return newMap;
+                  });
+                }
+                resolveStream();
+                break;
+              }
               parser.feed(new TextDecoder().decode(value));
             }
           } catch (error) {
-            if (!isSettled) {
-              isSettled = true;
-              reject(error);
-            }
+            rejectStream(error);
           }
         };
 
         pump();
       });
+
+      // Wait for the first chunk to resolve the outer promise
+      await new Promise<void>((resolve) => {
+        const checkResolved = () => {
+          if (promiseResolved) {
+            resolve();
+          } else {
+            setTimeout(checkResolved, 10);
+          }
+        };
+        checkResolved();
+      });
+
+      // Continue processing the stream in the background
+      processStream.catch((error) => {
+        console.error('Error processing stream:', error);
+      });
+
+      if (!sessionData) {
+        throw new Error('Failed to receive session data');
+      }
+
+      return sessionData;
 
     } catch (error) {
       console.error('Error in NewInference:', error);
