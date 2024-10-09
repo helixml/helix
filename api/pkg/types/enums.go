@@ -131,6 +131,7 @@ const (
 	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
 	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
 	WebsocketLLMInferenceResponse    WebsocketEventType = "llm_inference_response"
+	WebsocketEventProcessingStepInfo WebsocketEventType = "step_info" // Helix tool use, rag search, etc
 )
 
 type WorkerTaskResponseType string
