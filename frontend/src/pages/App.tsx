@@ -519,7 +519,7 @@ const App: FC = () => {
     setHasLoaded(true);
   }, [app])
 
-  // TODO: also poll for session updates to avoid missing updates when the backend is faster than the frontend
+  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session

@@ -574,10 +574,26 @@ type User struct {
 type WebsocketEvent struct {
 	Type               WebsocketEventType          `json:"type"`
 	SessionID          string                      `json:"session_id"`
+	InteractionID      string                      `json:"interaction_id"`
 	Owner              string                      `json:"owner"`
 	Session            *Session                    `json:"session"`
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
+	StepInfo           *StepInfo                   `json:"step_info"`
+}
+
+type StepInfoType string
+
+const (
+	StepInfoTypeWebSearch = "web_search"
+	StepInfoTypeRAG       = "rag"
+	StepInfoTypeToolUse   = "tool_use"
+)
+
+type StepInfo struct {
+	Name    string       `json:"name"`
+	Type    StepInfoType `json:"type"`
+	Message string       `json:"message"`
 }
 
 // the context of a long running python process
