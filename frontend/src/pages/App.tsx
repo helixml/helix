@@ -118,9 +118,9 @@ const App: FC = () => {
   const lastFetchTimeRef = useRef<number>(0);
 
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
-  const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
 
   const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // for now, all the STATE related code for the various tabs is still in this file
   // that's because synchronising state between the components and the app page
@@ -425,15 +425,18 @@ const App: FC = () => {
     if(app.id == "new") return
     
     try {
+      setLoading(true);
+      setInputValue('');
       const newSessionData = await NewInference({
         message: inputValue,
         appId: app.id,
       });
-      setInputValue('');
       session.loadSession(newSessionData.id);
+      setLoading(false);
     } catch (error) {
       console.error('Error creating new session:', error);
       snackbar.error('Failed to create new session');
+      setLoading(false);
     }
   }
 
@@ -912,6 +915,7 @@ const App: FC = () => {
               </Box>
             </Grid>
             <PreviewPanel
+              loading={loading}
               name={name}
               avatar={avatar}
               image={image}
