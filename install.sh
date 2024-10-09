@@ -620,8 +620,17 @@ EOF
             else
                 echo "Installing Caddy..."
                 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+
+                # Check if the keyring file already exists
+                if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                fi
+
+                # Check if the source list file already exists
+                if [ ! -f /etc/apt/sources.list.d/caddy-stable.list ]; then
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+                fi
+
                 sudo apt update
                 sudo apt install caddy
 
