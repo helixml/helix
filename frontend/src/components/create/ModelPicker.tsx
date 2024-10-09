@@ -19,8 +19,8 @@ const ModelPicker: FC<{
   const { models } = useContext(AccountContext)
 
   useEffect(() => {
-    // Set the first model as default if current model is not in the list
-    if (models.length > 0 && (!model || !models.some(m => m.id === model))) {
+    // Set the first model as default if current model is not set or not in the list
+    if (models.length > 0 && (!model || model === '' || !models.some(m => m.id === model))) {
       onSetModel(models[0].id);
     }
   }, [models, model, onSetModel])
