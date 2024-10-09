@@ -207,13 +207,22 @@ check_nvidia_gpu() {
 }
 
 
-# Function to check if Ollama is running on localhost:11434
+# Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
+    # Check localhost
     if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
         return 0
-    else
-        return 1
     fi
+
+    # Check Docker bridge IP
+    DOCKER_BRIDGE_IP=$(sudo docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
+    if [ -n "$DOCKER_BRIDGE_IP" ]; then
+        if curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
+            return 0
+        fi
+    fi
+
+    return 1
 }
 
 # Adjust default values based on provided arguments and AUTO mode
