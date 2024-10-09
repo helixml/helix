@@ -61,7 +61,6 @@ export const InteractionLiveStream: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
-  // TODO: get the nice blinking cursor to work nicely with the markdown module
   const blinker = `<span class="blinker-class">┃</span>`
   
   return (
