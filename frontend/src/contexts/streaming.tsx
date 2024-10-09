@@ -1,7 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
-import useApi from '../hooks/useApi';
 import useAccount from '../hooks/useAccount';
 import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
 
@@ -19,6 +18,7 @@ interface NewInferenceParams {
 interface StreamingContextType {
   NewInference: (params: NewInferenceParams) => Promise<ISession>;
   currentResponses: Map<string, Partial<IInteraction>>;
+  stepInfos: Map<string, any[]>;
   updateCurrentResponse: (sessionId: string, interaction: Partial<IInteraction>) => void;
 }
 
@@ -36,9 +36,18 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const account = useAccount();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-
+  const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
   const handleWebsocketEvent = useCallback((parsedData: IWebsocketEvent) => {
     if (!currentSessionId) return;
+
+    if (parsedData.type as string === "step_info") {
+        const stepInfo = parsedData.step_info;
+        setStepInfos(prev => {
+            const currentSteps = prev.get(currentSessionId) || [];
+            const updatedSteps = [...currentSteps, stepInfo];
+            return new Map(prev).set(currentSessionId, updatedSteps);
+        });
+    }
 
     if (parsedData.type === WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
       const workerResponse = parsedData.worker_task_response;
@@ -255,6 +264,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     NewInference,
     currentResponses,
     updateCurrentResponse,
+    stepInfos,
   };
 
   return (
