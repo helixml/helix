@@ -198,6 +198,12 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}
 
 		writeChunk(rw, bts)
+		// Flush the stream to ensure the client receives the data immediately
+		if flusher, ok := rw.(http.Flusher); ok {
+			flusher.Flush()
+		} else {
+			log.Warn().Msg("ResponseWriter does not support Flusher interface")
+		}
 	}
 
 }
