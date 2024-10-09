@@ -33,6 +33,7 @@ import useRouter from '../hooks/useRouter'
 import useSessions from '../hooks/useSessions'
 import useSnackbar from '../hooks/useSnackbar'
 import useTracking from '../hooks/useTracking'
+import { useStreaming } from '../contexts/streaming'
 
 import {
   IDataEntity,
@@ -72,6 +73,7 @@ const Create: FC = () => {
   const sessions = useSessions()
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
+  const { NewInference } = useStreaming()
 
   const [showConfigWindow, setShowConfigWindow] = useState(false)
   const [showFileDrawer, setShowFileDrawer] = useState(false)
@@ -114,18 +116,42 @@ const Create: FC = () => {
 
   const onInference = async () => {
     if (!checkLoginStatus()) return
-    const sessionChatRequest = inputs.getSessionChatRequest(type, model)
     setLoading(true)
-    const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
 
-    if (!session) return
-    tracking.emitEvent({
-      name: 'inference',
-      session,
-    })
-    await sessions.loadSessions()
-    setLoading(false)
-    router.navigate('session', { session_id: session.id })
+    const urlParams = new URLSearchParams(window.location.search)
+    const appID = urlParams.get('app_id') || ''
+    let assistantID = urlParams.get('assistant_id') || ''
+    const ragSourceID = urlParams.get('rag_source_id') || ''
+
+    // if we have an app but no assistant ID let's default to the first one
+    if(appID && !assistantID) {
+      assistantID = '0'
+    }
+
+    try {
+      const session = await NewInference({
+        type: type as ISessionType,
+        message: inputs.inputValue,
+        appId: appID,
+        assistantId: assistantID,
+        ragSourceId: ragSourceID,
+        modelName: model,
+        loraDir: '',
+      });
+
+      if (!session) return
+      tracking.emitEvent({
+        name: 'inference',
+        session,
+      })
+      await sessions.loadSessions()
+      setLoading(false)
+      router.navigate('session', { session_id: session.id })
+    } catch (error) {
+      console.error('Error in onInference:', error);
+      snackbar.error('Failed to start inference');
+      setLoading(false);
+    }
   }
 
   const onStartFinetune = async (eventName: string) => {

@@ -1,11 +1,12 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT } from '../types';
+import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useApi from '../hooks/useApi';
 import useAccount from '../hooks/useAccount';
 import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
 
 interface NewInferenceParams {
+  type: ISessionType;
   message: string;
   appId?: string;
   assistantId?: string;
@@ -81,6 +82,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [account.token, currentSessionId, handleWebsocketEvent]);
 
   const NewInference = async ({
+    type,
     message,
     appId = '',
     assistantId = '',
@@ -91,7 +93,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }: NewInferenceParams): Promise<ISession> => {
     console.log('NewInference', appId);
     const sessionChatRequest: ISessionChatRequest = {
-      type: SESSION_TYPE_TEXT,
+      type,
       stream: true,
       app_id: appId,
       assistant_id: assistantId,
@@ -148,7 +150,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
               resolveStream();
               return;
             }
-            console.log('event.data', event.data);
             try {
               const parsedData = JSON.parse(event.data);
               if (!sessionData) {

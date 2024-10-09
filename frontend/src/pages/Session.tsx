@@ -135,6 +135,7 @@ const Session: FC = () => {
         assistantID = '0'
       }
 
+      setInputValue("")
       newSession = await NewInference({
         message: prompt,
         appId: appID,
@@ -142,20 +143,21 @@ const Session: FC = () => {
         ragSourceId: ragSourceID,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
-        sessionId: session.data.id
+        sessionId: session.data.id,
+        type: session.data.type,
       })
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
       formData.set('model_name', session.data.model_name)
 
+      setInputValue("")
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
     
     if(!newSession) return
     session.reload()
 
-    setInputValue("")
   }, [
     session.data,
     session.reload,
