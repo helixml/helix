@@ -686,6 +686,7 @@ type SessionSummary struct {
 	// this is either the prompt or the summary of the training data
 	Summary  string `json:"summary"`
 	Priority bool   `json:"priority"`
+	AppID    string `json:"app_id,omitempty"`
 }
 
 type ModelInstanceState struct {

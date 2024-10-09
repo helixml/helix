@@ -257,6 +257,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Completed:     assistantInteraction.Completed,
 		Summary:       summary,
 		Priority:      session.Metadata.Priority,
+		AppID:         session.ParentApp,
 	}, nil
 }
 
