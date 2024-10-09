@@ -782,13 +782,22 @@ const App: FC = () => {
           <Button
             sx={{ mr: 2 }}
             type="button"
-            color="secondary"
-            variant="contained"
+            color="primary"
+            variant="outlined"
             onClick={handleCopyEmbedCode}
             startIcon={<ContentCopyIcon />}
             disabled={account.apiKeys.length === 0 || isReadOnly}
           >
             Embed
+          </Button>
+          <Button
+            type="button"
+            color="secondary"
+            variant="contained"
+            onClick={() => navigate('new', { app_id: app.id })}
+            disabled={app.id === 'new'}
+          >
+            Launch
           </Button>
         </Box>
       )}
