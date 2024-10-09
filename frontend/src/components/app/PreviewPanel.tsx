@@ -8,6 +8,7 @@ import Avatar from '@mui/material/Avatar';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Switch from '@mui/material/Switch';
 import SendIcon from '@mui/icons-material/Send';
+import CircularProgress from '@mui/material/CircularProgress';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Dialog from '@mui/material/Dialog';
@@ -25,7 +26,8 @@ import InteractionLiveStream from '../session/InteractionLiveStream';
 
 import { ISession, ISessionRAGResult, IKnowledgeSearchResult } from '../../types';
 
-interface PreviewPanelProps {
+interface PreviewPanelProps { 
+  loading: boolean;
   name: string;
   avatar: string;
   image: string;
@@ -44,6 +46,7 @@ interface PreviewPanelProps {
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
+  loading,
   name,
   avatar,
   image,
@@ -75,7 +78,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   };
 
   const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setIsSearchMode(event.target.checked);
+    const newSearchMode = event.target.checked;
+    setIsSearchMode(newSearchMode);
+    if (newSearchMode && inputValue.trim() !== '') {
+      onSearch(inputValue.trim());
+    }
   };
 
   const handleChunkClick = (chunk: ISessionRAGResult) => {
@@ -198,7 +205,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                 ml: 2,
                 mb: 3,
               }}
-              endIcon={<SendIcon />}
+              endIcon={loading ? <CircularProgress size={16} /> : <SendIcon />}
+              disabled={loading}
             >
               Send
             </Button>

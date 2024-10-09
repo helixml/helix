@@ -34,12 +34,12 @@ import useRouter from '../hooks/useRouter'
 import useApi from '../hooks/useApi'
 import useWebsocket from '../hooks/useWebsocket'
 import useThemeConfig from '../hooks/useThemeConfig'
+import { useStreaming } from '../contexts/streaming';
 
 import {
   IAssistantGPTScript,
   IAppUpdate,
   ISession,
-  SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ITool,
@@ -48,7 +48,6 @@ import {
   IApp,
   IKnowledgeSource,
   IKnowledgeSearchResult,
-  ISessionRAGResult,
 } from '../types'
 
 
@@ -110,16 +109,16 @@ const App: FC = () => {
 
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
 
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState(account.models[0]?.id || '');
 
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
 
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
-  const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
 
   const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // for now, all the STATE related code for the various tabs is still in this file
   // that's because synchronising state between the components and the app page
@@ -411,6 +410,8 @@ const App: FC = () => {
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
+  const { NewInference } = useStreaming();
+
   const onInference = async () => {
     if(!app) return
     
@@ -421,30 +422,22 @@ const App: FC = () => {
     // do inference
     if(app.id == "new") return
     
-    session.setData(undefined)
-    const sessionChatRequest = {
-      mode: SESSION_MODE_INFERENCE,
-      type: SESSION_TYPE_TEXT,
-      stream: true,
-      legacy: true,
-      app_id: app.id,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [
-            inputValue,
-          ]
-        },
-      }]
+    try {
+      setLoading(true);
+      setInputValue('');
+      const newSessionData = await NewInference({
+        message: inputValue,
+        appId: app.id,
+        type: SESSION_TYPE_TEXT,
+      });
+      console.log('about to load session', newSessionData.id);
+      session.loadSession(newSessionData.id);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error creating new session:', error);
+      snackbar.error('Failed to create new session');
+      setLoading(false);
     }
-    
-    const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
-    if(!newSessionData) {
-      return
-    }
-    setInputValue('')
-    session.loadSession(newSessionData.id)    
   }
 
   const onSearch = async (query: string) => {
@@ -922,6 +915,7 @@ const App: FC = () => {
               </Box>
             </Grid>
             <PreviewPanel
+              loading={loading}
               name={name}
               avatar={avatar}
               image={image}

@@ -22,6 +22,22 @@
         margin: 0;
         padding: 0;
       }
+      .blinker-class {
+        animation: blink 1s linear infinite;
+        color: yellow; font-weight:bold;
+      }
+
+      @keyframes blink {
+        25% {
+          opacity: 0.5;
+        }
+        50% {
+          opacity: 0;
+        }
+        75% {
+          opacity: 0.5;
+        }
+      }
     </style>
     <script type="text/javascript">window.$crisp=[];window.CRISP_WEBSITE_ID="d69e5955-fa6a-4fe6-b1bb-c87cf7515d09";(function(){d=document;s=d.createElement("script");s.src="https://client.crisp.chat/l.js";s.async=1;d.getElementsByTagName("head")[0].appendChild(s);})();</script>
     <script type="text/javascript">
