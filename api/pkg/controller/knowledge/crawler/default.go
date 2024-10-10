@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -60,38 +61,62 @@ func NewDefault(k *types.Knowledge) (*Default, error) {
 }
 
 func getBrowser(k *types.Knowledge) (*rod.Browser, error) {
+	chromeURL := k.Source.Web.Crawler.ChromeURL
 
-	//http://127.0.0.1:9222/json/version\
-	req, err := http.NewRequest("GET", k.Source.Web.Crawler.ChromeURL+"/json/version", nil)
+	// Parse the URL to extract the hostname
+	parsedURL, err := url.Parse(chromeURL)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request for Chrome URL (%s): %w", k.Source.Web.Crawler.ChromeURL, err)
+		return nil, fmt.Errorf("error parsing Chrome URL (%s): %w", chromeURL, err)
 	}
-	req.Header.Set("Host", "localhost")
+
+	// Resolve the hostname to an IP address. This is required for the browser to connect,
+	// as if you try to connect with hostname/domain then chrome will reject the connection
+	ips, err := net.LookupIP(parsedURL.Hostname())
+	if err != nil {
+		return nil, fmt.Errorf("error resolving Chrome URL (%s) to IP: %w", chromeURL, err)
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no IP addresses found for Chrome URL (%s)", chromeURL)
+	}
+
+	// Use the first IP address
+	ip := ips[0].String()
+
+	// Replace the hostname with the IP address in the original URL
+	resolvedURL := strings.Replace(chromeURL, parsedURL.Hostname(), ip, 1)
+
+	// Use the resolved URL for the request
+	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
+	}
+	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error checking Chrome URL (%s): %w", k.Source.Web.Crawler.ChromeURL, err)
+		return nil, fmt.Errorf("error checking Chrome URL (%s): %w", resolvedURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bts, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("error reading Chrome URL (%s) response: %w", k.Source.Web.Crawler.ChromeURL, err)
+			return nil, fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
 		}
-		return nil, fmt.Errorf("error checking Chrome URL (%s): %s", k.Source.Web.Crawler.ChromeURL, string(bts))
+		return nil, fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(bts))
 	}
 
-	u, err := launcher.ResolveURL(k.Source.Web.Crawler.ChromeURL)
+	u, err := launcher.ResolveURL(resolvedURL)
 	if err != nil {
-		return nil, fmt.Errorf("error resolving Chrome URL (%s): %w", k.Source.Web.Crawler.ChromeURL, err)
+		return nil, fmt.Errorf("error resolving Chrome URL (%s): %w", resolvedURL, err)
 	}
 
 	browser := rod.New().ControlURL(u)
 
 	err = browser.Connect()
 	if err != nil {
-		return nil, fmt.Errorf("error connecting to Chrome on '%s': %w", k.Source.Web.Crawler.ChromeURL, err)
+		return nil, fmt.Errorf("error connecting to Chrome on '%s': %w", resolvedURL, err)
 	}
 
 	return browser, nil
