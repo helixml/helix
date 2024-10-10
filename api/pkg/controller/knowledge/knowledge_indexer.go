@@ -203,7 +203,6 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		for {
 			select {
 			case <-ctx.Done():
-				fmt.Println("done")
 				return
 			case <-ticker.C:
 				current := int(progress.Load())
