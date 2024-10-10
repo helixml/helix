@@ -20,39 +20,6 @@ export const InteractionMarkdown: FC<{
   const theme = useTheme()
   if(!text) return null
 
-  // Function to add <br> tags for single newlines, except inside fenced code blocks
-  const addLineBreaks = (text: string) => {
-    const lines = text.split('\n');
-    let insideCodeBlock = false;
-    let result = '';
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      
-      if (line.trim().startsWith('```')) {
-        insideCodeBlock = !insideCodeBlock;
-      }
-
-      result += line;
-
-      if (!insideCodeBlock && i < lines.length - 1) {
-        const nextLine = lines[i + 1];
-        if (line.trim() !== '' && nextLine.trim() !== '' && !nextLine.trim().startsWith('```')) {
-          result += '<br>';
-        }
-      }
-
-      if (i < lines.length - 1) {
-        result += '\n';
-      }
-    }
-
-    return result;
-  };
-
-  // Apply the line break transformation to the text
-  text = addLineBreaks(text);
-
   return (
     <Box
       sx={{
@@ -79,7 +46,6 @@ export const InteractionMarkdown: FC<{
       <Markdown
         children={text}
         remarkPlugins={[remarkGfm]}
-        // TODO re-add rehypeSanitize while not breaking the flashing yellow cursor
         rehypePlugins={[rehypeRaw]}
         className="interactionMessage"
         components={{
@@ -99,6 +65,24 @@ export const InteractionMarkdown: FC<{
                 {children}
               </code>
             )
+          },
+          p(props) {
+            const { children } = props;
+            return (
+              <p>
+                {React.Children.map(children, child => {
+                  if (typeof child === 'string') {
+                    return child.split('\n').map((line, i, arr) => (
+                      <React.Fragment key={i}>
+                        {line}
+                        {i < arr.length - 1 && <br />}
+                      </React.Fragment>
+                    ));
+                  }
+                  return child;
+                })}
+              </p>
+            );
           }
         }}
       />
