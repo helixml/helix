@@ -93,6 +93,13 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	if err != nil {
 		return fmt.Errorf("failed to get indexing data, error: %w", err)
 	}
+
+	// Sanity check if we have any data
+	err = checkContents(data)
+	if err != nil {
+		return err
+	}
+
 	elapsed := time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
@@ -364,4 +371,18 @@ func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*tex
 	}
 
 	return indexChunks
+}
+
+func checkContents(data []*indexerData) error {
+	if len(data) == 0 {
+		return fmt.Errorf("couldn't extract any data for indexing, check your data source or configuration")
+	}
+
+	for _, d := range data {
+		if len(d.Data) > 0 {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("couldn't extract any data for indexing, check your data source or configuration")
 }
