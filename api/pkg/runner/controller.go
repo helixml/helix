@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,6 +142,9 @@ func NewRunner(
 	if options.ApiToken == "" {
 		return nil, fmt.Errorf("api token is required")
 	}
+
+	// Remove trailing slash from ApiHost if present
+	options.ApiHost = strings.TrimSuffix(options.ApiHost, "/")
 
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
