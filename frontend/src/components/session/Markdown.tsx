@@ -20,21 +20,23 @@ export const InteractionMarkdown: FC<{
   const theme = useTheme()
   if(!text) return null
 
-  // Function to add <br> tags for single newlines
-  const addLineBreaks = (text: string) => {
-    return text.replace(/(?<!\n)\n(?!\n)/g, '<br>\n');
-  };
-
-  // Apply the line break transformation to the text
-  text = addLineBreaks(text);
-
   return (
     <Box
       sx={{
+        '& pre': {
+          backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
+          padding: '1em',
+          borderRadius: '4px',
+          overflowX: 'auto',
+        },
         '& code': {
-          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+          backgroundColor: 'transparent',
           fontSize: '0.9rem',
-          p: 0.5,
+        },
+        '& :not(pre) > code': {
+          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+          padding: '0.2em 0.4em',
+          borderRadius: '3px',
         },
         '& a': {
           color: theme.palette.mode === 'light' ? '#333' : '#bbb',
@@ -44,7 +46,6 @@ export const InteractionMarkdown: FC<{
       <Markdown
         children={text}
         remarkPlugins={[remarkGfm]}
-        // TODO re-add rehypeSanitize while not breaking the flashing yellow cursor
         rehypePlugins={[rehypeRaw]}
         className="interactionMessage"
         components={{
@@ -64,6 +65,24 @@ export const InteractionMarkdown: FC<{
                 {children}
               </code>
             )
+          },
+          p(props) {
+            const { children } = props;
+            return (
+              <p>
+                {React.Children.map(children, child => {
+                  if (typeof child === 'string') {
+                    return child.split('\n').map((line, i, arr) => (
+                      <React.Fragment key={i}>
+                        {line}
+                        {i < arr.length - 1 && <br />}
+                      </React.Fragment>
+                    ));
+                  }
+                  return child;
+                })}
+              </p>
+            );
           }
         }}
       />
