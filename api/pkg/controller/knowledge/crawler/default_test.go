@@ -108,3 +108,28 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 	assert.Contains(t, doc.Content, `Content-Disposition: form-data; name="username"`)
 	assert.Contains(t, doc.Content, "local encoded_payload, err = json.encode(json_payload)")
 }
+
+func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
+	k := &types.Knowledge{
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				Crawler: &types.WebsiteCrawler{
+					Readability: true,
+					ChromeURL:   os.Getenv("CHROME_URL"),
+				},
+			},
+		},
+	}
+	d, err := NewDefault(k)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile("../readability/testdata/sb.html")
+	require.NoError(t, err)
+
+	doc, err := d.convertHTMLToMarkdown(string(content), &types.CrawledDocument{
+		SourceURL: "https://www.starbucks.com/store-locator/store/50766-275766/target-austin-ut-campus-3250-2021-guadalupe-st-austin-tx-78705-us",
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, doc.Content, "Target Austin UT Campus")
+}
