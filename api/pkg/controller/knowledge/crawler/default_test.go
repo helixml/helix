@@ -116,6 +116,7 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 				Crawler: &types.WebsiteCrawler{
 					Readability: true,
 					ChromeURL:   os.Getenv("CHROME_URL"),
+					// ChromeURL: "http://localhost:9222",
 				},
 			},
 		},
