@@ -24,19 +24,30 @@ export const InteractionMarkdown: FC<{
   const addLineBreaks = (text: string) => {
     const lines = text.split('\n');
     let insideCodeBlock = false;
+    let result = '';
 
-    return lines.map((line, index) => {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
       if (line.trim().startsWith('```')) {
         insideCodeBlock = !insideCodeBlock;
-        return line;
       }
 
-      if (!insideCodeBlock && index < lines.length - 1 && !line.trim().endsWith('```')) {
-        return line + '<br>';
+      result += line;
+
+      if (!insideCodeBlock && i < lines.length - 1) {
+        const nextLine = lines[i + 1];
+        if (line.trim() !== '' && nextLine.trim() !== '' && !nextLine.trim().startsWith('```')) {
+          result += '<br>';
+        }
       }
 
-      return line;
-    }).join('\n');
+      if (i < lines.length - 1) {
+        result += '\n';
+      }
+    }
+
+    return result;
   };
 
   // Apply the line break transformation to the text
@@ -46,12 +57,19 @@ export const InteractionMarkdown: FC<{
     <Box
       sx={{
         '& pre': {
-          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+          backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
+          padding: '1em',
+          borderRadius: '4px',
+          overflowX: 'auto',
         },
         '& code': {
-          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+          backgroundColor: 'transparent',
           fontSize: '0.9rem',
-          p: 0.5,
+        },
+        '& :not(pre) > code': {
+          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+          padding: '0.2em 0.4em',
+          borderRadius: '3px',
         },
         '& a': {
           color: theme.palette.mode === 'light' ? '#333' : '#bbb',
