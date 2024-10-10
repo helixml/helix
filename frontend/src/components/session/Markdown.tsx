@@ -20,9 +20,23 @@ export const InteractionMarkdown: FC<{
   const theme = useTheme()
   if(!text) return null
 
-  // Function to add <br> tags for single newlines
+  // Function to add <br> tags for single newlines, except inside fenced code blocks
   const addLineBreaks = (text: string) => {
-    return text.replace(/(?<!\n)\n(?!\n)/g, '<br>\n');
+    const lines = text.split('\n');
+    let insideCodeBlock = false;
+
+    return lines.map((line, index) => {
+      if (line.trim().startsWith('```')) {
+        insideCodeBlock = !insideCodeBlock;
+        return line;
+      }
+
+      if (!insideCodeBlock && index < lines.length - 1 && !line.trim().endsWith('```')) {
+        return line + '<br>';
+      }
+
+      return line;
+    }).join('\n');
   };
 
   // Apply the line break transformation to the text
@@ -31,6 +45,9 @@ export const InteractionMarkdown: FC<{
   return (
     <Box
       sx={{
+        '& pre': {
+          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+        },
         '& code': {
           backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
           fontSize: '0.9rem',
