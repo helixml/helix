@@ -3,6 +3,8 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -41,6 +43,12 @@ func NewDefault(k *types.Knowledge) (*Default, error) {
 	browser, err := getBrowser(k)
 	if err != nil {
 		log.Warn().Err(err).Msg("error configuring browser")
+	} else {
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Str("chrome_url", k.Source.Web.Crawler.ChromeURL).
+			Msg("Initializing browser")
 	}
 
 	return &Default{
@@ -52,16 +60,38 @@ func NewDefault(k *types.Knowledge) (*Default, error) {
 }
 
 func getBrowser(k *types.Knowledge) (*rod.Browser, error) {
+
+	//http://127.0.0.1:9222/json/version\
+	req, err := http.NewRequest("GET", k.Source.Web.Crawler.ChromeURL+"/json/version", nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request for Chrome URL (%s): %w", k.Source.Web.Crawler.ChromeURL, err)
+	}
+	req.Header.Set("Host", "localhost")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error checking Chrome URL (%s): %w", k.Source.Web.Crawler.ChromeURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading Chrome URL (%s) response: %w", k.Source.Web.Crawler.ChromeURL, err)
+		}
+		return nil, fmt.Errorf("error checking Chrome URL (%s): %s", k.Source.Web.Crawler.ChromeURL, string(bts))
+	}
+
 	u, err := launcher.ResolveURL(k.Source.Web.Crawler.ChromeURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error resolving Chrome URL (%s): %w", k.Source.Web.Crawler.ChromeURL, err)
 	}
 
 	browser := rod.New().ControlURL(u)
 
 	err = browser.Connect()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error connecting to Chrome on '%s': %w", k.Source.Web.Crawler.ChromeURL, err)
 	}
 
 	return browser, nil
