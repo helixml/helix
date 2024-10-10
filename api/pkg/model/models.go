@@ -54,6 +54,8 @@ func GetModels() (map[types.ModelName]Model, error) {
 
 	models[types.Model_Ollama_Phi3] = NewOllamaGenericText(types.Model_Ollama_Phi3.String(), MB*2300)
 
+	models[types.Model_Ollama_Aya_8b] = NewOllamaGenericText(types.Model_Ollama_Aya_8b.String(), MB*6669)
+
 	return models, nil
 }
 
