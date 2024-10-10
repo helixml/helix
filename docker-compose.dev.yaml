@@ -154,6 +154,18 @@ services:
       - 8108:8108
     volumes:
       - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+  chrome:
+    image: ghcr.io/go-rod/rod:v0.115.0
+    command: [
+      "chrome",
+      "--headless",
+      "--no-sandbox",
+      "--remote-debugging-port=9222",
+      "--remote-debugging-address=0.0.0.0"
+    ]
+    ports:
+      - 9222:9222
+      - 7317:7317
   llamaindex:
     profiles: [full]
     image: registry.helix.ml/helix/llamaindex:latest
