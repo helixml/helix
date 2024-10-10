@@ -68,6 +68,7 @@ func (t *Typesense) waitForTypesense() {
 		retry.Delay(2*time.Second),
 		retry.MaxDelay(10*time.Second),
 		retry.LastErrorOnly(true),
+		retry.MaxDelay(10*time.Second),
 		retry.OnRetry(func(n uint, err error) {
 			log.Warn().
 				Err(err).
