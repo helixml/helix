@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog/log"
 
@@ -30,14 +33,38 @@ type Default struct {
 
 	converter *md.Converter
 	parser    readability.Parser
+
+	browser *rod.Browser
 }
 
 func NewDefault(k *types.Knowledge) (*Default, error) {
+	browser, err := getBrowser(k)
+	if err != nil {
+		log.Warn().Err(err).Msg("error configuring browser")
+	}
+
 	return &Default{
 		knowledge: k,
 		converter: md.NewConverter("", true, nil),
 		parser:    readability.NewParser(),
+		browser:   browser,
 	}, nil
+}
+
+func getBrowser(k *types.Knowledge) (*rod.Browser, error) {
+	u, err := launcher.ResolveURL(k.Source.Web.Crawler.ChromeURL)
+	if err != nil {
+		return nil, err
+	}
+
+	browser := rod.New().ControlURL(u)
+
+	err = browser.Connect()
+	if err != nil {
+		return nil, err
+	}
+
+	return browser, nil
 }
 
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
@@ -207,9 +234,55 @@ func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocume
 		return nil, err
 	}
 
+	if article.Content == "" {
+		log.Info().
+			Str("knowledge_id", d.knowledge.ID).
+			Str("url", doc.SourceURL).
+			Msg("HTML parsing failed, retrying with browser")
+		return d.crawlWithBrowser(ctx, doc)
+	}
+
 	markdown, err := d.converter.ConvertString(article.Content)
 	if err != nil {
 		return nil, err
+	}
+
+	doc.Content = strings.TrimSpace(markdown)
+	doc.Title = article.Title
+	doc.Description = article.Excerpt
+
+	return doc, nil
+}
+
+func (d *Default) crawlWithBrowser(ctx context.Context, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+	if d.browser == nil {
+		log.Warn().Msg("browser not initialized")
+		return doc, nil
+	}
+
+	page, err := d.browser.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
+	if err != nil {
+		return nil, fmt.Errorf("error creating new browser tab for %s: %w", doc.SourceURL, err)
+	}
+
+	err = page.WaitLoad()
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for page to load for %s: %w", doc.SourceURL, err)
+	}
+
+	html, err := page.HTML()
+	if err != nil {
+		return nil, fmt.Errorf("error getting HTML for %s: %w", doc.SourceURL, err)
+	}
+
+	article, err := d.parser.Parse(ctx, html, doc.SourceURL)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing HTML for %s: %w", doc.SourceURL, err)
+	}
+
+	markdown, err := d.converter.ConvertString(article.Content)
+	if err != nil {
+		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
 	}
 
 	doc.Content = strings.TrimSpace(markdown)
