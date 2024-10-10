@@ -200,7 +200,7 @@ func (a *allocator) ReconcileSlots(props *types.RunnerState) error {
 
 	// Warn if the runner's state doesn't match the allocator's records.
 	if len(props.ModelInstances) != len(a.RunnerSlots(props.ID)) {
-		l.Debug().
+		l.Trace().
 			Int("runner_models_len", len(props.ModelInstances)).
 			Int("controlplane_models_len", len(a.RunnerSlots(props.ID))).
 			Msg("runner model mismatch, ignoring runner models")
