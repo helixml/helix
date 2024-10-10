@@ -48,6 +48,15 @@ func (suite *TypesenseTestSuite) SetupTest() {
 	suite.ts = ts
 }
 
+func (suite *TypesenseTestSuite) Test_ensureReady() {
+	err := suite.ts.ensureReady(suite.ctx)
+	suite.Require().NoError(err)
+
+	// Call it again
+	err = suite.ts.ensureReady(suite.ctx)
+	suite.Require().NoError(err)
+}
+
 func (suite *TypesenseTestSuite) TestIndexAndQuery() {
 	// Index sample data
 	sampleDocs := []types.SessionRAGIndexChunk{
