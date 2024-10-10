@@ -22,6 +22,7 @@ const (
 type Typesense struct {
 	client     *typesense.Client
 	collection string
+	ready      chan struct{}
 }
 
 var _ RAG = &Typesense{}
@@ -34,17 +35,34 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		typesense.WithConnectionTimeout(300*time.Second),
 	)
 
+	collection := settings.Typesense.Collection
+	if collection == "" {
+		collection = defaultCollection
+	}
+
+	t := &Typesense{
+		client:     client,
+		collection: collection,
+		ready:      make(chan struct{}),
+	}
+
+	go t.waitForTypesense()
+
+	return t, nil
+}
+
+func (t *Typesense) waitForTypesense() {
 	err := retry.Do(func() error {
-		healthy, err := client.Health(context.Background(), 5*time.Second)
+		healthy, err := t.client.Health(context.Background(), 5*time.Second)
 		if err != nil {
 			return err
 		}
 
-		if healthy {
-			return nil
+		if !healthy {
+			return fmt.Errorf("typesense is not healthy yet")
 		}
 
-		return fmt.Errorf("typesense is not healthy yet")
+		return t.ensureCollection(context.Background())
 	},
 		retry.Attempts(0),
 		retry.Delay(2*time.Second),
@@ -56,57 +74,30 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 				Msg("waiting for typesense to come up")
 		}),
 	)
+
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Msg("failed to connect to typesense")
+		return
 	}
 
-	log.Info().Msg("typesense is up")
+	log.Info().Msg("typesense is up and collection is ready")
+	close(t.ready)
+}
 
-	collection := settings.Typesense.Collection
-	if collection == "" {
-		collection = defaultCollection
+func (t *Typesense) ensureReady(ctx context.Context) error {
+	select {
+	case <-t.ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	t := &Typesense{
-		client:     client,
-		collection: collection,
-	}
-
-	err = retry.Do(func() error {
-		return t.ensureCollection(context.Background())
-	},
-		retry.Attempts(3),
-		retry.Delay(5*time.Second),
-		retry.LastErrorOnly(true),
-		retry.OnRetry(func(n uint, err error) {
-			log.Warn().
-				Err(err).
-				Uint("retries", n).
-				Msg("retrying to connect to typesense")
-		}),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return t, nil
 }
 
 func (t *Typesense) Index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
-	err := retry.Do(func() error {
-		return t.index(context.Background(), indexReqs...)
-	},
-		retry.Attempts(5),
-		retry.Delay(5*time.Second),
-		retry.LastErrorOnly(true),
-		retry.OnRetry(func(n uint, err error) {
-			log.Warn().
-				Err(err).
-				Uint("retries", n).
-				Msg("retrying to index documents in typesense")
-		}),
-	)
-	return err
+	if err := t.ensureReady(ctx); err != nil {
+		return err
+	}
+	return t.index(ctx, indexReqs...)
 }
 
 func (t *Typesense) index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
@@ -140,6 +131,10 @@ func (t *Typesense) index(ctx context.Context, indexReqs ...*types.SessionRAGInd
 }
 
 func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error) {
+	if err := t.ensureReady(ctx); err != nil {
+		return nil, err
+	}
+
 	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
 		Q:             pointer.String(q.Prompt),
@@ -174,15 +169,15 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 }
 
 func (t *Typesense) Delete(ctx context.Context, r *types.DeleteIndexRequest) error {
+	if err := t.ensureReady(ctx); err != nil {
+		return err
+	}
+
 	params := &api.DeleteDocumentsParams{
 		FilterBy: pointer.String("data_entity_id:" + r.DataEntityID),
 	}
 	_, err := t.client.Collection(t.collection).Documents().Delete(ctx, params)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func getStrVariable(hit *api.SearchResultHit, key string) string {
