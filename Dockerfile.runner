@@ -29,8 +29,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
 FROM registry.helix.ml/helix/runner-base:${TAG}
 
 # Install ollama
-RUN curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.1.46/ollama-linux-amd64 -o /usr/bin/ollama
-RUN chmod +x /usr/bin/ollama
+RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
+    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.3.12/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
+    tar -xzf $TEMP_DIR/ollama.tgz -C $TEMP_DIR && \
+    mv $TEMP_DIR/bin/ollama /usr/bin/ollama && \
+    chmod +x /usr/bin/ollama && \
+    cp -r $TEMP_DIR/lib/ollama /usr/lib/ && \
+    rm -rf $TEMP_DIR
 
 RUN mkdir -p /workspace/helix
 
