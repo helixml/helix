@@ -3,12 +3,18 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync/atomic"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog/log"
 
@@ -30,14 +36,90 @@ type Default struct {
 
 	converter *md.Converter
 	parser    readability.Parser
+
+	browser *rod.Browser
 }
 
 func NewDefault(k *types.Knowledge) (*Default, error) {
+	browser, err := getBrowser(k)
+	if err != nil {
+		log.Warn().Err(err).Msg("error configuring browser")
+	} else {
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Str("chrome_url", k.Source.Web.Crawler.ChromeURL).
+			Msg("Initializing browser")
+	}
+
 	return &Default{
 		knowledge: k,
 		converter: md.NewConverter("", true, nil),
 		parser:    readability.NewParser(),
+		browser:   browser,
 	}, nil
+}
+
+func getBrowser(k *types.Knowledge) (*rod.Browser, error) {
+	chromeURL := k.Source.Web.Crawler.ChromeURL
+
+	// Parse the URL to extract the hostname
+	parsedURL, err := url.Parse(chromeURL)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing Chrome URL (%s): %w", chromeURL, err)
+	}
+
+	// Resolve the hostname to an IP address. This is required for the browser to connect,
+	// as if you try to connect with hostname/domain then chrome will reject the connection
+	ips, err := net.LookupIP(parsedURL.Hostname())
+	if err != nil {
+		return nil, fmt.Errorf("error resolving Chrome URL (%s) to IP: %w", chromeURL, err)
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no IP addresses found for Chrome URL (%s)", chromeURL)
+	}
+
+	// Use the first IP address
+	ip := ips[0].String()
+
+	// Replace the hostname with the IP address in the original URL
+	resolvedURL := strings.Replace(chromeURL, parsedURL.Hostname(), ip, 1)
+
+	// Use the resolved URL for the request
+	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
+	}
+	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error checking Chrome URL (%s): %w", resolvedURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
+		}
+		return nil, fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(bts))
+	}
+
+	u, err := launcher.ResolveURL(resolvedURL)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving Chrome URL (%s): %w", resolvedURL, err)
+	}
+
+	browser := rod.New().ControlURL(u)
+
+	err = browser.Connect()
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to Chrome on '%s': %w", resolvedURL, err)
+	}
+
+	return browser, nil
 }
 
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
@@ -207,9 +289,55 @@ func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocume
 		return nil, err
 	}
 
+	if article.Content == "" {
+		log.Info().
+			Str("knowledge_id", d.knowledge.ID).
+			Str("url", doc.SourceURL).
+			Msg("HTML parsing failed, retrying with browser")
+		return d.crawlWithBrowser(ctx, doc)
+	}
+
 	markdown, err := d.converter.ConvertString(article.Content)
 	if err != nil {
 		return nil, err
+	}
+
+	doc.Content = strings.TrimSpace(markdown)
+	doc.Title = article.Title
+	doc.Description = article.Excerpt
+
+	return doc, nil
+}
+
+func (d *Default) crawlWithBrowser(ctx context.Context, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+	if d.browser == nil {
+		log.Warn().Msg("browser not initialized")
+		return doc, nil
+	}
+
+	page, err := d.browser.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
+	if err != nil {
+		return nil, fmt.Errorf("error creating new browser tab for %s: %w", doc.SourceURL, err)
+	}
+
+	err = page.WaitLoad()
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for page to load for %s: %w", doc.SourceURL, err)
+	}
+
+	html, err := page.HTML()
+	if err != nil {
+		return nil, fmt.Errorf("error getting HTML for %s: %w", doc.SourceURL, err)
+	}
+
+	article, err := d.parser.Parse(ctx, html, doc.SourceURL)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing HTML for %s: %w", doc.SourceURL, err)
+	}
+
+	markdown, err := d.converter.ConvertString(article.Content)
+	if err != nil {
+		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
 	}
 
 	doc.Content = strings.TrimSpace(markdown)

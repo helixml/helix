@@ -182,6 +182,10 @@ type RAG struct {
 		// this is a prefix, full path is http://llamaindex:5000/api/v1/rag/<data_entity_id>
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
 	}
+
+	Crawler struct {
+		ChromeURL string `envconfig:"RAG_CRAWLER_CHROME_URL" default:"http://chrome:9222" description:"The URL to the Chrome instance."`
+	}
 }
 
 type Controller struct {

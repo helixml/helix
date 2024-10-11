@@ -38,6 +38,7 @@ steps:
     TYPESENSE_URL: http://typesense:8108
     TYPESENSE_API_KEY: typesense
     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    CHROME_URL: http://chrome:9222
   commands:
     - go test -v ./...
   when:
@@ -92,7 +93,16 @@ services:
   image: typesense/typesense:27.0
   command: ["--data-dir", "/tmp", "--api-key", "typesense"]
 - name: tika
-  image: apache/tika:2.9.2.1  
+  image: apache/tika:2.9.2.1
+- name: chrome
+  image: ghcr.io/go-rod/rod:v0.115.0
+  command: [
+    "chrome",
+    "--headless",
+    "--no-sandbox",
+    "--remote-debugging-port=9222",
+    "--remote-debugging-address=0.0.0.0"
+  ]
 
 ---
 kind: pipeline
