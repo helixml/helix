@@ -257,7 +257,33 @@ steps:
     - main
     event:
     - tag
+
+steps:
+- name: publish-runner
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_BRANCH:-main}-small" # Default to branch
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with small models = small
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-small
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    event:
     - push
+
 
 depends_on:
 - default
@@ -300,6 +326,31 @@ steps:
     - main
     event:
     - tag
+
+steps:
+- name: publish-runner
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_BRANCH:-main}-large"
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with large models = large
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-large
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    event:
     - push
 
 depends_on:
