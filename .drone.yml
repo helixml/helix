@@ -174,44 +174,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
-    event:
-    - tag
-    - push
-
-depends_on:
-- default
-
----
-kind: pipeline
-type: docker
-name: build-gptscript-runner
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.gptscript
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/gptscript-runner
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-    - main
     event:
     - tag
     - push
@@ -257,7 +219,36 @@ steps:
     - main
     event:
     - tag
+
+steps:
+- name: publish-runner-branch
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with small models = small
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-small
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+      exclude:
+      - main
+    event:
     - push
+
 
 depends_on:
 - default
@@ -289,6 +280,70 @@ steps:
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
       - TAG=2024-05-22b-large
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+
+steps:
+- name: publish-runner-branch
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_COMMIT_SHA:-main}-large"
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with large models = large
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-large
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+      exclude:
+      - main
+    event:
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
+name: build-gptscript-runner
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-image
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.gptscript
+    auto_tag: true
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/gptscript-runner
     username: admin
     password:
       from_secret: helix_registry_password
