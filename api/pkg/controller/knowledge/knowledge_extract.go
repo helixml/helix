@@ -105,6 +105,19 @@ func crawlerEnabled(k *types.Knowledge) bool {
 }
 
 func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	if k.Source.Web == nil {
+		return nil, fmt.Errorf("no web source defined")
+	}
+
+	if k.Source.Web.Crawler == nil {
+		return nil, fmt.Errorf("no crawler defined")
+	}
+
+	if k.Source.Web.Crawler.ChromeURL == "" {
+		// Using default Chrome URL
+		k.Source.Web.Crawler.ChromeURL = r.config.RAG.Crawler.ChromeURL
+	}
+
 	crawler, err := r.newCrawler(k)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create crawler: %w", err)
