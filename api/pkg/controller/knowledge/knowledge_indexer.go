@@ -166,9 +166,9 @@ func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) 
 		return nil
 	}
 
-	// Sort by created date, newest first
+	// Sort by created date, oldest first
 	sort.Slice(versions, func(i, j int) bool {
-		return versions[i].Created.After(versions[j].Created)
+		return versions[i].Created.Before(versions[j].Created)
 	})
 
 	// Delete the oldest versions
