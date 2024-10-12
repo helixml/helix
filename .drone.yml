@@ -166,7 +166,7 @@ steps:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-empty
+      - TAG=2024-10-12a-empty
     username: admin
     password:
       from_secret: helix_registry_password
@@ -207,7 +207,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-small
+      - TAG=2024-10-12a-small
     username: admin
     password:
       from_secret: helix_registry_password
@@ -235,7 +235,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-small
+      - TAG=2024-10-12a-small
     username: admin
     password:
       from_secret: helix_registry_password
@@ -279,7 +279,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-large
+      - TAG=2024-10-12a-large
     username: admin
     password:
       from_secret: helix_registry_password
@@ -307,7 +307,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-large
+      - TAG=2024-10-12a-large
     username: admin
     password:
       from_secret: helix_registry_password
