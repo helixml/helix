@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
@@ -147,6 +148,30 @@ func (suite *IndexerSuite) TestIndex() {
 
 	// Wait for the goroutines to finish
 	suite.reconciler.wg.Wait()
+}
+
+func (suite *IndexerSuite) Test_deleteOldVersions_LessThanMaxVersions() {
+	// Setup
+	knowledgeID := "test_knowledge_id"
+	maxVersions := 5
+	suite.cfg.RAG.MaxVersions = maxVersions
+
+	versions := []*types.KnowledgeVersion{
+		{ID: "1", KnowledgeID: knowledgeID, Version: "v1", Created: time.Now().Add(-3 * time.Hour)},
+		{ID: "2", KnowledgeID: knowledgeID, Version: "v2", Created: time.Now().Add(-2 * time.Hour)},
+		{ID: "3", KnowledgeID: knowledgeID, Version: "v3", Created: time.Now().Add(-1 * time.Hour)},
+	}
+
+	// Expectations
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledgeID,
+	}).Return(versions, nil)
+
+	// We don't expect any calls to DeleteKnowledgeVersion since we have fewer versions than the max
+
+	// Execute
+	err := suite.reconciler.deleteOldVersions(suite.ctx, &types.Knowledge{ID: knowledgeID})
+	suite.NoError(err)
 }
 
 func Test_convertChunksIntoBatches(t *testing.T) {
