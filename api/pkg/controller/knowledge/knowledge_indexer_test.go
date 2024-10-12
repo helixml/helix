@@ -193,6 +193,14 @@ func (suite *IndexerSuite) Test_deleteOldVersions_MoreThanMaxVersions() {
 		KnowledgeID: knowledgeID,
 	}).Return(versions, nil)
 
+	// Expect the rag client to be called twice, once for each version
+	suite.rag.EXPECT().Delete(gomock.Any(), gomock.Eq(&types.DeleteIndexRequest{
+		DataEntityID: "test_knowledge_id-v1",
+	})).Return(nil)
+	suite.rag.EXPECT().Delete(gomock.Any(), gomock.Eq(&types.DeleteIndexRequest{
+		DataEntityID: "test_knowledge_id-v2",
+	})).Return(nil)
+
 	// Expect the two oldest versions to be deleted
 	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "1").Return(nil)
 	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "2").Return(nil)
