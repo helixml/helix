@@ -173,10 +173,34 @@ func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) 
 
 	// Delete the oldest versions
 	for _, v := range versions[:len(versions)-r.config.RAG.MaxVersions] {
-		err := r.store.DeleteKnowledgeVersion(ctx, v.ID)
+		err := r.deleteKnowledgeVersion(ctx, k, v)
 		if err != nil {
-			return fmt.Errorf("failed to delete knowledge version, error: %w", err)
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Str("version", v.Version).
+				Msg("failed to delete knowledge version")
 		}
+	}
+
+	return nil
+}
+
+// deleteKnowledgeVersion deletes the knowledge data from the vector DB and the version record from the
+// postgres database
+func (r *Reconciler) deleteKnowledgeVersion(ctx context.Context, k *types.Knowledge, v *types.KnowledgeVersion) error {
+	ragClient := r.getRagClient(k)
+
+	err := ragClient.Delete(ctx, &types.DeleteIndexRequest{
+		DataEntityID: v.GetDataEntityID(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete knowledge version from vector DB, error: %w", err)
+	}
+
+	err = r.store.DeleteKnowledgeVersion(ctx, v.ID)
+	if err != nil {
+		return fmt.Errorf("failed to delete knowledge version, error: %w", err)
 	}
 
 	return nil
