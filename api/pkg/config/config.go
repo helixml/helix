@@ -167,7 +167,7 @@ type RAG struct {
 	// DefaultRagProvider is the default RAG provider to use if not specified
 	DefaultRagProvider string `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
 
-	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"5" description:"The maximum number of versions to keep for a knowledge."`
+	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
 	// Typesense is used to store RAG records in a Typesense index
 	Typesense struct {
