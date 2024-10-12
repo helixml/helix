@@ -143,6 +143,10 @@ func (suite *IndexerSuite) TestIndex() {
 		},
 	)
 
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledge.ID,
+	}).Return([]*types.KnowledgeVersion{}, nil)
+
 	// Start indexing
 	suite.reconciler.index(suite.ctx)
 
