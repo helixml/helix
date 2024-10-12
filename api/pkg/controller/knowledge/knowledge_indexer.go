@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -142,12 +143,41 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			Str("knowledge_id", k.ID).
 			Str("version", version).
 			Msg("failed to create knowledge version")
+		return fmt.Errorf("failed to create knowledge version, error: %w", err)
 	}
 
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Str("new_version", version).
 		Msg("knowledge indexed")
+
+	return nil
+}
+
+func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) error {
+	versions, err := r.store.ListKnowledgeVersions(ctx, &store.ListKnowledgeVersionQuery{
+		KnowledgeID: k.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list knowledge versions, error: %w", err)
+	}
+
+	if len(versions) <= r.config.RAG.MaxVersions {
+		return nil
+	}
+
+	// Sort by created date, newest first
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Created.After(versions[j].Created)
+	})
+
+	// Delete the oldest versions
+	for _, v := range versions[:len(versions)-r.config.RAG.MaxVersions] {
+		err := r.store.DeleteKnowledgeVersion(ctx, v.ID)
+		if err != nil {
+			return fmt.Errorf("failed to delete knowledge version, error: %w", err)
+		}
+	}
 
 	return nil
 }
