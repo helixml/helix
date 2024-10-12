@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
 
@@ -169,6 +170,9 @@ func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) 
 	}
 
 	if len(versions) <= r.config.RAG.MaxVersions {
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Msg("no need to delete any previous versions as there are less than the max allowed")
 		return nil
 	}
 
@@ -186,6 +190,12 @@ func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) 
 				Str("knowledge_id", k.ID).
 				Str("version", v.Version).
 				Msg("failed to delete knowledge version")
+		} else {
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Str("version", v.Version).
+				Str("size", humanize.Bytes(uint64(k.Size))).
+				Msg("deleted old knowledge version")
 		}
 	}
 
