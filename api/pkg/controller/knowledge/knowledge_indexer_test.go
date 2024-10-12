@@ -174,6 +174,36 @@ func (suite *IndexerSuite) Test_deleteOldVersions_LessThanMaxVersions() {
 	suite.NoError(err)
 }
 
+func (suite *IndexerSuite) Test_deleteOldVersions_MoreThanMaxVersions() {
+	// Setup
+	knowledgeID := "test_knowledge_id"
+	maxVersions := 3
+	suite.cfg.RAG.MaxVersions = maxVersions
+
+	versions := []*types.KnowledgeVersion{
+		{ID: "1", KnowledgeID: knowledgeID, Version: "v1", Created: time.Now().Add(-5 * time.Hour)},
+		{ID: "2", KnowledgeID: knowledgeID, Version: "v2", Created: time.Now().Add(-4 * time.Hour)},
+		{ID: "3", KnowledgeID: knowledgeID, Version: "v3", Created: time.Now().Add(-3 * time.Hour)},
+		{ID: "4", KnowledgeID: knowledgeID, Version: "v4", Created: time.Now().Add(-2 * time.Hour)},
+		{ID: "5", KnowledgeID: knowledgeID, Version: "v5", Created: time.Now().Add(-1 * time.Hour)},
+	}
+
+	// Expectations
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledgeID,
+	}).Return(versions, nil)
+
+	// Expect the two oldest versions to be deleted
+	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "1").Return(nil)
+	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "2").Return(nil)
+
+	// Execute
+	err := suite.reconciler.deleteOldVersions(suite.ctx, &types.Knowledge{ID: knowledgeID})
+
+	// Assert
+	suite.NoError(err)
+}
+
 func Test_convertChunksIntoBatches(t *testing.T) {
 	type args struct {
 		chunks    []*text.DataPrepTextSplitterChunk
