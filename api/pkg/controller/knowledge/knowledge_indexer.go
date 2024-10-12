@@ -151,6 +151,12 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Str("new_version", version).
 		Msg("knowledge indexed")
 
+	// Delete old versions
+	err = r.deleteOldVersions(ctx, k)
+	if err != nil {
+		return fmt.Errorf("failed to delete old versions, error: %w", err)
+	}
+
 	return nil
 }
 
@@ -296,7 +302,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			if err != nil {
 				return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
 			}
-			fmt.Println("CHUNK COMPLETED")
+
 			return nil
 		})
 	}
