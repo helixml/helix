@@ -99,7 +99,7 @@ We will always need to keep some GPU's free so that folks can run batch jobs (i.
 
 We need inference models to start up, load the model weights into memory, and then somehow wait until new requests arrive.
 
-What we need is a wrapper process that will use HTTP (either websockets or short polling) to wait for new jobs.  Upon initialisation, it should load the model weights and then be ready to pipe new requests into the model.
+What we need is a wrapper process that will use HTTP (either websockets or short polling) to wait for new jobs.  Upon initialization, it should load the model weights and then be ready to pipe new requests into the model.
 
 #### mistral
 
