@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
@@ -310,7 +311,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.Start(ctx)
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient)
+	// Initialize browser pool
+	browserPool, err := browser.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create browser pool: %w", err)
+	}
+
+	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient, browserPool)
 	if err != nil {
 		return err
 	}
