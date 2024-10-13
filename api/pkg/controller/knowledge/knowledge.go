@@ -37,16 +37,10 @@ type Reconciler struct {
 	wg           sync.WaitGroup
 }
 
-func New(config *config.ServerConfig, store store.Store, filestore filestore.FileStore, extractor extract.Extractor, ragClient rag.RAG) (*Reconciler, error) {
+func New(config *config.ServerConfig, store store.Store, filestore filestore.FileStore, extractor extract.Extractor, ragClient rag.RAG, b *browser.Browser) (*Reconciler, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
-	}
-
-	// Initialize browser pool
-	browserPool, err := browser.New(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
 	return &Reconciler{
@@ -61,7 +55,7 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 			return rag.NewLlamaindex(settings)
 		},
 		newCrawler: func(k *types.Knowledge) (crawler.Crawler, error) {
-			return crawler.NewCrawler(browserPool, k)
+			return crawler.NewCrawler(b, k)
 		},
 	}, nil
 }
