@@ -564,20 +564,20 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
-	runtimeName := initialSession.ModelName.InferenceRuntime()
+	runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
 
 	// if we are in mock mode - we need the axolotl model instance because
 	// it understands how to do a mock runner
 	if r.Options.MockRunner {
 		if initialSession.Type == types.SessionTypeText {
 			runtimeName = types.InferenceRuntimeAxolotl
-			initialSession.ModelName = types.Model_Axolotl_Mistral7b
+			initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
 		} else if initialSession.Type == types.SessionTypeImage {
 			// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
 			// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
 			// that does both axolotl and sdxl
 			runtimeName = types.InferenceRuntimeAxolotl
-			initialSession.ModelName = types.Model_Cog_SDXL
+			initialSession.ModelName = string(model.Model_Cog_SDXL)
 		}
 	}
 
@@ -635,7 +635,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	}
 
 	log.Info().
-		Str("model_instance", modelInstance.Filter().ModelName.String()).
+		Str("model_instance", modelInstance.Filter().ModelName).
 		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
 
 	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)

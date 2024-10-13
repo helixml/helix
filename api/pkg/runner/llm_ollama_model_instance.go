@@ -42,9 +42,9 @@ var (
 )
 
 func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelInstanceConfig, request *types.RunnerLLMInferenceRequest) (*OllamaInferenceModelInstance, error) {
-	modelName := types.ModelName(request.Request.Model)
+	modelName := model.ModelName(request.Request.Model)
 
-	aiModel, err := model.GetModel(modelName)
+	aiModel, err := model.GetModel(string(modelName))
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ type OllamaInferenceModelInstance struct {
 	id string
 
 	model     model.Model
-	modelName types.ModelName
+	modelName model.ModelName
 
 	runnerOptions RunnerOptions
 
@@ -399,7 +399,7 @@ func (i *OllamaInferenceModelInstance) ID() string {
 
 func (i *OllamaInferenceModelInstance) Filter() types.SessionFilter {
 	return types.SessionFilter{
-		ModelName: i.modelName,
+		ModelName: string(i.modelName),
 		Mode:      types.SessionModeInference,
 	}
 }
@@ -446,7 +446,7 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 			InteractionID: i.currentRequest.InteractionID,
 			Mode:          types.SessionModeInference,
 			Type:          types.SessionTypeText,
-			ModelName:     i.modelName,
+			ModelName:     string(i.modelName),
 			Owner:         i.currentRequest.OwnerID,
 			LoraDir:       "",
 			Summary:       summary,
@@ -462,7 +462,7 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 
 	return &types.ModelInstanceState{
 		ID:               i.id,
-		ModelName:        i.modelName,
+		ModelName:        string(i.modelName),
 		Mode:             types.SessionModeInference,
 		InitialSessionID: i.initialRequest.SessionID,
 		CurrentSession:   sessionSummary,

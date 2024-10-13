@@ -62,7 +62,7 @@ type Controller struct {
 
 	// keep a map of instantiated models so we can ask it about memory
 	// the models package looks after instantiating this for us
-	models map[types.ModelName]model.Model
+	models map[string]model.Model
 
 	// the map of model instances that we have loaded
 	// and are currently running

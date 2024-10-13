@@ -194,7 +194,7 @@ var WarmupSession_Model_Mistral7b = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeText,
-	ModelName:    types.Model_Axolotl_Mistral7b,
+	ModelName:    model.Model_Axolotl_Mistral7b,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -222,7 +222,7 @@ var WarmupSession_Model_SDXL = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeImage,
-	ModelName:    types.Model_Cog_SDXL,
+	ModelName:    model.Model_Cog_SDXL,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -236,7 +236,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return fmt.Errorf("api token is required")
 	}
 
-	_, err := types.TransformModelName(options.Runner.FilterModelName)
+	_, err := model.TransformModelName(options.Runner.FilterModelName)
 	if err != nil {
 		return err
 	}
@@ -283,10 +283,10 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		if options.Runner.Config.Runtimes.Axolotl.Enabled {
 			for _, modelName := range options.Runner.Config.Runtimes.Axolotl.WarmupModels {
 				switch modelName {
-				case types.Model_Axolotl_Mistral7b.String():
+				case model.Model_Axolotl_Mistral7b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
-				case types.Model_Cog_SDXL.String():
+				case model.Model_Cog_SDXL:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
 				default:
@@ -299,7 +299,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		if options.Runner.Config.Runtimes.Ollama.Enabled && !options.Runner.Config.Runtimes.V2Engine {
 			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
 				switch modelName {
-				case types.Model_Ollama_Llama3_8b.String():
+				case model.Model_Ollama_Llama3_8b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Llama3_8b)
 				}

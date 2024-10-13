@@ -324,7 +324,7 @@ type InternalSessionRequest struct {
 	ParentSession           string
 	ParentApp               string // tools will get pulled in from here in the controller
 	AssistantID             string // target a specific assistant - defaults to "0" (i.e. the first assistant)
-	ModelName               ModelName
+	ModelName               string
 	Owner                   string
 	OwnerType               OwnerType
 	UserInteractions        []*Interaction
@@ -369,7 +369,7 @@ type Session struct {
 	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
-	ModelName ModelName `json:"model_name"`
+	ModelName string `json:"model_name"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated
@@ -445,7 +445,7 @@ type SessionMetaUpdate struct {
 
 type SessionFilterModel struct {
 	Mode      SessionMode `json:"mode"`
-	ModelName ModelName   `json:"model_name"`
+	ModelName string      `json:"model_name"`
 	LoraDir   string      `json:"lora_dir"`
 }
 
@@ -480,7 +480,7 @@ type SessionFilter struct {
 	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
-	ModelName ModelName `json:"model_name"`
+	ModelName string `json:"model_name"`
 	// the filestore path to the file being used for finetuning
 	LoraDir string `json:"lora_dir"`
 	// this means "only give me sessions that will fit in this much ram"
@@ -498,7 +498,7 @@ type SessionFilter struct {
 }
 
 type InferenceRequestFilter struct {
-	ModelName ModelName     `json:"model_name"`
+	ModelName string        `json:"model_name"`
 	Memory    uint64        `json:"memory"`
 	Older     time.Duration `json:"older"`
 }
@@ -694,7 +694,7 @@ type SessionSummary struct {
 	SessionID     string      `json:"session_id"`
 	Name          string      `json:"name"`
 	InteractionID string      `json:"interaction_id"`
-	ModelName     ModelName   `json:"model_name"`
+	ModelName     string      `json:"model_name"`
 	Mode          SessionMode `json:"mode"`
 	Type          SessionType `json:"type"`
 	Owner         string      `json:"owner"`
@@ -707,7 +707,7 @@ type SessionSummary struct {
 
 type ModelInstanceState struct {
 	ID               string      `json:"id"`
-	ModelName        ModelName   `json:"model_name"`
+	ModelName        string      `json:"model_name"`
 	Mode             SessionMode `json:"mode"`
 	LoraDir          string      `json:"lora_dir"`
 	InitialSessionID string      `json:"initial_session_id"`
@@ -750,7 +750,7 @@ type GlobalSchedulingDecision struct {
 	RunnerID      string        `json:"runner_id"`
 	SessionID     string        `json:"session_id"`
 	InteractionID string        `json:"interaction_id"`
-	ModelName     ModelName     `json:"model_name"`
+	ModelName     string        `json:"model_name"`
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
 }
