@@ -111,13 +111,7 @@ func (b *Browser) getBrowser() (*rod.Browser, error) {
 	return browser, nil
 }
 
-func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
-
-	browser, err := b.GetBrowser()
-	if err != nil {
-		return nil, fmt.Errorf("error getting browser: %w", err)
-	}
-
+func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (*rod.Page, error) {
 	create := func() (*rod.Page, error) {
 		// page, err = m.Browser.Timeout(time.Duration(m.config.timeout) * time.Second).Page(opts)
 		// incognito, err := b.browser.Incognito()
@@ -138,7 +132,7 @@ func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
 
 	page, err := b.pagePool.Get(create)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting page: %w", err)
 	}
 
 	fmt.Println("Navigating to", opts.URL)
