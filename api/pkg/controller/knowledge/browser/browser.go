@@ -62,12 +62,12 @@ func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
 
 	create := func() (*rod.Page, error) {
 		// page, err = m.Browser.Timeout(time.Duration(m.config.timeout) * time.Second).Page(opts)
-		incognito, err := b.browser.Incognito()
-		if err != nil {
-			return nil, err
-		}
+		// incognito, err := b.browser.Incognito()
+		// if err != nil {
+		// 	return nil, err
+		// }
 
-		page, err := incognito.Timeout(10 * time.Second).Page(proto.TargetCreateTarget{
+		page, err := b.browser.Timeout(5 * time.Second).Page(proto.TargetCreateTarget{
 			URL: "about:blank",
 		})
 		if err != nil {
@@ -76,12 +76,16 @@ func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
 		return page, nil
 	}
 
+	fmt.Println("Creating page")
+
 	page, err := b.pagePool.Get(create)
 	if err != nil {
 		return nil, err
 	}
 
-	err = page.Navigate(opts.URL)
+	fmt.Println("Navigating to", opts.URL)
+
+	err = page.Timeout(5 * time.Second).Navigate(opts.URL)
 	if err != nil {
 		return nil, fmt.Errorf("error navigating to %s: %w", opts.URL, err)
 	}
