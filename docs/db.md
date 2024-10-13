@@ -1,6 +1,6 @@
 ## manually fix interactions
 
-If you need to reomve some interactions from a session:
+If you need to remove some interactions from a session:
 
  * ssh to the node
  * `cd /data/helix-app/helix`
