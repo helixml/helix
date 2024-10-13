@@ -41,7 +41,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 9222
+              containerPort: 7317
               protocol: TCP
       {{- with .Values.nodeSelector }}
       nodeSelector:
