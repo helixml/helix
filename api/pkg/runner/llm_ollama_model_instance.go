@@ -478,7 +478,23 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 	i.inUse.Store(true)
 	defer i.inUse.Store(false)
 
+	// Get the default Ollama models
+	defaultModels, err := model.GetDefaultOllamaModels()
+	if err != nil {
+		return fmt.Errorf("failed to get default Ollama models: %w", err)
+	}
+
+	// Look up the context length for the current model
 	max_tokens := defaultMaxTokens
+	for _, m := range defaultModels {
+		if m.Id == inferenceReq.Request.Model {
+			log.Info().Msgf("using context length %d for model %s", m.ContextLength, inferenceReq.Request.Model)
+			max_tokens = int(m.ContextLength)
+			break
+		}
+	}
+
+	// If max_tokens is specified in the request, use that instead
 	if inferenceReq.Request.MaxTokens > 0 {
 		max_tokens = inferenceReq.Request.MaxTokens
 	}
