@@ -51,10 +51,14 @@ func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *typ
 		return "", fmt.Errorf("error listing knowledge: %w", err)
 	}
 
+	spew.Dump(knowledge)
+
 	docs, err := q.getDocuments(ctx, prompt, knowledge)
 	if err != nil {
 		return "", fmt.Errorf("error getting documents: %w", err)
 	}
+
+	spew.Dump(docs)
 
 	stuffQAChain := chains.LoadStuffQA(llm)
 
@@ -68,7 +72,17 @@ func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *typ
 
 	spew.Dump(answer)
 
-	return "", nil
+	intf, ok := answer["text"]
+	if !ok {
+		return "", fmt.Errorf("no answer found")
+	}
+
+	answerStr, ok := intf.(string)
+	if !ok {
+		return "", fmt.Errorf("answer is not a string")
+	}
+
+	return answerStr, nil
 }
 
 // getDocuments retrieves data from the database and converts it into a slice of schema.Document

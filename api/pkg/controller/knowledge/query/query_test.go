@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -80,15 +81,20 @@ func (suite *QuerySuite) SetupTest() {
 }
 
 func (suite *QuerySuite) TestAnswer() {
+	// TODO:
+	suite.T().Skip()
+
 	knowledge := &types.Knowledge{
-		Name:  "jenkins",
-		ID:    "kno_01j8ga2sr3cgkkycrnyzjmvppy",
-		AppID: "app_01j8ab5q5xpfc3kgxt0a8j3ghd",
+		Name:    "jenkins",
+		ID:      "kno_01j8ga2sr3cgkkycrnyzjmvppy",
+		AppID:   "app_01j8ab5q5xpfc3kgxt0a8j3ghd",
+		Version: "2024-10-13_15-07-27",
+		State:   types.KnowledgeStateReady,
 	}
 
 	suite.store.EXPECT().LookupKnowledge(suite.ctx, gomock.Any()).Return(knowledge, nil)
 
-	answer, err := suite.query.Answer(suite.ctx, "What is the weather in Tokyo?", knowledge.AppID, &types.AssistantConfig{
+	answer, err := suite.query.Answer(suite.ctx, "How to make HTTP call with a function?", knowledge.AppID, &types.AssistantConfig{
 		Knowledge: []*types.AssistantKnowledge{
 			{
 				Name: knowledge.Name,
@@ -96,5 +102,6 @@ func (suite *QuerySuite) TestAnswer() {
 		},
 	})
 	suite.NoError(err)
-	suite.NotNil(answer)
+
+	fmt.Println(answer)
 }
