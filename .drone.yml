@@ -220,7 +220,6 @@ steps:
     event:
     - tag
 
-steps:
 - name: publish-runner-branch
   image: plugins/docker
   pull: always
@@ -292,7 +291,6 @@ steps:
     event:
     - tag
 
-steps:
 - name: publish-runner-branch
   image: plugins/docker
   pull: always
