@@ -33,7 +33,7 @@ type Browser struct {
 }
 
 func New(cfg *config.ServerConfig) (*Browser, error) {
-	pool := rod.NewBrowserPool(3)
+	pool := rod.NewBrowserPool(5)
 	pagePool := rod.NewPagePool(50)
 
 	b := &Browser{
