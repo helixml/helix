@@ -41,7 +41,8 @@ func TestBrowser_Get(t *testing.T) {
 
 func TestBrowser_BrowsePages(t *testing.T) {
 	cfg := &config.ServerConfig{}
-	cfg.RAG.Crawler.ChromeURL = "http://127.0.0.1:9222"
+	cfg.RAG.Crawler.LauncherEnabled = true
+	cfg.RAG.Crawler.LauncherURL = "http://127.0.0.1:7317"
 
 	if os.Getenv("CHROME_URL") != "" {
 		cfg.RAG.Crawler.ChromeURL = os.Getenv("CHROME_URL")
@@ -76,5 +77,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	assert.Contains(t, body, "Commercial Support")
 
 	browserManager.PutPage(page2)
+
+	browserManager.browser.Close()
 
 }
