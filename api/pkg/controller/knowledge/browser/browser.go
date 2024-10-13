@@ -126,10 +126,12 @@ func (b *Browser) getBrowser() (*rod.Browser, error) {
 	return browser, nil
 }
 
+var pageLoadTimeout = 5 * time.Second
+
 func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (*rod.Page, error) {
 	create := func() (*rod.Page, error) {
 		// Open a blank page on first create
-		page, err := browser.Timeout(5 * time.Second).Page(proto.TargetCreateTarget{
+		page, err := browser.Page(proto.TargetCreateTarget{
 			URL: "about:blank",
 		})
 		if err != nil {
@@ -143,7 +145,7 @@ func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (
 		return nil, fmt.Errorf("error getting page: %w", err)
 	}
 
-	err = page.Timeout(5 * time.Second).Navigate(opts.URL)
+	err = page.Navigate(opts.URL)
 	if err != nil {
 		return nil, fmt.Errorf("error navigating to %s: %w", opts.URL, err)
 	}
@@ -152,7 +154,10 @@ func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (
 }
 
 func (b *Browser) PutPage(page *rod.Page) {
-	page = page.CancelTimeout()
+	if page == nil {
+		return
+	}
+
 	b.pagePool.Put(page)
 }
 
