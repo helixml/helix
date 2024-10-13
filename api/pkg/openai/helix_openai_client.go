@@ -34,16 +34,14 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 	var HelixModels []model.OpenAIModel
 
 	for _, m := range ollamaModels {
-		if ollamaModel, ok := m.(*model.OllamaGenericText); ok {
-			HelixModels = append(HelixModels, model.OpenAIModel{
-				ID:          ollamaModel.ModelName().String(),
-				Object:      "model",
-				OwnedBy:     "helix",
-				Name:        ollamaModel.GetHumanReadableName(),
-				Description: ollamaModel.GetDescription(),
-				Hide:        ollamaModel.GetHidden(),
-			})
-		}
+		HelixModels = append(HelixModels, model.OpenAIModel{
+			ID:          m.ModelName().String(),
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        m.GetHumanReadableName(),
+			Description: m.GetDescription(),
+			Hide:        m.GetHidden(),
+		})
 	}
 
 	return HelixModels, nil
