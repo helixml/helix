@@ -9,20 +9,20 @@ import (
 )
 
 type OllamaGenericText struct {
-	id            string // e.g. "phi3.5:3.8b-mini-instruct-q8_0"
-	name          string // e.g. "Phi 3.5"
-	memory        uint64
-	contextLength int64
-	description   string
-	hide          bool
+	Id            string // e.g. "phi3.5:3.8b-mini-instruct-q8_0"
+	Name          string // e.g. "Phi 3.5"
+	Memory        uint64
+	ContextLength int64
+	Description   string
+	Hide          bool
 }
 
 func (i *OllamaGenericText) GetMemoryRequirements(mode types.SessionMode) uint64 {
-	return i.memory
+	return i.Memory
 }
 
 func (i *OllamaGenericText) GetContextLength() int64 {
-	return i.contextLength
+	return i.ContextLength
 }
 
 func (i *OllamaGenericText) GetType() types.SessionType {
@@ -30,11 +30,11 @@ func (i *OllamaGenericText) GetType() types.SessionType {
 }
 
 func (i *OllamaGenericText) GetID() string {
-	return i.id
+	return i.Id
 }
 
 func (i *OllamaGenericText) ModelName() ModelName {
-	return NewModel(i.id)
+	return NewModel(i.Id)
 }
 
 // TODO(rusenask): probably noop
@@ -60,13 +60,13 @@ func (i *OllamaGenericText) PrepareFiles(session *types.Session, isInitialSessio
 }
 
 func (i *OllamaGenericText) GetDescription() string {
-	return i.description
+	return i.Description
 }
 
 func (i *OllamaGenericText) GetHumanReadableName() string {
-	return i.name
+	return i.Name
 }
 
 func (i *OllamaGenericText) GetHidden() bool {
-	return i.hide
+	return i.Hide
 }
