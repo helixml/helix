@@ -181,7 +181,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3.1 8B",
 			Memory:        MB * 8107, // 8.5GiB in MiB
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks, from Meta (8bit quantized, 128K context)",
+			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
@@ -189,7 +189,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3.1 70B",
 			Memory:        GB * 40,
 			ContextLength: 131072,
-			Description:   "Large model with enhanced capabilities, from Meta (4bit quantized, 128K context)",
+			Description:   "Large model, from Meta - 4bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
@@ -197,7 +197,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3.2 1B",
 			Memory:        MB * 1240,
 			ContextLength: 131072,
-			Description:   "Tiny model, from Meta (8bit quantized, 128K context)",
+			Description:   "Tiny model, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
@@ -205,7 +205,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3.2 3B",
 			Memory:        MB * 3243,
 			ContextLength: 131072,
-			Description:   "Small model, from Meta (8bit quantized, 128K context)",
+			Description:   "Small model, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		// Old llama3:instruct, leaving in here because the id is in lots of our examples
@@ -214,47 +214,47 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3 8B",
 			Memory:        MB * 4483,
 			ContextLength: 8192,
-			Description:   "Older model, from Meta (8bit quantized, 128K context)",
+			Description:   "Older model, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
 			Id:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
-			Name:          "Phi-3.5 3.8B Mini Q8_0",
+			Name:          "Phi 3.5 3.8B",
 			Memory:        MB * 4199,
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks, from Microsoft (8bit quantized, 128K context)",
+			Description:   "Fast and good for everyday tasks, from Microsoft - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
 			Id:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
-			Name:          "Gemma 2 2B Q8_0",
+			Name:          "Gemma 2 2B",
 			Memory:        MB * 2868,
 			ContextLength: 8192,
-			Description:   "Fast and good for everyday tasks, from Google (8bit quantized, 8K context)",
+			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
 			Hide:          false,
 		},
 		{
 			Id:            "gemma2:9b-instruct-q8_0", // https://ollama.com/library/gemma2:9b-instruct-q8_0
-			Name:          "Gemma 2 9B Q8_0",
+			Name:          "Gemma 2 9B",
 			Memory:        MB * 10036,
 			ContextLength: 8192,
-			Description:   "Fast and good for everyday tasks, from Google (8bit quantized, 8K context)",
+			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
 			Hide:          false,
 		},
 		{
 			Id:            "gemma2:27b-instruct-q8_0", // https://ollama.com/library/gemma2:27b-instruct-q8_0
-			Name:          "Gemma 2 27B Q8_0",
+			Name:          "Gemma 2 27B",
 			Memory:        MB * 29696,
 			ContextLength: 8192,
-			Description:   "Large model with enhanced capabilities, from Google (8bit quantized, 8K context)",
+			Description:   "Large model with enhanced capabilities, from Google - 8bit quantized, 8K context",
 			Hide:          false,
 		},
 		{
 			Id:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5:7b-instruct-q8_0
-			Name:          "Qwen 2.5 7B Q8_0",
+			Name:          "Qwen 2.5 7B",
 			Memory:        MB * 8295,
 			ContextLength: 32768,
-			Description:   "Fast and good for everyday tasks, from Alibaba (8bit quantized, 128K context)",
+			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
@@ -262,7 +262,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 72B",
 			Memory:        GB * 47,
 			ContextLength: 32768,
-			Description:   "Large model with enhanced capabilities, from Alibaba (4bit quantized, 128K context)",
+			Description:   "Large model with enhanced capabilities, from Alibaba - 4bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
@@ -270,7 +270,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Hermes 3 8B Llama 3.1",
 			Memory:        MB * 8107,
 			ContextLength: 131072,
-			Description:   "Function calling and structured output capabilities, from Nous Research (8bit quantized, 128K context)",
+			Description:   "Function calling and structured output, from Nous- 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
@@ -278,7 +278,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Aya 8B",
 			Memory:        MB * 8107,
 			ContextLength: 8192,
-			Description:   "Small multi-lingual model from Cohere (8bit quantized, 8K context)",
+			Description:   "Small multi-lingual model from Cohere - 8bit quantized, 8K context",
 			Hide:          false,
 		},
 		{
@@ -286,7 +286,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Aya 35B",
 			Memory:        GB * 20,
 			ContextLength: 8192,
-			Description:   "Large multi-lingual model from Cohere (4bit quantized, 8K context)",
+			Description:   "Large multi-lingual model from Cohere - 4bit quantized, 8K context",
 			Hide:          false,
 		},
 		// Still baked into images because of use in qapair gen
@@ -295,7 +295,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Mixtral",
 			Memory:        GB * 26,
 			ContextLength: 32768,
-			Description:   "Medium multi-lingual model, from Mistral (4bit quantized, 32K context)",
+			Description:   "Medium multi-lingual model, from Mistral - 4bit quantized, 32K context",
 			Hide:          false,
 		},
 
