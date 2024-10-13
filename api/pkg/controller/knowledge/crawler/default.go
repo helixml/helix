@@ -270,7 +270,12 @@ func (d *Default) convertToMarkdown(ctx context.Context, doc *types.CrawledDocum
 		return nil, fmt.Errorf("error parsing HTML for %s: %w", doc.SourceURL, err)
 	}
 
-	doc.Content = strings.TrimSpace(article.Content)
+	markdown, err := d.converter.ConvertString(doc.Content)
+	if err != nil {
+		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
+	}
+
+	doc.Content = strings.TrimSpace(markdown)
 	doc.Title = article.Title
 	doc.Description = article.Excerpt
 
