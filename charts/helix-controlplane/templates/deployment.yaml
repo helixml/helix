@@ -69,7 +69,7 @@ spec:
             - name: TEXT_EXTRACTION_TIKA_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_CHROME_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-chrome:9222
+              value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
