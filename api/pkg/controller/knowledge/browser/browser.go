@@ -23,7 +23,9 @@ type Browser struct {
 	cfg *config.ServerConfig
 
 	// Used when launcher is setup
-	pool rod.Pool[rod.Browser]
+	pool     rod.Pool[rod.Browser]
+	launcher *launcher.Launcher
+
 	// Used when launcher is not setup
 	browser *rod.Browser
 
@@ -41,11 +43,22 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 		pagePool: pagePool,
 	}
 
-	browser, err := b.getBrowser()
-	if err != nil {
-		return nil, fmt.Errorf("error initializing browser: %w", err)
+	// If launcher is not enabled (using chrome directly, connect to existing browser)
+	if cfg.RAG.Crawler.LauncherEnabled {
+		// Using a rod manager (https://github.com/go-rod/rod/blob/main/lib/examples/launch-managed/main.go)
+		l, err := launcher.NewManaged(cfg.RAG.Crawler.LauncherURL)
+		if err != nil {
+			return nil, fmt.Errorf("error initializing launcher: %w", err)
+		}
+		b.launcher = l
+
+	} else {
+		browser, err := b.getBrowser()
+		if err != nil {
+			return nil, fmt.Errorf("error initializing browser: %w", err)
+		}
+		b.browser = browser
 	}
-	b.browser = browser
 
 	return b, nil
 }
@@ -58,7 +71,52 @@ func (b *Browser) GetBrowser() (*rod.Browser, error) {
 	return b.browser, nil
 }
 
+func (b *Browser) getFromPool() (*rod.Browser, error) {
+	browser, err := b.pool.Get(b.getBrowser)
+	if err != nil {
+		return nil, err
+	}
+
+	return browser, nil
+}
+func (b *Browser) getBrowser() (*rod.Browser, error) {
+	if b.launcher != nil {
+		client, err := b.launcher.Client()
+		if err != nil {
+			return nil, fmt.Errorf("error getting launcher client: %w", err)
+		}
+
+		// Setup browser with the client
+		browser := rod.New().Client(client)
+
+		// Connect to the browser
+		err = browser.Connect()
+		if err != nil {
+			return nil, fmt.Errorf("error connecting to browser: %w", err)
+		}
+		return browser, nil
+	}
+
+	chromeURL, err := b.getChromeURL()
+	if err != nil {
+		return nil, err
+	}
+	log.Info().Str("chromeURL", chromeURL).Msg("Creating browser")
+	browser := rod.New().ControlURL(chromeURL)
+	err = browser.Connect()
+	if err != nil {
+		return nil, err
+	}
+
+	return browser, nil
+}
+
 func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
+
+	browser, err := b.GetBrowser()
+	if err != nil {
+		return nil, fmt.Errorf("error getting browser: %w", err)
+	}
 
 	create := func() (*rod.Page, error) {
 		// page, err = m.Browser.Timeout(time.Duration(m.config.timeout) * time.Second).Page(opts)
@@ -67,7 +125,7 @@ func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
 		// 	return nil, err
 		// }
 
-		page, err := b.browser.Timeout(5 * time.Second).Page(proto.TargetCreateTarget{
+		page, err := browser.Timeout(5 * time.Second).Page(proto.TargetCreateTarget{
 			URL: "about:blank",
 		})
 		if err != nil {
@@ -96,29 +154,6 @@ func (b *Browser) GetPage(opts proto.TargetCreateTarget) (*rod.Page, error) {
 func (b *Browser) PutPage(page *rod.Page) {
 	page = page.CancelTimeout()
 	b.pagePool.Put(page)
-}
-
-func (b *Browser) getFromPool() (*rod.Browser, error) {
-	browser, err := b.pool.Get(b.getBrowser)
-	if err != nil {
-		return nil, err
-	}
-
-	return browser, nil
-}
-func (b *Browser) getBrowser() (*rod.Browser, error) {
-	chromeURL, err := b.getChromeURL()
-	if err != nil {
-		return nil, err
-	}
-	log.Info().Str("chromeURL", chromeURL).Msg("Creating browser")
-	browser := rod.New().ControlURL(chromeURL)
-	err = browser.Connect()
-	if err != nil {
-		return nil, err
-	}
-
-	return browser, nil
 }
 
 func (b *Browser) PutBrowser(browser *rod.Browser) error {
