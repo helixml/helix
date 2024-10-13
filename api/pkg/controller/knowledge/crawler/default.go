@@ -3,9 +3,6 @@ package crawler
 import (
 	"context"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -13,11 +10,11 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -25,7 +22,7 @@ import (
 const (
 	defaultMaxDepth    = 10  // How deep to crawl the website
 	defaultMaxPages    = 500 // How many pages to crawl before stopping
-	defaultParallelism = 20  // How many pages to crawl in parallel
+	defaultParallelism = 5   // How many pages to crawl in parallel
 	defaultUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
@@ -37,11 +34,15 @@ type Default struct {
 	converter *md.Converter
 	parser    readability.Parser
 
-	browser *rod.Browser
+	browserPool *browser.Browser
+
+	browser  *rod.Browser
+	pagePool rod.Pool[rod.Page]
 }
 
-func NewDefault(k *types.Knowledge) (*Default, error) {
-	browser, err := getBrowser(k)
+func NewDefault(browserPool *browser.Browser, k *types.Knowledge) (*Default, error) {
+	fmt.Println("XXX getting browser from the pool")
+	browser, err := browserPool.Get(k)
 	if err != nil {
 		log.Warn().Err(err).Msg("error configuring browser")
 	} else {
@@ -52,74 +53,19 @@ func NewDefault(k *types.Knowledge) (*Default, error) {
 			Msg("Initializing browser")
 	}
 
-	return &Default{
+	crawler := &Default{
 		knowledge: k,
 		converter: md.NewConverter("", true, nil),
 		parser:    readability.NewParser(),
 		browser:   browser,
-	}, nil
-}
-
-func getBrowser(k *types.Knowledge) (*rod.Browser, error) {
-	chromeURL := k.Source.Web.Crawler.ChromeURL
-
-	// Parse the URL to extract the hostname
-	parsedURL, err := url.Parse(chromeURL)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing Chrome URL (%s): %w", chromeURL, err)
 	}
 
-	// Resolve the hostname to an IP address. This is required for the browser to connect,
-	// as if you try to connect with hostname/domain then chrome will reject the connection
-	ips, err := net.LookupIP(parsedURL.Hostname())
-	if err != nil {
-		return nil, fmt.Errorf("error resolving Chrome URL (%s) to IP: %w", chromeURL, err)
+	// Initialize the page pool for the browser
+	if browser != nil {
+		crawler.pagePool = rod.NewPagePool(5)
 	}
 
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("no IP addresses found for Chrome URL (%s)", chromeURL)
-	}
-
-	// Use the first IP address
-	ip := ips[0].String()
-
-	// Replace the hostname with the IP address in the original URL
-	resolvedURL := strings.Replace(chromeURL, parsedURL.Hostname(), ip, 1)
-
-	// Use the resolved URL for the request
-	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
-	}
-	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error checking Chrome URL (%s): %w", resolvedURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bts, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
-		}
-		return nil, fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(bts))
-	}
-
-	u, err := launcher.ResolveURL(resolvedURL)
-	if err != nil {
-		return nil, fmt.Errorf("error resolving Chrome URL (%s): %w", resolvedURL, err)
-	}
-
-	browser := rod.New().ControlURL(u)
-
-	err = browser.Connect()
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to Chrome on '%s': %w", resolvedURL, err)
-	}
-
-	return browser, nil
+	return crawler, nil
 }
 
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
@@ -165,6 +111,11 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		}
 	}
 
+	if d.browser != nil {
+		// Put the browser back in the pool
+		defer d.browserPool.Put(d.browser)
+	}
+
 	pageCounter.Store(0)
 
 	collyOptions := []colly.CollectorOption{
@@ -191,7 +142,13 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	var crawledDocs []*types.CrawledDocument
 
+	visitedURLs := make(map[string]bool)
+
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
+		if visitedURLs[e.Request.URL.String()] {
+			return
+		}
+
 		log.Trace().
 			Str("knowledge_id", d.knowledge.ID).
 			Str("url", e.Request.URL.String()).Msg("Visiting link")
@@ -199,6 +156,8 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		doc := &types.CrawledDocument{
 			SourceURL: e.Request.URL.String(),
 		}
+
+		visitedURLs[e.Request.URL.String()] = true
 
 		// Extract title
 		doc.Title = e.ChildText("title")
@@ -315,30 +274,56 @@ func (d *Default) crawlWithBrowser(ctx context.Context, doc *types.CrawledDocume
 		return doc, nil
 	}
 
-	page, err := d.browser.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
+	log.Info().Str("url", doc.SourceURL).Msg("crawling with browser")
+
+	page, err := d.pagePool.Get(func() (*rod.Page, error) {
+		// We use MustIncognito to isolate pages with each other
+		b, err := d.browser.Incognito()
+		if err != nil {
+			return nil, err
+		}
+		return b.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
+	})
 	if err != nil {
-		return nil, fmt.Errorf("error creating new browser tab for %s: %w", doc.SourceURL, err)
+		return nil, fmt.Errorf("error getting page for %s: %w", doc.SourceURL, err)
 	}
+	// Put the page back in the pool
+	defer d.pagePool.Put(page)
+
+	err = page.Navigate(doc.SourceURL)
+	if err != nil {
+		return nil, fmt.Errorf("error navigating to %s: %w", doc.SourceURL, err)
+	}
+
+	log.Info().Str("url", doc.SourceURL).Msg("waiting for page to load")
 
 	err = page.WaitLoad()
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for page to load for %s: %w", doc.SourceURL, err)
 	}
 
+	log.Info().Str("url", doc.SourceURL).Msg("getting page HTML")
+
 	html, err := page.HTML()
 	if err != nil {
 		return nil, fmt.Errorf("error getting HTML for %s: %w", doc.SourceURL, err)
 	}
+
+	log.Info().Str("url", doc.SourceURL).Msg("parsing HTML")
 
 	article, err := d.parser.Parse(ctx, html, doc.SourceURL)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing HTML for %s: %w", doc.SourceURL, err)
 	}
 
+	log.Info().Str("url", doc.SourceURL).Msg("converting HTML to markdown")
+
 	markdown, err := d.converter.ConvertString(article.Content)
 	if err != nil {
 		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
 	}
+
+	log.Info().Str("url", doc.SourceURL).Msg("done")
 
 	doc.Content = strings.TrimSpace(markdown)
 	doc.Title = article.Title
