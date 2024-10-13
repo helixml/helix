@@ -51,6 +51,6 @@ The model should produce the pipeline - each model will have it's own opinions a
 
 Also - the user should be able to shortcut to any part of the pipeline.
 
-For example, they might already have prepared a `qa_pairs` file - so now it's just create a data entity of type `qa_pairs` and then run the pipeline from the finetune stage.
+For example, they might already have prepared a `qa_pairs` file - so now it just creates a data entity of type `qa_pairs` and then runs the pipeline from the finetune stage.
 
 The finetune stage is just a `Transform` function - it turns one `DataEntity` into another (`qa_pairs` -> `finetune`)
