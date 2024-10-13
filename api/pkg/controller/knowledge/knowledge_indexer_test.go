@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/extract"
@@ -52,7 +53,12 @@ func (suite *IndexerSuite) SetupTest() {
 	suite.cfg = &config.ServerConfig{}
 	suite.cfg.RAG.IndexingConcurrency = 1
 
-	suite.reconciler, _ = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag)
+	var err error
+
+	b := &browser.Browser{}
+
+	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b)
+	suite.Require().NoError(err)
 
 	suite.reconciler.newRagClient = func(settings *types.RAGSettings) rag.RAG {
 		return suite.rag
