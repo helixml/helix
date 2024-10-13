@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/go-rod/rod"
@@ -129,21 +130,28 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			return
 		}
 
-		log.Trace().
-			Str("knowledge_id", d.knowledge.ID).
-			Str("url", e.Request.URL.String()).Msg("Visiting link")
+		visited := pageCounter.Load()
 
-		doc := &types.CrawledDocument{
-			SourceURL: e.Request.URL.String(),
-		}
+		log.Info().
+			Str("knowledge_id", d.knowledge.ID).
+			Int32("visited_pages", visited).
+			Str("url", e.Request.URL.String()).Msg("visiting link")
 
 		visitedURLs[e.Request.URL.String()] = true
 
-		doc, err = d.crawlWithBrowser(ctx, b, e.Request.URL.String())
+		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
 		if err != nil {
-			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error converting HTML to markdown")
+			log.Warn().
+				Err(err).
+				Str("url", e.Request.URL.String()).
+				Msg("error crawling URL")
 			return
 		}
+
+		log.Info().
+			Str("knowledge_id", d.knowledge.ID).
+			Str("url", e.Request.URL.String()).
+			Msg("crawled page")
 
 		crawledDocs = append(crawledDocs, doc)
 
@@ -202,22 +210,21 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 	if err != nil {
 		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
 	}
+	defer d.browser.PutPage(page)
 
-	log.Debug().Str("url", url).Msg("waiting for page to load")
+	log.Trace().Str("url", url).Msg("waiting for page to load")
 
-	err = page.WaitLoad()
+	err = page.Timeout(5 * time.Second).WaitLoad()
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for page to load for %s: %w", url, err)
 	}
 
-	log.Debug().Str("url", url).Msg("getting page HTML")
+	log.Trace().Str("url", url).Msg("getting page HTML")
 
 	html, err := page.HTML()
 	if err != nil {
 		return nil, fmt.Errorf("error getting HTML for %s: %w", url, err)
 	}
-
-	log.Debug().Str("url", url).Msg("parsing HTML")
 
 	article, err := d.parser.Parse(ctx, html, url)
 	if err != nil {
@@ -230,8 +237,6 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 		Title:       article.Title,
 		Description: article.Excerpt,
 	}
-
-	log.Debug().Str("url", url).Msg("converting HTML to markdown")
 
 	doc, err = d.convertToMarkdown(ctx, doc)
 	if err != nil {
