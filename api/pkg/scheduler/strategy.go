@@ -101,7 +101,7 @@ func availableMemory(c Cluster, a WorkloadAllocator, runnerID string) (uint64, e
 	for _, slot := range runnerSlots {
 		if !slot.IsStale() {
 			// Get the memory requirements for the slot's model.
-			m, err := model.GetModel(slot.ModelName())
+			m, err := model.GetModel(string(slot.ModelName()))
 			if err != nil {
 				return 0, fmt.Errorf("getting slot model (%s): %v", slot.ModelName(), err)
 			}

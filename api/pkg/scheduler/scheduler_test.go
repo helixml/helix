@@ -14,7 +14,7 @@ import (
 func TestScheduler_NoRunnersAvailable(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	scheduler := NewScheduler(&config)
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.ErrorContains(t, err, "no runners available")
 }
 
@@ -29,19 +29,19 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 	cluster := NewCluster(timeoutRunner1Func)
 	scheduler.cluster = cluster
 
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(string(model.Model_Ollama_Llama3_8b))
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-1",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference) * 2,
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
 
 	// Schedule a job
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-2",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference) * 2,
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
 
 	// Simulate not updating the runner for a while so that subsequent jobs get rescheduled
@@ -55,34 +55,34 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 func TestScheduler_ThreeJobsOnSingleRunnerThatCanFitTwo(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(string(model.Model_Ollama_Llama3_8b))
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference) * 2,
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
 
 	// Test requests
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
-	err = createTestWork(scheduler, "test-request-2", types.Model_Ollama_Llama3_8b)
+	err = createTestWork(scheduler, "test-request-2", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
-	err = createTestWork(scheduler, "test-request-3", types.Model_Ollama_Llama3_8b)
+	err = createTestWork(scheduler, "test-request-3", model.Model_Ollama_Llama3_8b)
 	assert.ErrorContains(t, err, "full")
 }
 
 func TestScheduler_TestWarmSlot(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference) * 2,
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
 
 	// Test request
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
@@ -92,7 +92,7 @@ func TestScheduler_TestWarmSlot(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Start request-2
-	err = createTestWork(scheduler, "test-request-2", types.Model_Ollama_Llama3_8b)
+	err = createTestWork(scheduler, "test-request-2", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Make sure there's only one slot
@@ -103,18 +103,18 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
-		TotalMemory: 2 * model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: 2 * m.GetMemoryRequirements(types.SessionModeInference),
 	})
 
 	// Test request
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Test request 2
-	err = createTestWork(scheduler, "test-request-2", types.Model_Ollama_Llama3_8b)
+	err = createTestWork(scheduler, "test-request-2", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
@@ -127,7 +127,7 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Start request-3, a new model type
-	err = createTestWork(scheduler, "test-request-3", types.Model_Ollama_Phi3)
+	err = createTestWork(scheduler, "test-request-3", model.Model_Ollama_Phi3)
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
@@ -136,13 +136,13 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	// Simulate runner updating control plane with removed models
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference),
 		ModelInstances: []*types.ModelInstanceState{
 			{
-				ModelName: types.Model_Ollama_Llama3_8b,
+				ModelName: model.Model_Ollama_Llama3_8b,
 				Mode:      types.SessionModeInference,
 			}, {
-				ModelName: types.Model_Ollama_Phi3,
+				ModelName: model.Model_Ollama_Phi3,
 				Mode:      types.SessionModeInference,
 			},
 		},
@@ -154,14 +154,14 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference),
 	})
 
 	// Test request
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Simulate runner doing work
@@ -171,7 +171,7 @@ func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 
 	// Even though the work has finished, the slot is still warm, so it should report full when a
 	// new model is requested
-	err = createTestWork(scheduler, "test-request-2", types.Model_Ollama_Phi3)
+	err = createTestWork(scheduler, "test-request-2", model.Model_Ollama_Phi3)
 	assert.ErrorContains(t, err, "full")
 }
 
@@ -179,25 +179,25 @@ func TestScheduler_MaximiseUtilization(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.SchedulingStrategy = string(SchedulingStrategy_MaxUtilization)
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-1",
-		TotalMemory: 2 * model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: 2 * m.GetMemoryRequirements(types.SessionModeInference),
 	})
 
 	// Add one request
-	err := createTestWork(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b)
+	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Add a second runner
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-2",
-		TotalMemory: 2 * model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: 2 * m.GetMemoryRequirements(types.SessionModeInference),
 	})
 	assert.NoError(t, err)
 
 	// When scheduling a second request, it should fill the first runner, not the second
-	err = createTestWork(scheduler, "test-request-2", types.Model_Ollama_Llama3_8b)
+	err = createTestWork(scheduler, "test-request-2", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Check that NO work has been scheduler's cluster
@@ -213,18 +213,18 @@ func TestScheduler_TestSessionScheduler(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference) * 2,
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
 
 	// Test request
-	err := createTestSession(scheduler, "test-request-1", types.Model_Ollama_Llama3_8b, "")
+	err := createTestSession(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b, "")
 	assert.NoError(t, err)
-	err = createTestSession(scheduler, "test-request-2", types.Model_Ollama_Llama3_8b, "")
+	err = createTestSession(scheduler, "test-request-2", model.Model_Ollama_Llama3_8b, "")
 	assert.NoError(t, err)
-	err = createTestSession(scheduler, "test-request-3", types.Model_Ollama_Phi3, "")
+	err = createTestSession(scheduler, "test-request-3", model.Model_Ollama_Phi3, "")
 	assert.ErrorContains(t, err, "full")
 
 	// Simulate runner taking and finishing work
@@ -237,21 +237,21 @@ func TestScheduler_TestSessionScheduler(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Now work should fit, since the test is always stale
-	err = createTestWork(scheduler, "test-request-4", types.Model_Ollama_Phi3)
+	err = createTestWork(scheduler, "test-request-4", model.Model_Ollama_Phi3)
 	assert.NoError(t, err)
 }
 
 func TestScheduler_LoraDirSession(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	scheduler := NewScheduler(&config)
-	model, _ := model.GetModel(types.Model_Axolotl_Mistral7b)
+	m, _ := model.GetModel(model.Model_Axolotl_Mistral7b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-1",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference),
 	})
 
 	// Test request
-	err := createTestSession(scheduler, "test-request-1", types.Model_Axolotl_Mistral7b, "test")
+	err := createTestSession(scheduler, "test-request-1", model.Model_Axolotl_Mistral7b, "test")
 	assert.NoError(t, err)
 
 	// Simulate runner taking and finishing work
@@ -262,11 +262,11 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	// Add a second runner
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-2",
-		TotalMemory: model.GetMemoryRequirements(types.SessionModeInference),
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference),
 	})
 
 	// Reschedule lora work, must always scheduler's cluster
-	err = createTestSession(scheduler, "test-request-2", types.Model_Axolotl_Mistral7b, "test")
+	err = createTestSession(scheduler, "test-request-2", model.Model_Axolotl_Mistral7b, "test")
 	assert.NoError(t, err)
 
 	// Check that NO work has been scheduler's cluster
@@ -277,7 +277,7 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	}
 
 	// Schedule a second lora dir, must scheduler's cluster
-	err = createTestSession(scheduler, "test-request-3", types.Model_Axolotl_Mistral7b, "new")
+	err = createTestSession(scheduler, "test-request-3", model.Model_Axolotl_Mistral7b, "new")
 	assert.NoError(t, err)
 	work, err = scheduler.WorkForRunner("test-runner-2", WorkloadTypeSession, false)
 	assert.NoError(t, err)
@@ -286,11 +286,11 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	}
 }
 
-func createTestWork(scheduler Scheduler, name string, model types.ModelName) error {
+func createTestWork(scheduler Scheduler, name string, model string) error {
 	req := &types.RunnerLLMInferenceRequest{
 		RequestID: name,
 		Request: &openai.ChatCompletionRequest{
-			Model: model.String(),
+			Model: model,
 		},
 	}
 	work, err := NewLLMWorkload(req)
@@ -300,7 +300,7 @@ func createTestWork(scheduler Scheduler, name string, model types.ModelName) err
 	return scheduler.Schedule(work)
 }
 
-func createTestSession(scheduler Scheduler, name string, model types.ModelName, loraDir string) error {
+func createTestSession(scheduler Scheduler, name string, model string, loraDir string) error {
 	req := &types.Session{
 		ID:        name,
 		ModelName: model,

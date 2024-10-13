@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -105,7 +106,7 @@ func (s *Slot) Mode() types.SessionMode {
 	return s.work.Mode()
 }
 
-func (s *Slot) ModelName() types.ModelName {
+func (s *Slot) ModelName() model.ModelName {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

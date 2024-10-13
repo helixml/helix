@@ -1,13 +1,17 @@
-package types
+package model
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 func TestProcessModelName(t *testing.T) {
 	type args struct {
 		provider    string
 		modelName   string
-		sessionMode SessionMode
-		sessionType SessionType
+		sessionMode types.SessionMode
+		sessionType types.SessionType
 		hasFinetune bool
 		ragEnabled  bool
 	}
@@ -22,8 +26,8 @@ func TestProcessModelName(t *testing.T) {
 			args: args{
 				provider:    "togetherai",
 				modelName:   "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-				sessionMode: SessionModeFinetune,
-				sessionType: SessionTypeText,
+				sessionMode: types.SessionModeFinetune,
+				sessionType: types.SessionTypeText,
 				hasFinetune: false,
 				ragEnabled:  true,
 			},
@@ -34,60 +38,60 @@ func TestProcessModelName(t *testing.T) {
 			args: args{
 				provider:    "helix",
 				modelName:   "",
-				sessionMode: SessionModeFinetune,
-				sessionType: SessionTypeText,
+				sessionMode: types.SessionModeFinetune,
+				sessionType: types.SessionTypeText,
 				hasFinetune: false,
 				ragEnabled:  true,
 			},
-			want: Model_Ollama_Llama3_8b,
+			want: NewModel(Model_Ollama_Llama3_8b),
 		},
 		{
 			name: "empty model, finetune, no rag",
 			args: args{
 				provider:    "helix",
 				modelName:   "",
-				sessionMode: SessionModeFinetune,
-				sessionType: SessionTypeText,
+				sessionMode: types.SessionModeFinetune,
+				sessionType: types.SessionTypeText,
 				hasFinetune: true,
 				ragEnabled:  false,
 			},
-			want: Model_Axolotl_Mistral7b,
+			want: NewModel(Model_Axolotl_Mistral7b),
 		},
 		{
 			name: "normal inference",
 			args: args{
 				provider:    "helix",
 				modelName:   "",
-				sessionMode: SessionModeInference,
-				sessionType: SessionTypeText,
+				sessionMode: types.SessionModeInference,
+				sessionType: types.SessionTypeText,
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: Model_Ollama_Llama3_8b,
+			want: NewModel(Model_Ollama_Llama3_8b),
 		},
 		{
 			name: "normal inference, model set helix-4",
 			args: args{
 				provider:    "helix",
 				modelName:   "helix-4",
-				sessionMode: SessionModeInference,
-				sessionType: SessionTypeText,
+				sessionMode: types.SessionModeInference,
+				sessionType: types.SessionTypeText,
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: Model_Ollama_Llama3_70b,
+			want: NewModel(Model_Ollama_Llama3_70b),
 		},
 		{
 			name: "normal inference, model set helix-mixtral",
 			args: args{
 				provider:    "helix",
 				modelName:   "helix-mixtral",
-				sessionMode: SessionModeInference,
-				sessionType: SessionTypeText,
+				sessionMode: types.SessionModeInference,
+				sessionType: types.SessionTypeText,
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: Model_Ollama_Mixtral,
+			want: NewModel(Model_Ollama_Mixtral),
 		},
 	}
 	for _, tt := range tests {
@@ -97,8 +101,8 @@ func TestProcessModelName(t *testing.T) {
 				t.Errorf("ProcessModelName() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got != tt.want {
-				t.Errorf("ProcessModelName() = %v, want %v", got, tt.want)
+			if got != tt.want.String() {
+				t.Errorf("ProcessModelName() = %v, want %v", got, tt.want.String())
 			}
 		})
 	}

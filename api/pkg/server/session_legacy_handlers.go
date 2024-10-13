@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -103,7 +104,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			AssistantID:      assistantID,
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
-			ModelName:        types.ModelName(startReq.Model),
+			ModelName:        startReq.Model,
 			Owner:            user.ID,
 			OwnerType:        user.Type,
 			LoraDir:          startReq.LoraDir,
@@ -177,7 +178,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 		hasFinetune := startReq.LoraDir != ""
 		ragEnabled := newSession.RAGSourceID != ""
 
-		processedModel, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
+		processedModel, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return

@@ -42,7 +42,7 @@ func NewWorkloadAllocator(modelTTL TimeoutFunc) *allocator {
 // AllocateSlot assigns a workload to a specific slot, validating the model and slot before scheduling.
 func (a *allocator) AllocateSlot(slotID uuid.UUID, req *Workload) error {
 	// Validate model
-	if _, err := model.GetModel(req.ModelName()); err != nil {
+	if _, err := model.GetModel(req.ModelName().String()); err != nil {
 		return fmt.Errorf("unable to get model (%s): %v", req.ModelName(), err)
 	}
 
@@ -140,7 +140,7 @@ func (a *allocator) ReconcileSlots(props *types.RunnerState) error {
 			}
 
 			// If it's not the same model name, skip
-			if m.ModelName != s.ModelName() {
+			if m.ModelName != s.ModelName().String() {
 				continue
 			}
 

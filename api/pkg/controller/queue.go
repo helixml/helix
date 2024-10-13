@@ -44,7 +44,7 @@ func (c *Controller) getMatchingSessionFilterIndex(_ context.Context, filter typ
 
 		if filter.Runtime != "" {
 			// Filter by runtime
-			if session.ModelName.InferenceRuntime() != filter.Runtime {
+			if model.NewModel(session.ModelName).InferenceRuntime() != filter.Runtime {
 				continue
 			}
 		}

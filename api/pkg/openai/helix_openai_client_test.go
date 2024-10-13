@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
@@ -72,7 +73,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
 			InteractionID: interactionID,
 		})
 		_, _ = suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-			Model:  types.Model_Ollama_Llama3_8b.String(),
+			Model:  model.Model_Ollama_Llama3_8b,
 			Stream: false,
 			Messages: []openai.ChatCompletionMessage{
 				{
@@ -147,7 +148,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_Response() {
 	})
 
 	resp, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   false,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -180,7 +181,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ErrorResponse() {
 	})
 
 	_, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   false,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -249,7 +250,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_StreamingResponse()
 	})
 
 	stream, err := suite.srv.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   true,
 		Messages: []openai.ChatCompletionMessage{},
 	})

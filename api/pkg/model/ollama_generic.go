@@ -9,24 +9,32 @@ import (
 )
 
 type OllamaGenericText struct {
-	name   string
-	memory uint64
-}
-
-func NewOllamaGenericText(name string, memory uint64) *OllamaGenericText {
-	return &OllamaGenericText{name: name, memory: memory}
+	Id            string // e.g. "phi3.5:3.8b-mini-instruct-q8_0"
+	Name          string // e.g. "Phi 3.5"
+	Memory        uint64
+	ContextLength int64
+	Description   string
+	Hide          bool
 }
 
 func (i *OllamaGenericText) GetMemoryRequirements(mode types.SessionMode) uint64 {
-	return i.memory
+	return i.Memory
+}
+
+func (i *OllamaGenericText) GetContextLength() int64 {
+	return i.ContextLength
 }
 
 func (i *OllamaGenericText) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (i *OllamaGenericText) ModelName() types.ModelName {
-	return types.NewModel(i.name)
+func (i *OllamaGenericText) GetID() string {
+	return i.Id
+}
+
+func (i *OllamaGenericText) ModelName() ModelName {
+	return NewModel(i.Id)
 }
 
 // TODO(rusenask): probably noop
@@ -49,4 +57,16 @@ func (i *OllamaGenericText) GetTextStreams(mode types.SessionMode, eventHandler 
 
 func (i *OllamaGenericText) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
 	return nil, fmt.Errorf("not implemented 3")
+}
+
+func (i *OllamaGenericText) GetDescription() string {
+	return i.Description
+}
+
+func (i *OllamaGenericText) GetHumanReadableName() string {
+	return i.Name
+}
+
+func (i *OllamaGenericText) GetHidden() bool {
+	return i.Hide
 }

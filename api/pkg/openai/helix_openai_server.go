@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
@@ -49,6 +50,10 @@ func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, sche
 		pubsub:    pubsub,
 		scheduler: scheduler,
 	}
+}
+
+func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+	return ListModels(ctx)
 }
 
 // TODO: move logic from controller and other places. This method would be called directly from the runner
@@ -160,7 +165,7 @@ func (c *InternalHelixServer) addSchedulingDecision(filter types.InferenceReques
 			Mode:  types.SessionModeInference,
 			Older: types.Duration(filter.Older),
 		},
-		ModelName: types.ModelName(model),
+		ModelName: model,
 		Mode:      types.SessionModeInference,
 	}
 

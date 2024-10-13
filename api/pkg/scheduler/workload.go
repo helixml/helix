@@ -38,7 +38,7 @@ func NewSessonWorkload(work *types.Session) (*Workload, error) {
 
 // Check model conversion so we don't have to do it later
 func validate(work *Workload) (*Workload, error) {
-	_, err := model.GetModel(work.ModelName())
+	_, err := model.GetModel(work.ModelName().String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get model: %v", err)
 	}
@@ -55,18 +55,18 @@ func (w *Workload) ID() string {
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }
 
-func (w *Workload) ModelName() types.ModelName {
+func (w *Workload) ModelName() model.ModelName {
 	switch w.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
-		return types.ModelName(w.llmInfereceRequest.Request.Model)
+		return model.ModelName(w.llmInfereceRequest.Request.Model)
 	case WorkloadTypeSession:
-		return w.session.ModelName
+		return model.ModelName(w.session.ModelName)
 	}
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }
 
 func (w *Workload) Model() model.Model {
-	model, err := model.GetModel(w.ModelName())
+	model, err := model.GetModel(w.ModelName().String())
 	if err != nil {
 		panic(fmt.Sprintf("failed to get model: %v", err)) // This should never happen because we checked it in the constructor
 	}
