@@ -33,7 +33,7 @@ type Browser struct {
 }
 
 func New(cfg *config.ServerConfig) (*Browser, error) {
-	pool := rod.NewBrowserPool(1) // TODO: move to rod launcher
+	pool := rod.NewBrowserPool(3)
 	pagePool := rod.NewPagePool(50)
 
 	b := &Browser{
@@ -113,12 +113,7 @@ func (b *Browser) getBrowser() (*rod.Browser, error) {
 
 func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (*rod.Page, error) {
 	create := func() (*rod.Page, error) {
-		// page, err = m.Browser.Timeout(time.Duration(m.config.timeout) * time.Second).Page(opts)
-		// incognito, err := b.browser.Incognito()
-		// if err != nil {
-		// 	return nil, err
-		// }
-
+		// Open a blank page on first create
 		page, err := browser.Timeout(5 * time.Second).Page(proto.TargetCreateTarget{
 			URL: "about:blank",
 		})
@@ -128,14 +123,10 @@ func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (
 		return page, nil
 	}
 
-	fmt.Println("Creating page")
-
 	page, err := b.pagePool.Get(create)
 	if err != nil {
 		return nil, fmt.Errorf("error getting page: %w", err)
 	}
-
-	fmt.Println("Navigating to", opts.URL)
 
 	err = page.Timeout(5 * time.Second).Navigate(opts.URL)
 	if err != nil {
