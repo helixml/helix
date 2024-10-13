@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -12,41 +13,64 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 type Browser struct {
+	ctx  context.Context
 	cfg  *config.ServerConfig
 	pool rod.Pool[rod.Browser]
 }
 
 func New(cfg *config.ServerConfig) *Browser {
-	pool := rod.NewBrowserPool(1) // TODO: move to rod launcher
+	pool := rod.NewBrowserPool(3) // TODO: move to rod launcher
 
 	pool.Cleanup(func(p *rod.Browser) {
 		p.MustClose()
 	})
 
 	return &Browser{
+		ctx:  context.Background(),
 		cfg:  cfg,
 		pool: pool,
 	}
 }
 
-func (b *Browser) Get(k *types.Knowledge) (*rod.Browser, error) {
-	chromeURL, err := b.getChromeURL(k)
+func (b *Browser) Get() (*rod.Browser, error) {
+	chromeURL, err := b.getChromeURL()
 	if err != nil {
 		return nil, err
 	}
 
-	browser, err := b.pool.Get(func() (*rod.Browser, error) {
-		return rod.New().ControlURL(chromeURL), nil
-	})
-	if err != nil {
-		return nil, err
-	}
+	fmt.Println("XXX chromeURL", chromeURL)
 
+	browser := rod.New().ControlURL(chromeURL)
+	err = browser.Connect()
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to Chrome: %w", err)
+	}
 	return browser, nil
+
+	// create := func() (*rod.Browser, error) {
+	// 	log.Info().Str("chromeURL", chromeURL).Msg("Creating browser")
+
+	// 	browser := rod.New().ControlURL(chromeURL)
+
+	// 	err := browser.Connect()
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+
+	// 	return browser, nil
+	// }
+
+	// browser, err := b.pool.Get(create)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// fmt.Println("XXX browser", browser)
+
+	// return browser, nil
 }
 
 func (b *Browser) Put(browser *rod.Browser) error {
@@ -54,12 +78,8 @@ func (b *Browser) Put(browser *rod.Browser) error {
 	return nil
 }
 
-func (b *Browser) getChromeURL(k *types.Knowledge) (string, error) {
-	chromeURL := k.Source.Web.Crawler.ChromeURL
-
-	if chromeURL == "" {
-		chromeURL = b.cfg.RAG.Crawler.ChromeURL
-	}
+func (b *Browser) getChromeURL() (string, error) {
+	chromeURL := b.cfg.RAG.Crawler.ChromeURL
 
 	// Parse the URL to extract the hostname
 	parsedURL, err := url.Parse(chromeURL)
