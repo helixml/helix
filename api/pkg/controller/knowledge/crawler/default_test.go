@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +27,9 @@ func TestDefault_Crawl(t *testing.T) {
 		},
 	}
 
-	d, err := NewDefault(k)
+	bp := browser.New(&config.ServerConfig{})
+
+	d, err := NewDefault(bp, k)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -75,7 +79,9 @@ func TestDefault_CrawlSingle(t *testing.T) {
 		},
 	}
 
-	d, err := NewDefault(k)
+	bp := browser.New(&config.ServerConfig{})
+
+	d, err := NewDefault(bp, k)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -94,7 +100,8 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 			},
 		},
 	}
-	d, err := NewDefault(k)
+	bp := browser.New(&config.ServerConfig{})
+	d, err := NewDefault(bp, k)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile("../readability/testdata/example_code_block.html")
@@ -115,13 +122,18 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 			Web: &types.KnowledgeSourceWeb{
 				Crawler: &types.WebsiteCrawler{
 					Readability: true,
-					ChromeURL:   os.Getenv("CHROME_URL"),
+					// ChromeURL:   os.Getenv("CHROME_URL"),
 					// ChromeURL: "http://localhost:9222",
 				},
 			},
 		},
 	}
-	d, err := NewDefault(k)
+
+	cfg := &config.ServerConfig{}
+	cfg.RAG.Crawler.ChromeURL = "http://localhost:9222"
+	bp := browser.New(cfg)
+
+	d, err := NewDefault(bp, k)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile("../readability/testdata/sb.html")
