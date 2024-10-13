@@ -18,6 +18,11 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 )
 
+const (
+	defaultBrowserPoolSize = 5
+	defaultPagePoolSize    = 50
+)
+
 type Browser struct {
 	ctx context.Context
 	cfg *config.ServerConfig
@@ -33,8 +38,18 @@ type Browser struct {
 }
 
 func New(cfg *config.ServerConfig) (*Browser, error) {
-	pool := rod.NewBrowserPool(5)
-	pagePool := rod.NewPagePool(50)
+	browserPoolSize := cfg.RAG.Crawler.BrowserPoolSize
+	pagePoolSize := cfg.RAG.Crawler.PagePoolSize
+
+	if browserPoolSize <= 0 {
+		browserPoolSize = defaultBrowserPoolSize
+	}
+	if pagePoolSize <= 0 {
+		pagePoolSize = defaultPagePoolSize
+	}
+
+	pool := rod.NewBrowserPool(browserPoolSize)
+	pagePool := rod.NewPagePool(pagePoolSize)
 
 	b := &Browser{
 		ctx:      context.Background(),
