@@ -29,6 +29,10 @@ func (i *OllamaGenericText) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
+func (i *OllamaGenericText) GetID() string {
+	return i.id
+}
+
 func (i *OllamaGenericText) ModelName() ModelName {
 	return NewModel(i.id)
 }
