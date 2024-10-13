@@ -44,7 +44,10 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 	}
 
 	// Initialize browser pool
-	browserPool := browser.New(config)
+	browserPool, err := browser.New(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create browser pool: %w", err)
+	}
 
 	return &Reconciler{
 		config:     config,
