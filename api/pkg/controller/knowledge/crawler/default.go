@@ -35,21 +35,9 @@ type Default struct {
 	parser    readability.Parser
 
 	browser *browser.Browser
-
-	// browser *rod.Browser
 }
 
 func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
-	// browser, err := browserPool.GetBrowser()
-	// if err != nil {
-	// 	log.Warn().Err(err).Msg("error configuring browser")
-	// } else {
-	// 	log.Info().
-	// 		Str("knowledge_id", k.ID).
-	// 		Str("knowledge_name", k.Name).
-	// 		Msg("Initializing browser")
-	// }
-
 	crawler := &Default{
 		knowledge: k,
 		converter: md.NewConverter("", true, nil),
