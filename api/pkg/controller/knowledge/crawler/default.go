@@ -34,35 +34,27 @@ type Default struct {
 	converter *md.Converter
 	parser    readability.Parser
 
-	browserPool *browser.Browser
+	browser *browser.Browser
 
-	browser  *rod.Browser
-	pagePool rod.Pool[rod.Page]
+	// browser *rod.Browser
 }
 
-func NewDefault(browserPool *browser.Browser, k *types.Knowledge) (*Default, error) {
-	fmt.Println("XXX getting browser from the pool")
-	browser, err := browserPool.Get(k)
-	if err != nil {
-		log.Warn().Err(err).Msg("error configuring browser")
-	} else {
-		log.Info().
-			Str("knowledge_id", k.ID).
-			Str("knowledge_name", k.Name).
-			Str("chrome_url", k.Source.Web.Crawler.ChromeURL).
-			Msg("Initializing browser")
-	}
+func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
+	// browser, err := browserPool.GetBrowser()
+	// if err != nil {
+	// 	log.Warn().Err(err).Msg("error configuring browser")
+	// } else {
+	// 	log.Info().
+	// 		Str("knowledge_id", k.ID).
+	// 		Str("knowledge_name", k.Name).
+	// 		Msg("Initializing browser")
+	// }
 
 	crawler := &Default{
 		knowledge: k,
 		converter: md.NewConverter("", true, nil),
 		parser:    readability.NewParser(),
 		browser:   browser,
-	}
-
-	// Initialize the page pool for the browser
-	if browser != nil {
-		crawler.pagePool = rod.NewPagePool(5)
 	}
 
 	return crawler, nil
@@ -111,11 +103,6 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		}
 	}
 
-	if d.browser != nil {
-		// Put the browser back in the pool
-		defer d.browserPool.Put(d.browser)
-	}
-
 	pageCounter.Store(0)
 
 	collyOptions := []colly.CollectorOption{
@@ -132,6 +119,11 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	collector := colly.NewCollector(collyOptions...)
+
+	b, err := d.browser.GetBrowser()
+	if err != nil {
+		return nil, fmt.Errorf("error getting browser: %w", err)
+	}
 
 	for _, domain := range domains {
 		collector.Limit(&colly.LimitRule{
@@ -172,7 +164,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			return
 		}
 
-		doc, err = d.convertHTMLToMarkdown(content, doc)
+		doc, err = d.convertHTMLToMarkdown(content, b, doc)
 		if err != nil {
 			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error converting HTML to markdown")
 			return
@@ -227,7 +219,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	return crawledDocs, nil
 }
 
-func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+func (d *Default) convertHTMLToMarkdown(content string, b *rod.Browser, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
 	if !d.knowledge.Source.Web.Crawler.Readability {
 		// If readability is turned off, try to convert HTML directly
 		markdown, err := d.converter.ConvertString(content)
@@ -253,7 +245,7 @@ func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocume
 			Str("knowledge_id", d.knowledge.ID).
 			Str("url", doc.SourceURL).
 			Msg("HTML parsing failed, retrying with browser")
-		return d.crawlWithBrowser(ctx, doc)
+		return d.crawlWithBrowser(ctx, b, doc)
 	}
 
 	markdown, err := d.converter.ConvertString(article.Content)
@@ -268,7 +260,7 @@ func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocume
 	return doc, nil
 }
 
-func (d *Default) crawlWithBrowser(ctx context.Context, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
 	if d.browser == nil {
 		log.Warn().Msg("browser not initialized")
 		return doc, nil
@@ -276,23 +268,28 @@ func (d *Default) crawlWithBrowser(ctx context.Context, doc *types.CrawledDocume
 
 	log.Info().Str("url", doc.SourceURL).Msg("crawling with browser")
 
-	page, err := d.pagePool.Get(func() (*rod.Page, error) {
-		// We use MustIncognito to isolate pages with each other
-		b, err := d.browser.Incognito()
-		if err != nil {
-			return nil, err
-		}
-		return b.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
-	})
+	// page, err := d.pagePool.Get(func() (*rod.Page, error) {
+	// 	// We use MustIncognito to isolate pages with each other
+	// 	b, err := d.browser.Incognito()
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	return b.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
+	// })
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error getting page for %s: %w", doc.SourceURL, err)
+	// }
+	// // Put the page back in the pool
+	// defer d.pagePool.Put(page)
+
+	// err = page.Navigate(doc.SourceURL)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error navigating to %s: %w", doc.SourceURL, err)
+	// }
+
+	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: doc.SourceURL})
 	if err != nil {
 		return nil, fmt.Errorf("error getting page for %s: %w", doc.SourceURL, err)
-	}
-	// Put the page back in the pool
-	defer d.pagePool.Put(page)
-
-	err = page.Navigate(doc.SourceURL)
-	if err != nil {
-		return nil, fmt.Errorf("error navigating to %s: %w", doc.SourceURL, err)
 	}
 
 	log.Info().Str("url", doc.SourceURL).Msg("waiting for page to load")

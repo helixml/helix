@@ -27,9 +27,13 @@ func TestDefault_Crawl(t *testing.T) {
 		},
 	}
 
-	bp := browser.New(&config.ServerConfig{})
+	cfg, err := config.LoadServerConfig()
+	require.NoError(t, err)
 
-	d, err := NewDefault(bp, k)
+	browserManager, err := browser.New(&cfg)
+	require.NoError(t, err)
+
+	d, err := NewDefault(browserManager, k)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -79,9 +83,13 @@ func TestDefault_CrawlSingle(t *testing.T) {
 		},
 	}
 
-	bp := browser.New(&config.ServerConfig{})
+	cfg, err := config.LoadServerConfig()
+	require.NoError(t, err)
 
-	d, err := NewDefault(bp, k)
+	browserManager, err := browser.New(&cfg)
+	require.NoError(t, err)
+
+	d, err := NewDefault(browserManager, k)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -100,14 +108,23 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 			},
 		},
 	}
-	bp := browser.New(&config.ServerConfig{})
-	d, err := NewDefault(bp, k)
+
+	cfg, err := config.LoadServerConfig()
+	require.NoError(t, err)
+
+	browserManager, err := browser.New(&cfg)
+	require.NoError(t, err)
+
+	d, err := NewDefault(browserManager, k)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile("../readability/testdata/example_code_block.html")
 	require.NoError(t, err)
 
-	doc, err := d.convertHTMLToMarkdown(string(content), &types.CrawledDocument{})
+	b, err := browserManager.GetBrowser()
+	require.NoError(t, err)
+
+	doc, err := d.convertHTMLToMarkdown(string(content), b, &types.CrawledDocument{})
 	require.NoError(t, err)
 
 	// Assert specific lines
@@ -122,24 +139,27 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 			Web: &types.KnowledgeSourceWeb{
 				Crawler: &types.WebsiteCrawler{
 					Readability: true,
-					// ChromeURL:   os.Getenv("CHROME_URL"),
-					// ChromeURL: "http://localhost:9222",
 				},
 			},
 		},
 	}
 
-	cfg := &config.ServerConfig{}
-	cfg.RAG.Crawler.ChromeURL = "http://localhost:9222"
-	bp := browser.New(cfg)
+	cfg, err := config.LoadServerConfig()
+	require.NoError(t, err)
 
-	d, err := NewDefault(bp, k)
+	browserManager, err := browser.New(&cfg)
+	require.NoError(t, err)
+
+	d, err := NewDefault(browserManager, k)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile("../readability/testdata/sb.html")
 	require.NoError(t, err)
 
-	doc, err := d.convertHTMLToMarkdown(string(content), &types.CrawledDocument{
+	b, err := browserManager.GetBrowser()
+	require.NoError(t, err)
+
+	doc, err := d.convertHTMLToMarkdown(string(content), b, &types.CrawledDocument{
 		SourceURL: "https://www.starbucks.com/store-locator/store/50766-275766/target-austin-ut-campus-3250-2021-guadalupe-st-austin-tx-78705-us",
 	})
 	require.NoError(t, err)
