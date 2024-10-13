@@ -178,10 +178,10 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		// Latest models, Oct 2024 updates (all with 128k context)
 		{
 			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
-			Name:          "Llama 3.1 8B Q8_0",
+			Name:          "Llama 3.1 8B",
 			Memory:        MB * 8107, // 8.5GiB in MiB
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Fast and good for everyday tasks, from Meta (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
@@ -189,23 +189,23 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3.1 70B",
 			Memory:        GB * 40,
 			ContextLength: 131072,
-			Description:   "Large model with enhanced capabilities",
+			Description:   "Large model with enhanced capabilities, from Meta (4bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
 			Id:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2:1b-instruct-q8_0
-			Name:          "Llama 3.2 1B Q8_0",
+			Name:          "Llama 3.2 1B",
 			Memory:        MB * 1240,
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Tiny model, from Meta (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
 			Id:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2:3b-instruct-q8_0
-			Name:          "Llama 3.2 3B Q8_0",
+			Name:          "Llama 3.2 3B",
 			Memory:        MB * 3243,
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Small model, from Meta (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		// Old llama3:instruct, leaving in here because the id is in lots of our examples
@@ -214,7 +214,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3 8B",
 			Memory:        MB * 4483,
 			ContextLength: 8192,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Older model, from Meta (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
@@ -222,7 +222,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Phi-3.5 3.8B Mini Q8_0",
 			Memory:        MB * 4199,
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Fast and good for everyday tasks, from Microsoft (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
@@ -230,7 +230,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Gemma 2 2B Q8_0",
 			Memory:        MB * 2868,
 			ContextLength: 8192,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Fast and good for everyday tasks, from Google (8bit quantized, 8K context)",
 			Hide:          false,
 		},
 		{
@@ -238,7 +238,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Gemma 2 9B Q8_0",
 			Memory:        MB * 10036,
 			ContextLength: 8192,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Fast and good for everyday tasks, from Google (8bit quantized, 8K context)",
 			Hide:          false,
 		},
 		{
@@ -246,7 +246,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Gemma 2 27B Q8_0",
 			Memory:        MB * 29696,
 			ContextLength: 8192,
-			Description:   "Large model with enhanced capabilities",
+			Description:   "Large model with enhanced capabilities, from Google (8bit quantized, 8K context)",
 			Hide:          false,
 		},
 		{
@@ -254,7 +254,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 7B Q8_0",
 			Memory:        MB * 8295,
 			ContextLength: 32768,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Fast and good for everyday tasks, from Alibaba (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
@@ -262,23 +262,23 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 72B",
 			Memory:        GB * 47,
 			ContextLength: 32768,
-			Description:   "Large model with enhanced capabilities",
+			Description:   "Large model with enhanced capabilities, from Alibaba (4bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
 			Id:            "hermes3:8b-llama3.1-q8_0", // https://ollama.com/library/hermes3:8b-llama3.1-q8_0
-			Name:          "Hermes 3 8B Llama 3.1 Q8_0",
+			Name:          "Hermes 3 8B Llama 3.1",
 			Memory:        MB * 8107,
 			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Function calling and structured output capabilities, from Nous Research (8bit quantized, 128K context)",
 			Hide:          false,
 		},
 		{
 			Id:            "aya:8b-23-q8_0", // https://ollama.com/library/aya:8b-23-q8_0
-			Name:          "Aya 8B Q8_0",
+			Name:          "Aya 8B",
 			Memory:        MB * 8107,
 			ContextLength: 8192,
-			Description:   "Fast and good for everyday tasks",
+			Description:   "Small multi-lingual model from Cohere (8bit quantized, 8K context)",
 			Hide:          false,
 		},
 		{
@@ -286,7 +286,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Aya 35B",
 			Memory:        GB * 20,
 			ContextLength: 8192,
-			Description:   "Large model with enhanced capabilities",
+			Description:   "Large multi-lingual model from Cohere (4bit quantized, 8K context)",
 			Hide:          false,
 		},
 		// Still baked into images because of use in qapair gen
@@ -295,6 +295,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Mixtral",
 			Memory:        GB * 26,
 			ContextLength: 32768,
+			Description:   "Medium multi-lingual model, from Mistral (4bit quantized, 32K context)",
 			Hide:          false,
 		},
 
