@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
 )
@@ -22,11 +23,7 @@ type Browser struct {
 }
 
 func New(cfg *config.ServerConfig) *Browser {
-	pool := rod.NewBrowserPool(3) // TODO: move to rod launcher
-
-	pool.Cleanup(func(p *rod.Browser) {
-		p.MustClose()
-	})
+	pool := rod.NewBrowserPool(1) // TODO: move to rod launcher
 
 	return &Browser{
 		ctx:  context.Background(),
@@ -36,45 +33,41 @@ func New(cfg *config.ServerConfig) *Browser {
 }
 
 func (b *Browser) Get() (*rod.Browser, error) {
+	browser, err := b.getFromPool()
+	if err != nil {
+		return nil, err
+	}
+	return browser, nil
+}
+
+func (b *Browser) getFromPool() (*rod.Browser, error) {
 	chromeURL, err := b.getChromeURL()
 	if err != nil {
 		return nil, err
 	}
+	create := func() (*rod.Browser, error) {
+		log.Info().Str("chromeURL", chromeURL).Msg("Creating browser")
+		browser := rod.New().ControlURL(chromeURL)
+		err := browser.Connect()
+		if err != nil {
+			return nil, err
+		}
 
-	fmt.Println("XXX chromeURL", chromeURL)
-
-	browser := rod.New().ControlURL(chromeURL)
-	err = browser.Connect()
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to Chrome: %w", err)
+		return browser, nil
 	}
+
+	browser, err := b.pool.Get(create)
+	if err != nil {
+		return nil, err
+	}
+
 	return browser, nil
-
-	// create := func() (*rod.Browser, error) {
-	// 	log.Info().Str("chromeURL", chromeURL).Msg("Creating browser")
-
-	// 	browser := rod.New().ControlURL(chromeURL)
-
-	// 	err := browser.Connect()
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	return browser, nil
-	// }
-
-	// browser, err := b.pool.Get(create)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// fmt.Println("XXX browser", browser)
-
-	// return browser, nil
 }
 
 func (b *Browser) Put(browser *rod.Browser) error {
+	log.Info().Msg("Putting browser back to the pool")
 	b.pool.Put(browser)
+	b.pool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
 	return nil
 }
 
@@ -85,13 +78,6 @@ func (b *Browser) getChromeURL() (string, error) {
 	parsedURL, err := url.Parse(chromeURL)
 	if err != nil {
 		return "", fmt.Errorf("error parsing Chrome URL (%s): %w", chromeURL, err)
-	}
-
-	switch parsedURL.Hostname() {
-	case "localhost", "127.0.0.1":
-		return chromeURL, nil
-	default:
-		// Resolve
 	}
 
 	// Resolve the hostname to an IP address. This is required for the browser to connect,
