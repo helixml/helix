@@ -212,6 +212,12 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 	}
 	defer d.browser.PutPage(page)
 
+	if d.knowledge.Source.Web.Crawler.UserAgent != "" {
+		page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
+			UserAgent: d.knowledge.Source.Web.Crawler.UserAgent,
+		})
+	}
+
 	log.Trace().Str("url", url).Msg("waiting for page to load")
 
 	err = page.Timeout(5 * time.Second).WaitLoad()
