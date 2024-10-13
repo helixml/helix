@@ -121,10 +121,9 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 	content, err := os.ReadFile("../readability/testdata/example_code_block.html")
 	require.NoError(t, err)
 
-	b, err := browserManager.GetBrowser()
-	require.NoError(t, err)
-
-	doc, err := d.convertHTMLToMarkdown(string(content), b, &types.CrawledDocument{})
+	doc, err := d.convertToMarkdown(context.Background(), &types.CrawledDocument{
+		Content: string(content),
+	})
 	require.NoError(t, err)
 
 	// Assert specific lines
@@ -153,15 +152,12 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	d, err := NewDefault(browserManager, k)
 	require.NoError(t, err)
 
-	content, err := os.ReadFile("../readability/testdata/sb.html")
-	require.NoError(t, err)
+	ctx := context.Background()
 
 	b, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	doc, err := d.convertHTMLToMarkdown(string(content), b, &types.CrawledDocument{
-		SourceURL: "https://www.starbucks.com/store-locator/store/50766-275766/target-austin-ut-campus-3250-2021-guadalupe-st-austin-tx-78705-us",
-	})
+	doc, err := d.crawlWithBrowser(ctx, b, "https://www.starbucks.com/store-locator/store/50766-275766/target-austin-ut-campus-3250-2021-guadalupe-st-austin-tx-78705-us")
 	require.NoError(t, err)
 
 	assert.Contains(t, doc.Content, "Target Austin UT Campus")
