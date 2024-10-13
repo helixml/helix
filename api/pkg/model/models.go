@@ -138,28 +138,12 @@ const (
 	Model_Axolotl_Mistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Cog_SDXL          string = "stabilityai/stable-diffusion-xl-base-1.0"
 
-	Model_Ollama_Mistral7b    string = "mistral:7b-instruct"
-	Model_Ollama_Mistral7b_v3 string = "mistral:v0.3"
-	Model_Ollama_Mixtral      string = "mixtral:instruct"
-	Model_Ollama_CodeLlama    string = "codellama:70b-instruct-q2_K"
-
-	Model_Ollama_NousHermes2Pro         string = "adrienbrault/nous-hermes2pro:Q5_K_S"
-	Model_Ollama_NousHermes2ThetaLlama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
-
-	Model_Ollama_Llama3_8b  string = "llama3:instruct"
-	Model_Ollama_Llama3_70b string = "llama3:70b"
-
-	Model_Ollama_Llama3_8b_fp16 string = "llama3:8b-instruct-fp16"
-	Model_Ollama_Llama3_8b_q6_K string = "llama3:8b-instruct-q6_K"
-	Model_Ollama_Llama3_8b_q8_0 string = "llama3:8b-instruct-q8_0"
-
-	Model_Ollama_Phi3 string = "phi3:instruct"
-
 	// Oct 2024 updates
 	Model_Ollama_Llama31_8b_q8_0     string = "llama3.1:8b-instruct-q8_0"
 	Model_Ollama_Llama31_70b         string = "llama3.1:70b"
 	Model_Ollama_Llama32_1b_q8_0     string = "llama3.2:1b-instruct-q8_0"
 	Model_Ollama_Llama32_3b_q8_0     string = "llama3.2:3b-instruct-q8_0"
+	Model_Ollama_Llama3_8b           string = "llama3:instruct"
 	Model_Ollama_Phi35_38b_mini_q8_0 string = "phi3.5:3.8b-mini-instruct-q8_0"
 	Model_Ollama_Gemma2_2b_q8_0      string = "gemma2:2b-instruct-q8_0"
 	Model_Ollama_Gemma2_9b_q8_0      string = "gemma2:9b-instruct-q8_0"
@@ -169,6 +153,23 @@ const (
 	Model_Ollama_Hermes3_8b_Llama31  string = "hermes3:8b-llama3.1-q8_0"
 	Model_Ollama_Aya_8b_q8_0         string = "aya:8b-23-q8_0"
 	Model_Ollama_Aya_35b             string = "aya:35b"
+
+	// Older models
+	Model_Ollama_Mistral7b    string = "mistral:7b-instruct"
+	Model_Ollama_Mistral7b_v3 string = "mistral:v0.3"
+	Model_Ollama_Mixtral      string = "mixtral:instruct"
+	Model_Ollama_CodeLlama    string = "codellama:70b-instruct-q2_K"
+
+	Model_Ollama_NousHermes2Pro         string = "adrienbrault/nous-hermes2pro:Q5_K_S"
+	Model_Ollama_NousHermes2ThetaLlama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
+
+	Model_Ollama_Llama3_70b string = "llama3:70b"
+
+	Model_Ollama_Llama3_8b_fp16 string = "llama3:8b-instruct-fp16"
+	Model_Ollama_Llama3_8b_q6_K string = "llama3:8b-instruct-q6_K"
+	Model_Ollama_Llama3_8b_q8_0 string = "llama3:8b-instruct-q8_0"
+
+	Model_Ollama_Phi3 string = "phi3:instruct"
 )
 
 // See also types/models.go for model name constants
@@ -179,100 +180,100 @@ func GetDefaultOllamaModels() (map[string]Model, error) {
 	models[Model_Ollama_Llama31_8b_q8_0] = &OllamaGenericText{
 		id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1
 		name:          "Llama 3.1 8B Q8_0",
-		memory:        MB * 8107,
-		contextLength: 128 * 1024,
+		memory:        MB * 8107, // 8.5GiB in MiB
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Llama31_70b] = &OllamaGenericText{
 		id:            "llama3.1:70b", // https://ollama.com/library/llama3.1
 		name:          "Llama 3.1 70B",
 		memory:        GB * 39,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Large model with enhanced capabilities",
 	}
 	models[Model_Ollama_Llama32_1b_q8_0] = &OllamaGenericText{
 		id:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2
 		name:          "Llama 3.2 1B Q8_0",
-		memory:        MB * 1024,
-		contextLength: 128 * 1024,
+		memory:        MB * 1240,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Llama32_3b_q8_0] = &OllamaGenericText{
 		id:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2
 		name:          "Llama 3.2 3B Q8_0",
-		memory:        MB * 3072,
-		contextLength: 128 * 1024,
+		memory:        MB * 2048,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	// Old llama3:instruct, leaving in here because the id is in lots of our examples
 	models[Model_Ollama_Llama3_8b] = &OllamaGenericText{
 		id:            "llama3:instruct", // https://ollama.com/library/llama3
 		name:          "Llama 3 8B",
-		memory:        MB * 5349,
-		contextLength: 4096,
+		memory:        MB * 4483,
+		contextLength: 8192,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Phi35_38b_mini_q8_0] = &OllamaGenericText{
-		id:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi
+		id:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5
 		name:          "Phi-3.5 3.8B Mini Q8_0",
-		memory:        MB * 3890,
-		contextLength: 128 * 1024,
+		memory:        MB * 2098,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Gemma2_2b_q8_0] = &OllamaGenericText{
-		id:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma
+		id:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2
 		name:          "Gemma 2 2B Q8_0",
 		memory:        MB * 2048,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Gemma2_9b_q8_0] = &OllamaGenericText{
-		id:            "gemma2:9b-instruct-q8_0", // https://ollama.com/library/gemma
+		id:            "gemma2:9b-instruct-q8_0", // https://ollama.com/library/gemma2
 		name:          "Gemma 2 9B Q8_0",
 		memory:        MB * 9216,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Gemma2_27b_q8_0] = &OllamaGenericText{
-		id:            "gemma2:27b-instruct-q8_0", // https://ollama.com/library/gemma
+		id:            "gemma2:27b-instruct-q8_0", // https://ollama.com/library/gemma2
 		name:          "Gemma 2 27B Q8_0",
 		memory:        GB * 27,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Large model with enhanced capabilities",
 	}
 	models[Model_Ollama_Qwen25_7b_q8_0] = &OllamaGenericText{
-		id:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen
+		id:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5
 		name:          "Qwen 2.5 7B Q8_0",
 		memory:        MB * 7168,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Qwen25_72b] = &OllamaGenericText{
-		id:            "qwen2.5:72b", // https://ollama.com/library/qwen
+		id:            "qwen2.5:72b", // https://ollama.com/library/qwen2.5
 		name:          "Qwen 2.5 72B",
 		memory:        GB * 40,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Large model with enhanced capabilities",
 	}
 	models[Model_Ollama_Hermes3_8b_Llama31] = &OllamaGenericText{
-		id:            "hermes3:8b-llama3.1-q8_0", // Custom model, no direct Ollama link
+		id:            "hermes3:8b-llama3.1-q8_0", // https://ollama.com/library/hermes3
 		name:          "Hermes 3 8B Llama 3.1 Q8_0",
 		memory:        MB * 8192,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Aya_8b_q8_0] = &OllamaGenericText{
 		id:            "aya:8b-23-q8_0", // https://ollama.com/library/aya
 		name:          "Aya 8B Q8_0",
 		memory:        MB * 8192,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Fast and good for everyday tasks",
 	}
 	models[Model_Ollama_Aya_35b] = &OllamaGenericText{
 		id:            "aya:35b", // https://ollama.com/library/aya
 		name:          "Aya 35B",
 		memory:        GB * 35,
-		contextLength: 128 * 1024,
+		contextLength: 131072,
 		description:   "Large model with enhanced capabilities",
 	}
 	// Still baked into images because of use in qapair gen
@@ -306,13 +307,13 @@ func GetDefaultOllamaModels() (map[string]Model, error) {
 
 	// NousHermes2Pro
 	models[Model_Ollama_NousHermes2Pro] = &OllamaGenericText{
-		id:            "adrienbrault/nous-hermes2pro:Q5_K_S", // Custom model, no direct Ollama link
+		id:            "adrienbrault/nous-hermes2pro:Q5_K_S", // https://ollama.com/adrienbrault/nous-hermes2pro:Q5_K_S
 		name:          "Nous-Hermes 2 Pro",
 		memory:        MB * 6440,
 		contextLength: 8192,
 	}
 	models[Model_Ollama_NousHermes2ThetaLlama3] = &OllamaGenericText{
-		id:            "adrienbrault/nous-hermes2theta-llama3-8b:q8_0", // Custom model, no direct Ollama link
+		id:            "adrienbrault/nous-hermes2theta-llama3-8b:q8_0", // https://ollama.com/adrienbrault/nous-hermes2theta-llama3-8b
 		name:          "Nous-Hermes 2 Theta",
 		memory:        MB * 8792,
 		contextLength: 8192,
@@ -349,7 +350,7 @@ func GetDefaultOllamaModels() (map[string]Model, error) {
 
 	// Phi3
 	models[Model_Ollama_Phi3] = &OllamaGenericText{
-		id:            "phi3:instruct", // https://ollama.com/library/phi
+		id:            "phi3:instruct", // https://ollama.com/library/phi3
 		name:          "Phi-3",
 		memory:        MB * 2300,
 		contextLength: 2048,
