@@ -13,7 +13,8 @@ import (
 
 func TestBrowser_Get(t *testing.T) {
 	cfg := &config.ServerConfig{}
-	cfg.RAG.Crawler.ChromeURL = "http://127.0.0.1:9222"
+	cfg.RAG.Crawler.LauncherEnabled = true
+	cfg.RAG.Crawler.LauncherURL = "http://127.0.0.1:7317"
 
 	if os.Getenv("CHROME_URL") != "" {
 		cfg.RAG.Crawler.ChromeURL = os.Getenv("CHROME_URL")
@@ -32,6 +33,9 @@ func TestBrowser_Get(t *testing.T) {
 	assert.NotNil(t, page)
 
 	defer page.Close()
+
+	err = page.WaitLoad()
+	require.NoError(t, err)
 
 	body, err := page.HTML()
 	require.NoError(t, err)
