@@ -110,7 +110,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	freePortFinder = mockFreePortFinder
 
 	// Add the runner options
-	modelName := types.Model_Ollama_Llama3_8b
+	modelName := model.Model_Ollama_Llama3_8b
 
 	ctx := context.Background()
 	runner := createTestRunner(1024*model.MB, 1*time.Millisecond)
@@ -183,7 +183,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	assert.Contains(t, pidStatusCode, "S")
 
 	// We've set the model instance to be stale after 1ms, so it should kill
-	aiModel, err := model.GetModel(modelName)
+	aiModel, err := model.GetModel(string(modelName))
 	assert.NoError(t, err)
 	err = runner.checkForStaleModelInstances(ctx, aiModel, types.SessionModeInference)
 	assert.NoError(t, err)

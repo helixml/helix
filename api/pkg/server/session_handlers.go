@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
@@ -106,7 +107,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
@@ -155,7 +156,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			Updated:   time.Now(),
 			Mode:      types.SessionModeInference,
 			Type:      types.SessionTypeText,
-			ModelName: types.ModelName(startReq.Model),
+			ModelName: startReq.Model,
 			ParentApp: startReq.AppID,
 			Owner:     user.ID,
 			OwnerType: user.Type,
@@ -219,7 +220,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName.String(),
+			Model: modelName,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
@@ -269,12 +270,12 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		return
 	}
 
-	modelName, e := types.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName.String(), types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, e := model.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
 	if e != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if modelName.String() != session.ModelName.String() {
+	if modelName != session.ModelName {
 		session.ModelName = modelName
 	}
 
@@ -298,7 +299,7 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 	// Convert interactions (except the last one) to messages
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName.String(),
+			Model: modelName,
 		}
 
 		options = &controller.ChatCompletionOptions{

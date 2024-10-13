@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -23,7 +24,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		return nil, fmt.Errorf("cannot get next session without runner id")
 	}
 
-	modelName, err := types.TransformModelName(req.URL.Query().Get("model_name"))
+	modelName, err := model.TransformModelName(req.URL.Query().Get("model_name"))
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +76,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	modelName, err := types.TransformModelName(req.URL.Query().Get("model_name"))
+	modelName, err := model.TransformModelName(req.URL.Query().Get("model_name"))
 	if err != nil {
 		return nil, err
 	}
@@ -99,12 +100,12 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	if ok && len(rejectPairs) > 0 {
 		for _, rejectPair := range rejectPairs {
 			triple := strings.Split(rejectPair, ":")
-			var rejectModelName types.ModelName
+			var rejectModelName string
 			var rejectModelMode types.SessionMode
 			var rejectLoraDir string
 			var err error
 			if len(triple) == 4 {
-				rejectModelName, err = types.TransformModelName(triple[0] + ":" + triple[1])
+				rejectModelName, err = model.TransformModelName(triple[0] + ":" + triple[1])
 				if err != nil {
 					return nil, err
 				}
@@ -114,7 +115,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 				}
 				rejectLoraDir = triple[3]
 			} else if len(triple) == 3 {
-				rejectModelName, err = types.TransformModelName(triple[0])
+				rejectModelName, err = model.TransformModelName(triple[0])
 				if err != nil {
 					return nil, err
 				}

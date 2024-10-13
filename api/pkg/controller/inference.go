@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/prompts"
@@ -57,12 +58,12 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
-		modelName, err := types.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		modelName, err := model.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
 		}
 
-		req.Model = modelName.String()
+		req.Model = modelName
 	}
 
 	if assistant.RAGSourceID != "" {
@@ -121,12 +122,12 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
-		modelName, err := types.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		modelName, err := model.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
 		}
 
-		req.Model = modelName.String()
+		req.Model = modelName
 	}
 
 	if assistant.RAGSourceID != "" {
