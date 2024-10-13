@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -62,14 +63,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
-	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), chatCompletionRequest.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), chatCompletionRequest.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		log.Error().Err(err).Msg("error processing model name")
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	chatCompletionRequest.Model = modelName.String()
+	chatCompletionRequest.Model = modelName
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         user.ID,

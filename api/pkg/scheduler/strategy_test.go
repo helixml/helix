@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	testModelStr = types.Model_Ollama_Llama3_8b
+	testModelStr = model.Model_Ollama_Llama3_8b
 )
 
 var (
@@ -29,7 +29,7 @@ func TestPlacement_MaxSpread_Simple(t *testing.T) {
 	})
 	a := NewWorkloadAllocator(dummyTimeout)
 
-	req := createPlacementWork("test", testModelStr)
+	req := createPlacementWork("test", model.NewModel(testModelStr))
 
 	runnerID, err := MaxSpreadStrategy(c, a, req)
 	assert.NoError(t, err)
@@ -48,7 +48,7 @@ func TestPlacement_MaxSpread_MultiMachine(t *testing.T) {
 		TotalMemory: 2 * testModel.GetMemoryRequirements(types.SessionModeInference),
 	})
 	a := NewWorkloadAllocator(dummyTimeout)
-	req := createPlacementWork("test", testModelStr)
+	req := createPlacementWork("test", model.NewModel(testModelStr))
 	a.AllocateNewSlot("test-runner-1", req)
 
 	// Add a second runner
@@ -62,7 +62,7 @@ func TestPlacement_MaxSpread_MultiMachine(t *testing.T) {
 	assert.Equal(t, "test-runner-2", runnerID)
 }
 
-func createPlacementWork(name string, model types.ModelName) *Workload {
+func createPlacementWork(name string, model model.ModelName) *Workload {
 	req := &types.RunnerLLMInferenceRequest{
 		RequestID: name,
 		Request: &openai.ChatCompletionRequest{

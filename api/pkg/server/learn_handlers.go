@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -82,7 +83,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		defaultModel = allModels[0].ID
 	}
 
-	model, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), defaultModel, types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
+	model, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), defaultModel, types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return

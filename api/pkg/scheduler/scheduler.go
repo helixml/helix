@@ -88,7 +88,7 @@ func (s *scheduler) Schedule(work *Workload) (err error) {
 		return fmt.Errorf("workload is nil")
 	}
 	// Validate model.
-	if _, err := model.GetModel(work.ModelName()); err != nil {
+	if _, err := model.GetModel(work.ModelName().String()); err != nil {
 		return fmt.Errorf("unable to get model (%s): %v", work.ModelName(), err)
 	}
 
