@@ -58,8 +58,6 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	browser, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	defer browserManager.PutBrowser(browser)
-
 	page1, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helix.ml/"})
 	require.NoError(t, err)
 	assert.NotNil(t, page1)
@@ -86,4 +84,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	assert.Contains(t, body, "Commercial Support")
 
 	browserManager.PutPage(page2)
+
+	// Destroy the browser
+	browserManager.PutBrowser(browser)
 }
