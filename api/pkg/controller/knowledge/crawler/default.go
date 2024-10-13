@@ -139,20 +139,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 		visitedURLs[e.Request.URL.String()] = true
 
-		// Extract title
-		doc.Title = e.ChildText("title")
-
-		// Extract description
-		doc.Description = e.ChildAttr("meta[name=description]", "content")
-
-		// Extract and convert content to markdown
-		content, err := e.DOM.Find("body").Html()
-		if err != nil {
-			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error getting body HTML")
-			return
-		}
-
-		doc, err = d.convertHTMLToMarkdown(content, b, doc)
+		doc, err = d.crawlWithBrowser(ctx, b, e.Request.URL.String())
 		if err != nil {
 			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error converting HTML to markdown")
 			return
@@ -207,12 +194,58 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	return crawledDocs, nil
 }
 
-func (d *Default) convertHTMLToMarkdown(content string, b *rod.Browser, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url string) (*types.CrawledDocument, error) {
+
+	log.Info().Str("url", url).Msg("crawling with browser")
+
+	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
+	if err != nil {
+		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
+	}
+
+	log.Debug().Str("url", url).Msg("waiting for page to load")
+
+	err = page.WaitLoad()
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for page to load for %s: %w", url, err)
+	}
+
+	log.Debug().Str("url", url).Msg("getting page HTML")
+
+	html, err := page.HTML()
+	if err != nil {
+		return nil, fmt.Errorf("error getting HTML for %s: %w", url, err)
+	}
+
+	log.Debug().Str("url", url).Msg("parsing HTML")
+
+	article, err := d.parser.Parse(ctx, html, url)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing HTML for %s: %w", url, err)
+	}
+
+	doc := &types.CrawledDocument{
+		SourceURL:   url,
+		Content:     strings.TrimSpace(article.Content),
+		Title:       article.Title,
+		Description: article.Excerpt,
+	}
+
+	log.Debug().Str("url", url).Msg("converting HTML to markdown")
+
+	doc, err = d.convertToMarkdown(ctx, doc)
+	if err != nil {
+		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", url, err)
+	}
+
+	return doc, nil
+}
+
+func (d *Default) convertToMarkdown(ctx context.Context, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
 	if !d.knowledge.Source.Web.Crawler.Readability {
-		// If readability is turned off, try to convert HTML directly
-		markdown, err := d.converter.ConvertString(content)
+		markdown, err := d.converter.ConvertString(doc.Content)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
 		}
 
 		doc.Content = strings.TrimSpace(markdown)
@@ -220,97 +253,13 @@ func (d *Default) convertHTMLToMarkdown(content string, b *rod.Browser, doc *typ
 		return doc, nil
 	}
 
-	ctx := context.Background()
-
-	// If we have readability enabled, use the readability parser
-	article, err := d.parser.Parse(ctx, content, doc.SourceURL)
-	if err != nil {
-		return nil, err
-	}
-
-	if article.Content == "" {
-		log.Info().
-			Str("knowledge_id", d.knowledge.ID).
-			Str("url", doc.SourceURL).
-			Msg("HTML parsing failed, retrying with browser")
-		return d.crawlWithBrowser(ctx, b, doc)
-	}
-
-	markdown, err := d.converter.ConvertString(article.Content)
-	if err != nil {
-		return nil, err
-	}
-
-	doc.Content = strings.TrimSpace(markdown)
-	doc.Title = article.Title
-	doc.Description = article.Excerpt
-
-	return doc, nil
-}
-
-func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
-	if d.browser == nil {
-		log.Warn().Msg("browser not initialized")
-		return doc, nil
-	}
-
-	log.Info().Str("url", doc.SourceURL).Msg("crawling with browser")
-
-	// page, err := d.pagePool.Get(func() (*rod.Page, error) {
-	// 	// We use MustIncognito to isolate pages with each other
-	// 	b, err := d.browser.Incognito()
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	return b.Page(proto.TargetCreateTarget{URL: doc.SourceURL})
-	// })
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error getting page for %s: %w", doc.SourceURL, err)
-	// }
-	// // Put the page back in the pool
-	// defer d.pagePool.Put(page)
-
-	// err = page.Navigate(doc.SourceURL)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error navigating to %s: %w", doc.SourceURL, err)
-	// }
-
-	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: doc.SourceURL})
-	if err != nil {
-		return nil, fmt.Errorf("error getting page for %s: %w", doc.SourceURL, err)
-	}
-
-	log.Info().Str("url", doc.SourceURL).Msg("waiting for page to load")
-
-	err = page.WaitLoad()
-	if err != nil {
-		return nil, fmt.Errorf("error waiting for page to load for %s: %w", doc.SourceURL, err)
-	}
-
-	log.Info().Str("url", doc.SourceURL).Msg("getting page HTML")
-
-	html, err := page.HTML()
-	if err != nil {
-		return nil, fmt.Errorf("error getting HTML for %s: %w", doc.SourceURL, err)
-	}
-
-	log.Info().Str("url", doc.SourceURL).Msg("parsing HTML")
-
-	article, err := d.parser.Parse(ctx, html, doc.SourceURL)
+	// Pass through readability
+	article, err := d.parser.Parse(ctx, doc.Content, doc.SourceURL)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing HTML for %s: %w", doc.SourceURL, err)
 	}
 
-	log.Info().Str("url", doc.SourceURL).Msg("converting HTML to markdown")
-
-	markdown, err := d.converter.ConvertString(article.Content)
-	if err != nil {
-		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
-	}
-
-	log.Info().Str("url", doc.SourceURL).Msg("done")
-
-	doc.Content = strings.TrimSpace(markdown)
+	doc.Content = strings.TrimSpace(article.Content)
 	doc.Title = article.Title
 	doc.Description = article.Excerpt
 
