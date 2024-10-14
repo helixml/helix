@@ -281,8 +281,12 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 		// ollama client only supports being constructed from the environment, but
 		// the environment is global. ensure we speak to the right ollama server by
 		// only allowing one client to be created at a time
-		i.ollamaClientMutex.Lock()
-		defer i.ollamaClientMutex.Unlock()
+
+		// XXX try to fix hanging tests
+
+		// i.ollamaClientMutex.Lock()
+		// defer i.ollamaClientMutex.Unlock()
+
 		os.Setenv("OLLAMA_HOST", ollamaHost)
 		i.client, err = api.ClientFromEnvironment()
 	}()
