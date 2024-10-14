@@ -21,7 +21,8 @@ COPY . .
 
 # Build the Go app
 # RUN go mod tidy && go mod download && CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+ARG APP_VERSION="v0.0.0+unknown"
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION go build -ldflags "-s -w" -o /helix
 
 
 ### RUNNER CONTAINER

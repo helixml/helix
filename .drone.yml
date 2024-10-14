@@ -95,7 +95,7 @@ services:
 - name: tika
   image: apache/tika:2.9.2.1
 - name: chrome
-  image: ghcr.io/go-rod/rod:v0.115.0  
+  image: ghcr.io/go-rod/rod:v0.115.0
 
 ---
 kind: pipeline
@@ -121,7 +121,7 @@ steps:
     password:
       from_secret: helix_registry_password
     build_args:
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} # Required for sentry
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -160,6 +160,7 @@ steps:
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
       - TAG=2024-10-13a-empty
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
@@ -201,6 +202,7 @@ steps:
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
       - TAG=2024-10-13a-small
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
@@ -228,6 +230,7 @@ steps:
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
       - TAG=2024-10-13a-small
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
@@ -272,6 +275,7 @@ steps:
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
       - TAG=2024-10-13a-large
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
@@ -299,6 +303,7 @@ steps:
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
       - TAG=2024-10-13a-large
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
