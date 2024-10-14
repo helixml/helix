@@ -682,6 +682,7 @@ type ServerConfigForFrontend struct {
 	AppsEnabled             bool   `json:"apps_enabled"`
 	RudderStackWriteKey     string `json:"rudderstack_write_key"`
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
+	Version                 string `json:"version"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -723,6 +724,7 @@ type ModelInstanceState struct {
 	// (even though we could work it out)
 	Stale       bool   `json:"stale"`
 	MemoryUsage uint64 `json:"memory"`
+	Status      string `json:"status"`
 }
 
 // the basic struct reported by a runner when it connects
@@ -737,6 +739,7 @@ type RunnerState struct {
 	Labels              map[string]string     `json:"labels"`
 	ModelInstances      []*ModelInstanceState `json:"model_instances"`
 	SchedulingDecisions []string              `json:"scheduling_decisions"`
+	Version             string                `json:"version"`
 }
 
 type DashboardData struct {

@@ -2,6 +2,7 @@ import React, { FC } from 'react'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useAccount from '../../hooks/useAccount'
 
 const Disclaimer: FC<{
   
@@ -9,15 +10,15 @@ const Disclaimer: FC<{
   
 }) => {
   const themeConfig = useThemeConfig()
+  const account = useAccount()
 
   return (
     <Typography variant="body2" color="text.secondary" align="center">
-      {'Open source models can make mistakes. Check facts, dates and events. Created by '}
+      {'Open source models can make mistakes. Check facts, dates and events. '}
       <Link color="inherit" href={ themeConfig.url }>
         { themeConfig.company }
       </Link>{' '}
-      {new Date().getFullYear()}
-      {'.'}
+      { account.serverConfig.version }.
     </Typography>
   )
 }

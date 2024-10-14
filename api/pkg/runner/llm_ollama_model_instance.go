@@ -132,6 +132,9 @@ type OllamaInferenceModelInstance struct {
 
 	// ensure ollama client creation is single threaded
 	ollamaClientMutex sync.Mutex
+
+	// port is the port that the ollama server is running on
+	port int
 }
 
 // Warmup starts Ollama server and pulls the models
@@ -233,7 +236,7 @@ func (i *OllamaInferenceModelInstance) warmup(_ context.Context) error {
 		go func(modelName string) {
 			defer wg.Done()
 
-			log.Info().Msgf("🟢 Pulling model %s", modelName)
+			log.Info().Msgf("���� Pulling model %s", modelName)
 
 			err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
 				Model: modelName,
@@ -270,6 +273,7 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 	if err != nil {
 		return fmt.Errorf("error getting free port: %s", err.Error())
 	}
+	i.port = port
 
 	ollamaHost := fmt.Sprintf("0.0.0.0:%d", port)
 
@@ -297,6 +301,7 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 		"OLLAMA_KEEP_ALIVE=-1",
 		"OLLAMA_MAX_LOADED_MODELS=1",
 		"OLLAMA_NUM_PARALLEL=1",
+		"OLLAMA_FLASH_ATTENTION=1",
 		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_HOST="+ollamaHost,                 // Bind on localhost with random port
@@ -470,6 +475,8 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 		stale = true
 	}
 
+	status := i.getOllamaStatus()
+
 	return &types.ModelInstanceState{
 		ID:               i.id,
 		ModelName:        string(i.modelName),
@@ -481,7 +488,31 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 		LastActivity:     int(i.lastActivity.Unix()),
 		Stale:            stale,
 		MemoryUsage:      i.model.GetMemoryRequirements(types.SessionModeInference),
+		Status:           status,
 	}, nil
+}
+
+func (i *OllamaInferenceModelInstance) getOllamaStatus() string {
+	cmd := exec.Command("ollama", "ps")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("OLLAMA_HOST=127.0.0.1:%d", i.port))
+
+	output, err := cmd.Output()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to execute ollama ps command")
+		return "Unknown"
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 2 {
+		log.Error().Msg("Unexpected output format from ollama ps")
+		return "Unknown"
+	}
+
+	// Join all lines except the first (header) line
+	status := strings.Join(lines[1:], "\n")
+	log.Debug().Msgf("Ollama status on port %d:\n%s", i.port, status)
+
+	return status
 }
 
 func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.RunnerLLMInferenceRequest) error {

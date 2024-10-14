@@ -91,6 +91,12 @@ export const ModelInstanceSummary: FC<{
                 >
                   { getModelInstanceIdleTime(modelInstance) }
                 </Typography>
+                <Typography
+                  sx={{lineHeight: 1}}
+                  variant="caption"
+                >
+                  <br /><code>{ modelInstance.status }</code>
+                </Typography>
               </>
               
             )
