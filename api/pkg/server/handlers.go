@@ -384,6 +384,7 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
 		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
+		Version:                 data.GetHelixVersion(),
 	}, nil
 }
 

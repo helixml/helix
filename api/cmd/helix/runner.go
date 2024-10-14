@@ -32,7 +32,7 @@ func NewRunnerOptions() *RunnerOptions {
 			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING", ""),
 			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
-			ReporStateDelaySeconds:       getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
+			ReportStateDelaySeconds:      getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
 			JobHistoryBufferSize:         getDefaultServeOptionInt("JOB_HISTORY_BUFFER_SIZE", 100),
@@ -343,6 +343,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 const inbuiltModelsDirectory = "/workspace/ollama"
 
 func initializeModelsCache(cfg *config.RunnerConfig) error {
+	log.Info().Msgf("Copying baked models from %s into cache dir %s - this may take a while...", inbuiltModelsDirectory, cfg.CacheDir)
 	_, err := os.Stat(inbuiltModelsDirectory)
 	if err != nil {
 		if os.IsNotExist(err) {

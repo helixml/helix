@@ -271,6 +271,7 @@ export interface IServerConfig {
   eval_user_id: string,
   tools_enabled: boolean,
   apps_enabled: boolean,
+  version?: string,
 }
 
 export interface IConversation {
@@ -300,6 +301,7 @@ export interface IModelInstanceState {
   last_activity: number,
   stale: boolean,
   memory: number,
+  status?: string,
 }
 
 export interface IRunnerState {
@@ -310,6 +312,7 @@ export interface IRunnerState {
   labels: Record<string, string>,
   model_instances: IModelInstanceState[],
   scheduling_decisions: string[],
+  version?: string,
 }
 
 export interface ISessionFilterModel {
