@@ -342,6 +342,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Int("chunks", len(chunks)).
+		Str("size", humanize.Bytes(uint64(getSize(data)))).
 		Msg("submitting chunks into the rag server")
 
 	progress := atomic.Int32{}
