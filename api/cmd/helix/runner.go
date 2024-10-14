@@ -343,6 +343,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 const inbuiltModelsDirectory = "/workspace/ollama"
 
 func initializeModelsCache(cfg *config.RunnerConfig) error {
+	log.Info().Msgf("Copying baked models from %s into cache dir %s - this may take a while...", inbuiltModelsDirectory, cfg.CacheDir)
 	_, err := os.Stat(inbuiltModelsDirectory)
 	if err != nil {
 		if os.IsNotExist(err) {

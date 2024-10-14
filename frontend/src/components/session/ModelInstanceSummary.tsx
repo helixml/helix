@@ -91,16 +91,16 @@ export const ModelInstanceSummary: FC<{
                 >
                   { getModelInstanceIdleTime(modelInstance) }
                 </Typography>
-                <Typography
-                  sx={{lineHeight: 1}}
-                  variant="caption"
-                >
-                  <br /><code>{ modelInstance.status }</code>
-                </Typography>
               </>
               
             )
           }
+          <Typography
+            sx={{lineHeight: 1}}
+            variant="caption"
+          >
+            <br /><code>{ modelInstance.status }</code>
+          </Typography>
         </Cell>
         <Cell flexGrow={1} />
         <Cell>

@@ -497,21 +497,22 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 }
 
 func (i *OllamaInferenceModelInstance) getOllamaStatus() string {
-	cmd := exec.Command("ollama", "ps")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("OLLAMA_HOST=127.0.0.1:%d", i.port))
-
 	// Create a context with a 1-second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	// Run the command with the context
-	output, err := exec.CommandContext(ctx, cmd.Path, cmd.Args...).CombinedOutput()
+	// Prepare the command with the custom environment
+	cmd := exec.CommandContext(ctx, "ollama", "ps")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("OLLAMA_HOST=127.0.0.1:%d", i.port))
+
+	// Run the command
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.Warn().Msg("Ollama ps command timed out after 1 second")
 			return "Timed out"
 		}
-		log.Error().Err(err).Msg("Failed to execute ollama ps command")
+		log.Error().Err(err).Msgf("Failed to execute ollama ps command with environment OLLAMA_HOST=127.0.0.1:%d", i.port)
 		return "Unknown"
 	}
 
