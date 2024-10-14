@@ -289,7 +289,8 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		// ****************************************************************************
 		// ****************************************************************************
 
-		// XXX TODO These memory requirements are all wrong, need to fix
+		// XXX TODO These memory requirements are all wrong, need to fix by
+		// running the models and looking at ollama ps (via the dashboard)
 		{
 			Id:            "mistral:7b-instruct", // https://ollama.com/library/mistral:7b-instruct
 			Name:          "Mistral 7B v0.3",
