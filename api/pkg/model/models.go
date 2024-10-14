@@ -163,7 +163,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3.1 70B",
 			Memory:        GB * 48,
 			ContextLength: 16384,
-			Description:   "Smarter but slower, from Meta - 4bit quantized, 32K context",
+			Description:   "Smarter but slower, from Meta - 4bit quantized, 16K context",
 			Hide:          false,
 		},
 		{
@@ -188,7 +188,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3 8B",
 			Memory:        MB * 6390,
 			ContextLength: 8192,
-			Description:   "Older model, from Meta - 8bit quantized, 128K context",
+			Description:   "Older model, from Meta - 4bit quantized, 8K context",
 			Hide:          false,
 		},
 		{
@@ -228,7 +228,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 7B",
 			Memory:        GB * 12,
 			ContextLength: 32768,
-			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 128K context",
+			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 32K context",
 			Hide:          false,
 		},
 		{
@@ -236,8 +236,8 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 72B",
 			Memory:        GB * 67,
 			ContextLength: 32768,
-			Description:   "Large model with enhanced capabilities, from Alibaba - 4bit quantized, 128K context",
-			Hide:          false,
+			Description:   "Large model with enhanced capabilities, from Alibaba - 4bit quantized, 32K context",
+			Hide:          true, // hide for now since we can't run it in prod
 		},
 		{
 			Id:            "hermes3:8b-llama3.1-q8_0", // https://ollama.com/library/hermes3:8b-llama3.1-q8_0
