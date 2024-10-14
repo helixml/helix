@@ -59,7 +59,7 @@ type RunnerOptions struct {
 	GetTaskDelayMilliseconds int
 
 	// how often to report our overal state to the api
-	ReporStateDelaySeconds int
+	ReportStateDelaySeconds int
 
 	// how many bytes of memory does our GPU have?
 	// we report this back to the api when we ask
@@ -290,7 +290,7 @@ func (r *Runner) startReportStateLoop() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(time.Second * time.Duration(r.Options.ReporStateDelaySeconds)):
+		case <-time.After(time.Second * time.Duration(r.Options.ReportStateDelaySeconds)):
 			err := r.reportStateLoop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in report state loop: %s", err.Error())
