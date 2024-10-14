@@ -241,7 +241,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		},
 		{
 			Id:            "hermes3:8b-llama3.1-q8_0", // https://ollama.com/library/hermes3:8b-llama3.1-q8_0
-			Name:          "Hermes 3 8B Llama 3.1",
+			Name:          "Hermes 3 8B",
 			Memory:        GB * 35,
 			ContextLength: 131072,
 			Description:   "Function calling and structured output, from Nous - 8bit quantized, 128K context",
