@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
@@ -869,6 +870,7 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		Labels:              r.Options.Labels,
 		ModelInstances:      modelInstances,
 		SchedulingDecisions: r.schedulingDecisions,
+		Version:             data.GetHelixVersion(),
 	}, nil
 }
 
