@@ -129,6 +129,9 @@ type OllamaInferenceModelInstance struct {
 
 	// Interface to find free ports
 	freePortFinder FreePortFinder
+
+	// ensure ollama client creation is single threaded
+	ollamaClientMutex sync.Mutex
 }
 
 // Warmup starts Ollama server and pulls the models
@@ -268,13 +271,18 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 		return fmt.Errorf("error getting free port: %s", err.Error())
 	}
 
-	config := openai.DefaultConfig("ollama")
-	config.BaseURL = fmt.Sprintf("http://localhost:%d/v1", port)
-
 	ollamaHost := fmt.Sprintf("0.0.0.0:%d", port)
 
-	os.Setenv("OLLAMA_HOST", ollamaHost)
-	i.client, err = api.ClientFromEnvironment()
+	func() {
+		// ollama client only supports being constructed from the environment, but
+		// the environment is global. ensure we speak to the right ollama server by
+		// only allowing one client to be created at a time
+		i.ollamaClientMutex.Lock()
+		defer i.ollamaClientMutex.Unlock()
+		os.Setenv("OLLAMA_HOST", ollamaHost)
+		i.client, err = api.ClientFromEnvironment()
+	}()
+
 	if err != nil {
 		return fmt.Errorf("error creating Ollama client: %s", err.Error())
 	}
@@ -287,6 +295,8 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 
 	cmd.Env = append(cmd.Env,
 		"OLLAMA_KEEP_ALIVE=-1",
+		"OLLAMA_MAX_LOADED_MODELS=1",
+		"OLLAMA_NUM_PARALLEL=1",
 		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_HOST="+ollamaHost,                 // Bind on localhost with random port
@@ -514,7 +524,6 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 		Stream:   &inferenceReq.Request.Stream,
 		Options: map[string]interface{}{
 			"temperature": inferenceReq.Request.Temperature,
-			"max_tokens":  max_tokens,
 			"num_ctx":     max_tokens,
 			"seed":        inferenceReq.Request.Seed,
 			"top_p":       inferenceReq.Request.TopP,
