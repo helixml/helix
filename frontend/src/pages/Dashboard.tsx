@@ -241,6 +241,13 @@ const Dashboard: FC = () => {
                     mt: 1,
                     mb: 1,
                   }} />
+                  { account.serverConfig.version && (
+                    <Box>
+                      <Typography variant="h6">
+                        Helix Control Plane version: { account.serverConfig.version }
+                      </Typography>
+                    </Box>
+                  )}
                 {data?.runners.map((runner) => {
                   const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
                     return modelInstance.current_session ? [...allSessions, modelInstance.current_session] : allSessions
