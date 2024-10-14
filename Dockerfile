@@ -30,7 +30,7 @@ COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"
-RUN CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION" -o /helix
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
