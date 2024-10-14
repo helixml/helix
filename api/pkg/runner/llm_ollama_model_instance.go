@@ -236,7 +236,7 @@ func (i *OllamaInferenceModelInstance) warmup(_ context.Context) error {
 		go func(modelName string) {
 			defer wg.Done()
 
-			log.Info().Msgf("���� Pulling model %s", modelName)
+			log.Info().Msgf("🟢 Pulling model %s", modelName)
 
 			err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
 				Model: modelName,
@@ -504,7 +504,7 @@ func (i *OllamaInferenceModelInstance) getOllamaStatus() string {
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 2 {
-		return "Empty"
+		return "Empty (!)"
 	}
 
 	// Join all lines except the first (header) line
