@@ -198,9 +198,10 @@ services:
       - api
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
+    #build:
+    #  context: .
+    #  dockerfile: Dockerfile.runner
+    image: registry.helix.ml/helix/runner:latest-large
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env

@@ -504,8 +504,7 @@ func (i *OllamaInferenceModelInstance) getOllamaStatus() string {
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 2 {
-		log.Error().Msg("Unexpected output format from ollama ps")
-		return "Unknown"
+		return "Empty"
 	}
 
 	// Join all lines except the first (header) line
