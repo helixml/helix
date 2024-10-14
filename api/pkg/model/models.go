@@ -244,7 +244,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Hermes 3 8B Llama 3.1",
 			Memory:        GB * 35,
 			ContextLength: 131072,
-			Description:   "Function calling and structured output, from Nous- 8bit quantized, 128K context",
+			Description:   "Function calling and structured output, from Nous - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
