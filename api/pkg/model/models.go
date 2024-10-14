@@ -134,42 +134,16 @@ func GetModels() (map[string]Model, error) {
 }
 
 const (
-	Model_None              string = ""
 	Model_Axolotl_Mistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Cog_SDXL          string = "stabilityai/stable-diffusion-xl-base-1.0"
 
-	// Oct 2024 updates
-	Model_Ollama_Llama31_8b_q8_0     string = "llama3.1:8b-instruct-q8_0"
-	Model_Ollama_Llama31_70b         string = "llama3.1:70b"
-	Model_Ollama_Llama32_1b_q8_0     string = "llama3.2:1b-instruct-q8_0"
-	Model_Ollama_Llama32_3b_q8_0     string = "llama3.2:3b-instruct-q8_0"
-	Model_Ollama_Llama3_8b           string = "llama3:instruct"
-	Model_Ollama_Phi35_38b_mini_q8_0 string = "phi3.5:3.8b-mini-instruct-q8_0"
-	Model_Ollama_Gemma2_2b_q8_0      string = "gemma2:2b-instruct-q8_0"
-	Model_Ollama_Gemma2_9b_q8_0      string = "gemma2:9b-instruct-q8_0"
-	Model_Ollama_Gemma2_27b_q8_0     string = "gemma2:27b-instruct-q8_0"
-	Model_Ollama_Qwen25_7b_q8_0      string = "qwen2.5:7b-instruct-q8_0"
-	Model_Ollama_Qwen25_72b          string = "qwen2.5:72b"
-	Model_Ollama_Hermes3_8b_Llama31  string = "hermes3:8b-llama3.1-q8_0"
-	Model_Ollama_Aya_8b_q8_0         string = "aya:8b-23-q8_0"
-	Model_Ollama_Aya_35b             string = "aya:35b"
-
-	// Older models
-	Model_Ollama_Mistral7b    string = "mistral:7b-instruct"
-	Model_Ollama_Mistral7b_v3 string = "mistral:v0.3"
-	Model_Ollama_Mixtral      string = "mixtral:instruct"
-	Model_Ollama_CodeLlama    string = "codellama:70b-instruct-q2_K"
-
-	Model_Ollama_NousHermes2Pro         string = "adrienbrault/nous-hermes2pro:Q5_K_S"
+	// We only need constants for _some_ ollama models that are hardcoded in
+	// various places (backward compat). Other ones can be added dynamically now.
+	Model_Ollama_Llama3_8b              string = "llama3:instruct"
+	Model_Ollama_Mixtral                string = "mixtral:instruct"
 	Model_Ollama_NousHermes2ThetaLlama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
-
-	Model_Ollama_Llama3_70b string = "llama3:70b"
-
-	Model_Ollama_Llama3_8b_fp16 string = "llama3:8b-instruct-fp16"
-	Model_Ollama_Llama3_8b_q6_K string = "llama3:8b-instruct-q6_K"
-	Model_Ollama_Llama3_8b_q8_0 string = "llama3:8b-instruct-q8_0"
-
-	Model_Ollama_Phi3 string = "phi3:instruct"
+	Model_Ollama_Llama3_70b             string = "llama3:70b"
+	Model_Ollama_Phi3                   string = "phi3:instruct"
 )
 
 // See also types/models.go for model name constants
@@ -179,23 +153,23 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
-			Memory:        MB * 8107, // 8.5GiB in MiB
-			ContextLength: 131072,
-			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 128K context",
+			Memory:        GB * 15,
+			ContextLength: 32768, // goes up to 128k, but then uses 35GB
+			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 32K context",
 			Hide:          false,
 		},
 		{
 			Id:            "llama3.1:70b", // https://ollama.com/library/llama3.1:70b
 			Name:          "Llama 3.1 70B",
-			Memory:        GB * 40,
+			Memory:        MB * 1,
 			ContextLength: 131072,
-			Description:   "Large model, from Meta - 4bit quantized, 128K context",
+			Description:   "Smarter but slower, from Meta - 4bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
 			Id:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2:1b-instruct-q8_0
 			Name:          "Llama 3.2 1B",
-			Memory:        MB * 1240,
+			Memory:        MB * 1,
 			ContextLength: 131072,
 			Description:   "Tiny model, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
@@ -203,7 +177,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2:3b-instruct-q8_0
 			Name:          "Llama 3.2 3B",
-			Memory:        MB * 3243,
+			Memory:        MB * 1,
 			ContextLength: 131072,
 			Description:   "Small model, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
@@ -212,7 +186,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
 			Name:          "Llama 3 8B",
-			Memory:        MB * 4483,
+			Memory:        MB * 1,
 			ContextLength: 8192,
 			Description:   "Older model, from Meta - 8bit quantized, 128K context",
 			Hide:          false,
@@ -220,7 +194,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
 			Name:          "Phi 3.5 3.8B",
-			Memory:        MB * 4199,
+			Memory:        MB * 1,
 			ContextLength: 131072,
 			Description:   "Fast and good for everyday tasks, from Microsoft - 8bit quantized, 128K context",
 			Hide:          false,
@@ -228,7 +202,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
 			Name:          "Gemma 2 2B",
-			Memory:        MB * 2868,
+			Memory:        MB * 1,
 			ContextLength: 8192,
 			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
 			Hide:          false,
@@ -236,7 +210,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "gemma2:9b-instruct-q8_0", // https://ollama.com/library/gemma2:9b-instruct-q8_0
 			Name:          "Gemma 2 9B",
-			Memory:        MB * 10036,
+			Memory:        MB * 1,
 			ContextLength: 8192,
 			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
 			Hide:          false,
@@ -244,7 +218,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "gemma2:27b-instruct-q8_0", // https://ollama.com/library/gemma2:27b-instruct-q8_0
 			Name:          "Gemma 2 27B",
-			Memory:        MB * 29696,
+			Memory:        MB * 1,
 			ContextLength: 8192,
 			Description:   "Large model with enhanced capabilities, from Google - 8bit quantized, 8K context",
 			Hide:          false,
@@ -252,7 +226,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5:7b-instruct-q8_0
 			Name:          "Qwen 2.5 7B",
-			Memory:        MB * 8295,
+			Memory:        MB * 1,
 			ContextLength: 32768,
 			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 128K context",
 			Hide:          false,
@@ -260,7 +234,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "qwen2.5:72b", // https://ollama.com/library/qwen2.5:72b
 			Name:          "Qwen 2.5 72B",
-			Memory:        GB * 47,
+			Memory:        MB * 1,
 			ContextLength: 32768,
 			Description:   "Large model with enhanced capabilities, from Alibaba - 4bit quantized, 128K context",
 			Hide:          false,
@@ -268,7 +242,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "hermes3:8b-llama3.1-q8_0", // https://ollama.com/library/hermes3:8b-llama3.1-q8_0
 			Name:          "Hermes 3 8B Llama 3.1",
-			Memory:        MB * 8107,
+			Memory:        MB * 1,
 			ContextLength: 131072,
 			Description:   "Function calling and structured output, from Nous- 8bit quantized, 128K context",
 			Hide:          false,
@@ -276,7 +250,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "aya:8b-23-q8_0", // https://ollama.com/library/aya:8b-23-q8_0
 			Name:          "Aya 8B",
-			Memory:        MB * 8107,
+			Memory:        MB * 1,
 			ContextLength: 8192,
 			Description:   "Small multi-lingual model from Cohere - 8bit quantized, 8K context",
 			Hide:          false,
@@ -284,7 +258,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "aya:35b", // https://ollama.com/library/aya:35b
 			Name:          "Aya 35B",
-			Memory:        GB * 20,
+			Memory:        MB * 1,
 			ContextLength: 8192,
 			Description:   "Large multi-lingual model from Cohere - 4bit quantized, 8K context",
 			Hide:          false,
@@ -293,7 +267,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "mixtral:instruct", // https://ollama.com/library/mixtral:instruct
 			Name:          "Mixtral",
-			Memory:        GB * 26,
+			Memory:        MB * 1,
 			ContextLength: 32768,
 			Description:   "Medium multi-lingual model, from Mistral - 4bit quantized, 32K context",
 			Hide:          false,
@@ -314,6 +288,8 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		// ****************************************************************************
 		// ****************************************************************************
 		// ****************************************************************************
+
+		// XXX TODO These memory requirements are all wrong, need to fix
 		{
 			Id:            "mistral:7b-instruct", // https://ollama.com/library/mistral:7b-instruct
 			Name:          "Mistral 7B v0.3",
