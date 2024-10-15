@@ -179,6 +179,15 @@ func (suite *TypesenseTestSuite) TestIndexQueryAndDelete() {
 	suite.Require().NoError(err)
 	suite.Require().Len(results, 2)
 
+	// Query with limits
+	results, err = suite.ts.Query(suite.ctx, &types.SessionRAGQuery{
+		DataEntityID: "doc1",
+		Prompt:       "AI",
+		MaxResults:   1,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 1)
+
 	// Delete documents for doc1
 	deleteReq := &types.DeleteIndexRequest{
 		DataEntityID: "doc1",
