@@ -498,11 +498,9 @@ type SessionFilter struct {
 }
 
 type InferenceRequestFilter struct {
-	ModelName string `json:"model_name"`
-	Memory    uint64 `json:"memory"`
-	// we can delete Memory and Older once we've finished migration to the new
-	// scheduler, only ModelName needs to be respected
-	Older time.Duration `json:"older"`
+	ModelName string        `json:"model_name"`
+	Memory    uint64        `json:"memory"`
+	Older     time.Duration `json:"older"`
 }
 
 type APIKey struct {
