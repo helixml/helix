@@ -19,7 +19,7 @@ import (
 type Scheduler interface {
 	Schedule(request *Workload) error
 	Release(id string) error
-	WorkForRunner(id string, workType WorkloadType, newWorkOnly bool) (*Workload, error)
+	WorkForRunner(id string, workType WorkloadType, newWorkOnly bool, model string) (*Workload, error)
 	UpdateRunner(props *types.RunnerState)
 }
 
@@ -169,7 +169,7 @@ func (s *scheduler) Release(id string) error {
 // WorkForRunner retrieves work for a specific runner by its ID.
 // It checks the runner's slots and assigns the work if any slot is ready.
 // If newWorkOnly is set, it will only return work from new slots
-func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly bool) (*Workload, error) {
+func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly bool, model string) (*Workload, error) {
 	// Before retrieving work, check for dead runners and attempt to reschedule their work.
 	deadSlots := s.allocator.DeadSlots(s.cluster.DeadRunnerIDs())
 	for _, dead := range deadSlots {
@@ -202,6 +202,10 @@ func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly 
 			work, ok := s.workStore.Load(slot.ID)
 			if !ok {
 				continue // Work not owned by this scheduler, ignore it.
+			}
+			// Check if request model type matches the model type of the slot.
+			if !newWorkOnly && model != "" && work.ModelName().String() != model {
+				continue // Work is not of the requested model type, ignore it.
 			}
 			if work.WorkloadType != workType {
 				continue // Work is not of the requested type, ignore it.
