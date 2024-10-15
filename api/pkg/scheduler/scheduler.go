@@ -168,7 +168,8 @@ func (s *scheduler) Release(id string) error {
 
 // WorkForRunner retrieves work for a specific runner by its ID.
 // It checks the runner's slots and assigns the work if any slot is ready.
-// If newWorkOnly is set, it will only return work from new slots
+// If newWorkOnly is FALSE, it means SEEKING WARM WORK, it will only return work from warm slots
+// If newWorkOnly is TRUE, it means SEEKING NEW WORK, it will only return work from new slots
 func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly bool) (*Workload, error) {
 	// Before retrieving work, check for dead runners and attempt to reschedule their work.
 	deadSlots := s.allocator.DeadSlots(s.cluster.DeadRunnerIDs())

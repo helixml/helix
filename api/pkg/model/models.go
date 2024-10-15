@@ -149,7 +149,7 @@ const (
 // See also types/models.go for model name constants
 func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
-		// Latest models, Oct 2024 updates (all with 128k context)
+		// Latest models, Oct 2024 updates
 		{
 			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
