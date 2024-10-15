@@ -145,6 +145,10 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
 	}
 
+	if q.MaxResults > 0 {
+		searchParameters.Limit = pointer.Int(q.MaxResults)
+	}
+
 	results, err := t.client.Collection(t.collection).Documents().Search(ctx, searchParameters)
 	if err != nil {
 		return nil, err
