@@ -99,7 +99,7 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	}
 
 	// Now for this runner, get work
-	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly)
+	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly, filter.ModelName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
