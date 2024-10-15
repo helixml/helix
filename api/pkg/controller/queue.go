@@ -199,7 +199,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	}
 
 	// Now for this runner, get work
-	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeSession, newWorkOnly)
+	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeSession, newWorkOnly, filter.ModelName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
