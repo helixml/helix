@@ -90,10 +90,16 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	// Clear processed queue
 	c.queue = c.queue[taken:]
 
-	// Now for this runner AND, if this is a request from a model instance (as
-	// opposed to a global request from the runner itself), _for this model
-	// instance_, get work
-	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, filter)
+	// Default to requesting warm work
+	newWorkOnly := false
+
+	// Only get new work if the filter has a memory requirement (see runner/controller.go)
+	if filter.Memory != 0 {
+		newWorkOnly = true
+	}
+
+	// Now for this runner, get work
+	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly)
 	if err != nil {
 		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
