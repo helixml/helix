@@ -45,7 +45,7 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 	})
 
 	// Simulate not updating the runner for a while so that subsequent jobs get rescheduled
-	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false)
+	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
 	// Assert that the work, originally scheduled for runner-1 is now on runner-2
@@ -86,7 +86,7 @@ func TestScheduler_TestWarmSlot(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
 	// Simulate the runner finishing the work
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
@@ -118,8 +118,8 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false)
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
 	// Simulate the runner finishing the work
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
@@ -131,7 +131,7 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Phi3)
 
 	// Simulate runner updating control plane with removed models
 	scheduler.UpdateRunner(&types.RunnerState{
@@ -165,7 +165,7 @@ func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate runner doing work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
 
@@ -201,7 +201,7 @@ func TestScheduler_MaximiseUtilization(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that NO work has been scheduler's cluster
-	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false)
+	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 	if work != nil {
 		t.Error("second runner should have no work because we're maximizing utilization (represented by nil)")
@@ -228,11 +228,11 @@ func TestScheduler_TestSessionScheduler(t *testing.T) {
 	assert.ErrorContains(t, err, "full")
 
 	// Simulate runner taking and finishing work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
 
-	scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false)
+	scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
 	err = scheduler.Release("test-request-2")
 	assert.NoError(t, err)
 
@@ -255,7 +255,7 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate runner taking and finishing work
-	scheduler.WorkForRunner("test-runner-1", WorkloadTypeSession, false)
+	scheduler.WorkForRunner("test-runner-1", WorkloadTypeSession, false, model.Model_Axolotl_Mistral7b)
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
 
@@ -270,7 +270,7 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that NO work has been scheduler's cluster
-	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeSession, false)
+	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeSession, false, model.Model_Axolotl_Mistral7b)
 	assert.NoError(t, err)
 	if work != nil {
 		t.Error("second runner should have no work because of the warm lora dir")
@@ -279,11 +279,55 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	// Schedule a second lora dir, must scheduler's cluster
 	err = createTestSession(scheduler, "test-request-3", model.Model_Axolotl_Mistral7b, "new")
 	assert.NoError(t, err)
-	work, err = scheduler.WorkForRunner("test-runner-2", WorkloadTypeSession, false)
+	work, err = scheduler.WorkForRunner("test-runner-2", WorkloadTypeSession, false, model.Model_Axolotl_Mistral7b)
 	assert.NoError(t, err)
 	if work == nil {
 		t.Error("second runner should have work because of the new lora dir")
 	}
+}
+
+func TestScheduler_RunnerWithWrongModel(t *testing.T) {
+	config, _ := config.LoadServerConfig()
+	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
+	scheduler := NewScheduler(&config)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
+	scheduler.UpdateRunner(&types.RunnerState{
+		ID:          "test-runner",
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
+	})
+
+	// Test request
+	err := createTestSession(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b, "")
+	assert.NoError(t, err)
+	err = createTestSession(scheduler, "test-request-2", "gemma2:2b-instruct-q8_0", "")
+	assert.NoError(t, err)
+
+	// Simulate runner taking and finishing work
+	w, err := scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
+	assert.Equal(t, w.ID(), "test-request-1")
+	err = scheduler.Release("test-request-1")
+	assert.NoError(t, err)
+
+	w, err = scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, "gemma2:2b-instruct-q8_0")
+	assert.NoError(t, err)
+	assert.Equal(t, w.ID(), "test-request-2")
+	err = scheduler.Release("test-request-2")
+	assert.NoError(t, err)
+
+	// Test any work will do
+	err = createTestSession(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b, "")
+	assert.NoError(t, err)
+	w, err = scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, w)
+
+	// Test any new work will do part 2 -- new work only, ignore filter
+	err = createTestSession(scheduler, "test-request-2", "adrienbrault/nous-hermes2pro:Q5_K_S", "")
+	assert.NoError(t, err)
+	w, err = scheduler.WorkForRunner("test-runner", WorkloadTypeSession, true, "gemma2:2b-instruct-q8_0")
+	assert.NoError(t, err)
+	assert.NotNil(t, w)
 }
 
 func createTestWork(scheduler Scheduler, name string, model string) error {
