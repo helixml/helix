@@ -91,12 +91,17 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
 	// Request should be in the queue
 	time.Sleep(50 * time.Millisecond)
 
+	// The work has been scheduled immediately, so the queue should be empty
 	suite.srv.queueMu.Lock()
 	defer suite.srv.queueMu.Unlock()
 
-	suite.Len(suite.srv.queue, 1)
+	suite.Len(suite.srv.queue, 0)
 
-	req := suite.srv.queue[0]
+	// The request should now be given to the worker when it next asks for work
+	work, err := suite.srv.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, false, "")
+	suite.NoError(err)
+
+	req := work.LLMInferenceRequest()
 
 	suite.Equal(ownerID, req.OwnerID)
 	suite.Equal(sessionID, req.SessionID)

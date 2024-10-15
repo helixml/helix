@@ -144,6 +144,9 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}
 
 	doneCh := make(chan struct{})
+	readyCh := make(chan struct{})
+	firstRun := true
+	var respError error
 
 	pr, pw := io.Pipe()
 
@@ -168,6 +171,18 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
 
+		if runnerResp.Error != "" {
+			respError = fmt.Errorf("runner error: %s", runnerResp.Error)
+		}
+
+		// First chunk received, ready to return the stream or the error
+		// This MUST be done before the writeChunk call, otherwise it will block waiting for the
+		// reader to start
+		if firstRun {
+			close(readyCh)
+			firstRun = false
+		}
+
 		if runnerResp.StreamResponse != nil {
 			bts, err := json.Marshal(runnerResp.StreamResponse)
 			if err != nil {
@@ -180,7 +195,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 			}
 		}
 
-		if runnerResp.Done {
+		if runnerResp.Done || runnerResp.Error != "" {
 			close(doneCh)
 
 			// Ensure the buffer gets EOF so it stops reading
@@ -212,7 +227,16 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}()
 
 	// Initiate through our client
-	return client.CreateChatCompletionStream(ctx, request)
+	stream, err := client.CreateChatCompletionStream(ctx, request)
+
+	// Wait for the ready signal
+	<-readyCh
+
+	if respError != nil {
+		return nil, respError
+	}
+
+	return stream, err
 }
 
 // NewOpenAIStreamingAdapter returns a new OpenAI streaming adapter which allows
