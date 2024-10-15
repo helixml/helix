@@ -143,7 +143,10 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 		FilterBy:      pointer.String("data_entity_id:" + q.DataEntityID),
 		SortBy:        pointer.String("_text_match:desc,_vector_distance:asc"),
 		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
-		Limit:         pointer.Int(q.MaxResults),
+	}
+
+	if q.MaxResults > 0 {
+		searchParameters.Limit = pointer.Int(q.MaxResults)
 	}
 
 	results, err := t.client.Collection(t.collection).Documents().Search(ctx, searchParameters)

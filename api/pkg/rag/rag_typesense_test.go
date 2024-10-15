@@ -186,7 +186,7 @@ func (suite *TypesenseTestSuite) TestIndexQueryAndDelete() {
 		MaxResults:   1,
 	})
 	suite.Require().NoError(err)
-	suite.Require().Len(results, 1)
+	suite.Require().Len(results, 1, "Expected max results to be 1 as we specified it")
 
 	// Delete documents for doc1
 	deleteReq := &types.DeleteIndexRequest{
