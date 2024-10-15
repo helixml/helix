@@ -149,7 +149,7 @@ const (
 // See also types/models.go for model name constants
 func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
-		// Latest models, Oct 2024 updates (all with 128k context)
+		// Latest models, Oct 2024 updates
 		{
 			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
@@ -161,9 +161,9 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			Id:            "llama3.1:70b", // https://ollama.com/library/llama3.1:70b
 			Name:          "Llama 3.1 70B",
-			Memory:        GB * 55,
-			ContextLength: 32768,
-			Description:   "Smarter but slower, from Meta - 4bit quantized, 32K context",
+			Memory:        GB * 48,
+			ContextLength: 16384,
+			Description:   "Smarter but slower, from Meta - 4bit quantized, 16K context",
 			Hide:          false,
 		},
 		{
@@ -188,7 +188,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Llama 3 8B",
 			Memory:        MB * 6390,
 			ContextLength: 8192,
-			Description:   "Older model, from Meta - 8bit quantized, 128K context",
+			Description:   "Older model, from Meta - 4bit quantized, 8K context",
 			Hide:          false,
 		},
 		{
@@ -228,7 +228,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 7B",
 			Memory:        GB * 12,
 			ContextLength: 32768,
-			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 128K context",
+			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 32K context",
 			Hide:          false,
 		},
 		{
@@ -236,15 +236,15 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Name:          "Qwen 2.5 72B",
 			Memory:        GB * 67,
 			ContextLength: 32768,
-			Description:   "Large model with enhanced capabilities, from Alibaba - 4bit quantized, 128K context",
-			Hide:          false,
+			Description:   "Large model with enhanced capabilities, from Alibaba - 4bit quantized, 32K context",
+			Hide:          true, // hide for now since we can't run it in prod
 		},
 		{
 			Id:            "hermes3:8b-llama3.1-q8_0", // https://ollama.com/library/hermes3:8b-llama3.1-q8_0
-			Name:          "Hermes 3 8B Llama 3.1",
+			Name:          "Hermes 3 8B",
 			Memory:        GB * 35,
 			ContextLength: 131072,
-			Description:   "Function calling and structured output, from Nous- 8bit quantized, 128K context",
+			Description:   "Function calling and structured output, from Nous - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{
