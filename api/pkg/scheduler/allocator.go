@@ -60,10 +60,11 @@ func (a *allocator) AllocateSlot(slotID uuid.UUID, req *Workload) error {
 		return fmt.Errorf("slot already active: %s", slot.ID.String())
 	}
 
-	log.Trace().
+	log.Debug().
 		Str("runner_id", slot.RunnerID).
 		Str("slot_id", slot.ID.String()).
-		Str("model_name", slot.ModelName().String()).
+		Str("slot_model_name", slot.ModelName().String()).
+		Str("req_model_name", req.ModelName().String()).
 		Uint64("total_memory", slot.Memory()).
 		Str("request_id", req.ID()).
 		Msg("allocating slot")
@@ -141,6 +142,12 @@ func (a *allocator) ReconcileSlots(props *types.RunnerState) error {
 
 			// If it's not the same model name, skip
 			if m.ModelName != s.ModelName().String() {
+				log.Debug().
+					Str("runner_id", props.ID).
+					Str("slot_id", s.ID.String()).
+					Str("slot_model_name", s.ModelName().String()).
+					Str("model_name", m.ModelName).
+					Msg("skipping slot in reconcile")
 				continue
 			}
 
@@ -216,6 +223,12 @@ func (a *allocator) WarmSlots(req *Workload) []*Slot {
 	a.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		// If it's not the same model name, skip
 		if slot.ModelName() != req.ModelName() {
+			log.Debug().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model_name", slot.ModelName().String()).
+				Str("req_model_name", req.ModelName().String()).
+				Msg("skipping slot in warm")
 			return true
 		}
 
