@@ -82,8 +82,21 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 
 			// If we can't retry, write an error to the request and continue so it takes it off
 			// the queue
-			// TODO(Phil): Not sure how to write an error back as a response
-			log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling")
+			resp := &types.RunnerLLMInferenceResponse{
+				RequestID: req.RequestID,
+				OwnerID:   req.OwnerID,
+				Error:     err.Error(),
+				Done:      true,
+			}
+			bts, err := json.Marshal(resp)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
+			}
+
+			err = c.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(resp.OwnerID, resp.RequestID), bts)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
+			}
 		}
 		taken++
 	}
