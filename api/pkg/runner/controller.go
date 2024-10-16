@@ -160,7 +160,7 @@ func (r *runtime) CurrentWorkload() *types.RunnerWorkload {
 	}
 	if r.sessionWorkChan != nil {
 		return &types.RunnerWorkload{
-			LLMInferenceRequest: r.currentWork.LLMInferenceRequest(),
+			Session: r.currentWork.Session(),
 		}
 	}
 	return &types.RunnerWorkload{}
