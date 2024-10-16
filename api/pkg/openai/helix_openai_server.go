@@ -62,34 +62,6 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
-	// Doing all the scheduling work here to avoid making too many changes at once. Schedule any
-	// requests that are currently in the queue.
-	taken := 0
-	for _, req := range c.queue {
-		work, err := scheduler.NewLLMWorkload(req)
-		if err != nil {
-			log.Warn().Err(err).Str("id", req.RequestID).Msg("creating workload")
-			continue
-		}
-		err = c.scheduler.Schedule(work)
-		if err != nil {
-			retry, err := scheduler.ErrorHandlingStrategy(err, work)
-
-			// If we can retry, break out of the loop and try again later
-			if retry {
-				break
-			}
-
-			// If we can't retry, write an error to the request and continue so it takes it off
-			// the queue
-			// TODO(Phil): Not sure how to write an error back as a response
-			log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling")
-		}
-		taken++
-	}
-	// Clear processed queue
-	c.queue = c.queue[taken:]
-
 	// Default to requesting warm work
 	newWorkOnly := false
 
@@ -118,6 +90,50 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 	defer c.queueMu.Unlock()
 
 	c.queue = append(c.queue, req)
+
+	// Schedule any requests that are currently in the queue.
+	taken := 0
+	for _, req := range c.queue {
+		work, err := scheduler.NewLLMWorkload(req)
+		if err != nil {
+			log.Warn().Err(err).Str("id", req.RequestID).Msg("creating workload")
+			continue
+		}
+		err = c.scheduler.Schedule(work)
+		if err != nil {
+			retry, err := scheduler.ErrorHandlingStrategy(err, work)
+
+			// If we can retry, break out of the loop and try again later
+			if retry {
+				break
+			}
+
+			// If we can't retry, write an error to the request and continue so it takes it off
+			// the queue
+			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work, removing from queue")
+
+			resp := &types.RunnerLLMInferenceResponse{
+				RequestID:     req.RequestID,
+				OwnerID:       req.OwnerID,
+				SessionID:     req.SessionID,
+				InteractionID: req.InteractionID,
+				Error:         err.Error(),
+				Done:          true,
+			}
+			bts, err := json.Marshal(resp)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
+			}
+
+			err = c.pubsub.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
+			}
+		}
+		taken++
+	}
+	// Clear processed queue
+	c.queue = c.queue[taken:]
 }
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
