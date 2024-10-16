@@ -395,7 +395,7 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if ! sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
