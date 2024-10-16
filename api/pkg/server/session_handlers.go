@@ -428,6 +428,13 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
+		// Update last interaction
+		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		s.Controller.WriteSession(session)
+
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return nil
 	}
