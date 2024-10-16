@@ -150,7 +150,7 @@ func (r *runtime) Stop() {
 }
 
 func (r *runtime) CurrentWorkload() *types.RunnerWorkload {
-	if !r.modelInstance.IsActive() {
+	if r.currentWork == nil {
 		return &types.RunnerWorkload{}
 	}
 	if r.llmWorkChan != nil {
