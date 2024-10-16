@@ -227,15 +227,14 @@ func (s *scheduler) Reconcile(runnerID string, slots *types.PatchRunnerSlots) (*
 	// matter what.
 
 	internalSlots := s.allocator.RunnerSlots(runnerID)
+	log.Trace().Interface("internal_slots", internalSlots).Msg("reconciling slots")
 
 	// Convert the slots to a PatchRunnerSlots object.
 	patch := &types.PatchRunnerSlots{
 		Data: make([]types.RunnerSlot, 0, len(internalSlots)),
 	}
 	for _, slot := range internalSlots {
-		attr := types.RunnerSlotAttributes{
-			ID: slot.ID,
-		}
+		attr := types.RunnerSlotAttributes{}
 		// Only set the work if it is scheduled. This is how we signal to the runner we have new work.
 		if slot.IsScheduled() {
 			attr.Workload = slot.work.ToRunnerWorkload()
@@ -245,6 +244,8 @@ func (s *scheduler) Reconcile(runnerID string, slots *types.PatchRunnerSlots) (*
 			Attributes: attr,
 		})
 	}
+
+	log.Trace().Interface("patch", patch).Msg("reconciled slots")
 
 	return patch, nil
 }

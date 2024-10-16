@@ -138,6 +138,17 @@ type runtime struct {
 	sessionModelInstance ModelInstance
 }
 
+func (r *runtime) ToRunnerWorkload() *types.RunnerWorkload {
+	workload := &types.RunnerWorkload{}
+	if r.ollamaRuntime != nil {
+		workload.LLMInfereceRequest = r.ollamaRuntime.currentRequest
+	}
+	if r.axolotlRuntime != nil {
+		workload.Session = r.axolotlRuntime.currentSession
+	}
+	return workload
+}
+
 func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 	runtime := &runtime{}
 	switch work.WorkloadType {
@@ -396,7 +407,7 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 	for slotID, runtime := range r.slots {
 		found := false
 		for _, slot := range desiredSlots.Data {
-			if slot.Attributes.ID == slotID {
+			if slot.ID == slotID {
 				found = true
 				break
 			}
@@ -432,7 +443,7 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 		}
 
 		// Get the current runtime for the slot
-		runtime, ok := r.slots[slot.Attributes.ID]
+		runtime, ok := r.slots[slot.ID]
 
 		// If it doesn't exist, start a new runtime and save
 		if !ok {
@@ -440,7 +451,7 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			r.slots[slot.Attributes.ID] = runtime
+			r.slots[slot.ID] = runtime
 			continue
 		}
 
@@ -467,7 +478,26 @@ func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
 		return nil, err
 	}
 
-	req, err := retryablehttp.NewRequest("PATCH", parsedURL.String(), nil)
+	runnerSlots := make([]types.RunnerSlot, 0, len(r.slots))
+	for slotID, runtime := range r.slots {
+		runnerSlot := types.RunnerSlot{
+			ID: slotID,
+			Attributes: types.RunnerSlotAttributes{
+				Workload: runtime.ToRunnerWorkload(),
+			},
+		}
+		runnerSlots = append(runnerSlots, runnerSlot)
+	}
+	patch := &types.PatchRunnerSlots{
+		Data: runnerSlots,
+	}
+
+	body, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := retryablehttp.NewRequest("PATCH", parsedURL.String(), body)
 	if err != nil {
 		return nil, err
 	}

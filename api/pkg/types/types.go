@@ -1443,7 +1443,6 @@ const (
 )
 
 type RunnerSlotAttributes struct {
-	ID       uuid.UUID       `json:"id"`
 	Workload *RunnerWorkload `json:"workload,omitempty"`
 }
 
