@@ -429,12 +429,6 @@ func (i *OllamaInferenceModelInstance) Stale() bool {
 		return false
 	}
 
-	// If we are fetching the next request, we don't want to mark it as stale
-	// as we might be getting the request
-	if i.fetching.Load() {
-		return false
-	}
-
 	return time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL
 }
 
