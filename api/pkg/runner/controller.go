@@ -373,6 +373,7 @@ func (r *Runner) checkForStaleModelInstances(_ context.Context, newModel model.M
 			log.Info().Msgf("Killing stale model instance %s", m.ID())
 			err := m.Stop()
 			if err != nil {
+				r.addSchedulingDecision(fmt.Sprintf("error stopping model instance %s: %s", m.ID(), err.Error()))
 				log.Error().Msgf("error stopping model instance %s: %s", m.ID(), err.Error())
 			}
 			r.activeModelInstances.Delete(m.ID())
