@@ -34,6 +34,7 @@ AUTO_APPROVE=false
 OLDER_GPU=false
 HF_TOKEN=""
 PROXY=https://get.helix.ml
+EXTRA_OLLAMA_MODELS=""
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -76,6 +77,7 @@ Options:
   --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
   --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
+  --extra-ollama-models    Specify additional Ollama models to download when installing the runner (comma-separated), for example "nemotron-mini:4b,codegemma:2b-code-q8_0"
 
 Examples:
 
@@ -187,6 +189,14 @@ while [[ $# -gt 0 ]]; do
         -y)
             AUTO_APPROVE=true
             shift
+            ;;
+        --extra-ollama-models=*)
+            EXTRA_OLLAMA_MODELS="${1#*=}"
+            shift
+            ;;
+        --extra-ollama-models)
+            EXTRA_OLLAMA_MODELS="$2"
+            shift 2
             ;;
         *)
             echo "Unknown option: $1"
@@ -740,6 +750,7 @@ GPU_MEMORY="${GPU_MEMORY}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 OLDER_GPU="${OLDER_GPU:-false}"
 HF_TOKEN="${HF_TOKEN}"
+EXTRA_OLLAMA_MODELS="${EXTRA_OLLAMA_MODELS}"
 
 # Set older GPU parameter
 if [ "\$OLDER_GPU" = "true" ]; then
@@ -753,6 +764,13 @@ if [ -n "\$HF_TOKEN" ]; then
     HF_TOKEN_PARAM="-e HF_TOKEN=\$HF_TOKEN"
 else
     HF_TOKEN_PARAM=""
+fi
+
+# Set EXTRA_OLLAMA_MODELS parameter
+if [ -n "\$EXTRA_OLLAMA_MODELS" ]; then
+    EXTRA_OLLAMA_MODELS_PARAM="-e RUNTIME_OLLAMA_WARMUP_MODELS=\$EXTRA_OLLAMA_MODELS"
+else
+    EXTRA_OLLAMA_MODELS_PARAM=""
 fi
 
 # Check if api-1 container is running
@@ -778,6 +796,7 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${OLDER_GPU_PARAM} \\
     \${HF_TOKEN_PARAM} \\
+    \${EXTRA_OLLAMA_MODELS_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
