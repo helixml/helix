@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
@@ -846,7 +847,7 @@ func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage 
 	return history
 }
 
-// Add this struct to the existing types.go file
+// Add this struct to the existing go file
 
 type PaginatedLLMCalls struct {
 	Calls      []*LLMCall `json:"calls"`
@@ -1423,4 +1424,30 @@ type LLMCall struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	TotalTokens      int64
+}
+
+type PatchRunnerSlots struct {
+	Data []RunnerSlot `json:"data"`
+}
+
+type RunnerSlot struct {
+	ID         uuid.UUID            `json:"id"`
+	Attributes RunnerSlotAttributes `json:"attributes"`
+}
+
+type WorkloadType string
+
+const (
+	WorkloadTypeLLMInferenceRequest WorkloadType = "llm"
+	WorkloadTypeSession             WorkloadType = "session"
+)
+
+type RunnerSlotAttributes struct {
+	ID       uuid.UUID       `json:"id"`
+	Workload *RunnerWorkload `json:"workload,omitempty"`
+}
+
+type RunnerWorkload struct {
+	LLMInfereceRequest *RunnerLLMInferenceRequest
+	Session            *Session
 }

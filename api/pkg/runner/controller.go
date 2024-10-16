@@ -14,10 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -126,6 +128,139 @@ type Runner struct {
 
 	nextRequestMutex       sync.Mutex
 	nextGlobalRequestMutex sync.Mutex
+
+	slots map[uuid.UUID]*runtime
+}
+
+type runtime struct {
+	ollamaRuntime        *OllamaInferenceModelInstance
+	axolotlRuntime       *AxolotlModelInstance
+	sessionModelInstance ModelInstance
+}
+
+func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
+	runtime := &runtime{}
+	switch work.WorkloadType {
+	case scheduler.WorkloadTypeLLMInferenceRequest:
+		log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama runtime")
+		ollama, err := NewOllamaInferenceModelInstance(
+			r.Ctx,
+			&InferenceModelInstanceConfig{
+				ResponseHandler: r.handleInferenceResponse,
+				GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
+					return nil, nil // Not used any more
+				},
+				RunnerOptions: r.Options,
+			},
+			work.LLMInferenceRequest(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating ollama runtime: %s", err.Error())
+		}
+		runtime.ollamaRuntime = ollama
+	case scheduler.WorkloadTypeSession:
+		log.Debug().Str("workload_id", work.ID()).Msg("starting new session runtime")
+		var (
+			modelInstance ModelInstance
+			err           error
+		)
+		initialSession := work.Session()
+		runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
+
+		// if we are in mock mode - we need the axolotl model instance because
+		// it understands how to do a mock runner
+		if r.Options.MockRunner {
+			if initialSession.Type == types.SessionTypeText {
+				runtimeName = types.InferenceRuntimeAxolotl
+				initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
+			} else if initialSession.Type == types.SessionTypeImage {
+				// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
+				// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
+				// that does both axolotl and sdxl
+				runtimeName = types.InferenceRuntimeAxolotl
+				initialSession.ModelName = string(model.Model_Cog_SDXL)
+			}
+		}
+
+		switch runtimeName {
+		case types.InferenceRuntimeOllama:
+			log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama session runtime")
+			modelInstance, err = NewOllamaModelInstance(
+				r.Ctx,
+				&ModelInstanceConfig{
+					InitialSession:  initialSession,
+					ResponseHandler: r.handleWorkerResponse,
+					GetNextSession: func() (*types.Session, error) {
+						return nil, nil // Not used any more
+					},
+					RunnerOptions: r.Options,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			runtime.sessionModelInstance = modelInstance
+		default:
+			// Defaulting to axolotl
+			log.Debug().Str("workload_id", work.ID()).Msg("starting new axolotl session runtime")
+			modelInstance, err = NewAxolotlModelInstance(
+				r.Ctx,
+				&ModelInstanceConfig{
+					InitialSession:    initialSession,
+					InitialSessionURL: r.Options.InitialSessionURL,
+					NextTaskURL:       r.Options.TaskURL,
+					// this function will convert any files it sees locally into an upload
+					// to the api server filestore - all files will be written to the filestore
+					// under a session sub path - you can include tar files and they will untarred at the other end
+					// into the filestore
+					// TODO: support the tar feature above
+					ResponseHandler: func(res *types.RunnerTaskResponse) error {
+						return r.handleWorkerResponse(res)
+					},
+					RunnerOptions: r.Options,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			runtime.sessionModelInstance = modelInstance
+		}
+	default:
+		return nil, fmt.Errorf("unknown workload type: %s", work.WorkloadType)
+	}
+	return runtime, nil
+}
+
+func (r *runtime) ActiveRuntime() types.InferenceRuntime {
+	if r.ollamaRuntime != nil {
+		return types.InferenceRuntimeOllama
+	}
+	if r.axolotlRuntime != nil {
+		return types.InferenceRuntimeAxolotl
+	}
+	return types.InferenceRuntimeUnknown
+}
+
+// Stops a running runtime. In the past we have errored out of things like this which has prevented
+// subsequent cleanup. So we just log the error and continue.
+func (r *runtime) Stop() {
+	if r.ollamaRuntime != nil {
+		err := r.ollamaRuntime.Stop()
+		if err != nil {
+			log.Err(err).Msg("error stopping ollama runtime")
+		}
+	}
+	if r.axolotlRuntime != nil {
+		err := r.axolotlRuntime.Stop()
+		if err != nil {
+			log.Err(err).Msg("error stopping axolotl runtime")
+		}
+	}
+}
+
+type internalRunnerSlot struct {
+	OllamaRuntime  *OllamaModelInstance
+	AxolotlRuntime *AxolotlModelInstance
 }
 
 func NewRunner(
@@ -175,6 +310,7 @@ func NewRunner(
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 		schedulingDecisions:   []string{},
 		warmupSessions:        warmupSessions,
+		slots:                 make(map[uuid.UUID]*runtime),
 	}
 	return runner, nil
 }
@@ -223,23 +359,149 @@ func (r *Runner) startTaskLoop() {
 		case <-r.Ctx.Done():
 			return
 		case <-time.After(time.Millisecond * time.Duration(r.Options.GetTaskDelayMilliseconds)):
-			// Experiment, transparent path for LLM inference requests
-			if r.Options.Config.Runtimes.V2Engine {
-				err := r.pollInferenceRequests(r.Ctx)
-				if err != nil {
-					log.Error().Msgf("error in inference request polling: %s", err.Error())
-					debug.PrintStack()
-				}
-			}
-
-			// Old-school session polling (images, finetuning, ollama)
-			err := r.pollSessions(r.Ctx)
+			err := r.pollSlots(r.Ctx)
 			if err != nil {
-				log.Error().Msgf("error in session polling: %s", err.Error())
+				log.Err(err).Msg("error in pollSlots")
 				debug.PrintStack()
 			}
+
+			// // Experiment, transparent path for LLM inference requests
+			// if r.Options.Config.Runtimes.V2Engine {
+			// 	err := r.pollInferenceRequests(r.Ctx)
+			// 	if err != nil {
+			// 		log.Error().Msgf("error in inference request polling: %s", err.Error())
+			// 		debug.PrintStack()
+			// 	}
+			// }
+
+			// // Old-school session polling (images, finetuning, ollama)
+			// err := r.pollSessions(r.Ctx)
+			// if err != nil {
+			// 	log.Error().Msgf("error in session polling: %s", err.Error())
+			// 	debug.PrintStack()
+			// }
 		}
 	}
+}
+
+func (r *Runner) pollSlots(ctx context.Context) error {
+	desiredSlots, err := r.getSlots()
+	if err != nil {
+		return err
+	}
+
+	log.Trace().Interface("r.slots", r.slots).Interface("desiredSlots", desiredSlots).Msg("desired slots")
+
+	// First stop and delete any runtimes that are no longer needed
+	for slotID, runtime := range r.slots {
+		found := false
+		for _, slot := range desiredSlots.Data {
+			if slot.Attributes.ID == slotID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			runtime.Stop()
+			delete(r.slots, slotID)
+		}
+	}
+
+	for _, slot := range desiredSlots.Data {
+		// If there's no work, then we don't need to do anything for now
+		if slot.Attributes.Workload == nil {
+			continue
+		}
+
+		// If there is work, then parse the RunnerWorkload into a Workload
+		var work *scheduler.Workload
+		if slot.Attributes.Workload.LLMInfereceRequest != nil {
+			work, err = scheduler.NewLLMWorkload(slot.Attributes.Workload.LLMInfereceRequest)
+			if err != nil {
+				return err
+			}
+		}
+		if slot.Attributes.Workload.Session != nil {
+			work, err = scheduler.NewSessonWorkload(slot.Attributes.Workload.Session)
+			if err != nil {
+				return err
+			}
+		}
+		if work == nil {
+			return fmt.Errorf("unable to parse workload")
+		}
+
+		// Get the current runtime for the slot
+		runtime, ok := r.slots[slot.Attributes.ID]
+
+		// If it doesn't exist, start a new runtime and save
+		if !ok {
+			runtime, err = r.startNewRuntime(work)
+			if err != nil {
+				return err
+			}
+			r.slots[slot.Attributes.ID] = runtime
+			continue
+		}
+
+		// If we get here then that means the slot already has a runtime and is waiting for work
+		switch work.WorkloadType {
+		case scheduler.WorkloadTypeLLMInferenceRequest:
+			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing LLM inference request")
+			runtime.ollamaRuntime.workCh <- work.LLMInferenceRequest()
+		case scheduler.WorkloadTypeSession:
+			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing session request")
+			runtime.sessionModelInstance.QueueSession(work.Session(), false)
+		}
+	}
+
+	return nil
+}
+
+func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
+	r.nextRequestMutex.Lock()
+	defer r.nextRequestMutex.Unlock()
+
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/slots", r.Options.ID))))
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := retryablehttp.NewRequest("PATCH", parsedURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	err = system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
+	if err != nil {
+		return nil, err
+	}
+
+	client := system.NewRetryClient(3)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var buffer bytes.Buffer
+	_, err = io.Copy(&buffer, resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Error().Int("status_code", resp.StatusCode).Str("url", parsedURL.String()).Str("body", buffer.String()).Msgf("error response from server")
+		return nil, nil
+	}
+
+	var slots *types.PatchRunnerSlots
+	err = json.Unmarshal(buffer.Bytes(), &slots)
+	if err != nil {
+		return nil, err
+	}
+
+	return slots, nil
 }
 
 func (r *Runner) pollSessions(ctx context.Context) error {

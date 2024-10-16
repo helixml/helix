@@ -21,6 +21,7 @@ type Scheduler interface {
 	Release(id string) error
 	WorkForRunner(id string, workType WorkloadType, newWorkOnly bool, model string) (*Workload, error)
 	UpdateRunner(props *types.RunnerState)
+	Reconcile(runnerID string, slots *types.PatchRunnerSlots) (*types.PatchRunnerSlots, error)
 }
 
 // scheduler is a struct implementing the Scheduler interface.
@@ -219,6 +220,33 @@ func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly 
 	}
 	// If no work is found for the runner, return nil.
 	return nil, nil
+}
+
+func (s *scheduler) Reconcile(runnerID string, slots *types.PatchRunnerSlots) (*types.PatchRunnerSlots, error) {
+	// TODO(PHIL): Implement reconciliation logic. For now just report the internal state back no
+	// matter what.
+
+	internalSlots := s.allocator.RunnerSlots(runnerID)
+
+	// Convert the slots to a PatchRunnerSlots object.
+	patch := &types.PatchRunnerSlots{
+		Data: make([]types.RunnerSlot, 0, len(internalSlots)),
+	}
+	for _, slot := range internalSlots {
+		attr := types.RunnerSlotAttributes{
+			ID: slot.ID,
+		}
+		// Only set the work if it is scheduled. This is how we signal to the runner we have new work.
+		if slot.IsScheduled() {
+			attr.Workload = slot.work.ToRunnerWorkload()
+		}
+		patch.Data = append(patch.Data, types.RunnerSlot{
+			ID:         slot.ID,
+			Attributes: attr,
+		})
+	}
+
+	return patch, nil
 }
 
 // UpdateRunner updates the state of a runner and reconciles its slots with the allocator's records.

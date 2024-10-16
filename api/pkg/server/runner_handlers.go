@@ -15,6 +15,22 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+func (apiServer *HelixAPIServer) runnerSlots(res http.ResponseWriter, req *http.Request) (*types.PatchRunnerSlots, error) {
+	vars := mux.Vars(req)
+	runnerID := vars["runnerid"]
+	if runnerID == "" {
+		return nil, fmt.Errorf("missing runner id")
+	}
+
+	patch := &types.PatchRunnerSlots{}
+	err := json.NewDecoder(req.Body).Decode(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	return apiServer.scheduler.Reconcile(runnerID, patch)
+}
+
 // runnerLLMInferenceRequestHandler handles LLM inference queries from the runner that are triggered either through polling
 // or through a push notification from the controller.
 func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.ResponseWriter, req *http.Request) (*types.RunnerLLMInferenceRequest, error) {

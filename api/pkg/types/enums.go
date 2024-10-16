@@ -204,6 +204,7 @@ func (r InferenceRuntime) String() string {
 }
 
 const (
+	InferenceRuntimeUnknown InferenceRuntime = ""
 	InferenceRuntimeAxolotl InferenceRuntime = "axolotl"
 	InferenceRuntimeOllama  InferenceRuntime = "ollama"
 	// TODO: vllm
