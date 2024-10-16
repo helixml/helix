@@ -199,7 +199,7 @@ done
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
@@ -395,7 +395,7 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if ! sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -683,7 +683,7 @@ EOF"
     echo "│ Start the Helix services by running:"
     echo "│"
     echo "│ cd $INSTALL_DIR"
-    echo "│ docker compose up -d --remove-orphans"
+    echo "│ sudo docker compose up -d --remove-orphans"
     if [ "$CADDY" = true ]; then
         echo "│ sudo systemctl restart caddy"
     fi
@@ -769,6 +769,14 @@ fi
 if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
     API_HOST="http://api:80"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
+fi
+
+# Check if helix_default network exists, create it if it doesn't
+if ! sudo docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network..."
+    sudo docker network create helix_default
+else
+    echo "helix_default network already exists."
 fi
 
 # Run the docker container
