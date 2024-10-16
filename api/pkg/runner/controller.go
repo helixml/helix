@@ -149,6 +149,16 @@ func (r *runtime) ToRunnerWorkload() *types.RunnerWorkload {
 	return workload
 }
 
+func (r *runtime) IsActive() bool {
+	if r.ollamaRuntime != nil {
+		return r.ollamaRuntime.currentRequest != nil
+	}
+	if r.axolotlRuntime != nil {
+		return r.axolotlRuntime.currentSession != nil
+	}
+	return false
+}
+
 func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 	runtime := &runtime{}
 	switch work.WorkloadType {
@@ -452,6 +462,11 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 				return err
 			}
 			r.slots[slot.ID] = runtime
+			continue
+		}
+
+		// If the runtime is already running a workload, then we don't need to do anything
+		if runtime.IsActive() {
 			continue
 		}
 
