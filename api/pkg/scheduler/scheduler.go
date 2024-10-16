@@ -238,6 +238,8 @@ func (s *scheduler) Reconcile(runnerID string, slots *types.PatchRunnerSlots) (*
 		// Only set the work if it is scheduled. This is how we signal to the runner we have new work.
 		if slot.IsScheduled() {
 			attr.Workload = slot.work.ToRunnerWorkload()
+			// TODO(PHIL): ideally we want to wait until we can see that the work has succeeded
+			slot.Start() // Mark the work in the slot as started.
 		}
 		patch.Data = append(patch.Data, types.RunnerSlot{
 			ID:         slot.ID,

@@ -153,17 +153,7 @@ func (r *runtime) CurrentWorkload() *types.RunnerWorkload {
 	if r.currentWork == nil {
 		return &types.RunnerWorkload{}
 	}
-	if r.llmWorkChan != nil {
-		return &types.RunnerWorkload{
-			LLMInferenceRequest: r.currentWork.LLMInferenceRequest(),
-		}
-	}
-	if r.sessionWorkChan != nil {
-		return &types.RunnerWorkload{
-			Session: r.currentWork.Session(),
-		}
-	}
-	return &types.RunnerWorkload{}
+	return r.currentWork.ToRunnerWorkload()
 }
 
 func (r *runtime) SetLLMInferenceRequest(work *scheduler.Workload) {
