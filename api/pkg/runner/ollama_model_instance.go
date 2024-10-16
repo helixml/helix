@@ -409,6 +409,10 @@ func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSess
 	i.workCh <- session
 }
 
+func (i *OllamaModelInstance) IsActive() bool {
+	return i.currentSession != nil
+}
+
 func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	var messages []openai.ChatCompletionMessage
 

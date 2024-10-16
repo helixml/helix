@@ -1447,6 +1447,6 @@ type RunnerSlotAttributes struct {
 }
 
 type RunnerWorkload struct {
-	LLMInfereceRequest *RunnerLLMInferenceRequest
-	Session            *Session
+	LLMInferenceRequest *RunnerLLMInferenceRequest
+	Session             *Session
 }

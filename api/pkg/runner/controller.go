@@ -133,43 +133,60 @@ type Runner struct {
 }
 
 type runtime struct {
-	ollamaRuntime        *OllamaInferenceModelInstance
-	axolotlRuntime       *AxolotlModelInstance
-	sessionModelInstance ModelInstance
+	modelInstance   ModelInstance
+	llmWorkChan     chan *types.RunnerLLMInferenceRequest
+	sessionWorkChan chan *types.Session
+	currentWork     *scheduler.Workload
 }
 
-func (r *runtime) ToRunnerWorkload() *types.RunnerWorkload {
-	workload := &types.RunnerWorkload{}
-	if r.ollamaRuntime != nil {
-		workload.LLMInfereceRequest = r.ollamaRuntime.currentRequest
+func (r *runtime) Stop() {
+	r.modelInstance.Stop()
+	if r.llmWorkChan != nil {
+		close(r.llmWorkChan)
 	}
-	if r.axolotlRuntime != nil {
-		workload.Session = r.axolotlRuntime.currentSession
+	if r.sessionWorkChan != nil {
+		close(r.sessionWorkChan)
 	}
-	return workload
 }
 
-func (r *runtime) IsActive() bool {
-	if r.ollamaRuntime != nil {
-		return r.ollamaRuntime.currentRequest != nil
+func (r *runtime) CurrentWorkload() *types.RunnerWorkload {
+	if !r.modelInstance.IsActive() {
+		return &types.RunnerWorkload{}
 	}
-	if r.axolotlRuntime != nil {
-		return r.axolotlRuntime.currentSession != nil
+	if r.llmWorkChan != nil {
+		return &types.RunnerWorkload{
+			LLMInferenceRequest: r.currentWork.LLMInferenceRequest(),
+		}
 	}
-	return false
+	if r.sessionWorkChan != nil {
+		return &types.RunnerWorkload{
+			LLMInferenceRequest: r.currentWork.LLMInferenceRequest(),
+		}
+	}
+	return &types.RunnerWorkload{}
+}
+
+func (r *runtime) SetLLMInferenceRequest(work *scheduler.Workload) {
+	r.currentWork = work
+	r.llmWorkChan <- work.LLMInferenceRequest()
+}
+
+func (r *runtime) SetSessionRequest(work *scheduler.Workload) {
+	r.currentWork = work
+	r.sessionWorkChan <- work.Session()
 }
 
 func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
-	runtime := &runtime{}
 	switch work.WorkloadType {
 	case scheduler.WorkloadTypeLLMInferenceRequest:
 		log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama runtime")
+		workCh := make(chan *types.RunnerLLMInferenceRequest, 1)
 		ollama, err := NewOllamaInferenceModelInstance(
 			r.Ctx,
 			&InferenceModelInstanceConfig{
 				ResponseHandler: r.handleInferenceResponse,
 				GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
-					return nil, nil // Not used any more
+					return <-workCh, nil
 				},
 				RunnerOptions: r.Options,
 			},
@@ -178,13 +195,21 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error creating ollama runtime: %s", err.Error())
 		}
-		runtime.ollamaRuntime = ollama
+		err = ollama.Start(r.Ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error starting ollama runtime: %s", err.Error())
+		}
+		return &runtime{
+			modelInstance: ollama,
+			llmWorkChan:   workCh,
+		}, nil
 	case scheduler.WorkloadTypeSession:
 		log.Debug().Str("workload_id", work.ID()).Msg("starting new session runtime")
 		var (
 			modelInstance ModelInstance
 			err           error
 		)
+		workCh := make(chan *types.Session, 1)
 		initialSession := work.Session()
 		runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
 
@@ -212,7 +237,7 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 					InitialSession:  initialSession,
 					ResponseHandler: r.handleWorkerResponse,
 					GetNextSession: func() (*types.Session, error) {
-						return nil, nil // Not used any more
+						return <-workCh, nil
 					},
 					RunnerOptions: r.Options,
 				},
@@ -220,7 +245,14 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 			if err != nil {
 				return nil, err
 			}
-			runtime.sessionModelInstance = modelInstance
+			err = modelInstance.Start(r.Ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &runtime{
+				modelInstance:   modelInstance,
+				sessionWorkChan: workCh,
+			}, nil
 		default:
 			// Defaulting to axolotl
 			log.Debug().Str("workload_id", work.ID()).Msg("starting new axolotl session runtime")
@@ -230,6 +262,9 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 					InitialSession:    initialSession,
 					InitialSessionURL: r.Options.InitialSessionURL,
 					NextTaskURL:       r.Options.TaskURL,
+					GetNextSession: func() (*types.Session, error) {
+						return <-workCh, nil
+					},
 					// this function will convert any files it sees locally into an upload
 					// to the api server filestore - all files will be written to the filestore
 					// under a session sub path - you can include tar files and they will untarred at the other end
@@ -244,45 +279,46 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 			if err != nil {
 				return nil, err
 			}
-			runtime.sessionModelInstance = modelInstance
+			err = modelInstance.Start(r.Ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &runtime{
+				modelInstance:   modelInstance,
+				sessionWorkChan: workCh,
+			}, nil
 		}
 	default:
 		return nil, fmt.Errorf("unknown workload type: %s", work.WorkloadType)
 	}
-	return runtime, nil
 }
 
-func (r *runtime) ActiveRuntime() types.InferenceRuntime {
-	if r.ollamaRuntime != nil {
-		return types.InferenceRuntimeOllama
-	}
-	if r.axolotlRuntime != nil {
-		return types.InferenceRuntimeAxolotl
-	}
-	return types.InferenceRuntimeUnknown
-}
+// func (r *runtime) ActiveRuntime() types.InferenceRuntime {
+// 	if r.ollamaRuntime != nil {
+// 		return types.InferenceRuntimeOllama
+// 	}
+// 	if r.axolotlRuntime != nil {
+// 		return types.InferenceRuntimeAxolotl
+// 	}
+// 	return types.InferenceRuntimeUnknown
+// }
 
-// Stops a running runtime. In the past we have errored out of things like this which has prevented
-// subsequent cleanup. So we just log the error and continue.
-func (r *runtime) Stop() {
-	if r.ollamaRuntime != nil {
-		err := r.ollamaRuntime.Stop()
-		if err != nil {
-			log.Err(err).Msg("error stopping ollama runtime")
-		}
-	}
-	if r.axolotlRuntime != nil {
-		err := r.axolotlRuntime.Stop()
-		if err != nil {
-			log.Err(err).Msg("error stopping axolotl runtime")
-		}
-	}
-}
-
-type internalRunnerSlot struct {
-	OllamaRuntime  *OllamaModelInstance
-	AxolotlRuntime *AxolotlModelInstance
-}
+// // Stops a running runtime. In the past we have errored out of things like this which has prevented
+// // subsequent cleanup. So we just log the error and continue.
+// func (r *runtime) Stop() {
+// 	if r.ollamaRuntime != nil {
+// 		err := r.ollamaRuntime.Stop()
+// 		if err != nil {
+// 			log.Err(err).Msg("error stopping ollama runtime")
+// 		}
+// 	}
+// 	if r.axolotlRuntime != nil {
+// 		err := r.axolotlRuntime.Stop()
+// 		if err != nil {
+// 			log.Err(err).Msg("error stopping axolotl runtime")
+// 		}
+// 	}
+// }
 
 func NewRunner(
 	ctx context.Context,
@@ -436,8 +472,8 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 
 		// If there is work, then parse the RunnerWorkload into a Workload
 		var work *scheduler.Workload
-		if slot.Attributes.Workload.LLMInfereceRequest != nil {
-			work, err = scheduler.NewLLMWorkload(slot.Attributes.Workload.LLMInfereceRequest)
+		if slot.Attributes.Workload.LLMInferenceRequest != nil {
+			work, err = scheduler.NewLLMWorkload(slot.Attributes.Workload.LLMInferenceRequest)
 			if err != nil {
 				return err
 			}
@@ -466,7 +502,7 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 		}
 
 		// If the runtime is already running a workload, then we don't need to do anything
-		if runtime.IsActive() {
+		if runtime.modelInstance.IsActive() {
 			continue
 		}
 
@@ -474,10 +510,11 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 		switch work.WorkloadType {
 		case scheduler.WorkloadTypeLLMInferenceRequest:
 			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing LLM inference request")
-			runtime.ollamaRuntime.workCh <- work.LLMInferenceRequest()
+			runtime.llmWorkChan <- work.LLMInferenceRequest()
+
 		case scheduler.WorkloadTypeSession:
 			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing session request")
-			runtime.sessionModelInstance.QueueSession(work.Session(), false)
+			runtime.sessionWorkChan <- work.Session()
 		}
 	}
 
@@ -498,7 +535,7 @@ func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
 		runnerSlot := types.RunnerSlot{
 			ID: slotID,
 			Attributes: types.RunnerSlotAttributes{
-				Workload: runtime.ToRunnerWorkload(),
+				Workload: runtime.CurrentWorkload(),
 			},
 		}
 		runnerSlots = append(runnerSlots, runnerSlot)

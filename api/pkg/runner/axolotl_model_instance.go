@@ -333,6 +333,10 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 	}
 }
 
+func (i *AxolotlModelInstance) IsActive() bool {
+	return i.currentSession != nil
+}
+
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
 func (i *AxolotlModelInstance) Start(ctx context.Context) error {

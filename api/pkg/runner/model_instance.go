@@ -14,11 +14,10 @@ type ModelInstance interface {
 	Stale() bool
 	Model() model.Model
 	GetState() (*types.ModelInstanceState, error)
-
+	IsActive() bool
 	Start(ctx context.Context) error
 	Stop() error
 	Done() <-chan bool
-
 	// TODO: remove all below
 	QueueSession(session *types.Session, isInitialSession bool)
 }

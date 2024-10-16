@@ -219,6 +219,10 @@ func (i *OllamaInferenceModelInstance) Start(_ context.Context) error {
 	return nil
 }
 
+func (i *OllamaInferenceModelInstance) IsActive() bool {
+	return i.currentRequest != nil
+}
+
 func (i *OllamaInferenceModelInstance) fetchNextRequest() (*types.RunnerLLMInferenceRequest, error) {
 	i.fetching.Store(true)
 	defer i.fetching.Store(false)

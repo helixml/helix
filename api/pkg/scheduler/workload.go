@@ -111,7 +111,7 @@ func (w *Workload) ToRunnerWorkload() *types.RunnerWorkload {
 	switch w.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
 		return &types.RunnerWorkload{
-			LLMInfereceRequest: w.llmInfereceRequest,
+			LLMInferenceRequest: w.llmInfereceRequest,
 		}
 	case WorkloadTypeSession:
 		return &types.RunnerWorkload{
