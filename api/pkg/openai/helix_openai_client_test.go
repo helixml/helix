@@ -95,13 +95,9 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
 	suite.srv.queueMu.Lock()
 	defer suite.srv.queueMu.Unlock()
 
-	suite.Len(suite.srv.queue, 0)
+	suite.Len(suite.srv.queue, 1)
 
-	// The request should now be given to the worker when it next asks for work
-	work, err := suite.srv.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, false, "")
-	suite.NoError(err)
-
-	req := work.LLMInferenceRequest()
+	req := suite.srv.queue[0]
 
 	suite.Equal(ownerID, req.OwnerID)
 	suite.Equal(sessionID, req.SessionID)

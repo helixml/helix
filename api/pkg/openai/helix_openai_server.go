@@ -62,35 +62,6 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
-	// Default to requesting warm work
-	newWorkOnly := false
-
-	// Only get new work if the filter has a memory requirement (see runner/controller.go)
-	if filter.Memory != 0 {
-		newWorkOnly = true
-	}
-
-	// Now for this runner, get work
-	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly, filter.ModelName)
-	if err != nil {
-		return nil, fmt.Errorf("error getting work for runner: %w", err)
-	}
-
-	if req != nil {
-		c.addSchedulingDecision(filter, runnerID, runnerID, req.LLMInferenceRequest().SessionID, req.LLMInferenceRequest().InteractionID)
-		log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
-		return req.LLMInferenceRequest(), nil
-	}
-	return nil, nil
-
-}
-
-func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) {
-	c.queueMu.Lock()
-	defer c.queueMu.Unlock()
-
-	c.queue = append(c.queue, req)
-
 	// Schedule any requests that are currently in the queue.
 	taken := 0
 	for _, req := range c.queue {
@@ -134,6 +105,35 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 	}
 	// Clear processed queue
 	c.queue = c.queue[taken:]
+
+	// Default to requesting warm work
+	newWorkOnly := false
+
+	// Only get new work if the filter has a memory requirement (see runner/controller.go)
+	if filter.Memory != 0 {
+		newWorkOnly = true
+	}
+
+	// Now for this runner, get work
+	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly, filter.ModelName)
+	if err != nil {
+		return nil, fmt.Errorf("error getting work for runner: %w", err)
+	}
+
+	if req != nil {
+		c.addSchedulingDecision(filter, runnerID, runnerID, req.LLMInferenceRequest().SessionID, req.LLMInferenceRequest().InteractionID)
+		log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
+		return req.LLMInferenceRequest(), nil
+	}
+	return nil, nil
+
+}
+
+func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) {
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
+
+	c.queue = append(c.queue, req)
 }
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
