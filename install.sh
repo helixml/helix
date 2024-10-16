@@ -711,13 +711,11 @@ if [ "$RUNNER" = true ]; then
         read -p "Please specify the GPU memory in GB: " GPU_MEMORY
     fi
 
-    # Determine runner tag and warmup models
+    # Determine runner tag
     if [ "$LARGE" = true ]; then
         RUNNER_TAG="${LATEST_RELEASE}-large"
-        WARMUP_MODELS=""
     else
         RUNNER_TAG="${LATEST_RELEASE}-small"
-        WARMUP_MODELS="llama3:instruct,phi3:instruct"
     fi
 
     # Determine runner token
@@ -739,17 +737,9 @@ if [ "$RUNNER" = true ]; then
 RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
-WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 OLDER_GPU="${OLDER_GPU:-false}"
 HF_TOKEN="${HF_TOKEN}"
-
-# Set warmup models parameter
-if [ -n "\$WARMUP_MODELS" ]; then
-    WARMUP_MODELS_PARAM="-e RUNTIME_OLLAMA_WARMUP_MODELS=\$WARMUP_MODELS"
-else
-    WARMUP_MODELS_PARAM=""
-fi
 
 # Set older GPU parameter
 if [ "\$OLDER_GPU" = "true" ]; then
@@ -786,7 +776,6 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     --ulimit stack=67108864 \\
     --network="helix_default" \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
-    \${WARMUP_MODELS_PARAM} \\
     \${OLDER_GPU_PARAM} \\
     \${HF_TOKEN_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
