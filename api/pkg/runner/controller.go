@@ -271,17 +271,25 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			// THERE IS NOT A RACE HERE (so Kai please stop thinking there is)
+			// the files are dowloading at the same time as the python process is booting
+			// whilst the files are downloading - there is no session to pull as "nextSession"
+			// so even if the python process starts up first - it has nothing to pull until
+			// the files have downloaded
+			go modelInstance.QueueSession(initialSession, true)
+
 			err = modelInstance.Start(r.Ctx)
 			if err != nil {
 				return nil, err
 			}
-			modelInstance.QueueSession(initialSession, true)
+
 			go func() {
 				select {
 				case <-r.Ctx.Done():
 					return
 				case work := <-workCh:
-					modelInstance.QueueSession(work, false)
+					go modelInstance.QueueSession(work, false)
 				case <-modelInstance.Done():
 					return
 				}
