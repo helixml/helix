@@ -88,8 +88,8 @@ func (s *Slot) Release() {
 	s.lastActivityTime = time.Now()
 }
 
-// Marks the work as started
-func (s *Slot) Start() {
+// Marks the work as active
+func (s *Slot) Active() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

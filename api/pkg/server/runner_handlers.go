@@ -22,8 +22,6 @@ func (apiServer *HelixAPIServer) getRunnerSlots(res http.ResponseWriter, req *ht
 		return nil, fmt.Errorf("missing runner id")
 	}
 
-	log.Trace().Str("runner_id", runnerID).Msg("getting runner slots")
-
 	internalSlots := apiServer.scheduler.SlotsForRunner(runnerID)
 
 	// Convert the slots to a PatchRunnerSlots object.

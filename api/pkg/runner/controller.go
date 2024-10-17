@@ -169,6 +169,10 @@ func (r *runtime) SetSessionRequest(work *scheduler.Workload) {
 	r.sessionWorkChan <- work.Session()
 }
 
+func (r *runtime) IsScheduled() bool {
+	return len(r.sessionWorkChan) > 0 || len(r.llmWorkChan) > 0
+}
+
 func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 	switch work.WorkloadType {
 	case scheduler.WorkloadTypeLLMInferenceRequest:
@@ -491,6 +495,11 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 				return err
 			}
 			r.slots[slot.ID] = runtime
+			continue
+		}
+
+		// If the runtime already has work scheduled, then we don't need to do anything
+		if runtime.IsScheduled() {
 			continue
 		}
 

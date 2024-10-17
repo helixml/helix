@@ -102,15 +102,18 @@ func (a *allocator) StartSlot(slotID uuid.UUID) error {
 		return fmt.Errorf("slot not found: %s", slotID.String())
 	}
 
-	log.Trace().
-		Str("runner_id", slot.RunnerID).
-		Str("slot_id", slot.ID.String()).
-		Str("model_name", slot.ModelName().String()).
-		Uint64("total_memory", slot.Memory()).
-		Msg("releasing slot")
+	// Log something when it first becomes active
+	if slot.IsScheduled() {
+		log.Trace().
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model_name", slot.ModelName().String()).
+			Uint64("total_memory", slot.Memory()).
+			Msg("starting slot")
+	}
 
-	// Release the slot.
-	slot.Start()
+	// Always mark the slot as active
+	slot.Active()
 
 	return nil
 }

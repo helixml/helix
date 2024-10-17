@@ -156,7 +156,6 @@ func (s *scheduler) Release(requestID string) error {
 	}
 
 	// Release the resources allocated to the slot.
-	log.Trace().Str("slot_id", slotID.String()).Msg("releasing slot")
 	err := s.allocator.ReleaseSlot(slotID)
 	if err != nil {
 		// If there is an error during deallocation, return it.
@@ -233,7 +232,7 @@ func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly 
 			if newWorkOnly && !slot.IsNew() {
 				continue // Work is not new, ignore it.
 			}
-			slot.Start() // Mark the work in the slot as started.
+			slot.Active() // Mark the work in the slot as started.
 			return work, nil
 		}
 	}
@@ -245,18 +244,15 @@ func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly 
 func (s *scheduler) SlotsForRunner(runnerID string) map[uuid.UUID]*Workload {
 	internalSlots := s.allocator.RunnerSlots(runnerID)
 	slots := make(map[uuid.UUID]*Workload, len(internalSlots))
-	s.workStore.Range(func(slotID uuid.UUID, w *Workload) bool {
-		for _, slot := range internalSlots {
-			if slot.ID == slotID {
-				slots[slotID] = nil
-				if slot.IsScheduled() {
-					slots[slotID] = w
-				}
-				break
-			}
+	for _, slot := range internalSlots {
+		slots[slot.ID] = nil
+		// If the workstore has work, then add it to the slots map.
+		work, ok := s.workStore.Load(slot.ID)
+		if ok {
+			slots[slot.ID] = work
 		}
-		return true
-	})
+	}
+
 	return slots
 }
 
