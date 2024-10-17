@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -839,6 +840,43 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 
 	c.sessionQueue = newQueue
 	c.sessionSummaryQueue = newSummaryQueue
+
+	// TODO(PHIL): Take control of the queue
+	// Schedule all new sessions in the queue, until we run out of runners
+	taken := 0
+	for _, session := range c.sessionQueue {
+		log.Info().Str("session_id", session.ID).Msg("scheduling session")
+		work, err := scheduler.NewSessonWorkload(session)
+		if err != nil {
+			log.Err(err).Msg("error creating session workload")
+		}
+
+		err = c.scheduler.Schedule(work)
+		if err != nil {
+			retry, err := scheduler.ErrorHandlingStrategy(err, work)
+
+			// If we can retry, break out of the loop and try again later
+			if retry {
+				break
+			}
+
+			// If we can't retry, write an error to the request and continue so it takes it off
+			// the queue
+			errSession := work.Session()
+			errSession.Interactions = append(errSession.Interactions, &types.Interaction{
+				Creator: types.CreatorTypeSystem,
+				Error:   err.Error(),
+				Message: "Error scheduling session",
+			})
+			_, err = c.Options.Store.UpdateSession(c.Ctx, *errSession)
+			if err != nil {
+				log.Error().Err(err).Msg("error updating session")
+			}
+		}
+		taken++
+	}
+	c.sessionQueue = c.sessionQueue[taken:]
+	c.sessionSummaryQueue = c.sessionSummaryQueue[taken:]
 }
 
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {

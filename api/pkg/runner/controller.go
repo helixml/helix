@@ -257,9 +257,6 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 					InitialSession:    initialSession,
 					InitialSessionURL: r.Options.InitialSessionURL,
 					NextTaskURL:       r.Options.TaskURL,
-					GetNextSession: func() (*types.Session, error) {
-						return <-workCh, nil
-					},
 					// this function will convert any files it sees locally into an upload
 					// to the api server filestore - all files will be written to the filestore
 					// under a session sub path - you can include tar files and they will untarred at the other end
@@ -278,6 +275,17 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 			if err != nil {
 				return nil, err
 			}
+			modelInstance.QueueSession(initialSession, true)
+			go func() {
+				select {
+				case <-r.Ctx.Done():
+					return
+				case work := <-workCh:
+					modelInstance.QueueSession(work, false)
+				case <-modelInstance.Done():
+					return
+				}
+			}()
 			return &runtime{
 				modelInstance:   modelInstance,
 				sessionWorkChan: workCh,
