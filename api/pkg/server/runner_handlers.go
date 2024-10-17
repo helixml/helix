@@ -45,24 +45,6 @@ func (apiServer *HelixAPIServer) getRunnerSlots(res http.ResponseWriter, req *ht
 	return patch, nil
 }
 
-func (apiServer *HelixAPIServer) setRunnerSlots(res http.ResponseWriter, req *http.Request) (*types.PatchRunnerSlots, error) {
-	vars := mux.Vars(req)
-	runnerID := vars["runnerid"]
-	if runnerID == "" {
-		return nil, fmt.Errorf("missing runner id")
-	}
-
-	patch := &types.PatchRunnerSlots{}
-	err := json.NewDecoder(req.Body).Decode(patch)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Trace().Str("runner_id", runnerID).Interface("patch", patch).Msg("setting runner slots")
-
-	return patch, nil
-}
-
 // runnerLLMInferenceRequestHandler handles LLM inference queries from the runner that are triggered either through polling
 // or through a push notification from the controller.
 func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.ResponseWriter, req *http.Request) (*types.RunnerLLMInferenceRequest, error) {

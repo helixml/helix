@@ -741,6 +741,7 @@ type RunnerState struct {
 	ModelInstances      []*ModelInstanceState `json:"model_instances"`
 	SchedulingDecisions []string              `json:"scheduling_decisions"`
 	Version             string                `json:"version"`
+	Slots               []RunnerSlot          `json:"slots"`
 }
 
 type DashboardData struct {

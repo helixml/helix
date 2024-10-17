@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -144,26 +143,6 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 		// if there is a session in the queuedSession cache then we are waiting for
 		// a task to complete before we want to actually run the session
 		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.GetQueuedSession())
-	} else {
-		// ask the upstream api server if there is another task
-		// if there is - then assign it to the queuedSession
-		// and call "pre"
-		if r.httpClientOptions.Host != "" {
-			queryParams := url.Values{}
-
-			queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
-			queryParams.Add("mode", string(modelInstance.Filter().Mode))
-			queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
-
-			apiSession, err := r.getNextApiSession(ctx, queryParams)
-			if err != nil {
-				return nil, err
-			}
-
-			if apiSession != nil {
-				go modelInstance.QueueSession(apiSession, false)
-			}
-		}
 	}
 
 	// we don't have any work for this model instance

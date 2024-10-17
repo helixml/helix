@@ -298,7 +298,8 @@ func PostRequest[RequestType any, ResultType any](
 	if err != nil {
 		return result, fmt.Errorf("error parsing JSON: %s", err.Error())
 	}
-	return PostRequestBuffer[ResultType](
+	return SendRequestBuffer[ResultType](
+		"POST",
 		options,
 		path,
 		bytes.NewBuffer(dataBytes),
@@ -306,7 +307,27 @@ func PostRequest[RequestType any, ResultType any](
 	)
 }
 
-func PostRequestBuffer[ResultType any](
+func PatchRequest[RequestType any, ResultType any](
+	options ClientOptions,
+	path string,
+	data RequestType,
+) (ResultType, error) {
+	var result ResultType
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		return result, fmt.Errorf("error parsing JSON: %s", err.Error())
+	}
+	return SendRequestBuffer[ResultType](
+		"PATCH",
+		options,
+		path,
+		bytes.NewBuffer(dataBytes),
+		"application/json",
+	)
+}
+
+func SendRequestBuffer[ResultType any](
+	method string,
 	options ClientOptions,
 	path string,
 	data *bytes.Buffer,
@@ -314,7 +335,7 @@ func PostRequestBuffer[ResultType any](
 ) (ResultType, error) {
 	var result ResultType
 	client := NewRetryClient(3)
-	req, err := retryablehttp.NewRequest("POST", URL(options, path), data)
+	req, err := retryablehttp.NewRequest(method, URL(options, path), data)
 	if err != nil {
 		return result, err
 	}
