@@ -138,6 +138,10 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
 func (c *InternalHelixServer) ProcessRunnerResponse(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {
+	err := c.scheduler.Begin(resp.RequestID)
+	if err != nil {
+		log.Warn().Err(err).Str("request_id", resp.RequestID).Msg("error beginning allocation, continuing...")
+	}
 	if resp.Done || resp.Error != "" {
 		err := c.scheduler.Release(
 			resp.RequestID,

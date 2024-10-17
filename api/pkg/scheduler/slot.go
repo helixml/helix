@@ -12,7 +12,7 @@ import (
 type Slot struct {
 	ID               uuid.UUID // An ID representing this unique model on a runner
 	RunnerID         string    // The runner that this slot is assigned to
-	work             *Workload // The work that is currently assigned to this slot
+	work             *Workload // The work that was initially assigned to this slot, it does not represent the current work
 	lastActivityTime time.Time // Private because I don't want people misinterpreting this
 	isActive         bool      // Private because I don't want people misinterpreting this
 	isScheduled      bool      // Private because I don't want people misinterpreting this

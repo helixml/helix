@@ -15,6 +15,7 @@ import (
 type WorkloadAllocator interface {
 	AllocateNewSlot(runnerID string, req *Workload) (*Slot, error)
 	AllocateSlot(slotID uuid.UUID, req *Workload) error
+	StartSlot(slotID uuid.UUID) error
 	ReleaseSlot(slotID uuid.UUID) error
 	DeadSlots(deadRunnerIDs []string) []*Slot
 	WarmSlots(req *Workload) []*Slot
@@ -91,6 +92,27 @@ func (a *allocator) AllocateNewSlot(runnerID string, req *Workload) (*Slot, erro
 
 	// Schedule and store the new slot.
 	return slot, a.AllocateSlot(slot.ID, req)
+}
+
+// StartSlot marks scheduled work as in progress
+func (a *allocator) StartSlot(slotID uuid.UUID) error {
+	// Find the slot.
+	slot, ok := a.slots.Load(slotID)
+	if !ok {
+		return fmt.Errorf("slot not found: %s", slotID.String())
+	}
+
+	log.Trace().
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("model_name", slot.ModelName().String()).
+		Uint64("total_memory", slot.Memory()).
+		Msg("releasing slot")
+
+	// Release the slot.
+	slot.Start()
+
+	return nil
 }
 
 // ReleaseSlot frees the resources allocated to a specific slot.

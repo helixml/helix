@@ -140,7 +140,10 @@ type runtime struct {
 }
 
 func (r *runtime) Stop() {
-	r.modelInstance.Stop()
+	err := r.modelInstance.Stop()
+	if err != nil {
+		log.Err(err).Msg("error stopping model instance")
+	}
 	if r.llmWorkChan != nil {
 		close(r.llmWorkChan)
 	}
@@ -539,7 +542,7 @@ func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
 		return nil, err
 	}
 
-	req, err := retryablehttp.NewRequest("PATCH", parsedURL.String(), body)
+	req, err := retryablehttp.NewRequest("GET", parsedURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
