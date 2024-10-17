@@ -294,6 +294,9 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 					return
 				}
 			}()
+
+			// TODO(PHIL): Remove this. Required for use in the axolotl runner for now.
+			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
 			return &runtime{
 				modelInstance:   modelInstance,
 				sessionWorkChan: workCh,
@@ -428,6 +431,12 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 		}
 		if !found {
 			runtime.Stop()
+
+			// TODO(PHIL): Remove this only required by axolotl
+			if runtime.modelInstance != nil {
+				r.activeModelInstances.Delete(runtime.modelInstance.ID())
+			}
+
 			delete(r.slots, slotID)
 		}
 	}
