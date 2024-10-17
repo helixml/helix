@@ -31,8 +31,7 @@ func (apiServer *HelixAPIServer) getRunnerSlots(res http.ResponseWriter, req *ht
 	for slotID, workload := range internalSlots {
 		attr := types.RunnerSlotAttributes{}
 		// Only set the work if it is scheduled. This is how we signal to the runner we have new
-		// work.
-		// When runners request work this will keep being sent until slot is marked as started,
+		// work. When runners request work this will keep being sent until slot is marked as started,
 		// which happens in the various runner response handlers.
 		if workload != nil {
 			attr.Workload = workload.ToRunnerWorkload()
@@ -61,7 +60,7 @@ func (apiServer *HelixAPIServer) setRunnerSlots(res http.ResponseWriter, req *ht
 
 	log.Trace().Str("runner_id", runnerID).Interface("patch", patch).Msg("setting runner slots")
 
-	return nil, nil
+	return patch, nil
 }
 
 // runnerLLMInferenceRequestHandler handles LLM inference queries from the runner that are triggered either through polling

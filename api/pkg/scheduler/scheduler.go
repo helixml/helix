@@ -245,11 +245,15 @@ func (s *scheduler) SlotsForRunner(runnerID string) map[uuid.UUID]*Workload {
 	internalSlots := s.allocator.RunnerSlots(runnerID)
 	slots := make(map[uuid.UUID]*Workload, len(internalSlots))
 	for _, slot := range internalSlots {
+		// Default to empty slot
 		slots[slot.ID] = nil
-		// If the workstore has work, then add it to the slots map.
-		work, ok := s.workStore.Load(slot.ID)
-		if ok {
-			slots[slot.ID] = work
+		// If the slot is active, then try to ge the work
+		if slot.IsScheduled() {
+			// If the workstore has work, then add it to the slots map.
+			work, ok := s.workStore.Load(slot.ID)
+			if ok {
+				slots[slot.ID] = work
+			}
 		}
 	}
 
