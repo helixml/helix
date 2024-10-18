@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -129,7 +130,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	var (
-		session *types.Session
+		session    *types.Session
+		newSession bool
 	)
 
 	if startReq.SessionID != "" {
@@ -149,9 +151,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 	} else {
 		// Create session
+		newSession = true
 		session = &types.Session{
 			ID:        system.GenerateSessionID(),
-			Name:      system.GenerateAmusingName(),
+			Name:      s.getTemporarySessionName(message),
 			Created:   time.Now(),
 			Updated:   time.Now(),
 			Mode:      types.SessionModeInference,
@@ -211,6 +214,23 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	if newSession {
+		go func() {
+			name, err := s.generateSessionName(user, session.ID, modelName, message)
+			if err != nil {
+				log.Error().Err(err).Msg("error generating session name")
+				return
+			}
+
+			session.Name = name
+
+			err = s.Store.UpdateSessionName(ctx, session.ID, name)
+			if err != nil {
+				log.Error().Err(err).Msg("error updating session name")
+			}
+		}()
+	}
+
 	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
 		OwnerID:         user.ID,
 		SessionID:       session.ID,
@@ -257,7 +277,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	if err != nil {
 		log.Err(err).Msg("error handling blocking session")
 	}
-	return
 }
 
 func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
@@ -327,6 +346,80 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 	if err != nil {
 		log.Err(err).Msg("error handling blocking session")
 	}
+}
+
+const titleGenPrompt = `Generate a concise 3-5 word title for the given user input. Follow these rules strictly:
+
+1. Use exactly 3-5 words.
+2. Do not use the word "title" in your response.
+3. Capture the essence of the user's query or topic.
+4. Provide only the title, without any additional commentary.
+
+Examples:
+
+User: "Tell me about the Roman Empire's early days and how it was formed."
+Response: Roman Empire's formation
+
+User: "What is the best way to cook a steak?"
+Response: Perfect steak cooking techniques
+
+Now, generate a title for the following user input:
+
+%s`
+
+func (s *HelixAPIServer) getTemporarySessionName(prompt string) string {
+	// return first few words of the prompt
+	words := strings.Split(prompt, " ")
+	if len(words) > 5 {
+		return strings.Join(words[:5], " ")
+	}
+	return strings.Join(words, " ")
+}
+
+func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model, prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       user.ID,
+		SessionID:     sessionID,
+		InteractionID: "n/a",
+	})
+
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStepGenerateTitle,
+	})
+
+	req := openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: "You are a helpful assistant that generates a concise title for a given user input.",
+			},
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: fmt.Sprintf(titleGenPrompt, prompt),
+			},
+		},
+	}
+
+	options := &controller.ChatCompletionOptions{
+		// AppID:       r.URL.Query().Get("app_id"),
+		// AssistantID: r.URL.Query().Get("assistant_id"),
+		// RAGSourceID: r.URL.Query().Get("rag_source_id"),
+	}
+
+	resp, _, err := s.Controller.ChatCompletion(ctx, user, req, options)
+	if err != nil {
+		return "", err
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", errors.New("no data in the LLM response")
+	}
+
+	return resp.Choices[0].Message.Content, nil
 }
 
 func (s *HelixAPIServer) _legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
