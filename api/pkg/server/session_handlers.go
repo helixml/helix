@@ -224,7 +224,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			session.Name = name
 
-			err = s.Store.UpdateSessionName(ctx, session.ID, name)
+			err = s.Controller.UpdateSessionName(user.ID, session.ID, name)
 			if err != nil {
 				log.Error().Err(err).Msg("error updating session name")
 			}
