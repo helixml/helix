@@ -624,6 +624,10 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	if assistant != nil && assistant.IsActionableTemplate != "" {
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
+	// If assistant has configured a model, use it
+	if assistant != nil && assistant.Model != "" {
+		options = append(options, tools.WithModel(assistant.Model))
+	}
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, messageHistory, options...)
 	if err != nil {
