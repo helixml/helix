@@ -28,7 +28,7 @@ func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, intera
 
 func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, statusCode int, body []byte) (*RunActionResponse, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
-	req := c.prepareChatCompletionRequest(messages, false)
+	req := c.prepareChatCompletionRequest(messages, false, tool.Config.API.Model)
 
 	ctx = c.setContextAndStep(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse)
 
@@ -49,7 +49,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 
 func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, statusCode int, body []byte) (*openai.ChatCompletionStream, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
-	req := c.prepareChatCompletionRequest(messages, true)
+	req := c.prepareChatCompletionRequest(messages, true, tool.Config.API.Model)
 
 	ctx = c.setContextAndStep(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse)
 
@@ -86,6 +86,10 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 		Stream:   false,
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
+	}
+	// override with tool model if specified
+	if tool.Config.API.Model != "" {
+		req.Model = tool.Config.API.Model
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
@@ -162,12 +166,16 @@ func (c *ChainStrategy) prepareSuccessMessages(tool *types.Tool, history []*type
 	return messages
 }
 
-func (c *ChainStrategy) prepareChatCompletionRequest(messages []openai.ChatCompletionMessage, stream bool) openai.ChatCompletionRequest {
-	return openai.ChatCompletionRequest{
+func (c *ChainStrategy) prepareChatCompletionRequest(messages []openai.ChatCompletionMessage, stream bool, overrideModel string) openai.ChatCompletionRequest {
+	req := openai.ChatCompletionRequest{
 		Stream:   stream,
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
+	if overrideModel != "" {
+		req.Model = overrideModel
+	}
+	return req
 }
 
 func (c *ChainStrategy) setContextAndStep(ctx context.Context, sessionID, interactionID string, step types.LLMCallStep) context.Context {

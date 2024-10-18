@@ -13,7 +13,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -174,14 +173,6 @@ func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oa
 
 }
 
-func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
-	if (!app.Global && !app.Shared) && app.Owner != user.ID {
-		return system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
-	}
-
-	return nil
-}
-
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
@@ -304,6 +295,10 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	if assistant != nil && assistant.IsActionableTemplate != "" {
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
+	// If assistant has configured a model, use it
+	if assistant != nil && assistant.Model != "" {
+		options = append(options, tools.WithModel(assistant.Model))
+	}
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
@@ -337,6 +332,20 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.Api)
 	if !ok {
 		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
+	}
+
+	// If assistant has configured a model, give the hint to the tool that it should use that model too
+	if assistant != nil && assistant.Model != "" {
+		if selectedTool.Config.API.Model == "" {
+			log.Info().
+				Str("assistant_id", assistant.ID).
+				Str("assistant_name", assistant.Name).
+				Str("assistant_model", assistant.Model).
+				Str("tool_name", selectedTool.Name).
+				Msg("assistant has configured a model, and tool has no model specified, using assistant model for tool")
+
+			selectedTool.Config.API.Model = assistant.Model
+		}
 	}
 
 	if len(opts.QueryParams) > 0 && selectedTool.Config.API != nil {
