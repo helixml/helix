@@ -289,8 +289,8 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		return
 	}
 
-	modelName, e := model.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
-	if e != nil {
+	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
+	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
 	}
