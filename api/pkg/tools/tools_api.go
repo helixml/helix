@@ -135,11 +135,15 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 			Content: "Return the corresponding json for the last user input",
 		},
 	)
-
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
+	}
+	// override with app model if specified, otherwise fallback to TOOLS_MODEL
+	// env var
+	if tool.Config.API.Model != "" {
+		req.Model = tool.Config.API.Model
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
