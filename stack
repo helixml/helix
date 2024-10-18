@@ -154,4 +154,28 @@ function update_openapi() {
 	-o api/pkg/server
 }
 
+function test() {
+  # Ingest env variables from .env file
+  export $(cat .env | xargs)
+
+  # Check whether environment variables are set. If not, error
+  if [[ -z "$TOGETHER_API_KEY" ]]; then
+    echo "TOGETHER_API_KEY is not set"
+    exit 1
+  fi
+  if [[ -z "$TOGETHER_BASE_URL" ]]; then
+    echo "TOGETHER_BASE_URL is not set"
+    exit 1
+  fi
+
+  # Database config (running in a sidecar)
+  export POSTGRES_HOST=localhost
+  export TYPESENSE_URL=http://localhost:8108
+  export TYPESENSE_API_KEY=typesense
+  export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
+  export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
+
+  go test ./...
+}
+
 eval "$@"
