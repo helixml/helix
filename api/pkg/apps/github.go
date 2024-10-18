@@ -389,6 +389,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 						RequestPrepTemplate:     api.RequestPrepTemplate,
 						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 						ResponseErrorTemplate:   api.ResponseErrorTemplate,
+						Model:                   assistant.Model,
 					},
 				},
 			})

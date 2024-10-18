@@ -918,6 +918,8 @@ type ToolApiConfig struct {
 	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
 	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
 	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
+
+	Model string `json:"model" yaml:"model"`
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec

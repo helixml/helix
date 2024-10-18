@@ -67,6 +67,7 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 						RequestPrepTemplate:     api.RequestPrepTemplate,
 						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 						ResponseErrorTemplate:   api.ResponseErrorTemplate,
+						Model:                   assistant.Model,
 					},
 				},
 			})
