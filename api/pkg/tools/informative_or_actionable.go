@@ -122,6 +122,11 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
+	// Use model if specified by options (e.g. use assistant model from app
+	// instead of default set by TOOLS_MODEL)
+	if opts.model != "" {
+		req.Model = opts.model
+	}
 
 	// Required for the correct openai context to be set
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
