@@ -2,14 +2,24 @@
 
 ## Table of Contents
 
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setting Up the Development Environment](#setting-up-the-development-environment)
-4. [Project Structure](#project-structure)
-5. [Running the Application](#running-the-application)
-6. [Debugging](#debugging)
-7. [Contributing](#contributing)
-8. [Further Reading](#further-reading)
+- [HelixML Local Development guide](#helixml-local-development-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Introduction](#introduction)
+  - [Prerequisites](#prerequisites)
+  - [Setting Up the Development Environment](#setting-up-the-development-environment)
+  - [Project Structure](#project-structure)
+  - [Running the Application](#running-the-application)
+    - [1. Bring up the Helix stack](#1-bring-up-the-helix-stack)
+    - [2. Attach a runner](#2-attach-a-runner)
+      - [Connecting to a Runner via SSH](#connecting-to-a-runner-via-ssh)
+      - [Connecting to a Runner via WebhookRelay](#connecting-to-a-runner-via-webhookrelay)
+    - [3. (Optional) Expose a Github Webhook](#3-optional-expose-a-github-webhook)
+    - [4. Rebuild individual components](#4-rebuild-individual-components)
+    - [5. Running tests](#5-running-tests)
+    - [6. Tear down the Helix stack](#6-tear-down-the-helix-stack)
+  - [Debugging](#debugging)
+  - [Contributing](#contributing)
+  - [Further Reading](#further-reading)
 
 ## Introduction
 
@@ -185,14 +195,20 @@ GITHUB_INTEGRATION_WEBHOOK_URL=https://3nmlcxxxxx.hooks.webhookrelay.com/api/v1/
 ### 4. Rebuild individual components
 
 ```
-./stack rebuild <component>
+./stack up --build <component>
 ```
 
 If you're familiar with [tmux](https://github.com/tmux/tmux/wiki) you will find it useful to do `./stack start` and `./stack stop` instead.
 
 Both the frontend and the api have hot-reloads when in development mode. Rebuilds should only be required when adding libraries.
 
-### 5. Tear down the Helix stack
+### 5. Running tests
+
+```
+./stack test
+```
+
+### 6. Tear down the Helix stack
 
 Bring down the stack
 
