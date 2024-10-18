@@ -731,6 +731,20 @@ func (mr *MockStoreMockRecorder) UpdateSessionMeta(ctx, data interface{}) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionMeta", reflect.TypeOf((*MockStore)(nil).UpdateSessionMeta), ctx, data)
 }
 
+// UpdateSessionName mocks base method.
+func (m *MockStore) UpdateSessionName(ctx context.Context, sessionID, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSessionName", ctx, sessionID, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSessionName indicates an expected call of UpdateSessionName.
+func (mr *MockStoreMockRecorder) UpdateSessionName(ctx, sessionID, name interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionName", reflect.TypeOf((*MockStore)(nil).UpdateSessionName), ctx, sessionID, name)
+}
+
 // UpdateTool mocks base method.
 func (m *MockStore) UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
 	m.ctrl.T.Helper()
