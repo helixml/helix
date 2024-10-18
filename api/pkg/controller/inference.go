@@ -343,6 +343,20 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
 	}
 
+	// If assistant has configured a model, give the hint to the tool that it should use that model too
+	if assistant != nil && assistant.Model != "" {
+		if selectedTool.Config.API.Model == "" {
+			log.Info().
+				Str("assistant_id", assistant.ID).
+				Str("assistant_name", assistant.Name).
+				Str("assistant_model", assistant.Model).
+				Str("tool_name", selectedTool.Name).
+				Msg("assistant has configured a model, and tool has no model specified, using assistant model for tool")
+
+			selectedTool.Config.API.Model = assistant.Model
+		}
+	}
+
 	if len(opts.QueryParams) > 0 && selectedTool.Config.API != nil {
 		selectedTool.Config.API.Query = make(map[string]string)
 
