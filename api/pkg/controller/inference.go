@@ -13,7 +13,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -172,14 +171,6 @@ func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oa
 
 	return client, nil
 
-}
-
-func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
-	if (!app.Global && !app.Shared) && app.Owner != user.ID {
-		return system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
-	}
-
-	return nil
 }
 
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {

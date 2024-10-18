@@ -87,7 +87,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
-	// override with app model if specified
+	// override with tool model if specified
 	if tool.Config.API.Model != "" {
 		req.Model = tool.Config.API.Model
 	}

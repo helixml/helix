@@ -140,7 +140,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
-	// override with app model if specified, otherwise fallback to TOOLS_MODEL
+	// override with tool model if specified, otherwise fallback to TOOLS_MODEL
 	// env var
 	if tool.Config.API.Model != "" {
 		req.Model = tool.Config.API.Model
