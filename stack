@@ -156,7 +156,9 @@ function update_openapi() {
 
 function test() {
   # Ingest env variables from .env file
-  export $(cat .env | xargs)
+  set -a
+  source .env
+  set +a
 
   # Check whether environment variables are set. If not, error
   if [[ -z "$TOGETHER_API_KEY" ]]; then
@@ -168,6 +170,9 @@ function test() {
     exit 1
   fi
 
+  # Ensure postgres, tika, typesense and chrome are running
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome
+
   # Database config (running in a sidecar)
   export POSTGRES_HOST=localhost
   export TYPESENSE_URL=http://localhost:8108
@@ -175,7 +180,7 @@ function test() {
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
-  go test ./...
+  go test -v ./...
 }
 
 eval "$@"
