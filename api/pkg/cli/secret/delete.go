@@ -12,7 +12,6 @@ import (
 func init() {
 	rootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().StringP("name", "n", "", "Name of the secret to delete")
-	// _ = deleteCmd.MarkFlagRequired("name")
 }
 
 var deleteCmd = &cobra.Command{
