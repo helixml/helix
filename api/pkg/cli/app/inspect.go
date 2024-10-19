@@ -12,7 +12,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(inspectCmd)
-	inspectCmd.Flags().StringP("output", "o", "json", "Output format. One of: json|yaml")
+	inspectCmd.Flags().StringP("output", "o", "yaml", "Output format. One of: json|yaml")
 }
 
 var inspectCmd = &cobra.Command{
