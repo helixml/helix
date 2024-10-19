@@ -1435,5 +1435,5 @@ type Secret struct {
 	Owner     string
 	OwnerType OwnerType
 	Name      string `json:"name" yaml:"name"`
-	Data      string `json:"data,omitempty" yaml:"data,omitempty"`
+	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
 }
