@@ -38,7 +38,66 @@ const OpenAPIPage: React.FC = () => {
           nativeScrollbars: true,
           theme: {
             colors: {
-              primary: { main: '#3f51b5' }, // You can adjust this color to match your app's theme
+              primary: { main: '#4caf50' },
+              text: {
+                primary: '#ffffff',
+                secondary: '#c0c0c0',
+              },
+              http: {
+                get: '#61affe',
+                post: '#49cc90',
+                put: '#fca130',
+                options: '#0d5aa7',
+                patch: '#50e3c2',
+                delete: '#f93e3e',
+                basic: '#999',
+                link: '#31bbb6',
+                head: '#9012fe',
+              },
+              responses: {
+                success: {
+                  color: '#ffffff',
+                  backgroundColor: '#49cc90',
+                },
+                error: {
+                  color: '#ffffff',
+                  backgroundColor: '#f93e3e',
+                },
+                redirect: {
+                  color: '#ffffff',
+                  backgroundColor: '#fca130',
+                },
+                info: {
+                  color: '#ffffff',
+                  backgroundColor: '#61affe',
+                },
+              },
+            },
+            typography: {
+              fontSize: '14px',
+              lineHeight: '1.5em',
+              fontFamily: '"Roboto", sans-serif',
+              smoothing: 'antialiased',
+              code: {
+                fontSize: '13px',
+                fontFamily: '"Roboto Mono", monospace',
+                lineHeight: '1.6em',
+                fontWeight: '400',
+                color: '#ffffff',
+                backgroundColor: '#2d3748',
+              },
+            },
+            sidebar: {
+              backgroundColor: '#1a202c',
+              textColor: '#ffffff',
+              activeTextColor: '#45a049',
+            },
+            rightPanel: {
+              backgroundColor: '#2d3748',
+              textColor: '#ffffff',
+            },
+            codeBlock: {
+              backgroundColor: '#2d3748',
             },
           },
           hideDownloadButton: true,
