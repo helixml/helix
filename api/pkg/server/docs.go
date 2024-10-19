@@ -212,6 +212,176 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/llm_calls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List LLM calls with pagination and optional session filtering",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "llm_calls"
+                ],
+                "summary": "List LLM calls",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "sessionFilter",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedLLMCalls"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/secrets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List secrets for the user.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "List secrets",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Secret"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new secret for the user.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "Create new secret",
+                "parameters": [
+                    {
+                        "description": "Request body with secret configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/secrets/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing secret for the user.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "Update an existing secret",
+                "parameters": [
+                    {
+                        "description": "Request body with updated secret configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Secret ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a secret for the user.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "Delete a secret",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Secret ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/chat": {
             "post": {
                 "security": [
@@ -389,7 +559,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionRequest"
+                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionRequest"
                         }
                     }
                 ],
@@ -397,7 +567,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionResponse"
+                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponse"
                         }
                     }
                 }
@@ -439,21 +609,52 @@ const docTemplate = `{
                     ]
                 },
                 "tool_type": {
-                    "$ref": "#/definitions/types.ToolType"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ToolType"
                 },
                 "updated": {
                     "type": "string"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatCompletionChoice": {
+        "github_com_helixml_helix_api_pkg_types.ToolType": {
+            "type": "string",
+            "enum": [
+                "api",
+                "gptscript",
+                "zapier"
+            ],
+            "x-enum-varnames": [
+                "ToolTypeAPI",
+                "ToolTypeGPTScript",
+                "ToolTypeZapier"
+            ]
+        },
+        "github_com_helixml_helix_api_pkg_types.Usage": {
+            "type": "object",
+            "properties": {
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "description": "How long the request took in milliseconds",
+                    "type": "integer"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_sashabaranov_go-openai.ChatCompletionChoice": {
             "type": "object",
             "properties": {
                 "finish_reason": {
                     "description": "FinishReason\nstop: API returned complete message,\nor a message terminated by one of the stop sequences provided via the stop parameter\nlength: Incomplete model output due to max_tokens parameter or token limit\nfunction_call: The model decided to call a function\ncontent_filter: Omitted content due to a flag from our content filters\nnull: API response still in progress or incomplete",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FinishReason"
+                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.FinishReason"
                         }
                     ]
                 },
@@ -461,30 +662,33 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "logprobs": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.LogProbs"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.LogProbs"
                 },
                 "message": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionMessage"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionMessage"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatCompletionMessage": {
+        "github_com_sashabaranov_go-openai.ChatCompletionMessage": {
             "type": "object",
             "properties": {
                 "content": {
                     "type": "string"
                 },
                 "function_call": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FunctionCall"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionCall"
                 },
                 "multiContent": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatMessagePart"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatMessagePart"
                     }
                 },
                 "name": {
                     "description": "This property isn't in the official documentation, but it's in\nthe documentation for the official library for python:\n- https://github.com/openai/openai-python/blob/main/chatml.md\n- https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb",
+                    "type": "string"
+                },
+                "refusal": {
                     "type": "string"
                 },
                 "role": {
@@ -498,12 +702,12 @@ const docTemplate = `{
                     "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolCall"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
                     }
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatCompletionRequest": {
+        "github_com_sashabaranov_go-openai.ChatCompletionRequest": {
             "type": "object",
             "properties": {
                 "frequency_penalty": {
@@ -516,7 +720,7 @@ const docTemplate = `{
                     "description": "Deprecated: use Tools instead.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FunctionDefinition"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionDefinition"
                     }
                 },
                 "logit_bias": {
@@ -530,13 +734,18 @@ const docTemplate = `{
                     "description": "LogProbs indicates whether to return log probabilities of the output tokens or not.\nIf true, returns the log probabilities of each output token returned in the content of message.\nThis option is currently not available on the gpt-4-vision-preview model.",
                     "type": "boolean"
                 },
+                "max_completion_tokens": {
+                    "description": "MaxCompletionsTokens An upper bound for the number of tokens that can be generated for a completion,\nincluding visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning",
+                    "type": "integer"
+                },
                 "max_tokens": {
+                    "description": "MaxTokens The maximum number of tokens that can be generated in the chat completion.\nThis value can be used to control costs for text generated via API.\nThis value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens",
                     "type": "integer"
                 },
                 "messages": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionMessage"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionMessage"
                     }
                 },
                 "model": {
@@ -545,11 +754,14 @@ const docTemplate = `{
                 "n": {
                     "type": "integer"
                 },
+                "parallel_tool_calls": {
+                    "description": "Disable the default behavior of parallel tool calls by setting it: false."
+                },
                 "presence_penalty": {
                     "type": "number"
                 },
                 "response_format": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionResponseFormat"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponseFormat"
                 },
                 "seed": {
                     "type": "integer"
@@ -563,6 +775,14 @@ const docTemplate = `{
                 "stream": {
                     "type": "boolean"
                 },
+                "stream_options": {
+                    "description": "Options for streaming response. Only set this when you set stream: true.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.StreamOptions"
+                        }
+                    ]
+                },
                 "temperature": {
                     "type": "number"
                 },
@@ -572,7 +792,7 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.Tool"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.Tool"
                     }
                 },
                 "top_logprobs": {
@@ -587,13 +807,13 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatCompletionResponse": {
+        "github_com_sashabaranov_go-openai.ChatCompletionResponse": {
             "type": "object",
             "properties": {
                 "choices": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionChoice"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionChoice"
                     }
                 },
                 "created": {
@@ -612,59 +832,60 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "usage": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.Usage"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatCompletionResponseFormat": {
+        "github_com_sashabaranov_go-openai.ChatCompletionResponseFormat": {
             "type": "object",
             "properties": {
-                "schema": {
-                    "type": "object",
-                    "additionalProperties": true
+                "json_schema": {
+                    "$ref": "#/definitions/openai.ChatCompletionResponseFormatJSONSchema"
                 },
                 "type": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatCompletionResponseFormatType"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponseFormatType"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatCompletionResponseFormatType": {
+        "github_com_sashabaranov_go-openai.ChatCompletionResponseFormatType": {
             "type": "string",
             "enum": [
                 "json_object",
+                "json_schema",
                 "text"
             ],
             "x-enum-varnames": [
                 "ChatCompletionResponseFormatTypeJSONObject",
+                "ChatCompletionResponseFormatTypeJSONSchema",
                 "ChatCompletionResponseFormatTypeText"
             ]
         },
-        "github_com_lukemarsden_go-openai2.ChatMessageImageURL": {
+        "github_com_sashabaranov_go-openai.ChatMessageImageURL": {
             "type": "object",
             "properties": {
                 "detail": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ImageURLDetail"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ImageURLDetail"
                 },
                 "url": {
                     "type": "string"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatMessagePart": {
+        "github_com_sashabaranov_go-openai.ChatMessagePart": {
             "type": "object",
             "properties": {
                 "image_url": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatMessageImageURL"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatMessageImageURL"
                 },
                 "text": {
                     "type": "string"
                 },
                 "type": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ChatMessagePartType"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatMessagePartType"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ChatMessagePartType": {
+        "github_com_sashabaranov_go-openai.ChatMessagePartType": {
             "type": "string",
             "enum": [
                 "text",
@@ -675,7 +896,7 @@ const docTemplate = `{
                 "ChatMessagePartTypeImageURL"
             ]
         },
-        "github_com_lukemarsden_go-openai2.FinishReason": {
+        "github_com_sashabaranov_go-openai.FinishReason": {
             "type": "string",
             "enum": [
                 "stop",
@@ -694,7 +915,7 @@ const docTemplate = `{
                 "FinishReasonNull"
             ]
         },
-        "github_com_lukemarsden_go-openai2.FunctionCall": {
+        "github_com_sashabaranov_go-openai.FunctionCall": {
             "type": "object",
             "properties": {
                 "arguments": {
@@ -706,7 +927,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.FunctionDefinition": {
+        "github_com_sashabaranov_go-openai.FunctionDefinition": {
             "type": "object",
             "properties": {
                 "description": {
@@ -717,10 +938,13 @@ const docTemplate = `{
                 },
                 "parameters": {
                     "description": "Parameters is an object describing the function.\nYou can pass json.RawMessage to describe the schema,\nor you can pass in a struct which serializes to the proper JSON schema.\nThe jsonschema package is provided for convenience, but you should\nconsider another specialized library if you require more complex schemas."
+                },
+                "strict": {
+                    "type": "boolean"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ImageURLDetail": {
+        "github_com_sashabaranov_go-openai.ImageURLDetail": {
             "type": "string",
             "enum": [
                 "high",
@@ -733,7 +957,7 @@ const docTemplate = `{
                 "ImageURLDetailAuto"
             ]
         },
-        "github_com_lukemarsden_go-openai2.LogProb": {
+        "github_com_sashabaranov_go-openai.LogProb": {
             "type": "object",
             "properties": {
                 "bytes": {
@@ -753,39 +977,48 @@ const docTemplate = `{
                     "description": "TopLogProbs is a list of the most likely tokens and their log probability, at this token position.\nIn rare cases, there may be fewer than the number of requested top_logprobs returned.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.TopLogProbs"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.TopLogProbs"
                     }
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.LogProbs": {
+        "github_com_sashabaranov_go-openai.LogProbs": {
             "type": "object",
             "properties": {
                 "content": {
                     "description": "Content is a list of message content tokens with log probability information.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.LogProb"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.LogProb"
                     }
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.Tool": {
+        "github_com_sashabaranov_go-openai.StreamOptions": {
             "type": "object",
             "properties": {
-                "function": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FunctionDefinition"
-                },
-                "type": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolType"
+                "include_usage": {
+                    "description": "If set, an additional chunk will be streamed before the data: [DONE] message.\nThe usage field on this chunk shows the token usage statistics for the entire request,\nand the choices field will always be an empty array.\nAll other chunks will also include a usage field, but with a null value.",
+                    "type": "boolean"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ToolCall": {
+        "github_com_sashabaranov_go-openai.Tool": {
             "type": "object",
             "properties": {
                 "function": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FunctionCall"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionDefinition"
+                },
+                "type": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolType"
+                }
+            }
+        },
+        "github_com_sashabaranov_go-openai.ToolCall": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionCall"
                 },
                 "id": {
                     "type": "string"
@@ -795,11 +1028,11 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "type": {
-                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolType"
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolType"
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.ToolType": {
+        "github_com_sashabaranov_go-openai.ToolType": {
             "type": "string",
             "enum": [
                 "function"
@@ -808,7 +1041,7 @@ const docTemplate = `{
                 "ToolTypeFunction"
             ]
         },
-        "github_com_lukemarsden_go-openai2.TopLogProbs": {
+        "github_com_sashabaranov_go-openai.TopLogProbs": {
             "type": "object",
             "properties": {
                 "bytes": {
@@ -825,16 +1058,42 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_lukemarsden_go-openai2.Usage": {
+        "github_com_sashabaranov_go-openai.Usage": {
             "type": "object",
             "properties": {
                 "completion_tokens": {
                     "type": "integer"
                 },
+                "completion_tokens_details": {
+                    "$ref": "#/definitions/openai.CompletionTokensDetails"
+                },
                 "prompt_tokens": {
                     "type": "integer"
                 },
                 "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
+        "openai.ChatCompletionResponseFormatJSONSchema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema": {},
+                "strict": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "openai.CompletionTokensDetails": {
+            "type": "object",
+            "properties": {
+                "reasoning_tokens": {
                     "type": "integer"
                 }
             }
@@ -1051,6 +1310,13 @@ const docTemplate = `{
                     "description": "Template for determining if the request is actionable or informative",
                     "type": "string"
                 },
+                "knowledge": {
+                    "description": "Knowledge available to the assistant",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantKnowledge"
+                    }
+                },
                 "lora_id": {
                     "description": "the data entity ID that we have created for the lora fine tune",
                     "type": "string"
@@ -1060,6 +1326,14 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "provider": {
+                    "description": "openai, togetherai, helix, etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.Provider"
+                        }
+                    ]
                 },
                 "rag_source_id": {
                     "description": "the data entity ID that we have created as the RAG source",
@@ -1082,6 +1356,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SessionType"
                         }
                     ]
+                },
+                "zapier": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantZapier"
+                    }
                 }
             }
         },
@@ -1092,9 +1372,67 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "description": "When to use this tool (required)",
                     "type": "string"
                 },
                 "file": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AssistantKnowledge": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "description": "Description of the knowledge, will be used in the prompt\nto explain the knowledge to the assistant",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name of the knowledge, will be unique within the Helix app",
+                    "type": "string"
+                },
+                "rag_settings": {
+                    "description": "RAGSettings defines the settings for the RAG system, how\nchunking is configured and where the index/query service is\nhosted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.RAGSettings"
+                        }
+                    ]
+                },
+                "refresh_enabled": {
+                    "description": "RefreshEnabled defines if the knowledge should be refreshed periodically\nor on events. For example a Google Drive knowledge can be refreshed\nevery 24 hours.",
+                    "type": "boolean"
+                },
+                "refresh_schedule": {
+                    "description": "RefreshSchedule defines the schedule for refreshing the knowledge.\nIt can be specified in cron format or as a duration for example '@every 2h'\nor 'every 5m' or '0 0 * * *' for daily at midnight.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Source defines where the raw data is fetched from. It can be\ndirectly uploaded files, S3, GCS, Google Drive, Gmail, etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.KnowledgeSource"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.AssistantZapier": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "max_iterations": {
+                    "type": "integer"
+                },
+                "model": {
                     "type": "string"
                 },
                 "name": {
@@ -1169,6 +1507,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "server_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Firecrawl": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "api_url": {
                     "type": "string"
                 }
             }
@@ -1321,7 +1670,7 @@ const docTemplate = `{
                     "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolCall"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
                     }
                 },
                 "tool_choice": {
@@ -1331,14 +1680,14 @@ const docTemplate = `{
                     "description": "Model function calling, not to be mistaken with Helix tools",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.Tool"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.Tool"
                     }
                 },
                 "updated": {
                     "type": "string"
                 },
                 "usage": {
-                    "$ref": "#/definitions/types.Usage"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Usage"
                 }
             }
         },
@@ -1397,6 +1746,174 @@ const docTemplate = `{
                 }
             }
         },
+        "types.KnowledgeSource": {
+            "type": "object",
+            "properties": {
+                "filestore": {
+                    "$ref": "#/definitions/types.KnowledgeSourceHelixFilestore"
+                },
+                "gcs": {
+                    "$ref": "#/definitions/types.KnowledgeSourceGCS"
+                },
+                "s3": {
+                    "$ref": "#/definitions/types.KnowledgeSourceS3"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "web": {
+                    "$ref": "#/definitions/types.KnowledgeSourceWeb"
+                }
+            }
+        },
+        "types.KnowledgeSourceGCS": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSourceHelixFilestore": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSourceS3": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSourceWeb": {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "$ref": "#/definitions/types.KnowledgeSourceWebAuth"
+                },
+                "crawler": {
+                    "description": "Additional options for the crawler",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.WebsiteCrawler"
+                        }
+                    ]
+                },
+                "excludes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.KnowledgeSourceWebAuth": {
+            "type": "object",
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.LLMCall": {
+            "type": "object",
+            "properties": {
+                "completionTokens": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "original_request": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "promptTokens": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "request": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "response": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "step": {
+                    "$ref": "#/definitions/types.LLMCallStep"
+                },
+                "totalTokens": {
+                    "type": "integer"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.LLMCallStep": {
+            "type": "string",
+            "enum": [
+                "default",
+                "is_actionable",
+                "prepare_api_request",
+                "interpret_response",
+                "generate_title"
+            ],
+            "x-enum-varnames": [
+                "LLMCallStepDefault",
+                "LLMCallStepIsActionable",
+                "LLMCallStepPrepareAPIRequest",
+                "LLMCallStepInterpretResponse",
+                "LLMCallStepGenerateTitle"
+            ]
+        },
         "types.Message": {
             "type": "object",
             "properties": {
@@ -1448,43 +1965,6 @@ const docTemplate = `{
                 "MessageContentTypeText"
             ]
         },
-        "types.ModelName": {
-            "type": "string",
-            "enum": [
-                "",
-                "mistralai/Mistral-7B-Instruct-v0.1",
-                "stabilityai/stable-diffusion-xl-base-1.0",
-                "mistral:7b-instruct",
-                "mistral:v0.3",
-                "mixtral:instruct",
-                "codellama:70b-instruct-q2_K",
-                "adrienbrault/nous-hermes2pro:Q5_K_S",
-                "adrienbrault/nous-hermes2theta-llama3-8b:q8_0",
-                "llama3:instruct",
-                "llama3:70b",
-                "llama3:8b-instruct-fp16",
-                "llama3:8b-instruct-q6_K",
-                "llama3:8b-instruct-q8_0",
-                "phi3:instruct"
-            ],
-            "x-enum-varnames": [
-                "Model_None",
-                "Model_Axolotl_Mistral7b",
-                "Model_Cog_SDXL",
-                "Model_Ollama_Mistral7b",
-                "Model_Ollama_Mistral7b_v3",
-                "Model_Ollama_Mixtral",
-                "Model_Ollama_CodeLlama",
-                "Model_Ollama_NousHermes2Pro",
-                "Model_Ollama_NousHermes2ThetaLlama3",
-                "Model_Ollama_Llama3_8b",
-                "Model_Ollama_Llama3_70b",
-                "Model_Ollama_Llama3_8b_fp16",
-                "Model_Ollama_Llama3_8b_q6_K",
-                "Model_Ollama_Llama3_8b_q8_0",
-                "Model_Ollama_Phi3"
-            ]
-        },
         "types.OpenAIMessage": {
             "type": "object",
             "properties": {
@@ -1504,7 +1984,7 @@ const docTemplate = `{
                     "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolCall"
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
                     }
                 }
             }
@@ -1566,12 +2046,118 @@ const docTemplate = `{
                 "OwnerTypeSystem"
             ]
         },
+        "types.PaginatedLLMCalls": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.LLMCall"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.Provider": {
+            "type": "string",
+            "enum": [
+                "openai",
+                "togetherai",
+                "helix"
+            ],
+            "x-enum-varnames": [
+                "ProviderOpenAI",
+                "ProviderTogetherAI",
+                "ProviderHelix"
+            ]
+        },
+        "types.RAGSettings": {
+            "type": "object",
+            "properties": {
+                "chunk_overflow": {
+                    "description": "the amount of overlap between chunks - will default to 32 bytes",
+                    "type": "integer"
+                },
+                "chunk_size": {
+                    "description": "the size of each text chunk - will default to 2000 bytes",
+                    "type": "integer"
+                },
+                "delete_url": {
+                    "description": "the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)",
+                    "type": "string"
+                },
+                "disable_chunking": {
+                    "description": "if true, we will not chunk the text and send the entire file to the RAG indexing endpoint",
+                    "type": "boolean"
+                },
+                "disable_downloading": {
+                    "description": "if true, we will not download the file and send the URL to the RAG indexing endpoint",
+                    "type": "boolean"
+                },
+                "distance_function": {
+                    "description": "this is one of l2, inner_product or cosine - will default to cosine",
+                    "type": "string"
+                },
+                "index_url": {
+                    "description": "RAG endpoint configuration if used with a custom RAG service",
+                    "type": "string"
+                },
+                "prompt_template": {
+                    "description": "the prompt template to use for the RAG query",
+                    "type": "string"
+                },
+                "query_url": {
+                    "description": "the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)",
+                    "type": "string"
+                },
+                "results_count": {
+                    "description": "this is the max number of results to return - will default to 3",
+                    "type": "integer"
+                },
+                "text_splitter": {
+                    "description": "Markdown if empty or 'text'",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TextSplitterType"
+                        }
+                    ]
+                },
+                "threshold": {
+                    "description": "this is the threshold for a \"good\" answer - will default to 0.2",
+                    "type": "number"
+                },
+                "typesense": {
+                    "type": "object",
+                    "properties": {
+                        "api_key": {
+                            "type": "string"
+                        },
+                        "collection": {
+                            "type": "string"
+                        },
+                        "url": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "types.ResponseFormat": {
             "type": "object",
             "properties": {
                 "schema": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "$ref": "#/definitions/openai.ChatCompletionResponseFormatJSONSchema"
                 },
                 "type": {
                     "$ref": "#/definitions/types.ResponseFormatType"
@@ -1588,6 +2174,39 @@ const docTemplate = `{
                 "ResponseFormatTypeJSONObject",
                 "ResponseFormatTypeText"
             ]
+        },
+        "types.Secret": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "optional, if set, the secret will be available to the specified app",
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "ownerType": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
         },
         "types.Session": {
             "type": "object",
@@ -1627,11 +2246,7 @@ const docTemplate = `{
                 },
                 "model_name": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.ModelName"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "name": {
                     "description": "name that goes in the UI - ideally autogenerated by AI but for now can be\nnamed manually",
@@ -1680,10 +2295,6 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
-                "legacy": {
-                    "description": "If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses",
-                    "type": "boolean"
-                },
                 "lora_dir": {
                     "type": "string"
                 },
@@ -1701,6 +2312,14 @@ const docTemplate = `{
                 "model": {
                     "description": "The model to use",
                     "type": "string"
+                },
+                "provider": {
+                    "description": "The provider to use",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.Provider"
+                        }
+                    ]
                 },
                 "rag_source_id": {
                     "type": "string"
@@ -1753,7 +2372,7 @@ const docTemplate = `{
                     "description": "The settings we use for the RAG source",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/types.SessionRAGSettings"
+                            "$ref": "#/definitions/types.RAGSettings"
                         }
                     ]
                 },
@@ -1855,7 +2474,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "rag_settings": {
-                    "$ref": "#/definitions/types.SessionRAGSettings"
+                    "$ref": "#/definitions/types.RAGSettings"
                 },
                 "rag_source_data_entity_id": {
                     "description": "the RAG source data entity we produced from this session",
@@ -1954,31 +2573,9 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "type": "string"
-                }
-            }
-        },
-        "types.SessionRAGSettings": {
-            "type": "object",
-            "properties": {
-                "chunk_overflow": {
-                    "description": "the amount of overlap between chunks - will default to 32 bytes",
-                    "type": "integer"
                 },
-                "chunk_size": {
-                    "description": "the size of each text chunk - will default to 2048 bytes",
-                    "type": "integer"
-                },
-                "distance_function": {
-                    "description": "this is one of l2, inner_product or cosine - will default to cosine",
+                "source": {
                     "type": "string"
-                },
-                "results_count": {
-                    "description": "this is the max number of results to return - will default to 3",
-                    "type": "integer"
-                },
-                "threshold": {
-                    "description": "this is the threshold for a \"good\" answer - will default to 0.4",
-                    "type": "number"
                 }
             }
         },
@@ -2018,6 +2615,17 @@ const docTemplate = `{
                 "TextDataPrepStageComplete"
             ]
         },
+        "types.TextSplitterType": {
+            "type": "string",
+            "enum": [
+                "markdown",
+                "text"
+            ],
+            "x-enum-varnames": [
+                "TextSplitterTypeMarkdown",
+                "TextSplitterTypeText"
+            ]
+        },
         "types.ToolApiAction": {
             "type": "object",
             "properties": {
@@ -2051,6 +2659,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "model": {
+                    "type": "string"
                 },
                 "query": {
                     "description": "Query parameters that will be always set",
@@ -2088,6 +2699,9 @@ const docTemplate = `{
                 },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
+                },
+                "zapier": {
+                    "$ref": "#/definitions/types.ToolZapierConfig"
                 }
             }
         },
@@ -2104,16 +2718,19 @@ const docTemplate = `{
                 }
             }
         },
-        "types.ToolType": {
-            "type": "string",
-            "enum": [
-                "api",
-                "gptscript"
-            ],
-            "x-enum-varnames": [
-                "ToolTypeAPI",
-                "ToolTypeGPTScript"
-            ]
+        "types.ToolZapierConfig": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "max_iterations": {
+                    "type": "integer"
+                },
+                "model": {
+                    "type": "string"
+                }
+            }
         },
         "types.Trigger": {
             "type": "object",
@@ -2126,21 +2743,29 @@ const docTemplate = `{
                 }
             }
         },
-        "types.Usage": {
+        "types.WebsiteCrawler": {
             "type": "object",
             "properties": {
-                "completion_tokens": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "firecrawl": {
+                    "$ref": "#/definitions/types.Firecrawl"
+                },
+                "max_depth": {
+                    "description": "Limit crawl depth to avoid infinite crawling",
                     "type": "integer"
                 },
-                "duration_ms": {
-                    "description": "How long the request took in milliseconds",
+                "max_pages": {
+                    "description": "Limit number of pages to crawl to avoid infinite crawling (max 500 by default)",
                     "type": "integer"
                 },
-                "prompt_tokens": {
-                    "type": "integer"
+                "readability": {
+                    "description": "Apply readability middleware to the HTML content",
+                    "type": "boolean"
                 },
-                "total_tokens": {
-                    "type": "integer"
+                "user_agent": {
+                    "type": "string"
                 }
             }
         }
