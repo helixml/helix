@@ -337,7 +337,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 
 	// If assistant has configured a model, give the hint to the tool that it should use that model too
 	if assistant != nil && assistant.Model != "" {
-		if selectedTool.Config.API.Model == "" {
+		if selectedTool.Config.API != nil && selectedTool.Config.API.Model == "" {
 			log.Info().
 				Str("assistant_id", assistant.ID).
 				Str("assistant_name", assistant.Name).
