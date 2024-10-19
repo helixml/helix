@@ -53,17 +53,32 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
         CLI Access
       </Typography>
       <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-        You can also access this app configuration with the CLI command:
+        You can access this app configuration with the CLI command:
       </Typography>
-      <Box sx={{ 
-        backgroundColor: '#1e1e2f', 
-        padding: '10px', 
+      <Box sx={{
+        backgroundColor: '#1e1e2f',
+        padding: '10px',
         borderRadius: '4px',
         fontFamily: 'monospace',
         fontSize: '0.9rem'
       }}>
         helix app inspect {appId}
       </Box>
+      <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+        Write it to a file, then deploy the app with the CLI with the following command:
+      </Typography>
+      <Box sx={{
+        backgroundColor: '#1e1e2f',
+        padding: '10px',
+        borderRadius: '4px',
+        fontFamily: 'monospace',
+        fontSize: '0.9rem'
+      }}>
+        helix apply -f [filename].yaml
+      </Box>
+      <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+        To achieve GitOps for GenAI, put the file in version control and run <code>helix apply</code> from CI.
+      </Typography>
       <Typography variant="body2" sx={{ mt: 2, mb: 1 }}>
         Don't have the CLI installed? 
         <Link 
