@@ -49,6 +49,10 @@ func (s *PostgresStore) UpdateSecret(ctx context.Context, secret *types.Secret) 
 }
 
 func (s *PostgresStore) GetSecret(ctx context.Context, id string) (*types.Secret, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
 	var secret types.Secret
 	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&secret).Error
 	if err != nil {
@@ -61,6 +65,10 @@ func (s *PostgresStore) GetSecret(ctx context.Context, id string) (*types.Secret
 }
 
 func (s *PostgresStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error) {
+	if q.Owner == "" {
+		return nil, fmt.Errorf("owner not specified")
+	}
+
 	var secrets []*types.Secret
 	err := s.gdb.WithContext(ctx).Where(&types.Secret{
 		Owner:     q.Owner,
@@ -73,6 +81,10 @@ func (s *PostgresStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([
 }
 
 func (s *PostgresStore) DeleteSecret(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+
 	err := s.gdb.WithContext(ctx).Delete(&types.Secret{
 		ID: id,
 	}).Error
