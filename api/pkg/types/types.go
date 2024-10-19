@@ -1427,3 +1427,13 @@ type LLMCall struct {
 	CompletionTokens int64
 	TotalTokens      int64
 }
+
+type Secret struct {
+	ID        string    `json:"id,omitempty" yaml:"id,omitempty"`
+	Created   time.Time `json:"created,omitempty" yaml:"created,omitempty"`
+	Updated   time.Time `json:"updated,omitempty" yaml:"updated,omitempty"`
+	Owner     string
+	OwnerType OwnerType
+	Name      string `json:"name" yaml:"name"`
+	Data      string `json:"data,omitempty" yaml:"data,omitempty"`
+}
