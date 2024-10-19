@@ -1427,3 +1427,14 @@ type LLMCall struct {
 	CompletionTokens int64
 	TotalTokens      int64
 }
+
+type Secret struct {
+	ID        string    `json:"id,omitempty" yaml:"id,omitempty"`
+	Created   time.Time `json:"created,omitempty" yaml:"created,omitempty"`
+	Updated   time.Time `json:"updated,omitempty" yaml:"updated,omitempty"`
+	Owner     string
+	OwnerType OwnerType
+	Name      string `json:"name" yaml:"name"`
+	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
+	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/app"
 	"github.com/helixml/helix/api/pkg/cli/fs"
 	"github.com/helixml/helix/api/pkg/cli/knowledge"
+	"github.com/helixml/helix/api/pkg/cli/secret"
 )
 
 var Fatal = FatalErrorHandler
@@ -38,6 +39,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(knowledge.New())
 	RootCmd.AddCommand(fs.New())
 	RootCmd.AddCommand(fs.NewUploadCmd()) // Shortcut for upload
+	RootCmd.AddCommand(secret.New())
 
 	return RootCmd
 }
