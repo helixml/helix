@@ -504,7 +504,7 @@ func (i *OllamaInferenceModelInstance) getOllamaStatus() string {
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.Warn().Msg("Ollama ps command timed out after 1 second")
-			return "Timed out"
+			return "Starting Ollama"
 		}
 		log.Error().Err(err).Msgf("Failed to execute ollama ps command with environment OLLAMA_HOST=127.0.0.1:%d", i.port)
 		return "Unknown"
@@ -512,7 +512,7 @@ func (i *OllamaInferenceModelInstance) getOllamaStatus() string {
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 2 {
-		return "Empty (!)"
+		return "Loading model"
 	}
 
 	// Join all lines except the first (header) line
@@ -569,10 +569,30 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 		},
 	}
 
+	// Ensure Ollama is ready before sending a request
+	log.Info().Msg("waiting for Ollama to be ready")
+	startTime := time.Now()
+	timeout := 300 * time.Second
+	for {
+		status := i.getOllamaStatus()
+		if status != "Starting Ollama" {
+			break
+		}
+		if time.Since(startTime) > timeout {
+			return fmt.Errorf("timeout waiting for Ollama to be ready")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	log.Info().Msgf("ready in %.4f seconds", time.Since(startTime).Seconds())
+
+	// If the request takes longer than 10 minutes, cancel it
+	timeoutCtx, cancel := context.WithTimeout(i.ctx, 600*time.Second)
+	defer cancel()
+
 	switch {
 	case inferenceReq.Request.Stream:
 		start := time.Now()
-		err := i.client.Chat(context.Background(), &req, func(resp api.ChatResponse) error {
+		err := i.client.Chat(timeoutCtx, &req, func(resp api.ChatResponse) error {
 			finishReason := openai.FinishReasonNull
 			if resp.Metrics.EvalCount >= inferenceReq.Request.MaxTokens {
 				finishReason = openai.FinishReasonLength
@@ -608,7 +628,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 		return nil
 	default:
 		start := time.Now()
-		err := i.client.Chat(context.Background(), &req, func(resp api.ChatResponse) error {
+		err := i.client.Chat(timeoutCtx, &req, func(resp api.ChatResponse) error {
 			finishReason := openai.FinishReasonStop
 			if resp.Metrics.EvalCount >= inferenceReq.Request.MaxTokens {
 				finishReason = openai.FinishReasonLength
