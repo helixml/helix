@@ -14,7 +14,7 @@ func (c *HelixClient) ListSecrets() ([]*types.Secret, error) {
 	var secrets []*types.Secret
 	err := c.makeRequest(http.MethodGet, "/secrets", nil, &secrets)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list secrets: %w", err)
+		return nil, err
 	}
 	return secrets, nil
 }
@@ -30,7 +30,7 @@ func (c *HelixClient) CreateSecret(secret *types.Secret) (*types.Secret, error) 
 
 	err = c.makeRequest(http.MethodPost, "/secrets", bytes.NewBuffer(bts), &createdSecret)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create secret: %w", err)
+		return nil, err
 	}
 	return &createdSecret, nil
 }
@@ -46,7 +46,7 @@ func (c *HelixClient) UpdateSecret(id string, secret *types.Secret) (*types.Secr
 
 	err = c.makeRequest(http.MethodPut, fmt.Sprintf("/secrets/%s", id), bytes.NewBuffer(bts), &updatedSecret)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update secret: %w", err)
+		return nil, err
 	}
 	return &updatedSecret, nil
 }
@@ -55,7 +55,7 @@ func (c *HelixClient) UpdateSecret(id string, secret *types.Secret) (*types.Secr
 func (c *HelixClient) DeleteSecret(id string) error {
 	err := c.makeRequest(http.MethodDelete, fmt.Sprintf("/secrets/%s", id), nil, nil)
 	if err != nil {
-		return fmt.Errorf("failed to delete secret: %w", err)
+		return err
 	}
 	return nil
 }
