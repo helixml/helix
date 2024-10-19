@@ -134,8 +134,8 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => <Account />,
 }, {
-  name: 'openapi',
-  path: '/openapi',
+  name: 'api-reference',
+  path: '/api-reference',
   meta: {
     drawer: false,
   },
