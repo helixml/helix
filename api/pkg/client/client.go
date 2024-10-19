@@ -27,6 +27,11 @@ type Client interface {
 	DeleteKnowledge(id string) error
 	RefreshKnowledge(id string) error
 
+	ListSecrets() ([]*types.Secret, error)
+	CreateSecret(secret *types.Secret) (*types.Secret, error)
+	UpdateSecret(id string, secret *types.Secret) (*types.Secret, error)
+	DeleteSecret(id string) error
+
 	ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
 	FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error)
