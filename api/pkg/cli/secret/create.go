@@ -2,8 +2,10 @@ package secret
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,7 +17,6 @@ func init() {
 	createCmd.Flags().StringP("value", "v", "", "Value of the secret")
 	createCmd.Flags().StringP("app-id", "a", "", "App ID to associate the secret with")
 	_ = createCmd.MarkFlagRequired("name")
-	_ = createCmd.MarkFlagRequired("value")
 }
 
 var createCmd = &cobra.Command{
@@ -26,6 +27,17 @@ var createCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		value, _ := cmd.Flags().GetString("value")
 		appID, _ := cmd.Flags().GetString("app-id")
+
+		if value == "" {
+			fmt.Print("Enter secret value (input will be hidden): ")
+			byteValue, err := term.ReadPassword(int(os.Stdin.Fd()))
+			if err != nil {
+				return fmt.Errorf("failed to read secret value: %w", err)
+			}
+			value = string(byteValue)
+			fmt.Println() // Print a newline after the hidden input
+		}
+
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
