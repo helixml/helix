@@ -1436,4 +1436,5 @@ type Secret struct {
 	OwnerType OwnerType
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
+	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
 }
