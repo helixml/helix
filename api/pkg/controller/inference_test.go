@@ -152,6 +152,9 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 	}
 
 	suite.store.EXPECT().GetApp(suite.ctx, "app_id").Return(app, nil)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.user.ID,
+	}).Return([]*types.Secret{}, nil)
 
 	plainTextKnowledge := "foo bar"
 
