@@ -391,8 +391,7 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 
 func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app *types.App) (*types.App, error) {
 	secrets, err := c.Options.Store.ListSecrets(ctx, &store.ListSecretsQuery{
-		Owner:     user.ID,
-		OwnerType: user.Type,
+		Owner: user.ID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
