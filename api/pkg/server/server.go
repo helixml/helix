@@ -304,11 +304,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	subRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
-	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.listTools)).Methods("GET")
-	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.createTool)).Methods("POST")
-	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.updateTool)).Methods("PUT")
-	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.deleteTool)).Methods("DELETE")
-
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.listSecrets)).Methods("GET")
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods("POST")
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.updateSecret)).Methods("PUT")
