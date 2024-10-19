@@ -2,6 +2,7 @@ import React, { createContext, useContext, ReactNode, useState, useCallback, use
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
+import useSessions from '../hooks/useSessions';
 import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
 
 interface NewInferenceParams {
@@ -34,6 +35,7 @@ export const useStreaming = (): StreamingContextType => {
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const account = useAccount();
+  const sessions = useSessions()
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
@@ -79,6 +81,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
+      // Reload all sessions to refresh the name in the sidebar
+      sessions.loadSessions(true)
       handleWebsocketEvent(parsedData);
     };
 

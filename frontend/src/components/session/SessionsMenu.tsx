@@ -55,7 +55,6 @@ export const SessionsMenu: FC<{
   }, [apps, account.user])
 
   const getSessionIcon = (session: ISession | ISessionSummary) => {
-    console.log(session)
     if ('app_id' in session && session.app_id && apps.data) {
       const app = apps.data.find((app: IApp) => app.id === session.app_id)
       if (app && app.config.helix.avatar) {
