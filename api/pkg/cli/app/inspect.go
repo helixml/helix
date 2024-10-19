@@ -31,15 +31,18 @@ var inspectCmd = &cobra.Command{
 			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
+		// only show app.Config.Helix since that is the thing that roundtrips with helix apply -f
+		appConfig := app.Config.Helix
+
 		outputFormat, _ := cmd.Flags().GetString("output")
 		outputFormat = strings.ToLower(outputFormat)
 
 		var output []byte
 		switch outputFormat {
 		case "json":
-			output, err = json.MarshalIndent(app, "", "  ")
+			output, err = json.MarshalIndent(appConfig, "", "  ")
 		case "yaml":
-			output, err = yaml.Marshal(app)
+			output, err = yaml.Marshal(appConfig)
 		default:
 			return fmt.Errorf("unsupported output format: %s", outputFormat)
 		}
