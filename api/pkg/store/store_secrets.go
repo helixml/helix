@@ -1,0 +1,83 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
+)
+
+func (s *PostgresStore) CreateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error) {
+	if secret.ID == "" {
+		secret.ID = system.GenerateSecretID()
+	}
+
+	if secret.Owner == "" {
+		return nil, fmt.Errorf("owner not specified")
+	}
+
+	secret.Created = time.Now()
+	secret.Updated = secret.Created
+
+	err := s.gdb.WithContext(ctx).Create(secret).Error
+	if err != nil {
+		return nil, err
+	}
+	return s.GetSecret(ctx, secret.ID)
+}
+
+func (s *PostgresStore) UpdateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error) {
+	if secret.ID == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
+	if secret.Owner == "" {
+		return nil, fmt.Errorf("owner not specified")
+	}
+
+	secret.Updated = time.Now()
+
+	err := s.gdb.WithContext(ctx).Save(secret).Error
+	if err != nil {
+		return nil, err
+	}
+	return s.GetSecret(ctx, secret.ID)
+}
+
+func (s *PostgresStore) GetSecret(ctx context.Context, id string) (*types.Secret, error) {
+	var secret types.Secret
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&secret).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &secret, nil
+}
+
+func (s *PostgresStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error) {
+	var secrets []*types.Secret
+	err := s.gdb.WithContext(ctx).Where(&types.Secret{
+		Owner:     q.Owner,
+		OwnerType: q.OwnerType,
+	}).Find(&secrets).Error
+	if err != nil {
+		return nil, err
+	}
+	return secrets, nil
+}
+
+func (s *PostgresStore) DeleteSecret(ctx context.Context, id string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.Secret{
+		ID: id,
+	}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
