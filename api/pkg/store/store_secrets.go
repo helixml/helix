@@ -23,7 +23,18 @@ func (s *PostgresStore) CreateSecret(ctx context.Context, secret *types.Secret) 
 	secret.Created = time.Now()
 	secret.Updated = secret.Created
 
-	err := s.gdb.WithContext(ctx).Create(secret).Error
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Check if a secret with the same name already exists for this owner
+		var existingSecret types.Secret
+		if err := tx.Where("owner = ? AND name = ?", secret.Owner, secret.Name).First(&existingSecret).Error; err == nil {
+			return fmt.Errorf("a secret with the name '%s' already exists for this owner", secret.Name)
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		// If no existing secret found, create the new one
+		return tx.Create(secret).Error
+	})
 	if err != nil {
 		return nil, err
 	}
