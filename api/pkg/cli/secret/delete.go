@@ -12,15 +12,22 @@ import (
 func init() {
 	rootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().StringP("name", "n", "", "Name of the secret to delete")
-	_ = deleteCmd.MarkFlagRequired("name")
+	// _ = deleteCmd.MarkFlagRequired("name")
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Delete a secret by name",
-	Long:  `Delete an existing secret by providing its name.`,
+	Use:     "delete",
+	Aliases: []string{"rm"},
+	Short:   "Delete a secret by name",
+	Long:    `Delete an existing secret by providing its name.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Look for either name or first arg
 		name, _ := cmd.Flags().GetString("name")
+		if name == "" {
+			if len(args) > 0 {
+				name = args[0]
+			}
+		}
 
 		name = strings.TrimSpace(name)
 		if name == "" {
