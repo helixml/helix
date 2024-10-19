@@ -25,6 +25,7 @@
   import AppsIcon from '@mui/icons-material/Apps'
   import Brightness7Icon from '@mui/icons-material/Brightness7'
   import Brightness4Icon from '@mui/icons-material/Brightness4'
+  import CodeIcon from '@mui/icons-material/Code'
 
   import SidebarMainLink from './SidebarMainLink'
   import useThemeConfig from '../../hooks/useThemeConfig'
@@ -262,6 +263,15 @@
                           <AccountBoxIcon fontSize="small" />
                         </ListItemIcon> 
                         Account &amp; API
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        navigateTo('openapi')
+                      }}>
+                        <ListItemIcon>
+                          <CodeIcon fontSize="small" />
+                        </ListItemIcon> 
+                        API Reference
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
