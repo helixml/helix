@@ -13,6 +13,7 @@ func init() {
 	rootCmd.AddCommand(createCmd)
 	createCmd.Flags().StringP("name", "n", "", "Name of the secret")
 	createCmd.Flags().StringP("value", "v", "", "Value of the secret")
+	createCmd.Flags().StringP("app-id", "a", "", "App ID to associate the secret with")
 	_ = createCmd.MarkFlagRequired("name")
 	_ = createCmd.MarkFlagRequired("value")
 }
@@ -24,7 +25,7 @@ var createCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		value, _ := cmd.Flags().GetString("value")
-
+		appID, _ := cmd.Flags().GetString("app-id")
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
@@ -33,6 +34,7 @@ var createCmd = &cobra.Command{
 		secret := &types.Secret{
 			Name:  name,
 			Value: []byte(value),
+			AppID: appID,
 		}
 
 		createdSecret, err := apiClient.CreateSecret(secret)
