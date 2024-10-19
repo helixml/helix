@@ -711,6 +711,32 @@ func (c *Controller) WriteSession(session *types.Session) error {
 	return nil
 }
 
+func (c *Controller) UpdateSessionName(owner string, sessionID, name string) error {
+	log.Trace().
+		Msgf("🔵 update session name: %s %+v", sessionID, name)
+
+	err := c.Options.Store.UpdateSessionName(context.Background(), sessionID, name)
+	if err != nil {
+		log.Printf("Error adding message: %s", err)
+		return err
+	}
+	session, err := c.Options.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		return err
+	}
+
+	event := &types.WebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: sessionID,
+		Owner:     owner,
+		Session:   session,
+	}
+
+	_ = c.publishEvent(context.Background(), event)
+
+	return nil
+}
+
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
 	newInteractions := []*types.Interaction{}
 	for _, interaction := range session.Interactions {
