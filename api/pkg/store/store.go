@@ -38,6 +38,11 @@ type ListToolsQuery struct {
 	Global    bool            `json:"global"`
 }
 
+type ListSecretsQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
+}
+
 type ListAppsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
@@ -80,6 +85,12 @@ type Store interface {
 	GetTool(ctx context.Context, id string) (*types.Tool, error)
 	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
 	DeleteTool(ctx context.Context, id string) error
+
+	CreateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error)
+	UpdateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error)
+	GetSecret(ctx context.Context, id string) (*types.Secret, error)
+	ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error)
+	DeleteSecret(ctx context.Context, id string) error
 
 	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
 	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)

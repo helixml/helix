@@ -14,6 +14,7 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/doug-martin/goqu/v9 v9.19.0
+	github.com/drone/envsubst v1.0.3
 	github.com/dustin/go-humanize v1.0.1
 	github.com/getkin/kin-openapi v0.127.0
 	github.com/getsentry/sentry-go v0.25.0

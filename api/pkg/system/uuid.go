@@ -19,6 +19,7 @@ const (
 	LLMCallPrefix             = "llmc_"
 	KnowledgePrefix           = "kno_"
 	KnowledgeVersionPrefix    = "knov_"
+	SecretPrefix              = "sec_"
 )
 
 func GenerateUUID() string {
@@ -67,6 +68,10 @@ func GenerateKnowledgeID() string {
 
 func GenerateKnowledgeVersionID() string {
 	return fmt.Sprintf("%s%s", KnowledgeVersionPrefix, newID())
+}
+
+func GenerateSecretID() string {
+	return fmt.Sprintf("%s%s", SecretPrefix, newID())
 }
 
 // GenerateVersion generates a version string for the knowledge
