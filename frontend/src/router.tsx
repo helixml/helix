@@ -12,7 +12,7 @@ import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
 import Home from './pages/Home'
 import AppStore from './pages/AppStore'
-
+import OpenAPI from './pages/OpenAPI'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 
@@ -133,6 +133,13 @@ const routes: IApplicationRoute[] = [{
     drawer: true,
   },
   render: () => <Account />,
+}, {
+  name: 'openapi',
+  path: '/openapi',
+  meta: {
+    drawer: false,
+  },
+  render: () => <OpenAPI />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
