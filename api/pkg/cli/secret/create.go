@@ -13,8 +13,8 @@ func init() {
 	rootCmd.AddCommand(createCmd)
 	createCmd.Flags().StringP("name", "n", "", "Name of the secret")
 	createCmd.Flags().StringP("value", "v", "", "Value of the secret")
-	createCmd.MarkFlagRequired("name")
-	createCmd.MarkFlagRequired("value")
+	_ = createCmd.MarkFlagRequired("name")
+	_ = createCmd.MarkFlagRequired("value")
 }
 
 var createCmd = &cobra.Command{
