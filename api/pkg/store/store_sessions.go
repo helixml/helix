@@ -113,6 +113,22 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	return s.GetSession(ctx, session.ID)
 }
 
+func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name string) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+
+	if name == "" {
+		return fmt.Errorf("name not specified")
+	}
+
+	err := s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("name", name).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*types.Session, error) {
 	existing, err := s.GetSession(ctx, sessionID)
 	if err != nil {
