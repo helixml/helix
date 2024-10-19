@@ -572,7 +572,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 	// Ensure Ollama is ready before sending a request
 	log.Info().Msg("waiting for Ollama to be ready")
 	startTime := time.Now()
-	timeout := 60 * time.Second
+	timeout := 300 * time.Second
 	for {
 		status := i.getOllamaStatus()
 		if strings.Contains(status, "Forever") {
