@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -13,16 +12,14 @@ import (
 
 func (s *HelixAPIServer) listSecrets(w http.ResponseWriter, r *http.Request) ([]*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
-	owner := r.URL.Query().Get("owner")
-	ownerType := types.OwnerType(r.URL.Query().Get("owner_type"))
-
-	if owner == "" {
-		return nil, system.NewHTTPError400("owner is required")
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
 	}
 
 	query := &store.ListSecretsQuery{
-		Owner:     owner,
-		OwnerType: ownerType,
+		Owner:     user.ID,
+		OwnerType: types.OwnerTypeUser,
 	}
 
 	secrets, err := s.Store.ListSecrets(ctx, query)
@@ -35,10 +32,18 @@ func (s *HelixAPIServer) listSecrets(w http.ResponseWriter, r *http.Request) ([]
 
 func (s *HelixAPIServer) createSecret(w http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
 	var secret types.Secret
 	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+
+	secret.Owner = user.ID
+	secret.OwnerType = types.OwnerTypeUser
 
 	createdSecret, err := s.Store.CreateSecret(ctx, &secret)
 	if err != nil {
@@ -50,7 +55,12 @@ func (s *HelixAPIServer) createSecret(w http.ResponseWriter, r *http.Request) (*
 
 func (s *HelixAPIServer) updateSecret(w http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
-	id := mux.Vars(r)["id"]
+	id := getID(r)
+
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
 
 	var secret types.Secret
 	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
@@ -58,6 +68,8 @@ func (s *HelixAPIServer) updateSecret(w http.ResponseWriter, r *http.Request) (*
 	}
 
 	secret.ID = id
+	secret.Owner = user.ID
+	secret.OwnerType = types.OwnerTypeUser
 
 	updatedSecret, err := s.Store.UpdateSecret(ctx, &secret)
 	if err != nil {
@@ -74,7 +86,12 @@ func (s *HelixAPIServer) deleteSecret(w http.ResponseWriter, r *http.Request) (*
 	ctx := r.Context()
 	id := getID(r)
 
-	err := s.Store.DeleteSecret(ctx, id)
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	existing, err := s.Store.GetSecret(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("Secret not found")
@@ -82,5 +99,17 @@ func (s *HelixAPIServer) deleteSecret(w http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return nil, nil
+	if existing.Owner != user.ID {
+		return nil, system.NewHTTPError403("Secret not found")
+	}
+
+	err = s.Store.DeleteSecret(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("Secret not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return existing, nil
 }
