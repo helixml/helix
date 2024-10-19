@@ -34,6 +34,12 @@ func (s *HelixAPIServer) listSecrets(w http.ResponseWriter, r *http.Request) ([]
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Remove the value from the secrets
+	for idx, secret := range secrets {
+		secret.Value = nil
+		secrets[idx] = secret
+	}
+
 	return secrets, nil
 }
 
@@ -64,6 +70,9 @@ func (s *HelixAPIServer) createSecret(w http.ResponseWriter, r *http.Request) (*
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// Remove the value from the secret
+	createdSecret.Value = nil
 
 	return createdSecret, nil
 }
@@ -102,6 +111,9 @@ func (s *HelixAPIServer) updateSecret(w http.ResponseWriter, r *http.Request) (*
 		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// Remove the value from the secret
+	updatedSecret.Value = nil
 
 	return updatedSecret, nil
 }
@@ -142,6 +154,9 @@ func (s *HelixAPIServer) deleteSecret(w http.ResponseWriter, r *http.Request) (*
 		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// Remove the value from the secret
+	existing.Value = nil
 
 	return existing, nil
 }
