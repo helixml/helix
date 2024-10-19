@@ -63,15 +63,12 @@ var updateCmd = &cobra.Command{
 		// Update the secret fields if provided
 		existingSecret.Value = []byte(value)
 
-		updatedSecret, err := apiClient.UpdateSecret(existingSecret.ID, &existingSecret)
+		_, err = apiClient.UpdateSecret(existingSecret.ID, &existingSecret)
 		if err != nil {
 			return fmt.Errorf("failed to update secret: %w", err)
 		}
 
-		fmt.Printf("Secret updated successfully:\n")
-		fmt.Printf("ID: %s\n", updatedSecret.ID)
-		fmt.Printf("Name: %s\n", updatedSecret.Name)
-
+		fmt.Printf("Secret updated successfully\n")
 		return nil
 	},
 }
