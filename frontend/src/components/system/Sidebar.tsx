@@ -266,7 +266,7 @@
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
-                        navigateTo('openapi')
+                        navigateTo('api-reference')
                       }}>
                         <ListItemIcon>
                           <CodeIcon fontSize="small" />
