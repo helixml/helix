@@ -64,15 +64,38 @@ steps:
       fi
       CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apk add --no-cache github-cli sed
+    - apk add --no-cache github-cli sed nsis
     - |
       if [ -n "$DRONE_TAG" ]; then
+        # Create Windows installer
+        cat > installer.nsi <<EOF
+        !include "MUI2.nsh"
+        !include "EnvVarUpdate.nsh"
+
+        Name "Helix"
+        OutFile "helix-installer.exe"
+        InstallDir "$PROGRAMFILES64\Helix"
+
+        !insertmacro MUI_PAGE_DIRECTORY
+        !insertmacro MUI_PAGE_INSTFILES
+
+        Section "Helix" SecHelix
+          SetOutPath "$INSTDIR"
+          File "helix-windows-amd64.exe"
+          Rename "helix-windows-amd64.exe" "helix.exe"
+          \${EnvVarUpdate} $0 "PATH" "A" "HKLM" "$INSTDIR"
+        SectionEnd
+        EOF
+
+        # Compile the installer
+        makensis installer.nsi
+
         # Update docker-compose.yaml with the new tag
         sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
-          echo "Uploading helix binaries and docker-compose.yaml to release $RELEASE"
-          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
+          echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
+          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe helix-installer.exe docker-compose.yaml
         else
           echo "No matching release found for tag $DRONE_TAG"
         fi
