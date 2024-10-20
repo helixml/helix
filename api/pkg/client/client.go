@@ -28,7 +28,7 @@ type Client interface {
 	RefreshKnowledge(id string) error
 
 	ListSecrets() ([]*types.Secret, error)
-	CreateSecret(secret *types.Secret) (*types.Secret, error)
+	CreateSecret(secret *types.CreateSecretRequest) (*types.Secret, error)
 	UpdateSecret(id string, secret *types.Secret) (*types.Secret, error)
 	DeleteSecret(id string) error
 
