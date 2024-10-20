@@ -103,8 +103,8 @@ const SecretsContent: React.FC = () => {
           <div>
             <Button
               variant="contained"
-              color="primary"
-              startIcon={<AddIcon />}
+              color="secondary"
+              endIcon={<AddIcon />}
               onClick={handleCreateClick}
             >
               Create Secret
