@@ -80,6 +80,7 @@ steps:
           <MediaTemplate EmbedCab="yes" />
           <Feature Id="ProductFeature" Title="Helix" Level="1">
             <ComponentGroupRef Id="ProductComponents" />
+            <ComponentRef Id="HelixPath" />
           </Feature>
         </Product>
 
@@ -95,9 +96,13 @@ steps:
           <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
             <Component Id="HelixExecutable" Guid="*">
               <File Id="HelixEXE" Name="helix.exe" Source="helix-windows-amd64.exe" KeyPath="yes" />
-              <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="yes" Part="last" Action="set" System="yes" />
             </Component>
           </ComponentGroup>
+
+          <Component Id="HelixPath" Guid="*" Directory="INSTALLFOLDER">
+            <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+            <Environment Id="HelixHome" Name="HELIX_HOME" Value="[INSTALLFOLDER]" Permanent="no" Action="set" System="yes" />
+          </Component>
         </Fragment>
       </Wix>
       EOF
@@ -499,6 +504,8 @@ steps:
 
 depends_on:
 - default
+
+
 
 
 
