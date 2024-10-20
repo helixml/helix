@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSecret, SecretProvider } from '../contexts/secret';
 import useAccount from '../hooks/useAccount'
+import { useSecrets } from '../hooks/useSecrets'
 import {
   Table,
   TableBody,
@@ -16,8 +17,10 @@ import {
   DialogActions,
   Button,
   Typography,
+  TextField,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add';
 import Container from '@mui/material/Container'
 import Page from '../components/system/Page'
 import Box from '@mui/material/Box'
@@ -28,14 +31,19 @@ import ListItemText from '@mui/material/ListItemText'
 
 const SecretsContent: React.FC = () => {
   const account = useAccount()
-  const { secrets, listSecrets, deleteSecret } = useSecret();
+  const secrets = useSecrets()
+  
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [secretToDelete, setSecretToDelete] = useState<string | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newSecretName, setNewSecretName] = useState('');
+  const [newSecretValue, setNewSecretValue] = useState('');
 
   useEffect(() => {
     if(!account.user) return
-    listSecrets();
-  }, [account.user, listSecrets]);
+    console.log('listing secrets')
+    secrets.loadData();
+  }, [account.user]);
 
   const handleDeleteClick = (id: string) => {
     setSecretToDelete(id);
@@ -44,15 +52,39 @@ const SecretsContent: React.FC = () => {
 
   const handleDeleteConfirm = async () => {
     if (secretToDelete) {
-      await deleteSecret(secretToDelete);
+      await secrets.deleteSecret(secretToDelete);
       setDeleteDialogOpen(false);
       setSecretToDelete(null);
+      secrets.loadData(); // Refresh the list after deleting a secret
     }
   };
 
   const handleDeleteCancel = () => {
     setDeleteDialogOpen(false);
     setSecretToDelete(null);
+  };
+
+  const handleCreateClick = () => {
+    setCreateDialogOpen(true);
+  };
+
+  const handleCreateConfirm = async () => {
+    try {
+      await secrets.createSecret({ name: newSecretName, value: newSecretValue });
+      setCreateDialogOpen(false);
+      setNewSecretName('');
+      setNewSecretValue('');
+      secrets.loadData(); // Refresh the list after creating a new secret
+    } catch (error) {
+      console.error('Failed to create secret:', error);
+      // You might want to show an error message to the user here
+    }
+  };
+
+  const handleCreateCancel = () => {
+    setCreateDialogOpen(false);
+    setNewSecretName('');
+    setNewSecretValue('');
   };
 
   return (
@@ -69,7 +101,14 @@ const SecretsContent: React.FC = () => {
         ]}
         topbarContent={(
           <div>
-            {/* TODO: add create secret button */}
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={handleCreateClick}
+            >
+              Create Secret
+            </Button>
           </div>
         )}
       >
@@ -109,7 +148,7 @@ const SecretsContent: React.FC = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {secrets.map((secret) => (
+                    {secrets.data.map((secret) => (
                       <TableRow key={secret.id}>
                         <TableCell>{new Date(secret.created).toLocaleString()}</TableCell>
                         <TableCell>{secret.name}</TableCell>
@@ -131,6 +170,7 @@ const SecretsContent: React.FC = () => {
         
       </Page>
 
+      {/* Delete Dialog */}
       <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
@@ -140,6 +180,40 @@ const SecretsContent: React.FC = () => {
           <Button onClick={handleDeleteCancel}>Cancel</Button>
           <Button onClick={handleDeleteConfirm} color="error">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Dialog */}
+      <Dialog open={createDialogOpen} onClose={handleCreateCancel}>
+        <DialogTitle>Create New Secret</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="secret-name"
+            label="Secret Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={newSecretName}
+            onChange={(e) => setNewSecretName(e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            id="secret-value"
+            label="Secret Value"
+            type="password"
+            fullWidth
+            variant="outlined"
+            value={newSecretValue}
+            onChange={(e) => setNewSecretValue(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCreateCancel}>Cancel</Button>
+          <Button onClick={handleCreateConfirm} color="primary" variant="contained">
+            Create
           </Button>
         </DialogActions>
       </Dialog>
