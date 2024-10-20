@@ -53,7 +53,15 @@ const SecretsContent: React.FC = () => {
   return (
     <div>
        <Page
-        breadcrumbTitle="Apps"
+        breadcrumbs={[
+          {
+            title: 'Apps',
+            routeName: 'apps'
+          },
+          {
+            title: 'Secrets',
+          }
+        ]}
         topbarContent={(
           <div>
             {/* TODO: add buttons here */}
