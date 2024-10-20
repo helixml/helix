@@ -81,18 +81,24 @@ steps:
           <Feature Id="ProductFeature" Title="Helix" Level="1">
             <ComponentGroupRef Id="ProductComponents" />
           </Feature>
+        </Product>
+
+        <Fragment>
           <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFiles64Folder">
               <Directory Id="INSTALLFOLDER" Name="Helix" />
             </Directory>
           </Directory>
+        </Fragment>
+
+        <Fragment>
           <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
             <Component Id="HelixExecutable" Guid="*">
               <File Id="HelixEXE" Name="helix.exe" Source="helix-windows-amd64.exe" KeyPath="yes" />
               <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="yes" Part="last" Action="set" System="yes" />
             </Component>
           </ComponentGroup>
-        </Product>
+        </Fragment>
       </Wix>
       EOF
     - wixl -o helix-installer.msi helix.wxs
@@ -493,6 +499,7 @@ steps:
 
 depends_on:
 - default
+
 
 
 
