@@ -70,32 +70,29 @@ steps:
     - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
     - apt-get update && apt-get install -y gh
     - |
+      # Create Windows installer
+      cat > installer.nsi <<EOF
+      !include "MUI2.nsh"
+      !include "EnvVarUpdate.nsh"
+
+      Name "Helix"
+      OutFile "helix-installer.exe"
+      InstallDir "$PROGRAMFILES64\Helix"
+
+      !insertmacro MUI_PAGE_DIRECTORY
+      !insertmacro MUI_PAGE_INSTFILES
+
+      Section "Helix" SecHelix
+        SetOutPath "$INSTDIR"
+        File "helix-windows-amd64.exe"
+        Rename "helix-windows-amd64.exe" "helix.exe"
+        ${EnvVarUpdate} $0 "PATH" "A" "HKLM" "$INSTDIR"
+      SectionEnd
+      EOF
+    - makensis installer.nsi
+    - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
+    - |
       if [ -n "$DRONE_TAG" ]; then
-        # Create Windows installer
-        cat > installer.nsi <<EOF
-        !include "MUI2.nsh"
-        !include "EnvVarUpdate.nsh"
-
-        Name "Helix"
-        OutFile "helix-installer.exe"
-        InstallDir "$PROGRAMFILES64\Helix"
-
-        !insertmacro MUI_PAGE_DIRECTORY
-        !insertmacro MUI_PAGE_INSTFILES
-
-        Section "Helix" SecHelix
-          SetOutPath "$INSTDIR"
-          File "helix-windows-amd64.exe"
-          Rename "helix-windows-amd64.exe" "helix.exe"
-          \${EnvVarUpdate} $0 "PATH" "A" "HKLM" "$INSTDIR"
-        SectionEnd
-        EOF
-
-        # Compile the installer
-        makensis installer.nsi
-
-        # Update docker-compose.yaml with the new tag
-        sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
           echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
@@ -490,5 +487,6 @@ steps:
 
 depends_on:
 - default
+
 
 
