@@ -196,6 +196,8 @@ const SecretsContent: React.FC = () => {
             type="text"
             fullWidth
             variant="outlined"
+            name="nope-name"
+            autoComplete="nope-name"
             value={newSecretName}
             onChange={(e) => setNewSecretName(e.target.value)}
           />
@@ -206,6 +208,8 @@ const SecretsContent: React.FC = () => {
             type="password"
             fullWidth
             variant="outlined"
+            name="nope-value"
+            autoComplete="nope-value"
             value={newSecretValue}
             onChange={(e) => setNewSecretValue(e.target.value)}
           />
