@@ -47,10 +47,11 @@ steps:
   depends_on: []
 
 - name: release-backend
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.22.5-bullseye
   when:
     event:
     - tag
+    - push
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -64,15 +65,57 @@ steps:
       fi
       CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apk add --no-cache github-cli sed
+    - apt-get update && apt-get install -y curl wixl
+    - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    - apt-get update && apt-get install -y gh
+    - |
+      # Create WiX source file
+      cat > helix.wxs <<EOF
+      <?xml version="1.0" encoding="UTF-8"?>
+      <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+        <Product Id="*" Name="Helix" Language="1033" Version="1.0.0" Manufacturer="HelixML, Inc." UpgradeCode="961d298c-39da-4d2c-8292-0964fff80b6e">
+          <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+          <MajorUpgrade DowngradeErrorMessage="A newer version of Helix is already installed." />
+          <MediaTemplate EmbedCab="yes" />
+          <Feature Id="ProductFeature" Title="Helix" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+          </Feature>
+
+          <CustomAction Id="SetHelixHome" Execute="immediate" Property="HELIX_HOME" Value="[INSTALLFOLDER]" />
+          <CustomAction Id="SetPath" Execute="immediate" Property="PATH" Value="[PATH];[HELIX_HOME]" />
+
+          <InstallExecuteSequence>
+            <Custom Action="SetHelixHome" After="InstallFiles" />
+            <Custom Action="SetPath" After="SetHelixHome" />
+          </InstallExecuteSequence>
+        </Product>
+
+        <Fragment>
+          <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+              <Directory Id="INSTALLFOLDER" Name="Helix" />
+            </Directory>
+          </Directory>
+        </Fragment>
+
+        <Fragment>
+          <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="HelixExecutable" Guid="*">
+              <File Id="HelixEXE" Name="helix.exe" Source="helix-windows-amd64.exe" KeyPath="yes" />
+            </Component>
+          </ComponentGroup>
+        </Fragment>
+      </Wix>
+      EOF
+    - wixl -o helix-installer.msi helix.wxs
+    - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
     - |
       if [ -n "$DRONE_TAG" ]; then
-        # Update docker-compose.yaml with the new tag
-        sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
-          echo "Uploading helix binaries and docker-compose.yaml to release $RELEASE"
-          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
+          echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
+          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe helix-installer.msi docker-compose.yaml
         else
           echo "No matching release found for tag $DRONE_TAG"
         fi
@@ -463,3 +506,18 @@ steps:
 
 depends_on:
 - default
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
