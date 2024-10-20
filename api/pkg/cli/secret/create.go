@@ -43,9 +43,9 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
-		secret := &types.Secret{
+		secret := &types.CreateSecretRequest{
 			Name:  name,
-			Value: []byte(value),
+			Value: value,
 			AppID: appID,
 		}
 
