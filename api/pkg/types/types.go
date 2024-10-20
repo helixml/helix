@@ -1428,6 +1428,12 @@ type LLMCall struct {
 	TotalTokens      int64
 }
 
+type CreateSecretRequest struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	AppID string `json:"app_id"`
+}
+
 type Secret struct {
 	ID        string    `json:"id,omitempty" yaml:"id,omitempty"`
 	Created   time.Time `json:"created,omitempty" yaml:"created,omitempty"`

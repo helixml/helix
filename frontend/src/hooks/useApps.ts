@@ -11,10 +11,6 @@ import {
   APP_SOURCE_HELIX,
 } from '../types'
 
-// import {
-//   APPS,
-// } from '../fixtures'
-
 export const useApps = () => {
   const api = useApi()
   
