@@ -47,7 +47,7 @@ steps:
   depends_on: []
 
 - name: release-backend
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.22.5-bullseye
   when:
     event:
     - tag
@@ -65,7 +65,7 @@ steps:
       fi
       CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apk add --no-cache github-cli sed nsis
+    - apt-get update && apt-get install -y nsis gh
     - |
       if [ -n "$DRONE_TAG" ]; then
         # Create Windows installer
@@ -487,3 +487,4 @@ steps:
 
 depends_on:
 - default
+
