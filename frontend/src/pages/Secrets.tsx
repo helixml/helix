@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useSecret } from '../contexts/secret';
+import { useSecret, SecretProvider } from '../contexts/secret';
+import useAccount from '../hooks/useAccount'
 import {
   Table,
   TableBody,
@@ -18,14 +19,16 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 
-const Secrets: React.FC = () => {
+const SecretsContent: React.FC = () => {
+  const account = useAccount()
   const { secrets, listSecrets, deleteSecret } = useSecret();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [secretToDelete, setSecretToDelete] = useState<string | null>(null);
 
   useEffect(() => {
+    if(!account.user) return
     listSecrets();
-  }, [listSecrets]);
+  }, [account.user, listSecrets]);
 
   const handleDeleteClick = (id: string) => {
     setSecretToDelete(id);
@@ -90,6 +93,14 @@ const Secrets: React.FC = () => {
         </DialogActions>
       </Dialog>
     </div>
+  );
+};
+
+const Secrets: React.FC = () => {
+  return (
+    <SecretProvider>
+      <SecretsContent />
+    </SecretProvider>
   );
 };
 
