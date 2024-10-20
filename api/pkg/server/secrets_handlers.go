@@ -58,15 +58,19 @@ func (s *HelixAPIServer) createSecret(w http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError401("user not found")
 	}
 
-	var secret types.Secret
-	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
+	var secretReq types.CreateSecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
+	secret := &types.Secret{
+		Name:  secretReq.Name,
+		Value: []byte(secretReq.Value),
+	}
 	secret.Owner = user.ID
 	secret.OwnerType = types.OwnerTypeUser
 
-	createdSecret, err := s.Store.CreateSecret(ctx, &secret)
+	createdSecret, err := s.Store.CreateSecret(ctx, secret)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

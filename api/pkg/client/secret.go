@@ -20,7 +20,7 @@ func (c *HelixClient) ListSecrets() ([]*types.Secret, error) {
 }
 
 // CreateSecret creates a new secret
-func (c *HelixClient) CreateSecret(secret *types.Secret) (*types.Secret, error) {
+func (c *HelixClient) CreateSecret(secret *types.CreateSecretRequest) (*types.Secret, error) {
 	var createdSecret types.Secret
 
 	bts, err := json.Marshal(secret)
