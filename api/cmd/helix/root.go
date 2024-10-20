@@ -25,15 +25,10 @@ func NewRootCmd() *cobra.Command {
 		Long:  `Private GenAI Platform`,
 	}
 
-	// Non-CLI commands (skip on Windows)
-	if runtime.GOOS != "windows" {
+	// Non-CLI commands (only available on Linux)
+	if runtime.GOOS == "linux" {
 		RootCmd.AddCommand(newServeCmd())
-		RootCmd.AddCommand(newGptScriptCmd())
 		RootCmd.AddCommand(newRunnerCmd())
-		RootCmd.AddCommand(newGptScriptRunnerCmd())
-		RootCmd.AddCommand(newRunCmd())
-		RootCmd.AddCommand(newQapairCommand())
-		RootCmd.AddCommand(newEvalsCommand())
 	}
 
 	// Commands available on all platforms
@@ -45,6 +40,12 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(knowledge.New())
 	RootCmd.AddCommand(fs.New())
 	RootCmd.AddCommand(fs.NewUploadCmd()) // Shortcut for upload
+
+	RootCmd.AddCommand(newRunCmd())
+	RootCmd.AddCommand(newGptScriptCmd())
+	RootCmd.AddCommand(newGptScriptRunnerCmd())
+	RootCmd.AddCommand(newQapairCommand())
+	RootCmd.AddCommand(newEvalsCommand())
 
 	return RootCmd
 }
