@@ -62,7 +62,7 @@ steps:
       else
         VERSION_FLAG=""
       fi
-      CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
+      CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
     - apk add --no-cache github-cli sed
     - |
@@ -72,7 +72,7 @@ steps:
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
           echo "Uploading helix binaries and docker-compose.yaml to release $RELEASE"
-          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 docker-compose.yaml
+          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
         else
           echo "No matching release found for tag $DRONE_TAG"
         fi
