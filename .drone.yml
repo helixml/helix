@@ -80,7 +80,7 @@ steps:
       cat > installer.nsi <<EOF
       !include "MUI2.nsh"
       !addplugindir "/usr/share/nsis/Plugins/x86-unicode"
-      !include "/EnVar/Include/EnVar.nsh"
+      !include "EnVar/Include/EnVar.nsh"
 
       Name "Helix"
       OutFile "helix-installer.exe"
@@ -112,7 +112,7 @@ steps:
       else
         echo "No tag present, skipping release upload"
       fi
-  depends_on: [build-backend, build-frontend]
+  # depends_on: [build-backend, build-frontend]
 
 
 services:
@@ -496,6 +496,7 @@ steps:
 
 depends_on:
 - default
+
 
 
 
