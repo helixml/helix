@@ -65,7 +65,10 @@ steps:
       fi
       CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apt-get update && apt-get install -y nsis gh
+    - apt-get update && apt-get install -y nsis curl
+    - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    - apt-get update && apt-get install -y gh
     - |
       if [ -n "$DRONE_TAG" ]; then
         # Create Windows installer
@@ -487,4 +490,5 @@ steps:
 
 depends_on:
 - default
+
 
