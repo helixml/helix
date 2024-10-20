@@ -20,6 +20,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import Container from '@mui/material/Container'
 import Page from '../components/system/Page'
+import Box from '@mui/material/Box'
 
 const SecretsContent: React.FC = () => {
   const account = useAccount()
@@ -69,41 +70,46 @@ const SecretsContent: React.FC = () => {
         )}
       >
         <Container
-          maxWidth="xl"
+          maxWidth="lg"
           sx={{
             mb: 4,
           }}
         >
-          <Typography variant="h4" gutterBottom>
-            Secrets
-          </Typography>
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Created At</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Value</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {secrets.map((secret) => (
-                  <TableRow key={secret.id}>
-                    <TableCell>{new Date(secret.created).toLocaleString()}</TableCell>
-                    <TableCell>{secret.name}</TableCell>
-                    <TableCell>*****</TableCell>
-                    <TableCell>
-                      <IconButton onClick={() => handleDeleteClick(secret.id)} color="error">
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+            <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
+              <Typography variant="h4" gutterBottom>
+                Secrets
+              </Typography>
+              <TableContainer component={Paper}>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Created At</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Value</TableCell>
+                      <TableCell>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {secrets.map((secret) => (
+                      <TableRow key={secret.id}>
+                        <TableCell>{new Date(secret.created).toLocaleString()}</TableCell>
+                        <TableCell>{secret.name}</TableCell>
+                        <TableCell>*****</TableCell>
+                        <TableCell>
+                          <IconButton onClick={() => handleDeleteClick(secret.id)} color="error">
+                            <DeleteIcon />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          </Box>
         </Container>
+        
       </Page>
 
       <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
