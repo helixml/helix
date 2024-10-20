@@ -806,3 +806,15 @@ export interface PaginatedLLMCalls {
   totalCount: number;
   totalPages: number;
 }
+
+export interface ICreateSecret {
+  name: string,
+  value: string,
+}
+
+export interface ISecret {
+  id: string,
+  name: string,
+  created: string,
+  updated: string,
+}
