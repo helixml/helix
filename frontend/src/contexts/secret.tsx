@@ -1,8 +1,10 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { useEffect, createContext, useContext, useState, useCallback } from 'react';
 import useApi from '../hooks/useApi'
+import useAccount from '../hooks/useAccount'
 import { ISecret, ICreateSecret } from '../types';
 
 interface SecretContextType {
+  initialized: boolean,
   secrets: ISecret[];
   listSecrets: () => Promise<void>;
   createSecret: (secret: ICreateSecret) => Promise<void>;
@@ -21,7 +23,9 @@ export const useSecret = () => {
 
 export const SecretProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [secrets, setSecrets] = useState<ISecret[]>([]);
+  const [initialized, setInitialized] = useState(false);
   const api = useApi();
+  const account = useAccount();
 
   const listSecrets = useCallback(async () => {
     try {
@@ -52,7 +56,16 @@ export const SecretProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [api, listSecrets]);
 
+  useEffect(() => {
+    if(!account.user) return
+    listSecrets()
+    if(!initialized) {
+      setInitialized(true)
+    }
+  }, [account.user])
+
   const value = {
+    initialized,
     secrets,
     listSecrets,
     createSecret,
