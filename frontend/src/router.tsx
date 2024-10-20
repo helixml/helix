@@ -13,6 +13,7 @@ import Create from './pages/Create'
 import Home from './pages/Home'
 import AppStore from './pages/AppStore'
 import OpenAPI from './pages/OpenAPI'
+import Secrets from './pages/Secrets'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 
@@ -87,6 +88,15 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
     <Apps />
+  ),
+}, {
+  name: 'secrets',
+  path: '/secrets',
+  meta: {
+    drawer: true,
+  },
+  render: () => (
+    <Secrets />
   ),
 }, {
   name: 'tool',
