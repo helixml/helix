@@ -81,6 +81,14 @@ steps:
           <Feature Id="ProductFeature" Title="Helix" Level="1">
             <ComponentGroupRef Id="ProductComponents" />
           </Feature>
+
+          <CustomAction Id="SetHelixHome" Execute="immediate" Property="HELIX_HOME" Value="[INSTALLFOLDER]" />
+          <CustomAction Id="SetPath" Execute="immediate" Property="PATH" Value="[PATH];[HELIX_HOME]" />
+
+          <InstallExecuteSequence>
+            <Custom Action="SetHelixHome" After="InstallFiles" />
+            <Custom Action="SetPath" After="SetHelixHome" />
+          </InstallExecuteSequence>
         </Product>
 
         <Fragment>
@@ -95,10 +103,6 @@ steps:
           <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
             <Component Id="HelixExecutable" Guid="*">
               <File Id="HelixEXE" Name="helix.exe" Source="helix-windows-amd64.exe" KeyPath="yes" />
-            </Component>
-            <Component Id="HelixPath" Guid="*">
-              <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
-              <Environment Id="HelixHome" Name="HELIX_HOME" Value="[INSTALLFOLDER]" Permanent="no" Action="set" System="yes" />
             </Component>
           </ComponentGroup>
         </Fragment>
@@ -502,6 +506,7 @@ steps:
 
 depends_on:
 - default
+
 
 
 
