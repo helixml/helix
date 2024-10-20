@@ -212,7 +212,7 @@ const SecretsContent: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCreateCancel}>Cancel</Button>
-          <Button onClick={handleCreateConfirm} color="primary" variant="contained">
+          <Button onClick={handleCreateConfirm} color="secondary" variant="contained">
             Create
           </Button>
         </DialogActions>
