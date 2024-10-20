@@ -65,15 +65,22 @@ steps:
       fi
       CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apt-get update && apt-get install -y nsis curl
+    - apt-get update && apt-get install -y nsis curl unzip
     - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
     - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
     - apt-get update && apt-get install -y gh
     - |
+      # Download and extract EnVar plugin
+      curl -L -o EnVar.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
+      unzip EnVar.zip -d EnVar
+      mkdir -p /usr/share/nsis/Plugins/x86-unicode
+      cp EnVar/Plugins/x86-unicode/EnVar.dll /usr/share/nsis/Plugins/x86-unicode/
+
       # Create Windows installer
       cat > installer.nsi <<EOF
       !include "MUI2.nsh"
-      !include "EnvVarUpdate.nsh"
+      !addplugindir "/usr/share/nsis/Plugins/x86-unicode"
+      !include "/EnVar/Include/EnVar.nsh"
 
       Name "Helix"
       OutFile "helix-installer.exe"
@@ -86,6 +93,8 @@ steps:
         SetOutPath "$INSTDIR"
         File "helix-windows-amd64.exe"
         Rename "helix-windows-amd64.exe" "helix.exe"
+
+        ; Add installation directory to PATH
         ${EnvVarUpdate} $0 "PATH" "A" "HKLM" "$INSTDIR"
       SectionEnd
       EOF
@@ -487,6 +496,10 @@ steps:
 
 depends_on:
 - default
+
+
+
+
 
 
 
