@@ -21,6 +21,10 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import Container from '@mui/material/Container'
 import Page from '../components/system/Page'
 import Box from '@mui/material/Box'
+import Grid from '@mui/material/Grid'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemText from '@mui/material/ListItemText'
 
 const SecretsContent: React.FC = () => {
   const account = useAccount()
@@ -65,7 +69,7 @@ const SecretsContent: React.FC = () => {
         ]}
         topbarContent={(
           <div>
-            {/* TODO: add buttons here */}
+            {/* TODO: add create secret button */}
           </div>
         )}
       >
@@ -77,11 +81,25 @@ const SecretsContent: React.FC = () => {
         >
           <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
             <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
-              <Typography variant="h4" gutterBottom>
-                Secrets
-              </Typography>
-              <TableContainer component={Paper}>
-                <Table>
+              <Grid item xs={12} md={12}>
+              <Typography variant="h4" gutterBottom sx={{mt:4}}>Secrets</Typography>
+                <Paper sx={{ p: 0, mb: 2 }}>                  
+                  <List>
+                  <ListItem >
+                    <ListItemText 
+                      primary={'Using secrets'} 
+                      secondary={`Use secrets by typing \${SECRET_NAME} in your app settings. For example, you can use them in headers or for API tokens.`} />
+
+                  </ListItem>
+                </List>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} md={12}>
+                {/* <Typography variant="h4" gutterBottom>
+                  Secrets
+                </Typography>               */}
+                <TableContainer component={Paper}>
+                  <Table>
                   <TableHead>
                     <TableRow>
                       <TableCell>Created At</TableCell>
@@ -106,6 +124,7 @@ const SecretsContent: React.FC = () => {
                   </TableBody>
                 </Table>
               </TableContainer>
+              </Grid>              
             </Box>
           </Box>
         </Container>
