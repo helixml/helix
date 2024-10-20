@@ -51,6 +51,7 @@ steps:
   when:
     event:
     - tag
+    - push
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
