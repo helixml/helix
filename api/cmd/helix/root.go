@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 
@@ -23,16 +24,22 @@ func NewRootCmd() *cobra.Command {
 		Short: "Helix",
 		Long:  `Private GenAI Platform`,
 	}
-	RootCmd.AddCommand(newServeCmd())
-	RootCmd.AddCommand(newGptScriptCmd())
-	RootCmd.AddCommand(newRunnerCmd())
-	RootCmd.AddCommand(newGptScriptRunnerCmd())
-	RootCmd.AddCommand(newRunCmd())
-	RootCmd.AddCommand(newQapairCommand())
-	RootCmd.AddCommand(newEvalsCommand())
+
+	// Non-CLI commands (skip on Windows)
+	if runtime.GOOS != "windows" {
+		RootCmd.AddCommand(newServeCmd())
+		RootCmd.AddCommand(newGptScriptCmd())
+		RootCmd.AddCommand(newRunnerCmd())
+		RootCmd.AddCommand(newGptScriptRunnerCmd())
+		RootCmd.AddCommand(newRunCmd())
+		RootCmd.AddCommand(newQapairCommand())
+		RootCmd.AddCommand(newEvalsCommand())
+	}
+
+	// Commands available on all platforms
 	RootCmd.AddCommand(newVersionCommand())
 
-	// CLI
+	// CLI commands (available on all platforms)
 	RootCmd.AddCommand(app.New())
 	RootCmd.AddCommand(app.NewApplyCmd()) // Shortcut for apply
 	RootCmd.AddCommand(knowledge.New())
