@@ -120,9 +120,9 @@ const Account: FC = () => {
 export AZURE_OPENAI_API_BASE=${window.location.protocol}//${window.location.host}
 export AZURE_OPENAI_API_KEY=${apiKey}
 `
-  const cliLogin = `curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli
+  const cliInstall = `curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli`
 
-export HELIX_URL=${window.location.protocol}//${window.location.host}
+  const cliLogin = `export HELIX_URL=${window.location.protocol}//${window.location.host}
 export HELIX_API_KEY=${apiKey}
 `
 
@@ -165,12 +165,12 @@ export HELIX_API_KEY=${apiKey}
               )}
               <Grid item xs={12} md={colSize}>
                 <Typography variant="h4" gutterBottom sx={{mt:4}}>API Keys</Typography>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="h6">API</Typography>
+                <Paper sx={{ p: 0 }}>
+                  <Typography sx={{ p: 2}} variant="h6">API Keys</Typography>
                   <List>
                   <ListItem >
                     <ListItemText 
-                      primary={'API keys'} 
+                      primary={'Authenticating to the API'} 
                       secondary={`Specify your key as a header 'Authorization: Bearer <token>' with every request`} />
 
                   </ListItem>
@@ -195,6 +195,37 @@ export HELIX_API_KEY=${apiKey}
                 <Paper sx={{ mt: 2 }}>
                   <Typography sx={{ p: 2}} variant="h6">CLI install &amp; login</Typography>
                   <List>
+                    <ListItem>
+                      <ListItemText                         
+                        secondary={'To install the Helix CLI, run:'} />
+                    </ListItem>
+                    <ListItem>
+                      <Typography component="pre" 
+                          sx={{
+                          wordBreak: 'break-all',
+                          wordWrap: 'break-all',
+                          whiteSpace: 'pre-wrap',
+                          fontSize: '0.8rem',                      
+                          ml: 0,
+                          fontFamily: "monospace",
+                          }}
+                      >
+                        {cliInstall}                  
+                      </Typography>
+                      <ListItemSecondaryAction>
+                        <CopyToClipboard text={cliInstall} onCopy={() => snackbar.success('Copied to clipboard')}>
+                          <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
+                            <CopyIcon />
+                          </IconButton>
+                        </CopyToClipboard>                          
+                      </ListItemSecondaryAction>
+                    </ListItem>
+
+                    <ListItem>
+                      <ListItemText                         
+                        secondary={'Set authentication credentials:'} />
+                    </ListItem>
+                    
                     {account.apiKeys.map((apiKey) => (
                       <ListItem key={apiKey.key}>
                         <Typography component="pre" 
@@ -202,8 +233,7 @@ export HELIX_API_KEY=${apiKey}
                             wordBreak: 'break-all',
                             wordWrap: 'break-all',
                             whiteSpace: 'pre-wrap',
-                            fontSize: '0.8rem',                      
-                            ml: 2,
+                            fontSize: '0.8rem',                                                  
                             fontFamily: "monospace",
                             }}
                         >
