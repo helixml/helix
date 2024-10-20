@@ -65,54 +65,51 @@ steps:
       fi
       CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apt-get update && apt-get install -y nsis curl unzip
+    - apt-get update && apt-get install -y curl wixl
     - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
     - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
     - apt-get update && apt-get install -y gh
     - |
-      # Download and extract EnVar plugin
-      curl -L -o EnVar.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
-      unzip EnVar.zip -d EnVar
-      mkdir -p /usr/share/nsis/Plugins/x86-unicode
-      cp EnVar/Plugins/x86-unicode/EnVar.dll /usr/share/nsis/Plugins/x86-unicode/
-
-      # Create Windows installer
-      cat > installer.nsi <<EOF
-      !include "MUI2.nsh"
-      !addplugindir "/usr/share/nsis/Plugins/x86-unicode"
-      !include "EnVar/Include/EnVar.nsh"
-
-      Name "Helix"
-      OutFile "helix-installer.exe"
-      InstallDir "$PROGRAMFILES64\Helix"
-
-      !insertmacro MUI_PAGE_DIRECTORY
-      !insertmacro MUI_PAGE_INSTFILES
-
-      Section "Helix" SecHelix
-        SetOutPath "$INSTDIR"
-        File "helix-windows-amd64.exe"
-        Rename "helix-windows-amd64.exe" "helix.exe"
-
-        ; Add installation directory to PATH
-        ${EnvVarUpdate} $0 "PATH" "A" "HKLM" "$INSTDIR"
-      SectionEnd
+      # Create WiX source file
+      cat > helix.wxs <<EOF
+      <?xml version="1.0" encoding="UTF-8"?>
+      <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+        <Product Id="*" Name="Helix" Language="1033" Version="1.0.0" Manufacturer="HelixML, Inc." UpgradeCode="961d298c-39da-4d2c-8292-0964fff80b6e">
+          <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+          <MajorUpgrade DowngradeErrorMessage="A newer version of Helix is already installed." />
+          <MediaTemplate EmbedCab="yes" />
+          <Feature Id="ProductFeature" Title="Helix" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+          </Feature>
+          <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+              <Directory Id="INSTALLFOLDER" Name="Helix" />
+            </Directory>
+          </Directory>
+          <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="HelixExecutable" Guid="*">
+              <File Id="HelixEXE" Name="helix.exe" Source="helix-windows-amd64.exe" KeyPath="yes" />
+              <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="yes" Part="last" Action="set" System="yes" />
+            </Component>
+          </ComponentGroup>
+        </Product>
+      </Wix>
       EOF
-    - makensis installer.nsi
+    - wixl -o helix-installer.msi helix.wxs
     - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
     - |
       if [ -n "$DRONE_TAG" ]; then
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
           echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
-          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe helix-installer.exe docker-compose.yaml
+          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe helix-installer.msi docker-compose.yaml
         else
           echo "No matching release found for tag $DRONE_TAG"
         fi
       else
         echo "No tag present, skipping release upload"
       fi
-  # depends_on: [build-backend, build-frontend]
+  depends_on: [build-backend, build-frontend]
 
 
 services:
@@ -496,6 +493,8 @@ steps:
 
 depends_on:
 - default
+
+
 
 
 
