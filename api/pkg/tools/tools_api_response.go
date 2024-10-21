@@ -159,7 +159,7 @@ func (c *ChainStrategy) prepareSuccessMessages(tool *types.Tool, history []*type
 		},
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
-			Content: "Now present the response in a non-tech way. If the API response is empty, say that there's nothing of that type available.\n\n" + systemPrompt,
+			Content: systemPrompt,
 		},
 	)
 
@@ -203,7 +203,8 @@ func (c *ChainStrategy) logLLMCallAsync(sessionID, interactionID string, started
 	}()
 }
 
-const successResponsePrompt = `Present the key information in a concise manner.
+const successResponsePrompt = `Now present the response in a non-tech way. If the API response is empty, say that there's nothing of that type available.
+Present the key information in a concise manner.
 Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability where appropriate, but don't mention formatting in your response unless it's relevant to the user's query.
 Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
 
