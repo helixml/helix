@@ -745,6 +745,25 @@ const App: FC = () => {
   if(!account.user) return null
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
+  
+  const handleLaunch = async () => {
+    if (app.id === 'new') {
+      snackbar.error('Please save the app before launching');
+      return;
+    }
+
+    try {
+      const savedApp = await onSave(true);
+      if (savedApp) {
+        navigate('new', { app_id: savedApp.id });
+      } else {
+        snackbar.error('Failed to save app before launching');
+      }
+    } catch (error) {
+      console.error('Error saving app before launch:', error);
+      snackbar.error('Failed to save app before launching');
+    }
+  };
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setTabValue(newValue);
@@ -794,7 +813,7 @@ const App: FC = () => {
             type="button"
             color="secondary"
             variant="contained"
-            onClick={() => navigate('new', { app_id: app.id })}
+            onClick={handleLaunch}
             disabled={app.id === 'new'}
           >
             Launch
