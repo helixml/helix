@@ -18,11 +18,6 @@ func AttemptFixJSON(data string) string {
 	parts := strings.Split(data, "```")
 	data = parts[0]
 
-	// LLMs are sometimes bad at correct JSON escaping, trying to escape
-	// characters like _ that don't need to be escaped. Just remove all
-	// backslashes for now...
-	data = strings.Replace(data, "\\", "", -1)
-
 	return data
 }
 
