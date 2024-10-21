@@ -97,7 +97,7 @@ const Session: FC = () => {
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   // TODO: set assistant_id to the value which we need to add to the session struct
-  const [assistantID, setAssistantID] = useState('0')
+  const [assistantID, setAssistantID] = useState<string | null>(null)
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -142,7 +142,7 @@ const Session: FC = () => {
       newSession = await NewInference({
         message: prompt,
         appId: appID,
-        assistantId: assistantID,
+        assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
@@ -518,19 +518,25 @@ const Session: FC = () => {
 
   useEffect(() => {
     if (!session.data) return
-    const newAppID = session.data.parent_app
+    const newAppID = session.data.parent_app || null
     if (newAppID !== appID) {
-      setAppID(newAppID || null)
+      setAppID(newAppID)
       if (newAppID) {
         apps.loadApp(newAppID)
+        // Set assistantID only if there's a new app ID
+        // TODO don't hard-code to '0'
+        setAssistantID('0')
+      } else {
+        // Reset assistantID when there's no app
+        setAssistantID(null)
       }
     }
-  }, [session.data, appID, assistantID, apps])
+  }, [session.data, appID, apps])
 
-  const activeAssistant = apps.app && getAssistant(apps.app, assistantID)
-  const activeAssistantAvatar = activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
-  const activeAssistantName = activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
-  const activeAssistantDescription = activeAssistant && apps.app && assistantID ? getAssistantDescription(apps.app, assistantID) : ''
+  const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
+  const activeAssistantAvatar = appID && activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
+  const activeAssistantName = appID && activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
+  const activeAssistantDescription = appID && activeAssistant && apps.app && assistantID ? getAssistantDescription(apps.app, assistantID) : ''
 
   const handleBackToCreate = () => {
     if (apps.app) {
@@ -576,19 +582,19 @@ const Session: FC = () => {
           )
         }
       </Box>
-      {apps.app && (
+      {appID && apps.app && (
         <Box
           sx={{
             width: '100%',
             position: 'relative',
-            backgroundImage: `url(${apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
+            backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
             backgroundPosition: 'top',
             backgroundRepeat: 'no-repeat',
-            backgroundSize: apps.app.config.helix.image ? 'cover' : 'auto',
+            backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
             p: 2,
           }}
         >
-          {apps.app.config.helix.image && (
+          {appID && apps.app.config.helix.image && (
             <Box
               sx={{
                 position: 'absolute',
