@@ -4,8 +4,6 @@ import browserPlugin from 'router5-plugin-browser'
 
 import Session from './pages/Session'
 import Account from './pages/Account'
-import Tools from './pages/Tools'
-import Tool from './pages/Tool'
 import Apps from './pages/Apps'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
@@ -72,15 +70,6 @@ const routes: IApplicationRoute[] = [{
     </FilestoreContextProvider>
   ),
 }, {
-  name: 'tools',
-  path: '/tools',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <Tools />
-  ),
-}, {
   name: 'apps',
   path: '/apps',
   meta: {
@@ -97,15 +86,6 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
     <Secrets />
-  ),
-}, {
-  name: 'tool',
-  path: '/tool/:tool_id',
-  meta: {
-    drawer: false,
-  },
-  render: () => (
-    <Tool />
   ),
 }, {
   name: 'app',
