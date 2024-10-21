@@ -142,7 +142,7 @@ const Session: FC = () => {
       newSession = await NewInference({
         message: prompt,
         appId: appID,
-        assistantId: assistantID,
+        assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
