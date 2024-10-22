@@ -410,7 +410,6 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
 
-	// TODO: rather than looping over all assistants, allow tests to target a specific assistant
 	for _, assistant := range appConfig.Assistants {
 		for _, test := range assistant.Tests {
 			for _, step := range test.Steps {
