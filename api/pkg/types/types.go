@@ -1028,6 +1028,15 @@ type AssistantConfig struct {
 	// we populate the tools array from the APIs and GPTScripts arrays
 	// so - Tools is readonly - hence only JSON for the frontend to see
 	Tools []*Tool `json:"tools"`
+
+	// Add these new fields for tests
+	Tests []struct {
+		Name  string `json:"name" yaml:"name"`
+		Steps []struct {
+			Prompt         string `json:"prompt" yaml:"prompt"`
+			ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
+		} `json:"steps" yaml:"steps"`
+	} `json:"tests" yaml:"tests"`
 }
 
 type AppHelixConfig struct {
