@@ -744,7 +744,7 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func deployApp(namespacedAppName string, appConfig types.AppHelixConfig) (string, error) {
+func deployApp(namespacedAppName string, _ types.AppHelixConfig) (string, error) {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return "", fmt.Errorf("failed to create API client: %w", err)

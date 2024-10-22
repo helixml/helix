@@ -37,6 +37,7 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 	}
 
 	// Parse the yaml
+	// this will handle both AppHelixConfig & AppHelixConfigCRD
 	app, err := processConfig(yamlFile)
 	if err != nil {
 		return nil, fmt.Errorf("error processing config file %s: %w", filename, err)
@@ -153,13 +154,22 @@ func (a *LocalApp) GetAppConfig() *types.AppHelixConfig {
 }
 
 func processConfig(yamlFile []byte) (*types.AppHelixConfig, error) {
-	var app types.AppHelixConfig
-	err := yaml.Unmarshal(yamlFile, &app)
+	// First, try to unmarshal as AppHelixConfigCRD
+	var crd types.AppHelixConfigCRD
+	err := yaml.Unmarshal(yamlFile, &crd)
+	if err == nil && crd.ApiVersion != "" && crd.Kind != "" {
+		// If successful and it has ApiVersion and Kind, it's a CRD
+		return &crd.Spec, nil
+	}
+
+	// If not a CRD, try to unmarshal as AppHelixConfig
+	var config types.AppHelixConfig
+	err = yaml.Unmarshal(yamlFile, &config)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing yaml file: %w", err)
 	}
 
-	return &app, nil
+	return &config, nil
 }
 
 func processApiSchema(configPath, schemaPath string) (string, error) {

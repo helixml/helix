@@ -35,8 +35,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	aispecv1alpha1 "github.com/helixml/helix/api/v1alpha1"
-	"github.com/helixml/helix/internal/controller"
+	aispecv1alpha1 "github.com/helixml/helix/operator/api/v1alpha1"
+	"github.com/helixml/helix/operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 

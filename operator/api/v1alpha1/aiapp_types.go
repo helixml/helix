@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/helixml/helix/api/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -28,8 +29,13 @@ type AIAppSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of AIApp. Edit aiapp_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Name        string                  `json:"name" yaml:"name"`
+	Description string                  `json:"description" yaml:"description"`
+	Avatar      string                  `json:"avatar" yaml:"avatar"`
+	Image       string                  `json:"image" yaml:"image"`
+	ExternalURL string                  `json:"external_url" yaml:"external_url"`
+	Assistants  []types.AssistantConfig `json:"assistants" yaml:"assistants"`
+	Triggers    []types.Trigger         `json:"triggers" yaml:"triggers"`
 }
 
 // AIAppStatus defines the observed state of AIApp
