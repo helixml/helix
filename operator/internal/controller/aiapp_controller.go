@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	aispecv1alpha1 "github.com/helixml/helix/api/v1alpha1"
+	aispecv1alpha1 "github.com/helixml/helix/operator/api/v1alpha1"
 )
 
 // AIAppReconciler reconciles a AIApp object

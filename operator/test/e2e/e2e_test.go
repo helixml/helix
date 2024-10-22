@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/helixml/helix/test/utils"
+	"github.com/helixml/helix/operator/test/utils"
 )
 
 const namespace = "operator-system"
