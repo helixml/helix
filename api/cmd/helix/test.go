@@ -333,7 +333,7 @@ func NewTestCmd() *cobra.Command {
 		Short: "Run tests for Helix app",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTest(cmd, args, yamlFile)
+			return runTest(cmd, yamlFile)
 		},
 	}
 
@@ -342,7 +342,7 @@ func NewTestCmd() *cobra.Command {
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
+func runTest(cmd *cobra.Command, yamlFile string) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
@@ -352,7 +352,7 @@ func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
 	namespacedAppName := fmt.Sprintf("%s/%s", testID, appConfig.Name)
 
 	// Deploy the app with the namespaced name and appConfig
-	appID, err := deployApp(namespacedAppName, appConfig)
+	appID, err := deployApp(namespacedAppName, yamlFile)
 	if err != nil {
 		return fmt.Errorf("error deploying app: %v", err)
 	}
@@ -744,14 +744,14 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func deployApp(namespacedAppName string, appConfig types.AppHelixConfig) (string, error) {
+func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return "", fmt.Errorf("failed to create API client: %w", err)
 	}
 
 	// Use NewLocalApp to create the app from the original config
-	localApp, err := apps.NewLocalApp("helix.yaml")
+	localApp, err := apps.NewLocalApp(yamlFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to create local app: %w", err)
 	}
