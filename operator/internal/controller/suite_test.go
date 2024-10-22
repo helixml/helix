@@ -33,7 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	aispecv1alpha1 "github.com/helixml/helix/api/v1alpha1"
+	aispecv1alpha1 "github.com/helixml/helix/operator/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
