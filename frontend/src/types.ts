@@ -226,8 +226,7 @@ export interface ISession {
   created: string,
   updated: string,
   parent_session: string,
-  parent_bot: string,
-  child_bot: string,
+  parent_app: string,
   config: ISessionConfig,
   mode: ISessionMode,
   type: ISessionType,
@@ -261,6 +260,7 @@ export interface IWebsocketEvent {
   owner: string,
   session?: ISession,
   worker_task_response?: IWorkerTaskResponse,
+  step_info?: any,
 }
 
 export interface IServerConfig {
@@ -271,6 +271,7 @@ export interface IServerConfig {
   eval_user_id: string,
   tools_enabled: boolean,
   apps_enabled: boolean,
+  version?: string,
 }
 
 export interface IConversation {
@@ -300,6 +301,7 @@ export interface IModelInstanceState {
   last_activity: number,
   stale: boolean,
   memory: number,
+  status?: string,
 }
 
 export interface IRunnerState {
@@ -310,6 +312,7 @@ export interface IRunnerState {
   labels: Record<string, string>,
   model_instances: IModelInstanceState[],
   scheduling_decisions: string[],
+  version?: string,
 }
 
 export interface ISessionFilterModel {
@@ -357,6 +360,7 @@ export interface ISessionSummary {
   owner: string,
   lora_dir?: string,
   summary: string,
+  app_id?: string,
 }
 
 export interface ISessionMetaUpdate {
@@ -429,7 +433,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript'
+export type IToolType = 'api' | 'gptscript' | 'zapier'
 
 export interface IToolApiAction {
   name: string,
@@ -454,9 +458,17 @@ export interface IToolGptScriptConfig {
   script_url?: string, // If script lives on a remote server, specify the URL
 }
 
+export interface IToolZapierConfig {
+  api_key?: string,
+  model?: string, 
+  max_iterations?: number,
+}
+
+
 export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
+  zapier?: IToolZapierConfig,
 }
 
 export interface ITool {
@@ -793,4 +805,16 @@ export interface PaginatedLLMCalls {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+}
+
+export interface ICreateSecret {
+  name: string,
+  value: string,
+}
+
+export interface ISecret {
+  id: string,
+  name: string,
+  created: string,
+  updated: string,
 }

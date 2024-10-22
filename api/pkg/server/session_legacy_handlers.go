@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -103,7 +104,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			AssistantID:      assistantID,
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
-			ModelName:        types.ModelName(startReq.Model),
+			ModelName:        startReq.Model,
 			Owner:            user.ID,
 			OwnerType:        user.Type,
 			LoraDir:          startReq.LoraDir,
@@ -177,7 +178,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 		hasFinetune := startReq.LoraDir != ""
 		ragEnabled := newSession.RAGSourceID != ""
 
-		processedModel, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
+		processedModel, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -204,27 +205,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			}
 
 			newSession.LoraDir = loraSource.Config.FilestorePath
-		}
-
-		// we are still in the old frontend mode where it's listening to the websocket
-		// TODO: get the frontend to stream using the streaming api below
-		if startReq.Legacy {
-			sessionData, err := s.Controller.StartSession(ctx, user, newSession)
-			if err != nil {
-				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-				log.Error().Err(err).Msg("failed to start session")
-				return
-			}
-
-			sessionDataJSON, err := json.Marshal(sessionData)
-			if err != nil {
-				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(sessionDataJSON)
-			return
 		}
 
 		cfg = &startSessionConfig{
@@ -263,31 +243,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			return
 		}
 
-		// we are still in the old frontend mode where it's listening to the websocket
-		// TODO: get the frontend to stream using the streaming api below
-		if startReq.Legacy {
-			updatedSession, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-				SessionID:       startReq.SessionID,
-				UserInteraction: interactions[0],
-				SessionMode:     types.SessionModeInference,
-			})
-			if err != nil {
-				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-				log.Error().Err(err).Msg("failed to start session")
-				return
-			}
-
-			sessionDataJSON, err := json.Marshal(updatedSession)
-			if err != nil {
-				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(sessionDataJSON)
-			return
-		}
-
 		cfg = &startSessionConfig{
 			sessionID: startReq.SessionID,
 			modelName: string(existingSession.ModelName),
@@ -306,7 +261,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 			},
 		}
 	}
-	// }
 
 	if startReq.Stream {
 		s.handleStreamingResponse(rw, req, user, cfg)
@@ -424,6 +378,13 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 					return err
 				}
 
+				// Flush the stream to ensure the client receives the data immediately
+				if flusher, ok := res.(http.Flusher); ok {
+					flusher.Flush()
+				} else {
+					log.Warn().Msg("ResponseWriter does not support Flusher interface")
+				}
+
 				// Close connection
 				close(doneCh)
 				return nil
@@ -447,6 +408,13 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 				return err
 			}
 
+			// Flush the stream to ensure the client receives the data immediately
+			if flusher, ok := res.(http.Flusher); ok {
+				flusher.Flush()
+			} else {
+				log.Warn().Msg("ResponseWriter does not support Flusher interface")
+			}
+
 			// Close connection
 			close(doneCh)
 			return nil
@@ -466,6 +434,13 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		err = writeChunk(res, chunk)
 		if err != nil {
 			return err
+		}
+
+		// Flush the stream to ensure the client receives the data immediately
+		if flusher, ok := res.(http.Flusher); ok {
+			flusher.Flush()
+		} else {
+			log.Warn().Msg("ResponseWriter does not support Flusher interface")
 		}
 
 		return nil
@@ -490,6 +465,13 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 	if err != nil {
 		system.NewHTTPError500("error writing chunk '%s': %s", string(respData), err)
 		return
+	}
+
+	// Flush the stream to ensure the client receives the data immediately
+	if flusher, ok := res.(http.Flusher); ok {
+		flusher.Flush()
+	} else {
+		log.Warn().Msg("ResponseWriter does not support Flusher interface")
 	}
 
 	// After subscription, start the session, otherwise

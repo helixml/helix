@@ -2,20 +2,23 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/prompts"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	"gopkg.in/yaml.v2"
 
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type ChatCompletionOptions struct {
@@ -55,12 +58,12 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
-		modelName, err := types.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		modelName, err := model.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
 		}
 
-		req.Model = modelName.String()
+		req.Model = modelName
 	}
 
 	if assistant.RAGSourceID != "" {
@@ -119,12 +122,12 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
-		modelName, err := types.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		modelName, err := model.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
 		}
 
-		req.Model = modelName.String()
+		req.Model = modelName
 	}
 
 	if assistant.RAGSourceID != "" {
@@ -171,14 +174,6 @@ func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oa
 
 }
 
-func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
-	if (!app.Global && !app.Shared) && app.Owner != user.ID {
-		return system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
-	}
-
-	return nil
-}
-
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
@@ -196,10 +191,28 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Running action",
+	})
+
 	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
+		c.emitStepInfo(ctx, &types.StepInfo{
+			Name:    selectedTool.Name,
+			Type:    types.StepInfoTypeToolUse,
+			Message: fmt.Sprintf("Action failed: %s", err),
+		})
+
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
+
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Action completed",
+	})
 
 	return &openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
@@ -229,6 +242,12 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Running action",
+	})
+
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
 		log.Warn().
@@ -237,8 +256,20 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 			Str("action", isActionable.Api).
 			Msg("failed to perform action")
 
+		c.emitStepInfo(ctx, &types.StepInfo{
+			Name:    selectedTool.Name,
+			Type:    types.StepInfoTypeToolUse,
+			Message: fmt.Sprintf("Action failed: %s", err),
+		})
+
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
+
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Action completed",
+	})
 
 	return stream, true, nil
 }
@@ -265,6 +296,10 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	if assistant != nil && assistant.IsActionableTemplate != "" {
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
+	// If assistant has configured a model, use it
+	if assistant != nil && assistant.Model != "" {
+		options = append(options, tools.WithModel(assistant.Model))
+	}
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
@@ -273,6 +308,12 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		vals = &oai.ContextValues{}
 	}
 
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    "is_actionable",
+		Type:    types.StepInfoTypeToolUse,
+		Message: "Checking if we should use tools",
+	})
+
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate if the message is actionable, skipping to general knowledge")
@@ -280,12 +321,32 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	}
 
 	if !isActionable.Actionable() {
+		c.emitStepInfo(ctx, &types.StepInfo{
+			Name:    "is_actionable",
+			Type:    types.StepInfoTypeToolUse,
+			Message: "Message is not actionable",
+		})
+
 		return nil, nil, false, nil
 	}
 
 	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.Api)
 	if !ok {
 		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
+	}
+
+	// If assistant has configured a model, give the hint to the tool that it should use that model too
+	if assistant != nil && assistant.Model != "" {
+		if selectedTool.Config.API != nil && selectedTool.Config.API.Model == "" {
+			log.Info().
+				Str("assistant_id", assistant.ID).
+				Str("assistant_name", assistant.Name).
+				Str("assistant_model", assistant.Model).
+				Str("tool_name", selectedTool.Name).
+				Msg("assistant has configured a model, and tool has no model specified, using assistant model for tool")
+
+			selectedTool.Config.API.Model = assistant.Model
+		}
 	}
 
 	if len(opts.QueryParams) > 0 && selectedTool.Config.API != nil {
@@ -313,6 +374,12 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 		return nil, fmt.Errorf("you do not have access to the app with the id: %s", app.ID)
 	}
 
+	// Load secrets into the app
+	app, err = c.evaluateSecrets(ctx, user, app)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate secrets: %w", err)
+	}
+
 	assistant := data.GetAssistant(app, opts.AssistantID)
 
 	if assistant == nil {
@@ -320,6 +387,58 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	}
 
 	return assistant, nil
+}
+
+func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app *types.App) (*types.App, error) {
+	secrets, err := c.Options.Store.ListSecrets(ctx, &store.ListSecretsQuery{
+		Owner: user.ID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	var filteredSecrets []*types.Secret
+
+	// Filter out secrets that are not for the current app
+	for _, secret := range secrets {
+		if secret.AppID != "" && secret.AppID != app.ID {
+			continue
+		}
+		filteredSecrets = append(filteredSecrets, secret)
+	}
+
+	// Nothing to do
+	if len(filteredSecrets) == 0 {
+		return app, nil
+	}
+
+	return enrichAppWithSecrets(app, filteredSecrets)
+}
+
+func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, error) {
+	appYaml, err := yaml.Marshal(app)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal app: %w", err)
+	}
+
+	envs := make(map[string]string)
+	for _, secret := range secrets {
+		envs[secret.Name] = string(secret.Value)
+	}
+
+	processed, err := Eval(string(appYaml), envs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate secrets: %w", err)
+	}
+
+	var enrichedApp types.App
+
+	err = yaml.Unmarshal([]byte(processed), &enrichedApp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal app: %w", err)
+	}
+
+	return &enrichedApp, nil
 }
 
 func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
@@ -413,6 +532,12 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				return nil, nil, fmt.Errorf("error getting RAG client: %w", err)
 			}
 
+			c.emitStepInfo(ctx, &types.StepInfo{
+				Name:    knowledge.Name,
+				Type:    types.StepInfoTypeRAG,
+				Message: "Searching for knowledge",
+			})
+
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -423,6 +548,12 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 			if err != nil {
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
 			}
+
+			c.emitStepInfo(ctx, &types.StepInfo{
+				Name:    knowledge.Name,
+				Type:    types.StepInfoTypeRAG,
+				Message: fmt.Sprintf("Found %d results", len(ragResults)),
+			})
 
 			for _, result := range ragResults {
 				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
@@ -440,6 +571,37 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 	}
 
 	return backgroundKnowledge, usedKnowledge, nil
+}
+
+func (c *Controller) emitStepInfo(ctx context.Context, stepInfo *types.StepInfo) error {
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		log.Warn().Msg("context values with session info not found")
+		return fmt.Errorf("context values with session info not found")
+	}
+
+	queue := pubsub.GetSessionQueue(vals.OwnerID, vals.SessionID)
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventProcessingStepInfo,
+		SessionID:     vals.SessionID,
+		InteractionID: vals.InteractionID,
+		Owner:         vals.OwnerID,
+		StepInfo:      stepInfo,
+	}
+	bts, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal step info: %w", err)
+	}
+
+	log.Info().
+		Str("queue", queue).
+		Str("step_name", stepInfo.Name).
+		Str("step_message", stepInfo.Message).
+		Msg("emitting step info")
+
+	// TODO: save in the database too
+
+	return c.Options.PubSub.Publish(ctx, queue, bts)
 }
 
 // TODO: use different struct with just document ID and content

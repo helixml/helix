@@ -4,7 +4,7 @@ import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 import { SxProps } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
-import { FC, useEffect, useState } from 'react'
+import { FC, useEffect, useState, useMemo } from 'react'
 import AssistantPicker from '../components/appstore/AssistantPicker'
 import AppCreateHeader from '../components/appstore/CreateHeader'
 import CenterMessage from '../components/create/CenterMessage'
@@ -33,6 +33,7 @@ import useRouter from '../hooks/useRouter'
 import useSessions from '../hooks/useSessions'
 import useSnackbar from '../hooks/useSnackbar'
 import useTracking from '../hooks/useTracking'
+import { useStreaming } from '../contexts/streaming'
 
 import {
   IDataEntity,
@@ -58,6 +59,11 @@ import {
   getAssistantName,
 } from '../utils/apps'
 
+// First, we need to import the necessary components
+import EditIcon from '@mui/icons-material/Edit'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
 
@@ -72,6 +78,7 @@ const Create: FC = () => {
   const sessions = useSessions()
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
+  const { NewInference } = useStreaming()
 
   const [showConfigWindow, setShowConfigWindow] = useState(false)
   const [showFileDrawer, setShowFileDrawer] = useState(false)
@@ -89,6 +96,14 @@ const Create: FC = () => {
 
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
+
+  // Then, in the Create component, we'll add a check to see if the current user owns the app
+  // This should be added near the top of the component, after the existing useEffect hooks
+
+  const userOwnsApp = useMemo(() => {
+    if (!apps.app || !account.user) return false
+    return apps.app.owner === account.user.id
+  }, [apps.app, account.user])
 
   /*
    *
@@ -114,18 +129,42 @@ const Create: FC = () => {
 
   const onInference = async () => {
     if (!checkLoginStatus()) return
-    const sessionChatRequest = inputs.getSessionChatRequest(type, model)
     setLoading(true)
-    const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
 
-    if (!session) return
-    tracking.emitEvent({
-      name: 'inference',
-      session,
-    })
-    await sessions.loadSessions()
-    router.navigate('session', { session_id: session.id })
-    setLoading(false)
+    const urlParams = new URLSearchParams(window.location.search)
+    const appID = urlParams.get('app_id') || ''
+    let assistantID = urlParams.get('assistant_id') || ''
+    const ragSourceID = urlParams.get('rag_source_id') || ''
+
+    // if we have an app but no assistant ID let's default to the first one
+    if(appID && !assistantID) {
+      assistantID = '0'
+    }
+
+    try {
+      const session = await NewInference({
+        type: type as ISessionType,
+        message: inputs.inputValue,
+        appId: appID,
+        assistantId: assistantID,
+        ragSourceId: ragSourceID,
+        modelName: model,
+        loraDir: '',
+      });
+
+      if (!session) return
+      tracking.emitEvent({
+        name: 'inference',
+        session,
+      })
+      await sessions.loadSessions()
+      setLoading(false)
+      router.navigate('session', { session_id: session.id })
+    } catch (error) {
+      console.error('Error in onInference:', error);
+      snackbar.error('Failed to start inference');
+      setLoading(false);
+    }
   }
 
   const onStartFinetune = async (eventName: string) => {
@@ -457,12 +496,60 @@ const Create: FC = () => {
       id="HEADER"
       vertical
       center
+      sx={{
+        position: 'relative',
+        backgroundImage: `url(${apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
+        backgroundPosition: 'top',
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: apps.app.config.helix.image ? 'cover' : 'auto',
+        p: 2,
+      }}
     >
+      {apps.app.config.helix.image && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            zIndex: 1,
+          }}
+        />
+      )}
+      {userOwnsApp && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            zIndex: 3,
+          }}
+        >
+          <Tooltip title="Edit App">
+            <IconButton
+              onClick={() => router.navigate('app', { app_id: apps.app?.id })}
+              sx={{
+                color: 'white',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                },
+              }}
+            >
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
       <Cell
         sx={{
           pt: 4,
           px: PADDING_X,
           textAlign: 'center',
+          position: 'relative',
+          zIndex: 2,
         }}
       >
         <AppCreateHeader
@@ -475,6 +562,8 @@ const Create: FC = () => {
           py: 2,
           pt: 4,
           width: '100%',
+          position: 'relative',
+          zIndex: 2,
         }}
       >
         <AssistantPicker

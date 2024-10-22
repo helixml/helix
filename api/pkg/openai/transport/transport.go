@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // NewOpenAIStreamingAdapter returns a new OpenAI streaming adapter which allows

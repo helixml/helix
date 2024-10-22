@@ -7,8 +7,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // warmupInference downloads the model weights for the inference model,
@@ -29,7 +29,7 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 		},
 		&types.RunnerLLMInferenceRequest{
 			Request: &openai.ChatCompletionRequest{
-				Model: string(types.Model_Ollama_Llama3_8b),
+				Model: string(model.Model_Ollama_Llama3_8b),
 			},
 		},
 	)
@@ -60,9 +60,9 @@ func (r *Runner) pollInferenceRequests(ctx context.Context) error {
 		return nil
 	}
 
-	modelName := types.ModelName(request.Request.Model)
+	modelName := model.ModelName(request.Request.Model)
 
-	aiModel, err := model.GetModel(modelName)
+	aiModel, err := model.GetModel(string(modelName))
 	if err != nil {
 		return fmt.Errorf("error getting model %s: %s", modelName, err.Error())
 	}
@@ -123,7 +123,7 @@ func (r *Runner) createInferenceModelInstance(ctx context.Context, request *type
 	}
 
 	log.Info().
-		Str("model_instance", modelInstance.Filter().ModelName.String()).
+		Str("model_instance", modelInstance.Filter().ModelName).
 		Msgf("🔵 runner started inference model instance: %s", modelInstance.ID())
 
 	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)

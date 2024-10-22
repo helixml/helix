@@ -52,6 +52,17 @@ export const getAssistantName = (app: IApp, assistantID: string): string => {
   return assistant?.name || app.config.helix?.name || ''
 }
 
+// if we have a single assistant but it has no description then we return the top level app description instead
+export const getAssistantDescription = (app: IApp, assistantID: string): string => {
+  if(hasMultipleAssistants(app)) {
+    const assistant = getAssistant(app, assistantID)
+    return assistant?.description || ''
+  }
+  const assistant = getAssistant(app, '0')
+  return assistant?.description || app.config.helix?.description || ''
+}
+
+
 export const getAssistant = (app: IApp, assistantID: string): IAssistantConfig | void => {
   if(!app || !app.config) return
   const byID = app.config.helix?.assistants?.find((assistant) => assistant.id === assistantID)

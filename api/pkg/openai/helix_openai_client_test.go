@@ -10,12 +10,18 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	gomock "go.uber.org/mock/gomock"
+)
+
+const (
+	runnerID = "runner1"
 )
 
 func TestHelixClientTestSuite(t *testing.T) {
@@ -40,9 +46,14 @@ func (suite *HelixClientTestSuite) SetupTest() {
 
 	suite.pubsub = pubsub
 
-	cfg := &config.ServerConfig{}
-
-	suite.srv = NewInternalHelixServer(cfg, pubsub)
+	cfg, _ := config.LoadServerConfig()
+	scheduler := scheduler.NewScheduler(&cfg)
+	scheduler.UpdateRunner(&types.RunnerState{
+		ID:          runnerID,
+		TotalMemory: 9999999999,
+	})
+	suite.Require().NoError(err)
+	suite.srv = NewInternalHelixServer(&cfg, pubsub, scheduler)
 }
 
 func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
@@ -62,7 +73,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
 			InteractionID: interactionID,
 		})
 		_, _ = suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-			Model:  types.Model_Ollama_Llama3_8b.String(),
+			Model:  model.Model_Ollama_Llama3_8b,
 			Stream: false,
 			Messages: []openai.ChatCompletionMessage{
 				{
@@ -80,6 +91,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
 	// Request should be in the queue
 	time.Sleep(50 * time.Millisecond)
 
+	// The work has been scheduled immediately, so the queue should be empty
 	suite.srv.queueMu.Lock()
 	defer suite.srv.queueMu.Unlock()
 
@@ -137,7 +149,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_Response() {
 	})
 
 	resp, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   false,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -170,7 +182,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ErrorResponse() {
 	})
 
 	_, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   false,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -239,7 +251,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_StreamingResponse()
 	})
 
 	stream, err := suite.srv.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   true,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -278,7 +290,7 @@ func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.
 		case <-ctx.Done():
 			return
 		default:
-			req, err := srv.GetNextLLMInferenceRequest(ctx, types.InferenceRequestFilter{}, "runner1")
+			req, err := srv.GetNextLLMInferenceRequest(ctx, types.InferenceRequestFilter{}, runnerID)
 			require.NoError(t, err)
 
 			if req == nil {

@@ -12,7 +12,7 @@ services:
     env_file:
       - .env
     environment:
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
@@ -154,6 +154,11 @@ services:
       - 8108:8108
     volumes:
       - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+  chrome:
+    image: ghcr.io/go-rod/rod:v0.115.0
+    restart: always
+    ports:
+      - 7317:7317
   llamaindex:
     profiles: [full]
     image: registry.helix.ml/helix/llamaindex:latest
@@ -186,9 +191,10 @@ services:
       - api
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
+    #build:
+    #  context: .
+    #  dockerfile: Dockerfile.runner
+    image: registry.helix.ml/helix/runner:latest-large
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env

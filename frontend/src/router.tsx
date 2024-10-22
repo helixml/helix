@@ -4,15 +4,14 @@ import browserPlugin from 'router5-plugin-browser'
 
 import Session from './pages/Session'
 import Account from './pages/Account'
-import Tools from './pages/Tools'
-import Tool from './pages/Tool'
 import Apps from './pages/Apps'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
 import Home from './pages/Home'
 import AppStore from './pages/AppStore'
-
+import OpenAPI from './pages/OpenAPI'
+import Secrets from './pages/Secrets'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 
@@ -71,15 +70,6 @@ const routes: IApplicationRoute[] = [{
     </FilestoreContextProvider>
   ),
 }, {
-  name: 'tools',
-  path: '/tools',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <Tools />
-  ),
-}, {
   name: 'apps',
   path: '/apps',
   meta: {
@@ -89,13 +79,13 @@ const routes: IApplicationRoute[] = [{
     <Apps />
   ),
 }, {
-  name: 'tool',
-  path: '/tool/:tool_id',
+  name: 'secrets',
+  path: '/secrets',
   meta: {
-    drawer: false,
+    drawer: true,
   },
   render: () => (
-    <Tool />
+    <Secrets />
   ),
 }, {
   name: 'app',
@@ -133,6 +123,13 @@ const routes: IApplicationRoute[] = [{
     drawer: true,
   },
   render: () => <Account />,
+}, {
+  name: 'api-reference',
+  path: '/api-reference',
+  meta: {
+    drawer: false,
+  },
+  render: () => <OpenAPI />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

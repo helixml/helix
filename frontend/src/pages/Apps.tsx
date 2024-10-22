@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
+import LockIcon from '@mui/icons-material/Lock'
 
 import Page from '../components/system/Page'
 import CreateAppWindow from '../components/apps/CreateAppWindow'
@@ -107,6 +108,17 @@ const Apps: FC = () => {
       breadcrumbTitle="Apps"
       topbarContent={(
         <div>
+          <Button
+            id="secrets-button"
+            variant="contained"
+            color="secondary"
+            endIcon={<LockIcon />}
+            onClick={() => navigate('secrets')}
+            sx={{ mr: 2 }}
+          >
+            Secrets
+          </Button>
+
           <Button
             id="new-app-button"
             variant="contained"

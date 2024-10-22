@@ -7,16 +7,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 
 	"github.com/rs/zerolog/log"
@@ -106,7 +108,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
@@ -128,7 +130,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	var (
-		session *types.Session
+		session    *types.Session
+		newSession bool
 	)
 
 	if startReq.SessionID != "" {
@@ -148,14 +151,15 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 	} else {
 		// Create session
+		newSession = true
 		session = &types.Session{
 			ID:        system.GenerateSessionID(),
-			Name:      system.GenerateAmusingName(),
+			Name:      s.getTemporarySessionName(message),
 			Created:   time.Now(),
 			Updated:   time.Now(),
 			Mode:      types.SessionModeInference,
 			Type:      types.SessionTypeText,
-			ModelName: types.ModelName(startReq.Model),
+			ModelName: startReq.Model,
 			ParentApp: startReq.AppID,
 			Owner:     user.ID,
 			OwnerType: user.Type,
@@ -210,6 +214,23 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	if newSession {
+		go func() {
+			name, err := s.generateSessionName(user, session.ID, modelName, message)
+			if err != nil {
+				log.Error().Err(err).Msg("error generating session name")
+				return
+			}
+
+			session.Name = name
+
+			err = s.Controller.UpdateSessionName(user.ID, session.ID, name)
+			if err != nil {
+				log.Error().Err(err).Msg("error updating session name")
+			}
+		}()
+	}
+
 	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
 		OwnerID:         user.ID,
 		SessionID:       session.ID,
@@ -219,7 +240,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName.String(),
+			Model: modelName,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
@@ -244,13 +265,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		})
 	}
 
-	// TODO: remove once frontend is removed
-	if startReq.Legacy {
-		s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
-		return
-	}
-	// End of TODO
-
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
 		if err != nil {
@@ -263,7 +277,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	if err != nil {
 		log.Err(err).Msg("error handling blocking session")
 	}
-	return
 }
 
 func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
@@ -276,12 +289,12 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		return
 	}
 
-	modelName, e := types.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName.String(), types.SessionModeInference, types.SessionTypeText, false, false)
-	if e != nil {
+	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
+	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if modelName.String() != session.ModelName.String() {
+	if modelName != session.ModelName {
 		session.ModelName = modelName
 	}
 
@@ -305,7 +318,7 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 	// Convert interactions (except the last one) to messages
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName.String(),
+			Model: modelName,
 		}
 
 		options = &controller.ChatCompletionOptions{
@@ -329,11 +342,87 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		InteractionID: session.Interactions[len(session.Interactions)-1].ID,
 	})
 
-	// TODO: This uses the "old style" frontend websocket stream, copied from startChatSessionHandler
-	s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
+	err = s.handleStreamingSession(ctx, user, session, chatCompletionRequest, options, rw)
+	if err != nil {
+		log.Err(err).Msg("error handling blocking session")
+	}
 }
 
-func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
+const titleGenPrompt = `Generate a concise 3-5 word title for the given user input. Follow these rules strictly:
+
+1. Use exactly 3-5 words.
+2. Do not use the word "title" in your response.
+3. Capture the essence of the user's query or topic.
+4. Provide only the title, without any additional commentary.
+
+Examples:
+
+User: "Tell me about the Roman Empire's early days and how it was formed."
+Response: Roman Empire's formation
+
+User: "What is the best way to cook a steak?"
+Response: Perfect steak cooking techniques
+
+Now, generate a title for the following user input:
+
+%s`
+
+func (s *HelixAPIServer) getTemporarySessionName(prompt string) string {
+	// return first few words of the prompt
+	words := strings.Split(prompt, " ")
+	if len(words) > 5 {
+		return strings.Join(words[:5], " ")
+	}
+	return strings.Join(words, " ")
+}
+
+func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model, prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       user.ID,
+		SessionID:     sessionID,
+		InteractionID: "n/a",
+	})
+
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStepGenerateTitle,
+	})
+
+	req := openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: "You are a helpful assistant that generates a concise title for a given user input.",
+			},
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: fmt.Sprintf(titleGenPrompt, prompt),
+			},
+		},
+	}
+
+	options := &controller.ChatCompletionOptions{
+		// AppID:       r.URL.Query().Get("app_id"),
+		// AssistantID: r.URL.Query().Get("assistant_id"),
+		// RAGSourceID: r.URL.Query().Get("rag_source_id"),
+	}
+
+	resp, _, err := s.Controller.ChatCompletion(ctx, user, req, options)
+	if err != nil {
+		return "", err
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", errors.New("no data in the LLM response")
+	}
+
+	return resp.Choices[0].Message.Content, nil
+}
+
+func (s *HelixAPIServer) _legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
 	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -405,17 +494,44 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
-	// Call the LLM
-	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return nil
-	}
-	defer stream.Close()
 
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
+
+	// Write an empty response to start chunk that contains the session id
+	bts, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+		Object: "chat.completion.chunk",
+		ID:     session.ID,
+		Model:  chatCompletionRequest.Model,
+	})
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
+	writeChunk(rw, bts)
+	// Flush the stream to ensure the client receives the data immediately
+	if flusher, ok := rw.(http.Flusher); ok {
+		flusher.Flush()
+	} else {
+		log.Warn().Msg("ResponseWriter does not support Flusher interface")
+	}
+
+	// Call the LLM
+	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	if err != nil {
+		// Update last interaction
+		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		s.Controller.WriteSession(session)
+
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return nil
+	}
+	defer stream.Close()
 
 	var fullResponse string
 
@@ -445,6 +561,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		}
 
 		writeChunk(rw, bts)
+		// Flush the stream to ensure the client receives the data immediately
+		if flusher, ok := rw.(http.Flusher); ok {
+			flusher.Flush()
+		} else {
+			log.Warn().Msg("ResponseWriter does not support Flusher interface")
+		}
 	}
 
 	// Update last interaction

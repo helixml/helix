@@ -10,11 +10,13 @@ import (
 	"net/url"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
@@ -58,7 +60,7 @@ type RunnerOptions struct {
 	GetTaskDelayMilliseconds int
 
 	// how often to report our overal state to the api
-	ReporStateDelaySeconds int
+	ReportStateDelaySeconds int
 
 	// how many bytes of memory does our GPU have?
 	// we report this back to the api when we ask
@@ -141,6 +143,9 @@ func NewRunner(
 	if options.ApiToken == "" {
 		return nil, fmt.Errorf("api token is required")
 	}
+
+	// Remove trailing slash from ApiHost if present
+	options.ApiHost = strings.TrimSuffix(options.ApiHost, "/")
 
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
@@ -286,7 +291,7 @@ func (r *Runner) startReportStateLoop() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(time.Second * time.Duration(r.Options.ReporStateDelaySeconds)):
+		case <-time.After(time.Second * time.Duration(r.Options.ReportStateDelaySeconds)):
 			err := r.reportStateLoop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in report state loop: %s", err.Error())
@@ -368,6 +373,7 @@ func (r *Runner) checkForStaleModelInstances(_ context.Context, newModel model.M
 			log.Info().Msgf("Killing stale model instance %s", m.ID())
 			err := m.Stop()
 			if err != nil {
+				r.addSchedulingDecision(fmt.Sprintf("error stopping model instance %s: %s", m.ID(), err.Error()))
 				log.Error().Msgf("error stopping model instance %s: %s", m.ID(), err.Error())
 			}
 			r.activeModelInstances.Delete(m.ID())
@@ -560,20 +566,20 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
-	runtimeName := initialSession.ModelName.InferenceRuntime()
+	runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
 
 	// if we are in mock mode - we need the axolotl model instance because
 	// it understands how to do a mock runner
 	if r.Options.MockRunner {
 		if initialSession.Type == types.SessionTypeText {
 			runtimeName = types.InferenceRuntimeAxolotl
-			initialSession.ModelName = types.Model_Axolotl_Mistral7b
+			initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
 		} else if initialSession.Type == types.SessionTypeImage {
 			// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
 			// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
 			// that does both axolotl and sdxl
 			runtimeName = types.InferenceRuntimeAxolotl
-			initialSession.ModelName = types.Model_Cog_SDXL
+			initialSession.ModelName = string(model.Model_Cog_SDXL)
 		}
 	}
 
@@ -631,7 +637,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	}
 
 	log.Info().
-		Str("model_instance", modelInstance.Filter().ModelName.String()).
+		Str("model_instance", modelInstance.Filter().ModelName).
 		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
 
 	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
@@ -865,6 +871,7 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		Labels:              r.Options.Labels,
 		ModelInstances:      modelInstances,
 		SchedulingDecisions: r.schedulingDecisions,
+		Version:             data.GetHelixVersion(),
 	}, nil
 }
 

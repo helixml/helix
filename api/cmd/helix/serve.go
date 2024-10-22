@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
@@ -23,6 +24,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -232,7 +234,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
 	}
 
-	helixInference := openai.NewInternalHelixServer(cfg, ps)
+	// Must use the same allocator for both new LLM requests and old sessions
+	scheduler := scheduler.NewScheduler(cfg)
+
+	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
 
 	// controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
 	// if err != nil {
@@ -291,6 +296,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Notifier:             notifier,
 		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
+		Scheduler:            scheduler,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
@@ -305,7 +311,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.Start(ctx)
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient)
+	// Initialize browser pool
+	browserPool, err := browser.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create browser pool: %w", err)
+	}
+
+	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient, browserPool)
 	if err != nil {
 		return err
 	}
@@ -323,7 +335,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
+	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
 	if err != nil {
 		return err
 	}

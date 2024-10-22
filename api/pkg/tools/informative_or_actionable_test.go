@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -11,8 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/kelseyhightower/envconfig"
-	oai "github.com/lukemarsden/go-openai2"
-	openai_ext "github.com/lukemarsden/go-openai2"
+	oai "github.com/sashabaranov/go-openai"
+	openai_ext "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -23,12 +24,13 @@ func TestActionTestSuite(t *testing.T) {
 
 type ActionTestSuite struct {
 	suite.Suite
-	ctrl      *gomock.Controller
-	executor  *gptscript.MockExecutor
-	apiClient *openai.MockClient
-	store     *store.MockStore
-	ctx       context.Context
-	strategy  *ChainStrategy
+	ctrl         *gomock.Controller
+	executor     *gptscript.MockExecutor
+	apiClient    *openai.MockClient
+	store        *store.MockStore
+	ctx          context.Context
+	strategy     *ChainStrategy
+	zapierAPIKey string
 }
 
 func (suite *ActionTestSuite) SetupTest() {
@@ -38,6 +40,8 @@ func (suite *ActionTestSuite) SetupTest() {
 
 	suite.executor = gptscript.NewMockExecutor(suite.ctrl)
 	suite.store = store.NewMockStore(suite.ctrl)
+
+	suite.zapierAPIKey = os.Getenv("ZAPIER_API_KEY")
 
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)

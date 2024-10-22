@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"sync/atomic"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
 
@@ -93,6 +95,13 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	if err != nil {
 		return fmt.Errorf("failed to get indexing data, error: %w", err)
 	}
+
+	// Sanity check if we have any data
+	err = checkContents(data)
+	if err != nil {
+		return err
+	}
+
 	elapsed := time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
@@ -135,12 +144,80 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			Str("knowledge_id", k.ID).
 			Str("version", version).
 			Msg("failed to create knowledge version")
+		return fmt.Errorf("failed to create knowledge version, error: %w", err)
 	}
 
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Str("new_version", version).
 		Msg("knowledge indexed")
+
+	// Delete old versions
+	err = r.deleteOldVersions(ctx, k)
+	if err != nil {
+		return fmt.Errorf("failed to delete old versions, error: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) error {
+	versions, err := r.store.ListKnowledgeVersions(ctx, &store.ListKnowledgeVersionQuery{
+		KnowledgeID: k.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list knowledge versions, error: %w", err)
+	}
+
+	if len(versions) <= r.config.RAG.MaxVersions {
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Msg("no need to delete any previous versions as there are less than the max allowed")
+		return nil
+	}
+
+	// Sort by created date, oldest first
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Created.Before(versions[j].Created)
+	})
+
+	// Delete the oldest versions
+	for _, v := range versions[:len(versions)-r.config.RAG.MaxVersions] {
+		err := r.deleteKnowledgeVersion(ctx, k, v)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Str("version", v.Version).
+				Msg("failed to delete knowledge version")
+		} else {
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Str("version", v.Version).
+				Str("size", humanize.Bytes(uint64(k.Size))).
+				Msg("deleted old knowledge version")
+		}
+	}
+
+	return nil
+}
+
+// deleteKnowledgeVersion deletes the knowledge data from the vector DB and the version record from the
+// postgres database
+func (r *Reconciler) deleteKnowledgeVersion(ctx context.Context, k *types.Knowledge, v *types.KnowledgeVersion) error {
+	ragClient := r.getRagClient(k)
+
+	err := ragClient.Delete(ctx, &types.DeleteIndexRequest{
+		DataEntityID: v.GetDataEntityID(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete knowledge version from vector DB, error: %w", err)
+	}
+
+	err = r.store.DeleteKnowledgeVersion(ctx, v.ID)
+	if err != nil {
+		return fmt.Errorf("failed to delete knowledge version, error: %w", err)
+	}
 
 	return nil
 }
@@ -203,7 +280,6 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		for {
 			select {
 			case <-ctx.Done():
-				fmt.Println("done")
 				return
 			case <-ticker.C:
 				current := int(progress.Load())
@@ -236,7 +312,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			if err != nil {
 				return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
 			}
-			fmt.Println("CHUNK COMPLETED")
+
 			return nil
 		})
 	}
@@ -266,6 +342,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Int("chunks", len(chunks)).
+		Str("size", humanize.Bytes(uint64(getSize(data)))).
 		Msg("submitting chunks into the rag server")
 
 	progress := atomic.Int32{}
@@ -365,4 +442,18 @@ func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*tex
 	}
 
 	return indexChunks
+}
+
+func checkContents(data []*indexerData) error {
+	if len(data) == 0 {
+		return fmt.Errorf("couldn't extract any data for indexing, check your data source or configuration")
+	}
+
+	for _, d := range data {
+		if len(d.Data) > 0 {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("couldn't extract any data for indexing, check your data source or configuration")
 }

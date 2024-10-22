@@ -42,7 +42,7 @@ var uploadCmd = &cobra.Command{
 		}
 		ctx := cmd.Context()
 
-		err = uploadFiles(ctx, apiClient, localPath, remotePath)
+		err = UploadFiles(ctx, apiClient, localPath, remotePath)
 		if err != nil {
 			return err
 		}
@@ -51,16 +51,16 @@ var uploadCmd = &cobra.Command{
 	},
 }
 
-// uploadFiles upload files to the Helix filestore. If localPath is a directory, it will upload all files recursively in the directory
+// UploadFiles upload files to the Helix filestore. If localPath is a directory, it will upload all files recursively in the directory
 // to the remote path. If localPath is a file, it will upload the file to the remote path.
-func uploadFiles(ctx context.Context, apiClient client.Client, localPath string, remotePath string) error {
+func UploadFiles(ctx context.Context, apiClient client.Client, localPath string, remotePath string) error {
 	fileInfo, err := os.Stat(localPath)
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
 	if !fileInfo.IsDir() {
-		return uploadFile(ctx, apiClient, localPath, remotePath)
+		return UploadFile(ctx, apiClient, localPath, remotePath)
 	}
 
 	err = filepath.Walk(localPath, func(path string, info os.FileInfo, err error) error {
@@ -75,7 +75,7 @@ func uploadFiles(ctx context.Context, apiClient client.Client, localPath string,
 			}
 
 			remoteFilePath := filepath.Join(remotePath, relativePath)
-			err = uploadFile(ctx, apiClient, path, remoteFilePath)
+			err = UploadFile(ctx, apiClient, path, remoteFilePath)
 			if err != nil {
 				return err
 			}
@@ -91,7 +91,7 @@ func uploadFiles(ctx context.Context, apiClient client.Client, localPath string,
 	return err
 }
 
-func uploadFile(ctx context.Context, apiClient client.Client, localPath string, remotePath string) error {
+func UploadFile(ctx context.Context, apiClient client.Client, localPath string, remotePath string) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %w", err)
