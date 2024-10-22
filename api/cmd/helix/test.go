@@ -2,6 +2,7 @@ package helix
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"html/template"
 
 	"github.com/helixml/helix/api/pkg/apps"
+	"github.com/helixml/helix/api/pkg/cli/fs"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -646,7 +648,6 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	if err != nil {
 		return fmt.Errorf("error marshaling results to JSON: %v", err)
 	}
-
 	err = os.WriteFile(jsonFilename, jsonResults, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing results to JSON file: %v", err)
@@ -689,19 +690,47 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 
 	// Write summary markdown file
 	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL())
-
 	err = os.WriteFile(summaryFilename, []byte(summaryContent), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
 	}
 
-	fmt.Printf("Results written to %s\n", jsonFilename)
-	fmt.Printf("HTML report written to %s\n", htmlFilename)
-	fmt.Printf("Summary written to %s\n", summaryFilename)
+	// Create a client for uploading
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	ctx := context.Background()
+
+	// Upload JSON results
+	jsonPath := fmt.Sprintf("/test-runs/%s/%s", testID, jsonFilename)
+	err = fs.UploadFile(ctx, apiClient, jsonFilename, jsonPath)
+	if err != nil {
+		return fmt.Errorf("error uploading JSON results: %v", err)
+	}
+
+	// Upload HTML report
+	htmlPath := fmt.Sprintf("/test-runs/%s/%s", testID, htmlFilename)
+	err = fs.UploadFile(ctx, apiClient, htmlFilename, htmlPath)
+	if err != nil {
+		return fmt.Errorf("error uploading HTML report: %v", err)
+	}
+
+	// Upload summary markdown
+	summaryPath := fmt.Sprintf("/test-runs/%s/%s", testID, summaryFilename)
+	err = fs.UploadFile(ctx, apiClient, summaryFilename, summaryPath)
+	if err != nil {
+		return fmt.Errorf("error uploading summary markdown: %v", err)
+	}
+
+	fmt.Printf("\nResults written to %s\n", jsonPath)
+	fmt.Printf("HTML report written to %s\n", htmlPath)
+	fmt.Printf("Summary written to %s\n", summaryPath)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
-		openBrowser(htmlFilename)
+		openBrowser(getHelixURL() + "/files?path=/test-runs/" + testID)
 	}
 
 	return nil
