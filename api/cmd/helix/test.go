@@ -11,22 +11,14 @@ import (
 	"sync"
 	"time"
 
+	"html/template"
+
+	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 )
-
-type HelixYaml struct {
-	Assistants []struct {
-		Model string `yaml:"model"`
-	} `yaml:"assistants"`
-	Tests []struct {
-		Name  string `yaml:"name"`
-		Steps []struct {
-			Prompt         string `yaml:"prompt"`
-			ExpectedOutput string `yaml:"expected_output"`
-		} `yaml:"steps"`
-	} `yaml:"tests"`
-}
 
 type ChatRequest struct {
 	Model     string    `json:"model"`
@@ -68,75 +60,349 @@ type ChatResponse struct {
 	} `json:"choices"`
 }
 
+const htmlTemplate = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helix Test Results</title>
+    <style>
+        body, html { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            overflow: hidden; 
+        }
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header { 
+            padding: 10px 20px; 
+            background-color: #f8f8f8;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.2em;
+        }
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .header-info p {
+            margin: 0;
+            font-size: 0.9em;
+        }
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .results-container { 
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px;
+        }
+        table { 
+            border-collapse: collapse; 
+            width: 100%; 
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #f2f2f2; 
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        tr.pass { background-color: #e6ffe6; }
+        tr.fail { background-color: #ffe6e6; }
+        #iframe-container { 
+            display: none; 
+            position: fixed; 
+            bottom: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 70%; 
+            border: none; 
+        }
+        #iframe-container iframe { 
+            width: 100%; 
+            height: calc(100% - 10px); 
+            border: none; 
+        }
+        #close-iframe { 
+            position: absolute; 
+            top: 10px; 
+            right: 10px; 
+            cursor: pointer; 
+        }
+        #resize-handle { 
+            width: 100%; 
+            height: 10px; 
+            background: #f0f0f0; 
+            cursor: ns-resize; 
+            border-top: 1px solid #ccc; 
+        }
+        #view-helix-yaml { 
+            padding: 5px 10px;
+            font-size: 0.9em;
+        }
+        .truncate { 
+            max-width: 400px; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            position: relative;
+            cursor: pointer;
+        }
+        .tooltip {
+            display: none;
+            position: absolute;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 5px;
+            z-index: 1000;
+            max-width: 300px;
+            word-wrap: break-word;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <h1>Helix Test Results</h1>
+            <div class="header-info">
+                <p>Total Time: {{.TotalExecutionTime}}</p>
+                <p>File: {{.LatestResultsFile}}</p>
+            </div>
+            <div class="header-controls">
+                <form action="/" method="get" style="margin: 0;">
+                    <select name="file" onchange="this.form.submit()" style="padding: 5px;">
+                        {{range .AvailableResultFiles}}
+                            <option value="{{.}}" {{if eq . $.LatestResultsFile}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </form>
+                <button id="view-helix-yaml" onclick="viewHelixYaml()">View helix.yaml</button>
+            </div>
+        </div>
+        <div class="results-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Test Name</th>
+                        <th>Result</th>
+                        <th>Reason</th>
+                        <th>Model</th>
+                        <th>Inference Time</th>
+                        <th>Evaluation Time</th>
+                        <th>Session Link</th>
+                        <th>Debug Link</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Tests}}
+                    <tr class="{{if eq .Result "PASS"}}pass{{else}}fail{{end}}">
+                        <td>{{.TestName}}</td>
+                        <td>{{.Result}}</td>
+                        <td class="truncate" data-full-text="{{.Reason}}">{{truncate .Reason 100}}</td>
+                        <td>{{.Model}}</td>
+                        <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
+                        <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
+                        <td><a href="#" onclick="openDashboard('{{.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
+                        <td><a href="#" onclick="openDashboard('{{.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div id="iframe-container">
+        <div id="resize-handle"></div>
+        <div id="close-iframe" onclick="closeDashboard()">Close</div>
+        <iframe id="dashboard-iframe" src=""></iframe>
+    </div>
+    <div id="tooltip" class="tooltip"></div>
+    <script>
+        function openDashboard(url) {
+            document.getElementById('dashboard-iframe').src = url;
+            document.getElementById('iframe-container').style.display = 'block';
+            adjustContentHeight();
+        }
+        function closeDashboard() {
+            document.getElementById('iframe-container').style.display = 'none';
+            document.getElementById('dashboard-iframe').src = '';
+            adjustContentHeight();
+        }
+
+        function adjustContentHeight() {
+            const mainContainer = document.querySelector('.main-container');
+            const iframeContainer = document.getElementById('iframe-container');
+            if (iframeContainer.style.display === 'block') {
+                mainContainer.style.height = 'calc(100vh - ' + iframeContainer.offsetHeight + 'px)';
+            } else {
+                mainContainer.style.height = '100vh';
+            }
+        }
+
+        // Resizing functionality
+        const resizeHandle = document.getElementById('resize-handle');
+        const iframeContainer = document.getElementById('iframe-container');
+        let isResizing = false;
+
+        resizeHandle.addEventListener('mousedown', function(e) {
+            isResizing = true;
+            document.addEventListener('mousemove', resize);
+            document.addEventListener('mouseup', stopResize);
+        });
+
+        function resize(e) {
+            if (!isResizing) return;
+            const newHeight = window.innerHeight - e.clientY;
+            iframeContainer.style.height = newHeight + 'px';
+            adjustContentHeight();
+        }
+
+        function stopResize() {
+            isResizing = false;
+            document.removeEventListener('mousemove', resize);
+        }
+
+        function viewHelixYaml() {
+            const helixYaml = {{.HelixYaml}};
+            const blob = new Blob([helixYaml], { type: 'text/yaml' });
+            const url = URL.createObjectURL(blob);
+            openDashboard(url);
+        }
+
+        // Tooltip functionality
+        const tooltip = document.getElementById('tooltip');
+        document.querySelectorAll('.truncate').forEach(el => {
+            el.addEventListener('mouseover', function(e) {
+                tooltip.textContent = this.getAttribute('data-full-text');
+                tooltip.style.display = 'block';
+                tooltip.style.left = e.pageX + 'px';
+                tooltip.style.top = e.pageY + 'px';
+            });
+            el.addEventListener('mouseout', function() {
+                tooltip.style.display = 'none';
+            });
+        });
+
+        // Initial adjustment
+        adjustContentHeight();
+    </script>
+</body>
+</html>
+`
+
 func NewTestCmd() *cobra.Command {
+	var yamlFile string
+
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run tests for Helix app",
-		Long:  `This command runs tests defined in helix.yaml and evaluates the results.`,
-		RunE:  runTest,
+		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTest(cmd, args, yamlFile)
+		},
 	}
+
+	cmd.Flags().StringVarP(&yamlFile, "file", "f", "helix.yaml", "Path to the YAML file containing test definitions")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, args []string) error {
-	helixYaml, helixYamlContent, err := readHelixYaml()
+func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
+	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
 	}
 
-	appID, apiKey, helixURL, err := getEnvironmentVariables()
+	testID := system.GenerateTestRunID()
+	namespacedAppName := fmt.Sprintf("%s/%s", testID, appConfig.Name)
+
+	// Deploy the app with the namespaced name and appConfig
+	appID, err := deployApp(namespacedAppName, appConfig)
+	if err != nil {
+		return fmt.Errorf("error deploying app: %v", err)
+	}
+
+	fmt.Printf("Deployed app with ID: %s\n", appID)
+
+	// defer func() {
+	// 	// Clean up the app after the test
+	// 	err := deleteApp(namespacedAppName)
+	// 	if err != nil {
+	// 		fmt.Printf("Error deleting app: %v\n", err)
+	// 	}
+	// }()
+
+	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
 	}
 
-	results, totalTime, err := runTests(helixYaml, appID, apiKey, helixURL)
+	helixURL := getHelixURL()
+
+	results, totalTime, err := runTests(appConfig, appID, apiKey, helixURL)
 	if err != nil {
 		return err
 	}
 
 	displayResults(cmd, results, totalTime, helixURL)
 
-	return writeResultsToFile(results, totalTime, helixYamlContent)
+	return writeResultsToFile(results, totalTime, helixYamlContent, testID, namespacedAppName)
 }
 
-func readHelixYaml() (HelixYaml, string, error) {
-	yamlFile, err := os.ReadFile("helix.yaml")
+func readHelixYaml(yamlFile string) (types.AppHelixConfig, string, error) {
+	yamlContent, err := os.ReadFile(yamlFile)
 	if err != nil {
-		return HelixYaml{}, "", fmt.Errorf("error reading helix.yaml: %v", err)
+		return types.AppHelixConfig{}, "", fmt.Errorf("error reading YAML file %s: %v", yamlFile, err)
 	}
 
-	helixYamlContent := string(yamlFile)
+	helixYamlContent := string(yamlContent)
 
-	var helixYaml HelixYaml
-	err = yaml.Unmarshal(yamlFile, &helixYaml)
+	var appConfig types.AppHelixConfig
+	err = yaml.Unmarshal(yamlContent, &appConfig)
 	if err != nil {
-		return HelixYaml{}, "", fmt.Errorf("error parsing helix.yaml: %v", err)
+		return types.AppHelixConfig{}, "", fmt.Errorf("error parsing YAML file %s: %v", yamlFile, err)
 	}
 
-	return helixYaml, helixYamlContent, nil
+	return appConfig, helixYamlContent, nil
 }
 
-func getEnvironmentVariables() (string, string, string, error) {
-	appID := os.Getenv("HELIX_APP_ID")
-	if appID == "" {
-		return "", "", "", fmt.Errorf("HELIX_APP_ID environment variable not set")
-	}
-
+func getAPIKey() (string, error) {
 	apiKey := os.Getenv("HELIX_API_KEY")
 	if apiKey == "" {
-		return "", "", "", fmt.Errorf("HELIX_API_KEY environment variable not set")
+		return "", fmt.Errorf("HELIX_API_KEY environment variable not set")
 	}
-
-	helixURL := os.Getenv("HELIX_URL")
-	if helixURL == "" {
-		return "", "", "", fmt.Errorf("HELIX_URL environment variable not set")
-	}
-
-	return appID, apiKey, helixURL, nil
+	return apiKey, nil
 }
 
-func runTests(helixYaml HelixYaml, appID, apiKey, helixURL string) ([]TestResult, time.Duration, error) {
+func getHelixURL() string {
+	helixURL := os.Getenv("HELIX_URL")
+	if helixURL == "" {
+		return "https://app.tryhelix.ai"
+	}
+	return helixURL
+}
+
+func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([]TestResult, time.Duration, error) {
 	var results []TestResult
 	totalStartTime := time.Now()
 
@@ -144,25 +410,28 @@ func runTests(helixYaml HelixYaml, appID, apiKey, helixURL string) ([]TestResult
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
 
-	for _, test := range helixYaml.Tests {
-		for _, step := range test.Steps {
-			wg.Add(1)
-			go func(test string, step struct {
-				Prompt         string `yaml:"prompt"`
-				ExpectedOutput string `yaml:"expected_output"`
-			}) {
-				defer wg.Done()
-				semaphore <- struct{}{}
-				defer func() { <-semaphore }()
+	// TODO: rather than looping over all assistants, allow tests to target a specific assistant
+	for _, assistant := range appConfig.Assistants {
+		for _, test := range assistant.Tests {
+			for _, step := range test.Steps {
+				wg.Add(1)
+				go func(assistantName, testName string, step struct {
+					Prompt         string `json:"prompt" yaml:"prompt"`
+					ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
+				}) {
+					defer wg.Done()
+					semaphore <- struct{}{}
+					defer func() { <-semaphore }()
 
-				result, err := runSingleTest(test, step, appID, apiKey, helixURL, helixYaml.Assistants[0].Model)
-				if err != nil {
-					fmt.Printf("Error running test %s: %v\n", test, err)
-					return
-				}
+					result, err := runSingleTest(assistantName, testName, step, appID, apiKey, helixURL, assistant.Model)
+					if err != nil {
+						fmt.Printf("Error running test %s: %v\n", testName, err)
+						return
+					}
 
-				resultsChan <- result
-			}(test.Name, step)
+					resultsChan <- result
+				}(assistant.Name, test.Name, step)
+			}
 		}
 	}
 
@@ -184,9 +453,9 @@ func runTests(helixYaml HelixYaml, appID, apiKey, helixURL string) ([]TestResult
 	return results, totalTime, nil
 }
 
-func runSingleTest(testName string, step struct {
-	Prompt         string `yaml:"prompt"`
-	ExpectedOutput string `yaml:"expected_output"`
+func runSingleTest(assistantName, testName string, step struct {
+	Prompt         string `json:"prompt" yaml:"prompt"`
+	ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
 }, appID, apiKey, helixURL, model string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
@@ -315,26 +584,140 @@ func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Dur
 	cmd.Printf("Overall result: %s\n", overallResult)
 }
 
-func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYamlContent string) error {
+func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYamlContent string, testID, namespacedAppName string) error {
 	timestamp := time.Now().Format("20060102150405")
-	filename := fmt.Sprintf("results_%s.json", timestamp)
+	jsonFilename := fmt.Sprintf("results_%s_%s.json", testID, timestamp)
+	htmlFilename := fmt.Sprintf("report_%s_%s.html", testID, timestamp)
 
 	resultMap := map[string]interface{}{
+		"test_id":              testID,
+		"namespaced_app_name":  namespacedAppName,
 		"tests":                results,
 		"total_execution_time": totalTime.String(),
 		"helix_yaml":           helixYamlContent,
 	}
 
+	// Write JSON results
 	jsonResults, err := json.MarshalIndent(resultMap, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error marshaling results to JSON: %v", err)
 	}
 
-	err = os.WriteFile(filename, jsonResults, 0644)
+	err = os.WriteFile(jsonFilename, jsonResults, 0644)
 	if err != nil {
-		return fmt.Errorf("error writing results to file: %v", err)
+		return fmt.Errorf("error writing results to JSON file: %v", err)
 	}
 
-	fmt.Printf("\nResults written to %s\n", filename)
+	// Generate and write HTML report
+	tmpl, err := template.New("results").Funcs(template.FuncMap{
+		"truncate": truncate,
+	}).Parse(htmlTemplate)
+	if err != nil {
+		return fmt.Errorf("error parsing HTML template: %v", err)
+	}
+
+	htmlFile, err := os.Create(htmlFilename)
+	if err != nil {
+		return fmt.Errorf("error creating HTML file: %v", err)
+	}
+	defer htmlFile.Close()
+
+	data := struct {
+		Tests                []TestResult
+		TotalExecutionTime   string
+		LatestResultsFile    string
+		AvailableResultFiles []string
+		HelixYaml            string
+		HelixURL             string
+	}{
+		Tests:                results,
+		TotalExecutionTime:   totalTime.String(),
+		LatestResultsFile:    jsonFilename,
+		AvailableResultFiles: []string{jsonFilename},
+		HelixYaml:            helixYamlContent,
+		HelixURL:             getHelixURL(),
+	}
+
+	err = tmpl.Execute(htmlFile, data)
+	if err != nil {
+		return fmt.Errorf("error executing HTML template: %v", err)
+	}
+
+	fmt.Printf("\nResults written to %s\n", jsonFilename)
+	fmt.Printf("HTML report written to %s\n", htmlFilename)
+	return nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+func deployApp(namespacedAppName string, appConfig types.AppHelixConfig) (string, error) {
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return "", fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	// Create AppHelixConfig
+	helixConfig := types.AppHelixConfig{
+		Name:        namespacedAppName,
+		Description: appConfig.Description,
+		Avatar:      appConfig.Avatar,
+		Image:       appConfig.Image,
+		ExternalURL: appConfig.ExternalURL,
+		Assistants:  appConfig.Assistants,
+		Triggers:    appConfig.Triggers,
+	}
+
+	app := &types.App{
+		AppSource: types.AppSourceHelix,
+		Global:    false,
+		Shared:    false,
+		Config: types.AppConfig{
+			AllowedDomains: []string{},
+			Helix:          helixConfig,
+		},
+	}
+
+	createdApp, err := apiClient.CreateApp(app)
+	if err != nil {
+		return "", fmt.Errorf("failed to create app: %w", err)
+	}
+
+	return createdApp.ID, nil
+}
+
+func deleteApp(namespacedAppName string) error {
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	// First, we need to look up the app by name
+	existingApps, err := apiClient.ListApps(&client.AppFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list apps: %w", err)
+	}
+
+	var appID string
+	for _, existingApp := range existingApps {
+		if existingApp.Config.Helix.Name == namespacedAppName {
+			appID = existingApp.ID
+			break
+		}
+	}
+
+	if appID == "" {
+		return fmt.Errorf("app with name %s not found", namespacedAppName)
+	}
+
+	// Delete the app
+	if err := apiClient.DeleteApp(appID, true); err != nil {
+		return fmt.Errorf("failed to delete app: %w", err)
+	}
+
 	return nil
 }

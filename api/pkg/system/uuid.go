@@ -20,6 +20,7 @@ const (
 	KnowledgePrefix           = "kno_"
 	KnowledgeVersionPrefix    = "knov_"
 	SecretPrefix              = "sec_"
+	TestRunPrefix             = "testrun_"
 )
 
 func GenerateUUID() string {
@@ -79,4 +80,8 @@ func GenerateSecretID() string {
 // and to determine if the knowledge has been updated
 func GenerateVersion() string {
 	return time.Now().Format("2006-01-02_15-04-05")
+}
+
+func GenerateTestRunID() string {
+	return fmt.Sprintf("%s%s", TestRunPrefix, newID())
 }
