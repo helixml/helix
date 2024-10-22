@@ -48,6 +48,10 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 		zapier     []*types.Tool
 	)
 
+	// TODO: don't throw away the apis and gptscripts fields (here and in github
+	// apps), make tools an internal implementation detail, see
+	// https://github.com/helixml/helix/issues/544
+
 	for idx, assistant := range app.Assistants {
 		for _, api := range assistant.APIs {
 			schema, err := processApiSchema(filename, api.Schema)

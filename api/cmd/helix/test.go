@@ -49,6 +49,7 @@ type TestResult struct {
 	Model          string        `json:"model"`
 	InferenceTime  time.Duration `json:"inference_time"`
 	EvaluationTime time.Duration `json:"evaluation_time"`
+	HelixURL       string        `json:"helix_url"`
 }
 
 type ChatResponse struct {
@@ -223,8 +224,8 @@ const htmlTemplate = `
                         <td>{{.Model}}</td>
                         <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
                         <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
-                        <td><a href="#" onclick="openDashboard('{{.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
-                        <td><a href="#" onclick="openDashboard('{{.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
+                        <td><a href="#" onclick="openLink('{{.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
+                        <td><a href="#" onclick="openLink('{{.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -238,6 +239,14 @@ const htmlTemplate = `
     </div>
     <div id="tooltip" class="tooltip"></div>
     <script>
+        function openLink(url) {
+            if (window.location.protocol === 'file:') {
+                window.open(url, '_blank');
+            } else {
+                openDashboard(url);
+            }
+        }
+
         function openDashboard(url) {
             document.getElementById('dashboard-iframe').src = url;
             document.getElementById('iframe-container').style.display = 'block';
@@ -501,8 +510,8 @@ func runSingleTest(assistantName, testName string, step struct {
 
 	evaluationTime := time.Since(evaluationStartTime)
 
-	return TestResult{
-		TestName:       testName,
+	result := TestResult{
+		TestName:       fmt.Sprintf("%s - %s", assistantName, testName),
 		Prompt:         step.Prompt,
 		Response:       responseContent,
 		Expected:       step.ExpectedOutput,
@@ -512,7 +521,10 @@ func runSingleTest(assistantName, testName string, step struct {
 		Model:          model,
 		InferenceTime:  inferenceTime,
 		EvaluationTime: evaluationTime,
-	}, nil
+		HelixURL:       helixURL, // Add this line
+	}
+
+	return result, nil
 }
 
 func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResponse, error) {
