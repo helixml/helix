@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -379,7 +380,19 @@ func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
 
 	displayResults(cmd, results, totalTime, helixURL)
 
-	return writeResultsToFile(results, totalTime, helixYamlContent, testID, namespacedAppName)
+	err = writeResultsToFile(results, totalTime, helixYamlContent, testID, namespacedAppName)
+	if err != nil {
+		return err
+	}
+
+	// Check if any test failed
+	for _, result := range results {
+		if result.Result != "PASS" {
+			os.Exit(1)
+		}
+	}
+
+	return nil
 }
 
 func readHelixYaml(yamlFile string) (types.AppHelixConfig, string, error) {
@@ -442,6 +455,13 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 					}
 
 					resultsChan <- result
+
+					// Output . for pass, F for fail
+					if result.Result == "PASS" {
+						fmt.Print(".")
+					} else {
+						fmt.Print("F")
+					}
 				}(assistant.Name, test.Name, step)
 			}
 		}
@@ -455,6 +475,8 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 	for result := range resultsChan {
 		results = append(results, result)
 	}
+
+	fmt.Println() // Add a newline after all tests have completed
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].TestName < results[j].TestName
@@ -495,7 +517,7 @@ func runSingleTest(assistantName, testName string, step struct {
 
 	evalReq := ChatRequest{
 		Model:  "llama3.1:8b-instruct-q8_0",
-		System: "You are an AI assistant tasked with evaluating test results. Output only PASS or FAIL followed by a brief explanation on the next line. Be liberal about what you consider to be a PASS, as long as everything specifically requested is present.",
+		System: "You are an AI assistant tasked with evaluating test results. Output only PASS or FAIL followed by a brief explanation on the next line. Be fairly liberal about what you consider to be a PASS, as long as everything specifically requested is present. However, if the response is not as expected, you should output FAIL.",
 		Messages: []Message{
 			{
 				Role: "user",
@@ -570,39 +592,46 @@ func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResp
 	return chatResp.Choices[0].Message.Content, chatResp, nil
 }
 
-func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string) {
-	cmd.Println("| Test Name | Result | Reason | Model | Inference Time | Evaluation Time | Session Link | Debug Link |")
-	cmd.Println("|-----------|--------|--------|-------|----------------|-----------------|--------------|------------|")
+func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string) string {
+	var builder strings.Builder
+	builder.WriteString("| Test Name | Result | Reason | Model | Inference Time | Evaluation Time | Session Link | Debug Link |\n")
+	builder.WriteString("|-----------|--------|--------|-------|----------------|-----------------|--------------|------------|\n")
+
+	overallResult := "PASS"
 	for _, result := range results {
 		sessionLink := fmt.Sprintf("%s/session/%s", helixURL, result.SessionID)
+
 		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", helixURL, result.SessionID)
-		cmd.Printf("| %-20s | %-6s | %-50s | %-25s | %-15s | %-15s | [Session](%s) | [Debug](%s) |\n",
+		builder.WriteString(fmt.Sprintf("| %-20s | %-6s | %-50s | %-25s | %-15s | %-15s | [Session](%s) | [Debug](%s) |\n",
 			result.TestName,
 			result.Result,
-			result.Reason,
+			truncate(result.Reason, 50),
 			result.Model,
 			result.InferenceTime.Round(time.Millisecond),
 			result.EvaluationTime.Round(time.Millisecond),
 			sessionLink,
-			debugLink)
-	}
+			debugLink))
 
-	cmd.Printf("\nTotal execution time: %s\n", totalTime.Round(time.Millisecond))
-
-	overallResult := "PASS"
-	for _, result := range results {
 		if result.Result != "PASS" {
 			overallResult = "FAIL"
-			break
 		}
 	}
-	cmd.Printf("Overall result: %s\n", overallResult)
+
+	builder.WriteString(fmt.Sprintf("\nTotal execution time: %s\n", totalTime.Round(time.Millisecond)))
+	builder.WriteString(fmt.Sprintf("Overall result: %s\n", overallResult))
+
+	return builder.String()
+}
+
+func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string) {
+	cmd.Println(generateResultsSummary(results, totalTime, helixURL))
 }
 
 func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYamlContent string, testID, namespacedAppName string) error {
 	timestamp := time.Now().Format("20060102150405")
 	jsonFilename := fmt.Sprintf("results_%s_%s.json", testID, timestamp)
 	htmlFilename := fmt.Sprintf("report_%s_%s.html", testID, timestamp)
+	summaryFilename := fmt.Sprintf("summary_%s_%s.md", testID, timestamp)
 
 	resultMap := map[string]interface{}{
 		"test_id":              testID,
@@ -658,8 +687,17 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		return fmt.Errorf("error executing HTML template: %v", err)
 	}
 
-	fmt.Printf("\nResults written to %s\n", jsonFilename)
+	// Write summary markdown file
+	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL())
+
+	err = os.WriteFile(summaryFilename, []byte(summaryContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing summary to markdown file: %v", err)
+	}
+
+	fmt.Printf("Results written to %s\n", jsonFilename)
 	fmt.Printf("HTML report written to %s\n", htmlFilename)
+	fmt.Printf("Summary written to %s\n", summaryFilename)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
@@ -670,6 +708,7 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 }
 
 func truncate(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) <= n {
 		return s
 	}
