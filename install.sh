@@ -34,6 +34,7 @@ AUTO_APPROVE=false
 OLDER_GPU=false
 HF_TOKEN=""
 PROXY=https://get.helix.ml
+EXTRA_OLLAMA_MODELS=""
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -76,6 +77,7 @@ Options:
   --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
   --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
+  --extra-ollama-models    Specify additional Ollama models to download when installing the runner (comma-separated), for example "nemotron-mini:4b,codegemma:2b-code-q8_0"
 
 Examples:
 
@@ -188,6 +190,14 @@ while [[ $# -gt 0 ]]; do
             AUTO_APPROVE=true
             shift
             ;;
+        --extra-ollama-models=*)
+            EXTRA_OLLAMA_MODELS="${1#*=}"
+            shift
+            ;;
+        --extra-ollama-models)
+            EXTRA_OLLAMA_MODELS="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             display_help
@@ -199,7 +209,7 @@ done
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
@@ -207,13 +217,22 @@ check_nvidia_gpu() {
 }
 
 
-# Function to check if Ollama is running on localhost:11434
+# Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
+    # Check localhost
     if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
         return 0
-    else
-        return 1
     fi
+
+    # Check Docker bridge IP
+    DOCKER_BRIDGE_IP=$(sudo docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
+    if [ -n "$DOCKER_BRIDGE_IP" ]; then
+        if curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
+            return 0
+        fi
+    fi
+
+    return 1
 }
 
 # Adjust default values based on provided arguments and AUTO mode
@@ -386,7 +405,7 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if ! sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -611,8 +630,17 @@ EOF
             else
                 echo "Installing Caddy..."
                 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+
+                # Check if the keyring file already exists
+                if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                fi
+
+                # Check if the source list file already exists
+                if [ ! -f /etc/apt/sources.list.d/caddy-stable.list ]; then
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+                fi
+
                 sudo apt update
                 sudo apt install caddy
 
@@ -626,11 +654,26 @@ $CADDY_HOST {
     reverse_proxy localhost:8080
 }
 EOF"
-# Ollama on Linux TODO:
-# TODO test this sudo above
-# TODO docker bridge ip instead of host.docker.internal
-# TODO: add Environment="OLLAMA_HOST=0.0.0.0" to /etc/systemd/system/ollama.service
-
+                # Add OLLAMA_HOST environment variable to ollama.service on Linux
+                if [ "$OS" = "linux" ]; then
+                    OLLAMA_SERVICE_FILE="/etc/systemd/system/ollama.service"
+                    if [ -f "$OLLAMA_SERVICE_FILE" ]; then
+                        echo "Detecting Docker bridge IP..."
+                        DOCKER_BRIDGE_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+                        if [ -n "$DOCKER_BRIDGE_IP" ]; then
+                            echo "Adding OLLAMA_HOST environment variable to ollama.service..."
+                            sudo sed -i "/^\[Service\]/a Environment=\"OLLAMA_HOST=$DOCKER_BRIDGE_IP\"" "$OLLAMA_SERVICE_FILE"
+                            sudo systemctl daemon-reload
+                            echo "Restarting Ollama service..."
+                            sudo systemctl restart ollama
+                            echo "ollama.service has been updated with OLLAMA_HOST=$DOCKER_BRIDGE_IP and restarted."
+                        else
+                            echo "Warning: Failed to detect Docker bridge IP. Please add 'Environment=\"OLLAMA_HOST=<your-docker-bridge-ip>\"' to the [Service] section of $OLLAMA_SERVICE_FILE manually and restart the service."
+                        fi
+                    else
+                        echo "Warning: $OLLAMA_SERVICE_FILE not found. Please add 'Environment=\"OLLAMA_HOST=<your-docker-bridge-ip>\"' to the [Service] section manually and restart the service."
+                    fi
+                fi
                 echo "Caddyfile has been created at $CADDYFILE"
                 echo "Please start Caddy manually after starting the Docker Compose stack:"
             fi
@@ -641,8 +684,8 @@ EOF"
     echo
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ ❗ To complete installation, you MUST now:"
-    echo "│"
     if [ "$API_HOST" != "http://localhost:8080" ]; then
+        echo "│"
         echo "│ If you haven't already, set up DNS for your domain:"
         echo "│   - Create an A record for $(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||') pointing to your server's IP address"
     fi
@@ -650,7 +693,7 @@ EOF"
     echo "│ Start the Helix services by running:"
     echo "│"
     echo "│ cd $INSTALL_DIR"
-    echo "│ docker compose up -d --remove-orphans"
+    echo "│ sudo docker compose up -d --remove-orphans"
     if [ "$CADDY" = true ]; then
         echo "│ sudo systemctl restart caddy"
     fi
@@ -678,13 +721,11 @@ if [ "$RUNNER" = true ]; then
         read -p "Please specify the GPU memory in GB: " GPU_MEMORY
     fi
 
-    # Determine runner tag and warmup models
+    # Determine runner tag
     if [ "$LARGE" = true ]; then
         RUNNER_TAG="${LATEST_RELEASE}-large"
-        WARMUP_MODELS=""
     else
         RUNNER_TAG="${LATEST_RELEASE}-small"
-        WARMUP_MODELS="llama3:instruct,phi3:instruct"
     fi
 
     # Determine runner token
@@ -706,17 +747,10 @@ if [ "$RUNNER" = true ]; then
 RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
-WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 OLDER_GPU="${OLDER_GPU:-false}"
 HF_TOKEN="${HF_TOKEN}"
-
-# Set warmup models parameter
-if [ -n "\$WARMUP_MODELS" ]; then
-    WARMUP_MODELS_PARAM="-e RUNTIME_OLLAMA_WARMUP_MODELS=\$WARMUP_MODELS"
-else
-    WARMUP_MODELS_PARAM=""
-fi
+EXTRA_OLLAMA_MODELS="${EXTRA_OLLAMA_MODELS}"
 
 # Set older GPU parameter
 if [ "\$OLDER_GPU" = "true" ]; then
@@ -732,10 +766,25 @@ else
     HF_TOKEN_PARAM=""
 fi
 
+# Set EXTRA_OLLAMA_MODELS parameter
+if [ -n "\$EXTRA_OLLAMA_MODELS" ]; then
+    EXTRA_OLLAMA_MODELS_PARAM="-e RUNTIME_OLLAMA_WARMUP_MODELS=\$EXTRA_OLLAMA_MODELS"
+else
+    EXTRA_OLLAMA_MODELS_PARAM=""
+fi
+
 # Check if api-1 container is running
 if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
     API_HOST="http://api:80"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
+fi
+
+# Check if helix_default network exists, create it if it doesn't
+if ! sudo docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network..."
+    sudo docker network create helix_default
+else
+    echo "helix_default network already exists."
 fi
 
 # Run the docker container
@@ -745,9 +794,9 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     --ulimit stack=67108864 \\
     --network="helix_default" \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
-    \${WARMUP_MODELS_PARAM} \\
     \${OLDER_GPU_PARAM} \\
     \${HF_TOKEN_PARAM} \\
+    \${EXTRA_OLLAMA_MODELS_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\

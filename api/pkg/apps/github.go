@@ -389,6 +389,25 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 						RequestPrepTemplate:     api.RequestPrepTemplate,
 						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 						ResponseErrorTemplate:   api.ResponseErrorTemplate,
+						Model:                   assistant.Model,
+					},
+				},
+			})
+		}
+
+		for _, zapier := range assistant.Zapier {
+			newTools = append(newTools, &types.Tool{
+				ID:          system.GenerateToolID(),
+				Created:     time.Now(),
+				Updated:     time.Now(),
+				Name:        zapier.Name,
+				Description: zapier.Description,
+				ToolType:    types.ToolTypeZapier,
+				Config: types.ToolConfig{
+					Zapier: &types.ToolZapierConfig{
+						APIKey:        zapier.APIKey,
+						Model:         zapier.Model,
+						MaxIterations: zapier.MaxIterations,
 					},
 				},
 			})

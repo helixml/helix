@@ -624,6 +624,10 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	if assistant != nil && assistant.IsActionableTemplate != "" {
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
+	// If assistant has configured a model, use it
+	if assistant != nil && assistant.Model != "" {
+		options = append(options, tools.WithModel(assistant.Model))
+	}
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, messageHistory, options...)
 	if err != nil {
@@ -699,6 +703,32 @@ func (c *Controller) WriteSession(session *types.Session) error {
 		Type:      types.WebsocketEventSessionUpdate,
 		SessionID: session.ID,
 		Owner:     session.Owner,
+		Session:   session,
+	}
+
+	_ = c.publishEvent(context.Background(), event)
+
+	return nil
+}
+
+func (c *Controller) UpdateSessionName(owner string, sessionID, name string) error {
+	log.Trace().
+		Msgf("🔵 update session name: %s %+v", sessionID, name)
+
+	err := c.Options.Store.UpdateSessionName(context.Background(), sessionID, name)
+	if err != nil {
+		log.Printf("Error adding message: %s", err)
+		return err
+	}
+	session, err := c.Options.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		return err
+	}
+
+	event := &types.WebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: sessionID,
+		Owner:     owner,
 		Session:   session,
 	}
 
@@ -842,6 +872,11 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 }
 
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
+	err := c.scheduler.Release(taskResponse.SessionID)
+	if err != nil {
+		log.Error().Err(err).Msgf("error releasing session: %s", taskResponse.SessionID)
+	}
+
 	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
 		return nil, err

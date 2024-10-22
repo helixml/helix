@@ -17,8 +17,8 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 func containsString(slice []string, target string) bool {
@@ -363,8 +363,8 @@ func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequ
 	last, _ := data.GetLastAssistantInteraction(interactions)
 	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
 		responseFormat = &openai.ChatCompletionResponseFormat{
-			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
-			Schema: last.ResponseFormat.Schema,
+			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+			// Schema: last.ResponseFormat.Schema,
 		}
 	}
 

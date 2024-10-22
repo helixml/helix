@@ -45,7 +45,12 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 	var (
 		apiTools   []*types.Tool
 		gptScripts []*types.Tool
+		zapier     []*types.Tool
 	)
+
+	// TODO: don't throw away the apis and gptscripts fields (here and in github
+	// apps), make tools an internal implementation detail, see
+	// https://github.com/helixml/helix/issues/544
 
 	for idx, assistant := range app.Assistants {
 		for _, api := range assistant.APIs {
@@ -66,12 +71,26 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 						RequestPrepTemplate:     api.RequestPrepTemplate,
 						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 						ResponseErrorTemplate:   api.ResponseErrorTemplate,
+						Model:                   assistant.Model,
 					},
 				},
 			})
 		}
 
-		app.Assistants[idx].Tools = apiTools
+		for _, assistantZapier := range assistant.Zapier {
+			zapier = append(zapier, &types.Tool{
+				Name:        assistantZapier.Name,
+				Description: assistantZapier.Description,
+				ToolType:    types.ToolTypeZapier,
+				Config: types.ToolConfig{
+					Zapier: &types.ToolZapierConfig{
+						APIKey:        assistantZapier.APIKey,
+						Model:         assistantZapier.Model,
+						MaxIterations: assistantZapier.MaxIterations,
+					},
+				},
+			})
+		}
 
 		for _, script := range assistant.GPTScripts {
 			switch {
@@ -117,7 +136,9 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 				}
 			}
 		}
-		// Append the gptscripts into the list
+
+		app.Assistants[idx].Tools = apiTools
+		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, zapier...)
 		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, gptScripts...)
 	}
 

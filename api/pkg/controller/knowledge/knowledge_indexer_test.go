@@ -5,8 +5,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/extract"
@@ -51,7 +53,12 @@ func (suite *IndexerSuite) SetupTest() {
 	suite.cfg = &config.ServerConfig{}
 	suite.cfg.RAG.IndexingConcurrency = 1
 
-	suite.reconciler, _ = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag)
+	var err error
+
+	b := &browser.Browser{}
+
+	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b)
+	suite.Require().NoError(err)
 
 	suite.reconciler.newRagClient = func(settings *types.RAGSettings) rag.RAG {
 		return suite.rag
@@ -142,11 +149,77 @@ func (suite *IndexerSuite) TestIndex() {
 		},
 	)
 
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledge.ID,
+	}).Return([]*types.KnowledgeVersion{}, nil)
+
 	// Start indexing
 	suite.reconciler.index(suite.ctx)
 
 	// Wait for the goroutines to finish
 	suite.reconciler.wg.Wait()
+}
+
+func (suite *IndexerSuite) Test_deleteOldVersions_LessThanMaxVersions() {
+	// Setup
+	knowledgeID := "test_knowledge_id"
+	maxVersions := 5
+	suite.cfg.RAG.MaxVersions = maxVersions
+
+	versions := []*types.KnowledgeVersion{
+		{ID: "1", KnowledgeID: knowledgeID, Version: "v1", Created: time.Now().Add(-3 * time.Hour)},
+		{ID: "2", KnowledgeID: knowledgeID, Version: "v2", Created: time.Now().Add(-2 * time.Hour)},
+		{ID: "3", KnowledgeID: knowledgeID, Version: "v3", Created: time.Now().Add(-1 * time.Hour)},
+	}
+
+	// Expectations
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledgeID,
+	}).Return(versions, nil)
+
+	// We don't expect any calls to DeleteKnowledgeVersion since we have fewer versions than the max
+
+	// Execute
+	err := suite.reconciler.deleteOldVersions(suite.ctx, &types.Knowledge{ID: knowledgeID})
+	suite.NoError(err)
+}
+
+func (suite *IndexerSuite) Test_deleteOldVersions_MoreThanMaxVersions() {
+	// Setup
+	knowledgeID := "test_knowledge_id"
+	maxVersions := 3
+	suite.cfg.RAG.MaxVersions = maxVersions
+
+	versions := []*types.KnowledgeVersion{
+		{ID: "1", KnowledgeID: knowledgeID, Version: "v1", Created: time.Now().Add(-5 * time.Hour)},
+		{ID: "2", KnowledgeID: knowledgeID, Version: "v2", Created: time.Now().Add(-4 * time.Hour)},
+		{ID: "3", KnowledgeID: knowledgeID, Version: "v3", Created: time.Now().Add(-3 * time.Hour)},
+		{ID: "4", KnowledgeID: knowledgeID, Version: "v4", Created: time.Now().Add(-2 * time.Hour)},
+		{ID: "5", KnowledgeID: knowledgeID, Version: "v5", Created: time.Now().Add(-1 * time.Hour)},
+	}
+
+	// Expectations
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledgeID,
+	}).Return(versions, nil)
+
+	// Expect the rag client to be called twice, once for each version
+	suite.rag.EXPECT().Delete(gomock.Any(), gomock.Eq(&types.DeleteIndexRequest{
+		DataEntityID: "test_knowledge_id-v1",
+	})).Return(nil)
+	suite.rag.EXPECT().Delete(gomock.Any(), gomock.Eq(&types.DeleteIndexRequest{
+		DataEntityID: "test_knowledge_id-v2",
+	})).Return(nil)
+
+	// Expect the two oldest versions to be deleted
+	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "1").Return(nil)
+	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "2").Return(nil)
+
+	// Execute
+	err := suite.reconciler.deleteOldVersions(suite.ctx, &types.Knowledge{ID: knowledgeID})
+
+	// Assert
+	suite.NoError(err)
 }
 
 func Test_convertChunksIntoBatches(t *testing.T) {

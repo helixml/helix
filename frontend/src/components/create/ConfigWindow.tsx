@@ -15,7 +15,6 @@ import Typography from '@mui/material/Typography'
 import React, { Dispatch, FC, SetStateAction, useEffect, useState } from 'react'
 
 import useAccount from '../../hooks/useAccount'
-import useTools from '../../hooks/useTools'
 import Window from '../widgets/Window'
 
 import {
@@ -43,14 +42,10 @@ const CreateSettingsWindow: FC<{
   onClose,
 }) => {
     const account = useAccount()
-    const tools = useTools()
     const [activeSettingsTab, setActiveSettingsTab] = useState(0)
 
-    const showTools = mode == 'inference' && account.serverConfig.tools_enabled && tools.userTools.length > 0
     const showLearn = mode == 'finetune'
-
-    const toolsTab = showTools ? 0 : -1
-    const learnTab = showTools ? 1 : 0
+    const learnTab = 0
 
     const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
       if (event.target.checked) {
@@ -66,13 +61,6 @@ const CreateSettingsWindow: FC<{
       }
     }
 
-    useEffect(() => {
-      if (!account.user) return
-      tools.loadData()
-    }, [
-      account.user,
-    ])
-
     return (
       <Window
         open
@@ -87,11 +75,6 @@ const CreateSettingsWindow: FC<{
             setActiveSettingsTab(newValue)
           }}>
             {
-              showTools && (
-                <Tab label="Active Tools" />
-              )
-            }
-            {
               showLearn && (
                 <Tab label="Finetune & RAG" />
               )
@@ -99,80 +82,6 @@ const CreateSettingsWindow: FC<{
           </Tabs>
         </Box>
         <Box>
-          {
-            showTools && activeSettingsTab == toolsTab && (
-              <Box sx={{ mt: 2 }}>
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="body1">Your Tools:</Typography>
-                    <Divider sx={{ mt: 2, mb: 2 }} />
-                    {
-                      tools.userTools.map((tool) => {
-                        return (
-                          <Box sx={{ mb: 2 }} key={tool.id}>
-                            <FormControlLabel
-                              control={
-                                <Checkbox
-                                  checked={sessionConfig.activeToolIDs.includes(tool.id)}
-                                  onChange={(event) => {
-                                    handleToolsCheckboxChange(tool.id, event)
-                                  }}
-                                />
-                              }
-                              label={(
-                                <Box>
-                                  <Box>
-                                    <Typography variant="body1">{tool.name}</Typography>
-                                  </Box>
-                                  <Box>
-                                    <Typography variant="caption">{tool.description}</Typography>
-                                  </Box>
-                                </Box>
-                              )}
-                            />
-                          </Box>
-                        )
-                      })
-                    }
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="body1">Global Tools:</Typography>
-                    <Divider sx={{ mt: 2, mb: 2 }} />
-                    {
-                      tools.globalTools.map((tool) => {
-                        return (
-                          <Box sx={{ mb: 2 }} key={tool.id}>
-                            <FormControlLabel
-                              key={tool.id}
-                              control={
-                                <Checkbox
-                                  checked={sessionConfig.activeToolIDs.includes(tool.id)}
-                                  onChange={(event) => {
-                                    handleToolsCheckboxChange(tool.id, event)
-                                  }}
-                                />
-                              }
-                              label={(
-                                <Box>
-                                  <Box>
-                                    <Typography variant="body1">{tool.name}</Typography>
-                                  </Box>
-                                  <Box>
-                                    <Typography variant="caption">{tool.description}</Typography>
-                                  </Box>
-                                </Box>
-                              )}
-                            />
-                          </Box>
-                        )
-                      })
-                    }
-                  </Grid>
-                </Grid>
-              </Box>
-            )
-          }
-
           {
             showLearn && activeSettingsTab == learnTab && (
               <Box sx={{ mt: 2 }}>

@@ -190,12 +190,12 @@ const API_FEATURE: IFeature = {
     title: 'API Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('tools')},
+    handler: (navigate) => {navigate('apps')},
   }, {
     title: 'Docs (coming soon)',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => window.open("https://docs.helix.ml/helix/develop/apps/"),
   }]
 }
 
@@ -208,7 +208,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'GPTScript Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('tools')},
+    handler: (navigate) => {navigate('apps')},
   }, {
     title: 'Docs',
     color: 'primary',

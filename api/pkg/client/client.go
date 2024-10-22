@@ -27,6 +27,11 @@ type Client interface {
 	DeleteKnowledge(id string) error
 	RefreshKnowledge(id string) error
 
+	ListSecrets() ([]*types.Secret, error)
+	CreateSecret(secret *types.CreateSecretRequest) (*types.Secret, error)
+	UpdateSecret(id string, secret *types.Secret) (*types.Secret, error)
+	DeleteSecret(id string) error
+
 	ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
 	FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error)
@@ -60,7 +65,7 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 	}
 
 	if apiKey == "" {
-		return nil, errors.New("apiKey is required, find yours in https://app.tryhelix.ai/account and set HELIX_API_KEY (and optionally HELIX_URL)")
+		return nil, errors.New("apiKey is required, find yours in your helix account page and set HELIX_API_KEY and HELIX_URL")
 	}
 
 	if !strings.HasSuffix(url, "/api/v1") {

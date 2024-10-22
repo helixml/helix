@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	model "github.com/helixml/helix/api/pkg/model"
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	gomock "go.uber.org/mock/gomock"
 )
 

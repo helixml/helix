@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -48,7 +49,12 @@ func (suite *CronSuite) SetupTest() {
 
 	suite.cfg = &config.ServerConfig{}
 
-	suite.reconciler, _ = New(suite.cfg, suite.store, suite.filestore, suite.extractor, nil)
+	var err error
+
+	b := &browser.Browser{}
+
+	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b)
+	suite.Require().NoError(err)
 
 	suite.reconciler.newRagClient = func(settings *types.RAGSettings) rag.RAG {
 		return suite.rag
