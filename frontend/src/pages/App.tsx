@@ -1,53 +1,50 @@
-import React, { FC, useCallback, useEffect, useState, useMemo, useRef } from 'react'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
-import Button from '@mui/material/Button'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import Alert from '@mui/material/Alert'
-import { v4 as uuidv4 } from 'uuid';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-
-import Page from '../components/system/Page'
-import Window from '../components/widgets/Window'
-import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import ApiIntegrations from '../components/app/ApiIntegrations'
+import APIKeysSection from '../components/app/APIKeysSection'
+import AppSettings from '../components/app/AppSettings'
+import DevelopersSection from '../components/app/DevelopersSection'
+import GPTScriptsSection from '../components/app/GPTScriptsSection'
+import KnowledgeEditor from '../components/app/KnowledgeEditor'
+import PreviewPanel from '../components/app/PreviewPanel'
 import ToolEditor from '../components/app/ToolEditor'
-import KnowledgeEditor from '../components/app/KnowledgeEditor';
-import ApiIntegrations from '../components/app/ApiIntegrations';
-import ZapierIntegrations from '../components/app/ZapierIntegrations';
-import AppSettings from '../components/app/AppSettings';
-import GPTScriptsSection from '../components/app/GPTScriptsSection';
-import APIKeysSection from '../components/app/APIKeysSection';
-import DevelopersSection from '../components/app/DevelopersSection';
-import PreviewPanel from '../components/app/PreviewPanel';
-
-import useApps from '../hooks/useApps'
+import ZapierIntegrations from '../components/app/ZapierIntegrations'
+import Page from '../components/system/Page'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import Window from '../components/widgets/Window'
+import { useStreaming } from '../contexts/streaming'
 import useAccount from '../hooks/useAccount'
+import useApi from '../hooks/useApi'
+import useApps from '../hooks/useApps'
+import useRouter from '../hooks/useRouter'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
-import useRouter from '../hooks/useRouter'
-import useApi from '../hooks/useApi'
-import useWebsocket from '../hooks/useWebsocket'
 import useThemeConfig from '../hooks/useThemeConfig'
-import { useStreaming } from '../contexts/streaming';
+import useWebsocket from '../hooks/useWebsocket'
 
 import {
-  IAssistantGPTScript,
+  APP_SOURCE_GITHUB,
+  APP_SOURCE_HELIX,
+  IApp,
   IAppUpdate,
+  IAssistantGPTScript,
+  IKnowledgeSearchResult,
+  IKnowledgeSource,
   ISession,
+  ITool,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
-  ITool,
-  APP_SOURCE_HELIX,
-  APP_SOURCE_GITHUB,
-  IApp,
-  IKnowledgeSource,
-  IKnowledgeSearchResult,
 } from '../types'
 
 
@@ -333,32 +330,42 @@ const App: FC = () => {
 
     setShowErrors(false);
 
-    const updatedApp: IAppUpdate = {
-      id: app.id,
-      config: {
-        ...app.config,
-        helix: {
-          ...app.config.helix,
-          name,
-          description,
-          external_url: app.config.helix.external_url,
-          avatar,
-          image,
-          assistants: app.config.helix.assistants.map(assistant => ({
-            ...assistant,
-            system_prompt: systemPrompt,
-            knowledge: knowledgeSources,
-            model: model,
-          })),
+    var updatedApp: IAppUpdate;
+    if (isGithubApp) {
+      // Allow github apps to only update the shared and global flags
+      updatedApp = {
+        ...app,
+        shared,
+        global,
+      };
+    } else {
+      updatedApp = {
+        id: app.id,
+        config: {
+          ...app.config,
+          helix: {
+            ...app.config.helix,
+            name,
+            description,
+            external_url: app.config.helix.external_url,
+            avatar,
+            image,
+            assistants: app.config.helix.assistants.map(assistant => ({
+              ...assistant,
+              system_prompt: systemPrompt,
+              knowledge: knowledgeSources,
+              model: model,
+            })),
+          },
+          secrets,
+          allowed_domains: allowedDomains,
         },
-        secrets,
-        allowed_domains: allowedDomains,
-      },
-      shared,
-      global,
-      owner: app.owner,
-      owner_type: app.owner_type,
-    };
+        shared,
+        global,
+        owner: app.owner,
+        owner_type: app.owner_type,
+      };
+    }
 
     // Only include github config if it exists in the original app
     if (app.config.github) {
@@ -938,7 +945,7 @@ const App: FC = () => {
                   color="secondary"
                   variant="contained"
                   onClick={() => onSave(false)}
-                  disabled={isReadOnly}
+                  disabled={isReadOnly && !isGithubApp}
                 >
                   Save
                 </Button>
