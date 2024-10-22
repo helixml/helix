@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
@@ -137,7 +138,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			assistant := &app.Config.Helix.Assistants[idx]
 			for idx := range assistant.Tools {
 				tool := assistant.Tools[idx]
-				err = s.validateTool(tool)
+				err = tools.ValidateTool(tool, s.Controller.ToolsPlanner, true)
 				if err != nil {
 					return nil, system.NewHTTPError400(err.Error())
 				}
@@ -418,7 +419,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		assistant := &update.Config.Helix.Assistants[idx]
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
-			err = s.validateTool(tool)
+			err = tools.ValidateTool(tool, s.Controller.ToolsPlanner, true)
 			if err != nil {
 				return nil, system.NewHTTPError400(err.Error())
 			}

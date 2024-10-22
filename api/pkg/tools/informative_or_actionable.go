@@ -11,8 +11,8 @@ import (
 
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type IsActionableResponse struct {
@@ -122,6 +122,11 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
+	// Use model if specified by options (e.g. use assistant model from app
+	// instead of default set by TOOLS_MODEL)
+	if opts.model != "" {
+		req.Model = opts.model
+	}
 
 	// Required for the correct openai context to be set
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
@@ -155,6 +160,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Str("history", fmt.Sprintf("%+v", history)).
 		Str("justification", actionableResponse.Justification).
 		Str("needs_tool", actionableResponse.NeedsTool).
+		Str("chosen_tool", actionableResponse.Api).
 		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 
@@ -184,6 +190,12 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options O
 				})
 			}
 		case types.ToolTypeGPTScript:
+			modelTools = append(modelTools, &modelTool{
+				Name:        tool.Name,
+				Description: tool.Description,
+				ToolType:    string(tool.ToolType),
+			})
+		case types.ToolTypeZapier:
 			modelTools = append(modelTools, &modelTool{
 				Name:        tool.Name,
 				Description: tool.Description,

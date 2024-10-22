@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -66,6 +67,7 @@ type HelixAPIServer struct {
 	inferenceServer   openai.HelixServer // Helix OpenAI server
 	knowledgeManager  knowledge.KnowledgeManager
 	router            *mux.Router
+	scheduler         scheduler.Scheduler
 }
 
 func NewServer(
@@ -80,6 +82,7 @@ func NewServer(
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.KnowledgeManager,
+	scheduler scheduler.Scheduler,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -116,6 +119,7 @@ func NewServer(
 		providerManager:  providerManager,
 		pubsub:           ps,
 		knowledgeManager: knowledgeManager,
+		scheduler:        scheduler,
 	}, nil
 }
 
@@ -300,10 +304,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	subRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
-	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.listTools)).Methods("GET")
-	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.createTool)).Methods("POST")
-	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.updateTool)).Methods("PUT")
-	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.deleteTool)).Methods("DELETE")
+	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.listSecrets)).Methods("GET")
+	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods("POST")
+	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.updateSecret)).Methods("PUT")
+	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.deleteSecret)).Methods("DELETE")
 
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods("GET")
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods("POST")

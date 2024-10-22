@@ -7,11 +7,15 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -19,7 +23,7 @@ import (
 const (
 	defaultMaxDepth    = 10  // How deep to crawl the website
 	defaultMaxPages    = 500 // How many pages to crawl before stopping
-	defaultParallelism = 20  // How many pages to crawl in parallel
+	defaultParallelism = 5   // How many pages to crawl in parallel
 	defaultUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
@@ -30,14 +34,19 @@ type Default struct {
 
 	converter *md.Converter
 	parser    readability.Parser
+
+	browser *browser.Browser
 }
 
-func NewDefault(k *types.Knowledge) (*Default, error) {
-	return &Default{
+func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
+	crawler := &Default{
 		knowledge: k,
 		converter: md.NewConverter("", true, nil),
 		parser:    readability.NewParser(),
-	}, nil
+		browser:   browser,
+	}
+
+	return crawler, nil
 }
 
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
@@ -100,6 +109,11 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	collector := colly.NewCollector(collyOptions...)
 
+	b, err := d.browser.GetBrowser()
+	if err != nil {
+		return nil, fmt.Errorf("error getting browser: %w", err)
+	}
+
 	for _, domain := range domains {
 		collector.Limit(&colly.LimitRule{
 			DomainGlob:  fmt.Sprintf("*%s*", domain),
@@ -109,33 +123,35 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	var crawledDocs []*types.CrawledDocument
 
+	visitedURLs := make(map[string]bool)
+
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		log.Trace().
+		if visitedURLs[e.Request.URL.String()] {
+			return
+		}
+
+		visited := pageCounter.Load()
+
+		log.Info().
 			Str("knowledge_id", d.knowledge.ID).
-			Str("url", e.Request.URL.String()).Msg("Visiting link")
+			Int32("visited_pages", visited).
+			Str("url", e.Request.URL.String()).Msg("visiting link")
 
-		doc := &types.CrawledDocument{
-			SourceURL: e.Request.URL.String(),
-		}
+		visitedURLs[e.Request.URL.String()] = true
 
-		// Extract title
-		doc.Title = e.ChildText("title")
-
-		// Extract description
-		doc.Description = e.ChildAttr("meta[name=description]", "content")
-
-		// Extract and convert content to markdown
-		content, err := e.DOM.Find("body").Html()
+		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
 		if err != nil {
-			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error getting body HTML")
+			log.Warn().
+				Err(err).
+				Str("url", e.Request.URL.String()).
+				Msg("error crawling URL")
 			return
 		}
 
-		doc, err = d.convertHTMLToMarkdown(content, doc)
-		if err != nil {
-			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error converting HTML to markdown")
-			return
-		}
+		log.Info().
+			Str("knowledge_id", d.knowledge.ID).
+			Str("url", e.Request.URL.String()).
+			Msg("crawled page")
 
 		crawledDocs = append(crawledDocs, doc)
 
@@ -186,12 +202,61 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	return crawledDocs, nil
 }
 
-func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url string) (*types.CrawledDocument, error) {
+
+	log.Info().Str("url", url).Msg("crawling with browser")
+
+	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
+	if err != nil {
+		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
+	}
+	defer d.browser.PutPage(page)
+
+	if d.knowledge.Source.Web.Crawler.UserAgent != "" {
+		page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
+			UserAgent: d.knowledge.Source.Web.Crawler.UserAgent,
+		})
+	}
+
+	log.Trace().Str("url", url).Msg("waiting for page to load")
+
+	err = page.Timeout(5 * time.Second).WaitLoad()
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for page to load for %s: %w", url, err)
+	}
+
+	log.Trace().Str("url", url).Msg("getting page HTML")
+
+	html, err := page.HTML()
+	if err != nil {
+		return nil, fmt.Errorf("error getting HTML for %s: %w", url, err)
+	}
+
+	article, err := d.parser.Parse(ctx, html, url)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing HTML for %s: %w", url, err)
+	}
+
+	doc := &types.CrawledDocument{
+		SourceURL:   url,
+		Content:     strings.TrimSpace(article.Content),
+		Title:       article.Title,
+		Description: article.Excerpt,
+	}
+
+	doc, err = d.convertToMarkdown(ctx, doc)
+	if err != nil {
+		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", url, err)
+	}
+
+	return doc, nil
+}
+
+func (d *Default) convertToMarkdown(ctx context.Context, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
 	if !d.knowledge.Source.Web.Crawler.Readability {
-		// If readability is turned off, try to convert HTML directly
-		markdown, err := d.converter.ConvertString(content)
+		markdown, err := d.converter.ConvertString(doc.Content)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
 		}
 
 		doc.Content = strings.TrimSpace(markdown)
@@ -199,17 +264,15 @@ func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocume
 		return doc, nil
 	}
 
-	ctx := context.Background()
-
-	// If we have readability enabled, use the readability parser
-	article, err := d.parser.Parse(ctx, content, doc.SourceURL)
+	// Pass through readability
+	article, err := d.parser.Parse(ctx, doc.Content, doc.SourceURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error parsing HTML for %s: %w", doc.SourceURL, err)
 	}
 
-	markdown, err := d.converter.ConvertString(article.Content)
+	markdown, err := d.converter.ConvertString(doc.Content)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error converting HTML to markdown for %s: %w", doc.SourceURL, err)
 	}
 
 	doc.Content = strings.TrimSpace(markdown)

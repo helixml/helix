@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -40,13 +41,19 @@ type InternalHelixServer struct {
 
 	schedulingDecisionsMu sync.Mutex
 	schedulingDecisions   []*types.GlobalSchedulingDecision
+	scheduler             scheduler.Scheduler
 }
 
-func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub) *InternalHelixServer {
+func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, scheduler scheduler.Scheduler) *InternalHelixServer {
 	return &InternalHelixServer{
-		cfg:    cfg,
-		pubsub: pubsub,
+		cfg:       cfg,
+		pubsub:    pubsub,
+		scheduler: scheduler,
 	}
+}
+
+func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+	return ListModels(ctx)
 }
 
 // TODO: move logic from controller and other places. This method would be called directly from the runner
@@ -55,23 +62,71 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
-	filteredReqs, err := filterLLMInferenceRequest(c.queue, filter)
+	// Schedule any requests that are currently in the queue.
+	taken := 0
+	for _, req := range c.queue {
+		work, err := scheduler.NewLLMWorkload(req)
+		if err != nil {
+			log.Warn().Err(err).Str("id", req.RequestID).Msg("creating workload")
+			continue
+		}
+		err = c.scheduler.Schedule(work)
+		if err != nil {
+			retry, err := scheduler.ErrorHandlingStrategy(err, work)
+
+			// If we can retry, break out of the loop and try again later
+			if retry {
+				break
+			}
+
+			// If we can't retry, write an error to the request and continue so it takes it off
+			// the queue
+			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work, removing from queue")
+
+			resp := &types.RunnerLLMInferenceResponse{
+				RequestID:     req.RequestID,
+				OwnerID:       req.OwnerID,
+				SessionID:     req.SessionID,
+				InteractionID: req.InteractionID,
+				Error:         err.Error(),
+				Done:          true,
+			}
+			bts, err := json.Marshal(resp)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
+			}
+
+			err = c.pubsub.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
+			}
+		}
+		taken++
+	}
+	// Clear processed queue
+	c.queue = c.queue[taken:]
+
+	// Default to requesting warm work
+	newWorkOnly := false
+
+	// Only get new work if the filter has a memory requirement (see runner/controller.go)
+	if filter.Memory != 0 {
+		newWorkOnly = true
+	}
+
+	// Now for this runner, get work
+	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly, filter.ModelName)
 	if err != nil {
-		return nil, fmt.Errorf("error filtering requests: %w", err)
+		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
 
-	if len(filteredReqs) == 0 {
-		return nil, nil
+	if req != nil {
+		c.addSchedulingDecision(filter, runnerID, runnerID, req.LLMInferenceRequest().SessionID, req.LLMInferenceRequest().InteractionID)
+		log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
+		return req.LLMInferenceRequest(), nil
 	}
+	return nil, nil
 
-	req, index := pickRequest(filteredReqs)
-
-	c.queue = append(c.queue[:index], c.queue[index+1:]...)
-
-	c.addSchedulingDecision(filter, runnerID, runnerID, req.SessionID, req.InteractionID)
-	log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
-
-	return req, nil
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) {
@@ -81,69 +136,16 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 	c.queue = append(c.queue, req)
 }
 
-func pickRequest(reqs []*types.RunnerLLMInferenceRequest) (*types.RunnerLLMInferenceRequest, int) {
-	if len(reqs) == 0 {
-		return nil, 0
-	}
-
-	// First look for any requests with priority
-	for idx, req := range reqs {
-		if req.Priority {
-			return req, idx
-		}
-	}
-
-	// If no requests have priority, return the first one (oldest)
-	return reqs[0], 0
-}
-
-func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter types.InferenceRequestFilter) ([]*types.RunnerLLMInferenceRequest, error) {
-	var filteredReqs []*types.RunnerLLMInferenceRequest
-
-	filterModel := types.ModelName(filter.ModelName)
-
-	for _, req := range reqs {
-		requestModel := types.ModelName(req.Request.Model)
-
-		if filter.ModelName != "" && requestModel != filter.ModelName {
-			continue
-		}
-
-		var memoryRequirement uint64
-
-		model, err := model.GetModel(requestModel)
-		if err == nil {
-			memoryRequirement = model.GetMemoryRequirements(types.SessionModeInference)
-		}
-
-		if filter.Memory != 0 && memoryRequirement > filter.Memory {
-			continue
-		}
-
-		if filter.Older != 0 && req.CreatedAt.After(time.Now().Add(-filter.Older)) {
-			continue
-		}
-
-		log.Trace().
-			Str("filter_model", filterModel.String()).
-			Str("request_id", req.RequestID).
-			Str("memory_filter_gb", fmt.Sprintf("%.2f", GiB(int64(filter.Memory)))).
-			Str("memory_requirement_gb", fmt.Sprintf("%.2f", GiB(int64(memoryRequirement)))).
-			Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest")
-
-		filteredReqs = append(filteredReqs, req)
-	}
-
-	return filteredReqs, nil
-
-}
-
-func GiB(bytes int64) float32 {
-	return float32(bytes) / 1024 / 1024 / 1024
-}
-
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
 func (c *InternalHelixServer) ProcessRunnerResponse(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {
+	if resp.Done || resp.Error != "" {
+		err := c.scheduler.Release(
+			resp.RequestID,
+		)
+		if err != nil {
+			return fmt.Errorf("error releasing allocation: %w", err)
+		}
+	}
 	bts, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("error marshalling runner response: %w", err)
@@ -179,7 +181,7 @@ func (c *InternalHelixServer) addSchedulingDecision(filter types.InferenceReques
 			Mode:  types.SessionModeInference,
 			Older: types.Duration(filter.Older),
 		},
-		ModelName: types.ModelName(model),
+		ModelName: model,
 		Mode:      types.SessionModeInference,
 	}
 

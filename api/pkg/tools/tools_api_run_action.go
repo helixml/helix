@@ -8,8 +8,8 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -36,6 +36,8 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			retry.Delay(delayBetweenApiRetries),
 			retry.Context(ctx),
 		)
+	case types.ToolTypeZapier:
+		return c.RunZapierAction(ctx, tool, history, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
@@ -47,6 +49,8 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runApiActionStream(ctx, sessionID, interactionID, tool, history, action)
+	case types.ToolTypeZapier:
+		return c.RunZapierActionStream(ctx, tool, history, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}

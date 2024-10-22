@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -186,5 +187,5 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 	}
 
 	// Return the list of Helix models
-	return openai.HelixModels, nil
+	return openai.ListModels(context.Background())
 }

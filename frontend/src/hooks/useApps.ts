@@ -11,10 +11,6 @@ import {
   APP_SOURCE_HELIX,
 } from '../types'
 
-// import {
-//   APPS,
-// } from '../fixtures'
-
 export const useApps = () => {
   const api = useApi()
   
@@ -140,15 +136,12 @@ export const useApps = () => {
   }, [api, loadData])
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
-    console.log("useApps: Updating app with ID:", id);
-    console.log("useApps: Update data:", JSON.stringify(updatedApp, null, 2));
     try {
       const url = `/api/v1/apps/${id}`;
       console.log("useApps: Request URL:", url);
       const result = await api.put<IAppUpdate, IApp>(url, updatedApp, {}, {
         snackbar: true,
-      });
-      console.log("useApps: Update result:", JSON.stringify(result, null, 2));
+      });      
       if (!result) {
         console.log("useApps: No result returned from update");
         return undefined;

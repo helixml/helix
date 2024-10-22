@@ -160,7 +160,7 @@ const Window: FC<WindowProps> = ({
                       type="button"
                       id="submitButton"
                       variant="contained"
-                      color="primary"
+                      color="secondary"
                       disabled={ disabled || loading ? true : false }
                       onClick={ onSubmit }
                     >

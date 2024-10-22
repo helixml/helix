@@ -12,7 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
+	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type HelixClient interface {
@@ -24,97 +25,26 @@ var _ HelixClient = &InternalHelixServer{}
 
 var chatCompletionTimeout = 180 * time.Second
 
-func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
-	return HelixModels, nil
-}
+func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+	ollamaModels, err := model.GetDefaultOllamaModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Ollama models: %w", err)
+	}
 
-var HelixModels = []model.OpenAIModel{
-	{
-		ID:          "helix-3.5",
-		Object:      "model",
-		OwnedBy:     "helix",
-		Name:        "Helix 3.5",
-		Description: "Llama3 8B, fast and good for everyday tasks",
-	},
-	{
-		ID:          "helix-4",
-		Object:      "model",
-		OwnedBy:     "helix",
-		Name:        "Helix 4",
-		Description: "Llama3 70B, smarter but a bit slower",
-	},
-	{
-		ID:          "helix-mixtral",
-		Object:      "model",
-		OwnedBy:     "helix",
-		Name:        "Helix Mixtral",
-		Description: "Mistral 8x7B MoE, we rely on this for some use cases",
-	},
-	{
-		ID:          "helix-json",
-		Object:      "model",
-		OwnedBy:     "helix",
-		Name:        "Helix JSON",
-		Description: "Nous-Hermes 2 Theta, for function calling & JSON output",
-	},
-	{
-		ID:          "helix-small",
-		Object:      "model",
-		OwnedBy:     "helix",
-		Name:        "Helix Small",
-		Description: "Phi-3 Mini 3.8B, fast and memory efficient",
-	},
-	// ollama spellings
-	// TODO: make these dynamic by having the runners report which models
-	// they were configured with, and union them
-	{
-		ID:      "llama3:instruct",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "llama3:70b",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "mixtral:instruct",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "adrienbrault/nous-hermes2theta-llama3-8b:q8_0",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "phi3:instruct",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "llama3:8b-instruct-fp16",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "llama3:8b-instruct-q6_K",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
-	{
-		ID:      "llama3:8b-instruct-q8_0",
-		Object:  "model",
-		OwnedBy: "helix",
-		Hide:    true,
-	},
+	var HelixModels []model.OpenAIModel
+
+	for _, m := range ollamaModels {
+		HelixModels = append(HelixModels, model.OpenAIModel{
+			ID:          m.ModelName().String(),
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        m.GetHumanReadableName(),
+			Description: m.GetDescription(),
+			Hide:        m.GetHidden(),
+		})
+	}
+
+	return HelixModels, nil
 }
 
 func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
@@ -180,10 +110,18 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	select {
 	case <-doneCh:
 	case <-ctx.Done():
+		err := c.scheduler.Release(requestID)
+		if err != nil {
+			log.Error().Err(err).Msg("error releasing allocation")
+		}
 		return openai.ChatCompletionResponse{}, fmt.Errorf("timeout waiting for runner response")
 	}
 
 	if respError != nil {
+		err := c.scheduler.Release(requestID)
+		if err != nil {
+			log.Error().Err(err).Msg("error releasing allocation")
+		}
 		return openai.ChatCompletionResponse{}, respError
 	}
 
@@ -206,6 +144,9 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}
 
 	doneCh := make(chan struct{})
+	readyCh := make(chan struct{})
+	firstRun := true
+	var respError error
 
 	pr, pw := io.Pipe()
 
@@ -230,6 +171,18 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
 
+		if runnerResp.Error != "" {
+			respError = fmt.Errorf("runner error: %s", runnerResp.Error)
+		}
+
+		// First chunk received, ready to return the stream or the error
+		// This MUST be done before the writeChunk call, otherwise it will block waiting for the
+		// reader to start
+		if firstRun {
+			close(readyCh)
+			firstRun = false
+		}
+
 		if runnerResp.StreamResponse != nil {
 			bts, err := json.Marshal(runnerResp.StreamResponse)
 			if err != nil {
@@ -242,7 +195,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 			}
 		}
 
-		if runnerResp.Done {
+		if runnerResp.Done || runnerResp.Error != "" {
 			close(doneCh)
 
 			// Ensure the buffer gets EOF so it stops reading
@@ -274,7 +227,16 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}()
 
 	// Initiate through our client
-	return client.CreateChatCompletionStream(ctx, request)
+	stream, err := client.CreateChatCompletionStream(ctx, request)
+
+	// Wait for the ready signal
+	<-readyCh
+
+	if respError != nil {
+		return nil, respError
+	}
+
+	return stream, err
 }
 
 // NewOpenAIStreamingAdapter returns a new OpenAI streaming adapter which allows
