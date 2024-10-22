@@ -9,8 +9,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 9222
-      targetPort: 9222
+    - port: 7317
+      targetPort: 7317
       protocol: TCP
       name: http
   selector:
