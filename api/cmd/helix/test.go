@@ -13,6 +13,7 @@ import (
 
 	"html/template"
 
+	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -234,7 +235,7 @@ const htmlTemplate = `
     </div>
     <div id="iframe-container">
         <div id="resize-handle"></div>
-        <div id="close-iframe" onclick="closeDashboard()">Close</div>
+        <div id="close-iframe" onclick="closeDashboard()" style="color: white;">Close</div>
         <iframe id="dashboard-iframe" src=""></iframe>
     </div>
     <div id="tooltip" class="tooltip"></div>
@@ -672,24 +673,24 @@ func deployApp(namespacedAppName string, appConfig types.AppHelixConfig) (string
 		return "", fmt.Errorf("failed to create API client: %w", err)
 	}
 
-	// Create AppHelixConfig
-	helixConfig := types.AppHelixConfig{
-		Name:        namespacedAppName,
-		Description: appConfig.Description,
-		Avatar:      appConfig.Avatar,
-		Image:       appConfig.Image,
-		ExternalURL: appConfig.ExternalURL,
-		Assistants:  appConfig.Assistants,
-		Triggers:    appConfig.Triggers,
+	// Use NewLocalApp to create the app from the original config
+	localApp, err := apps.NewLocalApp("helix.yaml")
+	if err != nil {
+		return "", fmt.Errorf("failed to create local app: %w", err)
 	}
 
+	// Get the parsed app config and override the Name field
+	parsedAppConfig := localApp.GetAppConfig()
+	parsedAppConfig.Name = namespacedAppName
+
+	// Create the app using the same logic as in applyCmd
 	app := &types.App{
 		AppSource: types.AppSourceHelix,
 		Global:    false,
 		Shared:    false,
 		Config: types.AppConfig{
 			AllowedDomains: []string{},
-			Helix:          helixConfig,
+			Helix:          *parsedAppConfig,
 		},
 	}
 
