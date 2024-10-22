@@ -33,7 +33,7 @@ export const RunnerSummary: FC<{
     >
       <Row>
         <Cell>
-          <Typography variant="h6" sx={{mr: 2}}>{ runner.id }</Typography>
+          <Typography variant="h6" sx={{mr: 2}}>{ runner.id } { runner.version }</Typography>
         </Cell>
         <Cell flexGrow={1} />
         <Cell>

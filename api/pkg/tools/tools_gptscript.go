@@ -6,7 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 func getScriptFromTool(tool *types.Tool, prompt string) *types.GptScript {

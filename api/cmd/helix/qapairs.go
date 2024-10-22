@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/spf13/cobra"
 )
 
@@ -27,8 +28,8 @@ func newQapairCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			helixInference := openai.NewInternalHelixServer(&serverConfig, ps)
-
+			scheduler := scheduler.NewScheduler(&serverConfig)
+			helixInference := openai.NewInternalHelixServer(&serverConfig, ps, scheduler)
 			client, err := createDataPrepOpenAIClient(&serverConfig, helixInference)
 			if err != nil {
 				return err

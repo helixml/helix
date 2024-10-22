@@ -39,6 +39,7 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import InputAdornment from '@mui/material/InputAdornment'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 
 import {
   ICloneInteractionMode,
@@ -51,12 +52,19 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
-  ISessionChatRequest,
 } from '../types'
 
 import {
   getAssistantInteraction,
 } from '../utils/session'
+
+import { useStreaming } from '../contexts/streaming'
+
+import Avatar from '@mui/material/Avatar'
+import { getAssistant, getAssistantAvatar, getAssistantName, getAssistantDescription } from '../utils/apps'
+import useApps from '../hooks/useApps'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import useLightTheme from '../hooks/useLightTheme'
 
 const Session: FC = () => {
   const snackbar = useSnackbar()
@@ -68,6 +76,10 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const { NewInference } = useStreaming()
+  const apps = useApps()
+  const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
+  const lightTheme = useLightTheme()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -83,6 +95,9 @@ const Session: FC = () => {
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
+  const [appID, setAppID] = useState<string | null>(null)
+  // TODO: set assistant_id to the value which we need to add to the session struct
+  const [assistantID, setAssistantID] = useState<string | null>(null)
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -119,59 +134,37 @@ const Session: FC = () => {
     let newSession: ISession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
-      
-      const urlParams = new URLSearchParams(window.location.search)
-      const appID = urlParams.get('app_id') || ''
-      let assistantID = urlParams.get('assistant_id') || ''
-      let ragSourceID = urlParams.get('rag_source_id') || ''
+      // Get the appID from session.data.parent_app instead of URL params
+      const appID = session.data.parent_app || ''
+      const ragSourceID = session.data.config.rag_source_data_entity_id || ''
 
-      if (ragSourceID === '') {
-        ragSourceID = session.data.config.rag_source_data_entity_id
-      }
-      // if we have an app but no assistant ID let's default to the first one
-      if(appID && !assistantID) {
-        assistantID = '0'
-      }
-
-      let sessionChatRequest: ISessionChatRequest = {
+      setInputValue("")
+      newSession = await NewInference({
+        message: prompt,
+        appId: appID,
+        assistantId: assistantID || undefined,
+        ragSourceId: ragSourceID,
+        modelName: session.data.model_name,
+        loraDir: session.data.lora_dir,
+        sessionId: session.data.id,
         type: session.data.type,
-        session_id: session.data.id,
-        stream: true,
-        legacy: true,
-        app_id: appID,
-        assistant_id: assistantID,
-        rag_source_id: ragSourceID,
-        model: session.data.model_name,
-        lora_dir: session.data.lora_dir,
-        messages: [{
-          role: 'user',
-          content: {
-            content_type: 'text',
-            parts: [
-              prompt,
-            ]
-          },
-        }]
-      }
-
-      console.log(session)
-  
-      newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+      })
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
       formData.set('model_name', session.data.model_name)
 
+      setInputValue("")
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
     
     if(!newSession) return
     session.reload()
 
-    setInputValue("")
   }, [
     session.data,
     session.reload,
+    NewInference,
   ])
 
   const onUpdateSharing = useCallback(async (value: boolean) => {
@@ -496,6 +489,7 @@ const Session: FC = () => {
     session.data,
   ])
 
+  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
@@ -509,6 +503,9 @@ const Session: FC = () => {
   // those links with dangerouslySetInnerHTML so it's not easy
   // to add callback handlers to those links
   // so we just call a global function that is setup here
+  //
+  // update 2024-10-08 Luke: is it still true that we're rendering links with
+  // dangerouslySetInnerHTML?
   useEffect(() => {
     const w = window as any
     w._helixHighlightAllFiles = () => {
@@ -518,6 +515,36 @@ const Session: FC = () => {
       }, 2000)
     }
   }, [])
+
+  useEffect(() => {
+    if (!session.data) return
+    const newAppID = session.data.parent_app || null
+    if (newAppID !== appID) {
+      setAppID(newAppID)
+      if (newAppID) {
+        apps.loadApp(newAppID)
+        // Set assistantID only if there's a new app ID
+        // TODO don't hard-code to '0'
+        setAssistantID('0')
+      } else {
+        // Reset assistantID when there's no app
+        setAssistantID(null)
+      }
+    }
+  }, [session.data, appID, apps])
+
+  const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
+  const activeAssistantAvatar = appID && activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
+  const activeAssistantName = appID && activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
+  const activeAssistantDescription = appID && activeAssistant && apps.app && assistantID ? getAssistantDescription(apps.app, assistantID) : ''
+
+  const handleBackToCreate = () => {
+    if (apps.app) {
+      router.navigate('new', { app_id: apps.app.id })
+    } else {
+      router.navigate('new')
+    }
+  }
 
   if(!session.data) return null
 
@@ -555,6 +582,73 @@ const Session: FC = () => {
           )
         }
       </Box>
+      {appID && apps.app && (
+        <Box
+          sx={{
+            width: '100%',
+            position: 'relative',
+            backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
+            backgroundPosition: 'top',
+            backgroundRepeat: 'no-repeat',
+            backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
+            p: 2,
+          }}
+        >
+          {appID && apps.app.config.helix.image && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                zIndex: 1,
+              }}
+            />
+          )}
+          <Box
+            sx={{
+              position: 'relative',
+              zIndex: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              pt: 4,
+              px: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconButton
+                onClick={handleBackToCreate}
+                sx={{
+                  color: 'white',
+                  mr: 2,
+                }}
+              >
+                <ArrowBackIcon />
+              </IconButton>
+              {activeAssistantAvatar && (
+                <Avatar
+                  src={activeAssistantAvatar}
+                  sx={{
+                    width: '80px',
+                    height: '80px',
+                    mb: 2,
+                    border: '2px solid #fff',
+                  }}
+                />
+              )}
+            </Box>
+            <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+              {activeAssistantName}
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
+              {activeAssistantDescription}
+            </Typography>
+          </Box>
+        </Box>
+      )}
       <Box
         id="helix-session-scroller"
         ref={ divRef }
@@ -609,7 +703,6 @@ const Session: FC = () => {
                                   '&:hover': {
                                     color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
                                   },
-                                 
                                   
                                 }}
                               />
@@ -764,7 +857,7 @@ const Session: FC = () => {
               label={(
                 (
                   session.data?.type == SESSION_TYPE_TEXT ?
-                    'Chat with Helix...' :
+                    session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
                     'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
                 ) + " (shift+enter to add a newline)"
               )}
@@ -775,6 +868,20 @@ const Session: FC = () => {
               multiline={true}
               onKeyDown={handleKeyDown}
               InputProps={{
+                startAdornment: isBigScreen && (
+                  activeAssistant ? (
+                    activeAssistantAvatar ? (
+                      <Avatar
+                        src={activeAssistantAvatar}
+                        sx={{
+                          width: '30px',
+                          height: '30px',
+                          mr: 1,
+                        }}
+                      />
+                    ) : null
+                  ) : null
+                ),
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton

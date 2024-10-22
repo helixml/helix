@@ -17,8 +17,8 @@ import (
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/puzpuzpuz/xsync/v3"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -110,7 +110,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	freePortFinder = mockFreePortFinder
 
 	// Add the runner options
-	modelName := types.Model_Ollama_Llama3_8b
+	modelName := model.Model_Ollama_Llama3_8b
 
 	ctx := context.Background()
 	runner := createTestRunner(1024*model.MB, 1*time.Millisecond)
@@ -183,19 +183,27 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	assert.Contains(t, pidStatusCode, "S")
 
 	// We've set the model instance to be stale after 1ms, so it should kill
-	aiModel, err := model.GetModel(modelName)
+	aiModel, err := model.GetModel(string(modelName))
 	assert.NoError(t, err)
 	err = runner.checkForStaleModelInstances(ctx, aiModel, types.SessionModeInference)
 	assert.NoError(t, err)
 
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	for {
 		pidStatusCode, _ = getPidStatus(cmd.Process.Pid)
 		if pidStatusCode == "" {
-			break
+			return
 		}
-		time.Sleep(1 * time.Millisecond)
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context deadline exceeded, pid status %s", pidStatusCode)
+		default:
+			time.Sleep(1 * time.Millisecond)
+		}
 	}
-	assert.Equal(t, pidStatusCode, "")
 }
 
 func TestCheckForStaleModelInstances(t *testing.T) {

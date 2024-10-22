@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
-	oai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	oai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"

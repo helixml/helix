@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
 
@@ -70,8 +70,8 @@ const (
 )
 
 type ResponseFormat struct {
-	Type   ResponseFormatType     `json:"type"`
-	Schema map[string]interface{} `json:"schema"`
+	Type       ResponseFormatType                             `json:"type"`
+	JSONSchema *openai.ChatCompletionResponseFormatJSONSchema `json:"schema"`
 }
 
 type InteractionMessage struct {
@@ -233,13 +233,11 @@ type SessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID       string `json:"app_id"`       // Assign the session settings from the specified app
-	AssistantID string `json:"assistant_id"` // Which assistant are we speaking to?
-	SessionID   string `json:"session_id"`   // If empty, we will start a new session
-	Stream      bool   `json:"stream"`       // If true, we will stream the response
-	// If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses
-	Legacy       bool        `json:"legacy"`
-	Type         SessionType `json:"type"` // e.g. text, image
+	AppID        string      `json:"app_id"`       // Assign the session settings from the specified app
+	AssistantID  string      `json:"assistant_id"` // Which assistant are we speaking to?
+	SessionID    string      `json:"session_id"`   // If empty, we will start a new session
+	Stream       bool        `json:"stream"`       // If true, we will stream the response
+	Type         SessionType `json:"type"`         // e.g. text, image
 	LoraDir      string      `json:"lora_dir"`
 	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
 	Messages     []*Message  `json:"messages"` // Initial messages
@@ -326,7 +324,7 @@ type InternalSessionRequest struct {
 	ParentSession           string
 	ParentApp               string // tools will get pulled in from here in the controller
 	AssistantID             string // target a specific assistant - defaults to "0" (i.e. the first assistant)
-	ModelName               ModelName
+	ModelName               string
 	Owner                   string
 	OwnerType               OwnerType
 	UserInteractions        []*Interaction
@@ -371,7 +369,7 @@ type Session struct {
 	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
-	ModelName ModelName `json:"model_name"`
+	ModelName string `json:"model_name"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated
@@ -447,7 +445,7 @@ type SessionMetaUpdate struct {
 
 type SessionFilterModel struct {
 	Mode      SessionMode `json:"mode"`
-	ModelName ModelName   `json:"model_name"`
+	ModelName string      `json:"model_name"`
 	LoraDir   string      `json:"lora_dir"`
 }
 
@@ -482,7 +480,7 @@ type SessionFilter struct {
 	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
-	ModelName ModelName `json:"model_name"`
+	ModelName string `json:"model_name"`
 	// the filestore path to the file being used for finetuning
 	LoraDir string `json:"lora_dir"`
 	// this means "only give me sessions that will fit in this much ram"
@@ -500,7 +498,7 @@ type SessionFilter struct {
 }
 
 type InferenceRequestFilter struct {
-	ModelName ModelName     `json:"model_name"`
+	ModelName string        `json:"model_name"`
 	Memory    uint64        `json:"memory"`
 	Older     time.Duration `json:"older"`
 }
@@ -576,10 +574,26 @@ type User struct {
 type WebsocketEvent struct {
 	Type               WebsocketEventType          `json:"type"`
 	SessionID          string                      `json:"session_id"`
+	InteractionID      string                      `json:"interaction_id"`
 	Owner              string                      `json:"owner"`
 	Session            *Session                    `json:"session"`
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
+	StepInfo           *StepInfo                   `json:"step_info"`
+}
+
+type StepInfoType string
+
+const (
+	StepInfoTypeWebSearch = "web_search"
+	StepInfoTypeRAG       = "rag"
+	StepInfoTypeToolUse   = "tool_use"
+)
+
+type StepInfo struct {
+	Name    string       `json:"name"`
+	Type    StepInfoType `json:"type"`
+	Message string       `json:"message"`
 }
 
 // the context of a long running python process
@@ -668,6 +682,7 @@ type ServerConfigForFrontend struct {
 	AppsEnabled             bool   `json:"apps_enabled"`
 	RudderStackWriteKey     string `json:"rudderstack_write_key"`
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
+	Version                 string `json:"version"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -680,7 +695,7 @@ type SessionSummary struct {
 	SessionID     string      `json:"session_id"`
 	Name          string      `json:"name"`
 	InteractionID string      `json:"interaction_id"`
-	ModelName     ModelName   `json:"model_name"`
+	ModelName     string      `json:"model_name"`
 	Mode          SessionMode `json:"mode"`
 	Type          SessionType `json:"type"`
 	Owner         string      `json:"owner"`
@@ -688,11 +703,12 @@ type SessionSummary struct {
 	// this is either the prompt or the summary of the training data
 	Summary  string `json:"summary"`
 	Priority bool   `json:"priority"`
+	AppID    string `json:"app_id,omitempty"`
 }
 
 type ModelInstanceState struct {
 	ID               string      `json:"id"`
-	ModelName        ModelName   `json:"model_name"`
+	ModelName        string      `json:"model_name"`
 	Mode             SessionMode `json:"mode"`
 	LoraDir          string      `json:"lora_dir"`
 	InitialSessionID string      `json:"initial_session_id"`
@@ -708,6 +724,7 @@ type ModelInstanceState struct {
 	// (even though we could work it out)
 	Stale       bool   `json:"stale"`
 	MemoryUsage uint64 `json:"memory"`
+	Status      string `json:"status"`
 }
 
 // the basic struct reported by a runner when it connects
@@ -722,6 +739,7 @@ type RunnerState struct {
 	Labels              map[string]string     `json:"labels"`
 	ModelInstances      []*ModelInstanceState `json:"model_instances"`
 	SchedulingDecisions []string              `json:"scheduling_decisions"`
+	Version             string                `json:"version"`
 }
 
 type DashboardData struct {
@@ -735,7 +753,7 @@ type GlobalSchedulingDecision struct {
 	RunnerID      string        `json:"runner_id"`
 	SessionID     string        `json:"session_id"`
 	InteractionID string        `json:"interaction_id"`
-	ModelName     ModelName     `json:"model_name"`
+	ModelName     string        `json:"model_name"`
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
 }
@@ -843,6 +861,7 @@ type ToolType string
 const (
 	ToolTypeAPI       ToolType = "api"
 	ToolTypeGPTScript ToolType = "gptscript"
+	ToolTypeZapier    ToolType = "zapier"
 )
 
 type Tool struct {
@@ -863,6 +882,7 @@ type Tool struct {
 type ToolConfig struct {
 	API       *ToolApiConfig       `json:"api"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
+	Zapier    *ToolZapierConfig    `json:"zapier"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -898,6 +918,8 @@ type ToolApiConfig struct {
 	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
 	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
 	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
+
+	Model string `json:"model" yaml:"model"`
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec
@@ -911,6 +933,12 @@ type ToolApiAction struct {
 type ToolGPTScriptConfig struct {
 	Script    string `json:"script"`     // Program code
 	ScriptURL string `json:"script_url"` // URL to download the script
+}
+
+type ToolZapierConfig struct {
+	APIKey        string `json:"api_key"`
+	Model         string `json:"model"`
+	MaxIterations int    `json:"max_iterations"`
 }
 
 // SessionToolBinding used to add tools to sessions
@@ -935,6 +963,14 @@ type AssistantGPTScript struct {
 	Description string `json:"description" yaml:"description"` // When to use this tool (required)
 	File        string `json:"file" yaml:"file"`
 	Content     string `json:"content" yaml:"content"`
+}
+
+type AssistantZapier struct {
+	Name          string `json:"name" yaml:"name"`
+	Description   string `json:"description" yaml:"description"`
+	APIKey        string `json:"api_key" yaml:"api_key"`
+	Model         string `json:"model" yaml:"model"`
+	MaxIterations int    `json:"max_iterations" yaml:"max_iterations"`
 }
 
 type AssistantAPI struct {
@@ -983,12 +1019,24 @@ type AssistantConfig struct {
 
 	// the list of gpt scripts this assistant will use
 	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+
+	Zapier []AssistantZapier `json:"zapier" yaml:"zapier"`
+
 	// these are populated from the APIs and GPTScripts on create and update
 	// we include tools in the JSON that we send to the browser
 	// but we don't include it in the yaml which feeds this struct because
 	// we populate the tools array from the APIs and GPTScripts arrays
 	// so - Tools is readonly - hence only JSON for the frontend to see
 	Tools []*Tool `json:"tools"`
+
+	// Add these new fields for tests
+	Tests []struct {
+		Name  string `json:"name" yaml:"name"`
+		Steps []struct {
+			Prompt         string `json:"prompt" yaml:"prompt"`
+			ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
+		} `json:"steps" yaml:"steps"`
+	} `json:"tests" yaml:"tests"`
 }
 
 type AppHelixConfig struct {
@@ -1365,6 +1413,7 @@ const (
 	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
 	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
+	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
 )
 
 // LLMCall used to store the request and response of LLM calls
@@ -1386,4 +1435,21 @@ type LLMCall struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	TotalTokens      int64
+}
+
+type CreateSecretRequest struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	AppID string `json:"app_id"`
+}
+
+type Secret struct {
+	ID        string    `json:"id,omitempty" yaml:"id,omitempty"`
+	Created   time.Time `json:"created,omitempty" yaml:"created,omitempty"`
+	Updated   time.Time `json:"updated,omitempty" yaml:"updated,omitempty"`
+	Owner     string
+	OwnerType OwnerType
+	Name      string `json:"name" yaml:"name"`
+	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
+	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
 }

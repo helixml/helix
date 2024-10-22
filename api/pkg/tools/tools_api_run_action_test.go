@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/davecgh/go-spew/spew"
 )

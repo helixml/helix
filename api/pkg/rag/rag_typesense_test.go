@@ -48,6 +48,15 @@ func (suite *TypesenseTestSuite) SetupTest() {
 	suite.ts = ts
 }
 
+func (suite *TypesenseTestSuite) Test_ensureReady() {
+	err := suite.ts.ensureReady(suite.ctx)
+	suite.Require().NoError(err)
+
+	// Call it again
+	err = suite.ts.ensureReady(suite.ctx)
+	suite.Require().NoError(err)
+}
+
 func (suite *TypesenseTestSuite) TestIndexAndQuery() {
 	// Index sample data
 	sampleDocs := []types.SessionRAGIndexChunk{
@@ -169,6 +178,15 @@ func (suite *TypesenseTestSuite) TestIndexQueryAndDelete() {
 	results, err := suite.ts.Query(suite.ctx, &query)
 	suite.Require().NoError(err)
 	suite.Require().Len(results, 2)
+
+	// Query with limits
+	results, err = suite.ts.Query(suite.ctx, &types.SessionRAGQuery{
+		DataEntityID: "doc1",
+		Prompt:       "AI",
+		MaxResults:   1,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 1, "Expected max results to be 1 as we specified it")
 
 	// Delete documents for doc1
 	deleteReq := &types.DeleteIndexRequest{

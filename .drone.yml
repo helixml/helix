@@ -38,6 +38,7 @@ steps:
     TYPESENSE_URL: http://typesense:8108
     TYPESENSE_API_KEY: typesense
     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   commands:
     - go test -v ./...
   when:
@@ -46,10 +47,11 @@ steps:
   depends_on: []
 
 - name: release-backend
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.22.5-bullseye
   when:
     event:
     - tag
+    - push
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -61,17 +63,19 @@ steps:
       else
         VERSION_FLAG=""
       fi
-      CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
+      CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
     - ./helix-linux-amd64 version
-    - apk add --no-cache github-cli sed
+    - apt-get update && apt-get install -y curl
+    - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    - apt-get update && apt-get install -y gh
+    - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
     - |
       if [ -n "$DRONE_TAG" ]; then
-        # Update docker-compose.yaml with the new tag
-        sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
-          echo "Uploading helix binaries and docker-compose.yaml to release $RELEASE"
-          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 docker-compose.yaml
+          echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
+          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
         else
           echo "No matching release found for tag $DRONE_TAG"
         fi
@@ -92,7 +96,9 @@ services:
   image: typesense/typesense:27.0
   command: ["--data-dir", "/tmp", "--api-key", "typesense"]
 - name: tika
-  image: apache/tika:2.9.2.1  
+  image: apache/tika:2.9.2.1
+- name: chrome
+  image: ghcr.io/go-rod/rod:v0.115.0
 
 ---
 kind: pipeline
@@ -118,7 +124,7 @@ steps:
     password:
       from_secret: helix_registry_password
     build_args:
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} # Required for sentry
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -156,7 +162,8 @@ steps:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-empty
+      - TAG=2024-10-16b-empty
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
@@ -164,44 +171,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
-    event:
-    - tag
-    - push
-
-depends_on:
-- default
-
----
-kind: pipeline
-type: docker
-name: build-gptscript-runner
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.gptscript
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/gptscript-runner
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-    - main
     event:
     - tag
     - push
@@ -235,7 +204,8 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-small
+      - TAG=2024-10-16b-small
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
       from_secret: helix_registry_password
@@ -247,7 +217,36 @@ steps:
     - main
     event:
     - tag
+
+- name: publish-runner-branch
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with small models = small
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-10-16b-small
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+      exclude:
+      - main
+    event:
     - push
+
 
 depends_on:
 - default
@@ -278,7 +277,72 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-22b-large
+      - TAG=2024-10-16b-large
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+
+- name: publish-runner-branch
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_COMMIT_SHA:-main}-large"
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with large models = large
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-10-16b-large
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+      exclude:
+      - main
+    event:
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
+name: build-gptscript-runner
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-image
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.gptscript
+    auto_tag: true
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/gptscript-runner
     username: admin
     password:
       from_secret: helix_registry_password
@@ -402,3 +466,18 @@ steps:
 
 depends_on:
 - default
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

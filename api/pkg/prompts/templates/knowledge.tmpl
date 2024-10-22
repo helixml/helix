@@ -2,8 +2,12 @@
 We have found the following context you may refer to in your answer:
 {{- range .RagResults }}
 <article>
+<document_id>
 DocumentID: {{ .DocumentID }}
+</document_id>
+<content>
 Content: {{ .Content }}
+</content>
 </article>
 {{- end }}
 
@@ -15,21 +19,27 @@ Here is some background knowledge context that you may refer to in your answer:
 {{- range .KnowledgeResults }}
 <article>
 {{- if .Source }}
-Source: {{ .Source }}
+<source>
+Source URL: {{ .Source }}
+</source>
 {{- end }}
 {{- if .Description }}
+<description>
 Description: {{ .Description }}
+</description>
 {{- end }}
+<content>
 Content: {{ .Content }}
+</content>
 </article>
 {{- end }}
 
-If you have used the background knowledge in your answer, then provide a list of markdown bullet 
-points at the end of your answer with the relevant sources used such as 
-- [Source 1 URL]
-- [Source 2 URL]
+If you have used the background knowledge in your answer, then provide a list of bullet
+points at the end of your answer with the relevant source URLs used such as:
+- [https://example1.com](https://example1.com)
+- [https://example2.com](https://example2.com)
 
-Do not repeat the same source link twice. Only include sources that were actually used in the answer.
+Do not repeat the same source link twice. Only include sources that were actually used in the answer. Only include sources that were in the <source> tags.
 
 For example:
 "
@@ -40,8 +50,8 @@ curl https://my.webhookrelay.com/webhookrelay/downloads/install-cli.sh | bash
 And then run login command to authenticate.
 
 You can find more information about this topic in:
-- https://example.com/agent/install.
-- https://example.com/agent/login.
+- [https://example.com/agent/install](https://example.com/agent/install)
+- [https://example.com/agent/login](https://example.com/agent/login)
 "	
 {{- end }}
 

@@ -24,6 +24,12 @@ tika:
     repository: apache/tika
     tag: "2.9.2.1"
 
+chrome:
+  enabled: true
+  image:
+    repository: ghcr.io/go-rod/rod
+    tag: "v0.115.0"
+
 typesense:
   enabled: true
   apiKey: typesense

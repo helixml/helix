@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState } from 'react'
+import React, { FC, useCallback, useState, useEffect } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -18,18 +18,23 @@ import ClickLink from '../widgets/ClickLink'
 import useSessions from '../../hooks/useSessions'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
+import useApps from '../../hooks/useApps'
+import useAccount from '../../hooks/useAccount' // Add this import
 
 import {
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
+  ISession,
+  IApp,
+  ISessionSummary,  // Add this import
 } from '../../types'
 
+import Avatar from '@mui/material/Avatar'
+
 export const SessionsMenu: FC<{
-  onOpenSession: {
-    (): void,
-  },
+  onOpenSession: () => void,
 }> = ({
   onOpenSession,
 }) => {
@@ -39,6 +44,37 @@ export const SessionsMenu: FC<{
     navigate,
     params,
   } = useRouter()
+  const apps = useApps()
+  const account = useAccount() // Add this line
+
+  useEffect(() => {
+    // Only load apps data if it hasn't been loaded yet and the user is logged in
+    if (apps.data.length === 0 && account.user) {
+      apps.loadData()
+    }
+  }, [apps, account.user])
+
+  const getSessionIcon = (session: ISession | ISessionSummary) => {
+    if ('app_id' in session && session.app_id && apps.data) {
+      const app = apps.data.find((app: IApp) => app.id === session.app_id)
+      if (app && app.config.helix.avatar) {
+        return (
+          <Avatar
+            src={app.config.helix.avatar}
+            sx={{
+              width: 24,
+              height: 24,
+            }}
+          />
+        )
+      }
+    }
+
+    if (session.mode === SESSION_MODE_INFERENCE && session.type === SESSION_TYPE_IMAGE) return <ImageIcon color="primary" />
+    if (session.mode === SESSION_MODE_INFERENCE && session.type === SESSION_TYPE_TEXT) return <DeveloperBoardIcon color="primary" />
+    if (session.mode === SESSION_MODE_FINETUNE && session.type === SESSION_TYPE_IMAGE) return <PermMediaIcon color="primary" />
+    if (session.mode === SESSION_MODE_FINETUNE && session.type === SESSION_TYPE_TEXT) return <ModelTrainingIcon color="primary" />
+  }
 
   return (
     <>
@@ -50,7 +86,7 @@ export const SessionsMenu: FC<{
       >
         {
           sessions.sessions.map((session, i) => {
-            const isActive = session.session_id == params["session_id"]
+            const isActive = session.session_id === params["session_id"]
             return (
               <ListItem
                 sx={{
@@ -78,10 +114,7 @@ export const SessionsMenu: FC<{
                   <ListItemIcon
                     sx={{color:'red'}}
                   >
-                    { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" sx={{color: isActive ? '#fff' : ''}}/> }
-                    { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DeveloperBoardIcon color="primary"  sx={{color: isActive ? '#fff' : ''}} /> }
-                    { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary"  sx={{color: isActive ? '#fff' : ''}} /> }
-                    { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary"  sx={{color: isActive ? '#fff' : ''}} /> }
+                    {getSessionIcon(session)}
                   </ListItemIcon>
                   <ListItemText
                     sx={{marginLeft: "-15px"}}

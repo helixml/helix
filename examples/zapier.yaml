@@ -1,0 +1,13 @@
+# First, create a secret ZAPIER_API_KEY (get it from https://actions.zapier.com/credentials/)
+# helix secret create --name ZAPIER_API_KEY
+name: zapier-email-app
+description: App example that integrates with Gmail using Zapier NLP Actions
+assistants:
+- name: Email integration
+  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  zapier:
+  - name: email_reader
+    description: Can read emails
+    api_key: "${ZAPIER_API_KEY}"
+    model: "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    max_iterations: 6

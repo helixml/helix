@@ -9,8 +9,8 @@ import (
 
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*RunActionResponse, error) {
@@ -28,7 +28,7 @@ func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, intera
 
 func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, statusCode int, body []byte) (*RunActionResponse, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
-	req := c.prepareChatCompletionRequest(messages, false)
+	req := c.prepareChatCompletionRequest(messages, false, tool.Config.API.Model)
 
 	ctx = c.setContextAndStep(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse)
 
@@ -49,7 +49,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 
 func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, statusCode int, body []byte) (*openai.ChatCompletionStream, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
-	req := c.prepareChatCompletionRequest(messages, true)
+	req := c.prepareChatCompletionRequest(messages, true, tool.Config.API.Model)
 
 	ctx = c.setContextAndStep(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse)
 
@@ -86,6 +86,10 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 		Stream:   false,
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
+	}
+	// override with tool model if specified
+	if tool.Config.API.Model != "" {
+		req.Model = tool.Config.API.Model
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
@@ -155,19 +159,23 @@ func (c *ChainStrategy) prepareSuccessMessages(tool *types.Tool, history []*type
 		},
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
-			Content: "Now present the response in a non-tech way. If the API response is empty, say that there's nothing of that type available.\n\n" + systemPrompt,
+			Content: systemPrompt,
 		},
 	)
 
 	return messages
 }
 
-func (c *ChainStrategy) prepareChatCompletionRequest(messages []openai.ChatCompletionMessage, stream bool) openai.ChatCompletionRequest {
-	return openai.ChatCompletionRequest{
+func (c *ChainStrategy) prepareChatCompletionRequest(messages []openai.ChatCompletionMessage, stream bool, overrideModel string) openai.ChatCompletionRequest {
+	req := openai.ChatCompletionRequest{
 		Stream:   stream,
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
+	if overrideModel != "" {
+		req.Model = overrideModel
+	}
+	return req
 }
 
 func (c *ChainStrategy) setContextAndStep(ctx context.Context, sessionID, interactionID string, step types.LLMCallStep) context.Context {
@@ -195,7 +203,8 @@ func (c *ChainStrategy) logLLMCallAsync(sessionID, interactionID string, started
 	}()
 }
 
-const successResponsePrompt = `Present the key information in a concise manner.
+const successResponsePrompt = `Now present the response in a non-tech way. If the API response is empty, say that there's nothing of that type available.
+Present the key information in a concise manner.
 Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability where appropriate, but don't mention formatting in your response unless it's relevant to the user's query.
 Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
 

@@ -6,7 +6,7 @@ package tools
 // 	"time"
 
 // 	"github.com/helixml/helix/api/pkg/types"
-// 	openai "github.com/lukemarsden/go-openai2"
+// 	openai "github.com/sashabaranov/go-openai"
 // 	"github.com/rs/zerolog/log"
 // )
 

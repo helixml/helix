@@ -13,11 +13,12 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -69,6 +70,8 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
+	scheduler := scheduler.NewScheduler(cfg)
+
 	c, err := NewController(context.Background(), ControllerOptions{
 		Config:          cfg,
 		Store:           suite.store,
@@ -77,6 +80,7 @@ func (suite *ControllerSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
+		Scheduler:       scheduler,
 	})
 	suite.NoError(err)
 
@@ -148,6 +152,9 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 	}
 
 	suite.store.EXPECT().GetApp(suite.ctx, "app_id").Return(app, nil)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.user.ID,
+	}).Return([]*types.Secret{}, nil)
 
 	plainTextKnowledge := "foo bar"
 
@@ -188,6 +195,49 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 			},
 		},
 	}, resp)
+}
+
+func (suite *ControllerSuite) Test_EvaluateSecrets() {
+	app := &types.App{
+		ID:     "app_id",
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						ID: "0",
+						Tools: []*types.Tool{
+							{
+								ID: "tool_id",
+								Config: types.ToolConfig{
+									API: &types.ToolApiConfig{
+										Model: "gpt-4o",
+										Headers: map[string]string{
+											"X-Secret-Key": "${API_KEY}",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.user.ID,
+	}).Return([]*types.Secret{
+		{
+			Name:  "API_KEY",
+			Value: []byte("secret_value"),
+		},
+	}, nil)
+
+	app, err := suite.controller.evaluateSecrets(suite.ctx, suite.user, app)
+	suite.NoError(err)
+
+	suite.Equal(app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"], "secret_value")
 }
 
 func Test_setSystemPrompt(t *testing.T) {
