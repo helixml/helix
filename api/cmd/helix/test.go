@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -353,14 +355,15 @@ func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
 	}
 
 	fmt.Printf("Deployed app with ID: %s\n", appID)
+	fmt.Printf("Running tests...\n")
 
-	// defer func() {
-	// 	// Clean up the app after the test
-	// 	err := deleteApp(namespacedAppName)
-	// 	if err != nil {
-	// 		fmt.Printf("Error deleting app: %v\n", err)
-	// 	}
-	// }()
+	defer func() {
+		// Clean up the app after the test
+		err := deleteApp(namespacedAppName)
+		if err != nil {
+			fmt.Printf("Error deleting app: %v\n", err)
+		}
+	}()
 
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -657,6 +660,12 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 
 	fmt.Printf("\nResults written to %s\n", jsonFilename)
 	fmt.Printf("HTML report written to %s\n", htmlFilename)
+
+	// Attempt to open the HTML report in the default browser
+	if isGraphicalEnvironment() {
+		openBrowser(htmlFilename)
+	}
+
 	return nil
 }
 
@@ -732,4 +741,45 @@ func deleteApp(namespacedAppName string) error {
 	}
 
 	return nil
+}
+
+// isGraphicalEnvironment checks if the user is in a graphical environment
+func isGraphicalEnvironment() bool {
+	switch runtime.GOOS {
+	case "linux":
+		// Check for common Linux graphical environment variables
+		display := os.Getenv("DISPLAY")
+		wayland := os.Getenv("WAYLAND_DISPLAY")
+		return display != "" || wayland != ""
+	case "darwin":
+		// On macOS, we assume a graphical environment is always present
+		return true
+	case "windows":
+		// On Windows, check if the process is interactive
+		_, err := exec.LookPath("cmd.exe")
+		return err == nil
+	default:
+		// For other operating systems, assume no graphical environment
+		return false
+	}
+}
+
+// openBrowser attempts to open the given URL in the default browser
+func openBrowser(url string) {
+	var err error
+
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+
+	if err != nil {
+		fmt.Printf("Error opening browser: %v\n", err)
+	}
 }
