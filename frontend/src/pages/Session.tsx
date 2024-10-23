@@ -522,7 +522,10 @@ const Session: FC = () => {
     if (newAppID !== appID) {
       setAppID(newAppID)
       if (newAppID) {
-        apps.loadApp(newAppID)
+        // we pass false to avoid snackbar errors in the case where we're
+        // loading a session for an app that has since been deleted (common case
+        // in viewing test sessions)
+        apps.loadApp(newAppID, false)
         // Set assistantID only if there's a new app ID
         // TODO don't hard-code to '0'
         setAssistantID('0')
