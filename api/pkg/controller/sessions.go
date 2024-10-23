@@ -160,7 +160,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		return nil, err
 	}
 
-	if newSession.Mode == types.SessionModeFinetune {
+	if newSession.Mode == types.SessionModeFinetune && !newSession.Metadata.RagEnabled {
 		err := c.Options.Notifier.Notify(ctx, &notification.Notification{
 			Event:   notification.EventFinetuningStarted,
 			Session: &newSession,
