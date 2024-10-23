@@ -43,7 +43,7 @@ export const useApps = () => {
     // setData(APPS)
   }, [])
 
-  const loadApp = useCallback(async (id: string, showErrors: boolean) => {
+  const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
     if(!id) return
     const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
       snackbar: showErrors,
