@@ -696,8 +696,9 @@ const App: FC = () => {
     snackbar.success('Tool deleted successfully');
   }, [app, snackbar, onSave]);
 
-  const onSaveApiTool = useCallback((tool: ITool) => {
+  const onSaveApiTool = useCallback(async (tool: ITool) => {
     if (!app) return;
+    console.log('saving api tool', tool);
 
     const updatedAssistants = app.config.helix.assistants.map(assistant => ({
       ...assistant,
@@ -706,45 +707,48 @@ const App: FC = () => {
         : [...assistant.tools, tool]
     }));
 
-    setApp(prevApp => ({
-      ...prevApp!,
+    const updatedApp = {
+      ...app,
       config: {
-        ...prevApp!.config,
+        ...app.config,
         helix: {
-          ...prevApp!.config.helix,
+          ...app.config.helix,
           assistants: updatedAssistants,
         },
       },
-    }));
+    };    
 
-    setTools(prevTools => {
-      const updatedTools = prevTools.filter(t => t.id !== tool.id);
-      return [...updatedTools, tool];
-    });
+    const result = await apps.updateApp(app.id, updatedApp);
+    if (result) {
+      setApp(result);
+    }
 
     snackbar.success('API Tool saved successfully');
   }, [app, snackbar]);
 
-  const onDeleteApiTool = useCallback((toolId: string) => {
+  const onDeleteApiTool = useCallback(async (toolId: string) => {
     if (!app) return;
 
     const updatedAssistants = app.config.helix.assistants.map(assistant => ({
       ...assistant,
       tools: assistant.tools.filter(tool => tool.id !== toolId)
-    }));
+    }));    
 
-    setApp(prevApp => ({
-      ...prevApp!,
+    const updatedApp = {
+      ...app,
       config: {
-        ...prevApp!.config,
+        ...app.config,
         helix: {
-          ...prevApp!.config.helix,
+          ...app.config.helix,
           assistants: updatedAssistants,
         },
       },
-    }));
+    };    
 
-    setTools(prevTools => prevTools.filter(tool => tool.id !== toolId));
+    const result = await apps.updateApp(app.id, updatedApp);
+    if (result) {
+      setApp(result);
+    }
 
     snackbar.success('API Tool deleted successfully');
   }, [app, snackbar]);
