@@ -59,7 +59,6 @@ In this example, we have an assistant named math_assistant using the `llama3:ins
 Tips for Writing Effective Tests
 
 - Be Specific: Clearly define the prompts and expected outputs.
-- Multiple Steps: You can include multiple steps in a test to simulate a conversation.
 - Edge Cases: Include tests for edge cases or common failure points.
 - Consistent Formatting: Ensure the expected output matches the assistant’s expected response format.
 
@@ -263,7 +262,7 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 - Q: What models are supported for testing?
   A: You can specify any model supported by Helix in your assistant configuration. Ensure the model name is correct and available.
 - Q: How do I handle asynchronous or multi-turn conversations in tests?
-  A: Use multiple steps within a test to simulate a conversation. Each step can include a prompt and the expected assistant response.
+  A: Unfortunately this isn't supported yet. Let us know if you're interested!
 
 ## Conclusion
 
