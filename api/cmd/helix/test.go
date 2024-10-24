@@ -697,6 +697,10 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
 	}
+	err = os.WriteFile("summary_latest.md", []byte(summaryContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing summary to markdown file: %v", err)
+	}
 
 	// Create a client for uploading
 	apiClient, err := client.NewClientFromEnv()
