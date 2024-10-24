@@ -452,8 +452,9 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 
 					result, err := runSingleTest(assistantName, testName, step, appID, apiKey, helixURL, assistant.Model)
 					if err != nil {
+						result.Reason = err.Error()
+						result.Result = "ERROR"
 						fmt.Printf("Error running test %s: %v\n", testName, err)
-						return
 					}
 
 					resultsChan <- result
@@ -495,6 +496,15 @@ func runSingleTest(assistantName, testName string, step struct {
 }, appID, apiKey, helixURL, model string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
+	// partial result in case of error
+	result := TestResult{
+		TestName: fmt.Sprintf("%s - %s", assistantName, testName),
+		Prompt:   step.Prompt,
+		Expected: step.ExpectedOutput,
+		Model:    model,
+		HelixURL: helixURL,
+	}
+
 	chatReq := ChatRequest{
 		Messages: []Message{
 			{
@@ -510,7 +520,7 @@ func runSingleTest(assistantName, testName string, step struct {
 
 	responseContent, chatResp, err := sendChatRequest(chatReq, apiKey, helixURL)
 	if err != nil {
-		return TestResult{}, err
+		return result, err
 	}
 
 	inferenceTime := time.Since(inferenceStartTime)
@@ -533,24 +543,17 @@ func runSingleTest(assistantName, testName string, step struct {
 
 	evalContent, _, err := sendChatRequest(evalReq, apiKey, helixURL)
 	if err != nil {
-		return TestResult{}, err
+		return result, err
 	}
 
 	evaluationTime := time.Since(evaluationStartTime)
 
-	result := TestResult{
-		TestName:       fmt.Sprintf("%s - %s", assistantName, testName),
-		Prompt:         step.Prompt,
-		Response:       responseContent,
-		Expected:       step.ExpectedOutput,
-		Result:         evalContent[:4],
-		Reason:         evalContent[5:],
-		SessionID:      chatResp.ID,
-		Model:          model,
-		InferenceTime:  inferenceTime,
-		EvaluationTime: evaluationTime,
-		HelixURL:       helixURL, // Add this line
-	}
+	result.Response = responseContent
+	result.Result = evalContent[:4]
+	result.Reason = evalContent[5:]
+	result.SessionID = chatResp.ID
+	result.InferenceTime = inferenceTime
+	result.EvaluationTime = evaluationTime
 
 	return result, nil
 }
