@@ -724,9 +724,9 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		return fmt.Errorf("error uploading summary markdown: %v", err)
 	}
 
-	fmt.Printf("\nResults written to %s\n", jsonPath)
-	fmt.Printf("HTML report written to %s\n", htmlPath)
-	fmt.Printf("Summary written to %s\n", summaryPath)
+	fmt.Printf("\nResults written to %s\n", jsonFilename)
+	fmt.Printf("HTML report written to %s\n", htmlFilename)
+	fmt.Printf("Summary written to %s\n", summaryFilename)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
