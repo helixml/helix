@@ -70,6 +70,11 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 
 	// Enqueue the first request
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Recovered from panic in OllamaInferenceModelInstance.Start: %v, work probably lost", r)
+			}
+		}()
 		i.workCh <- request
 	}()
 
@@ -154,6 +159,12 @@ func (i *OllamaInferenceModelInstance) Start(_ context.Context) error {
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Recovered from panic in OllamaInferenceModelInstance.Start: %v, work probably lost", r)
+			}
+		}()
+
 		for {
 			select {
 			case <-i.ctx.Done():
@@ -211,6 +222,8 @@ func (i *OllamaInferenceModelInstance) Start(_ context.Context) error {
 
 				log.Info().Str("session_id", req.SessionID).Msg("🟢 enqueuing request")
 
+				// this can fail because workCh is closed, in which case we
+				// recover above
 				i.workCh <- req
 			}
 		}
@@ -282,10 +295,8 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 		// the environment is global. ensure we speak to the right ollama server by
 		// only allowing one client to be created at a time
 
-		// XXX try to fix hanging tests
-
-		// i.ollamaClientMutex.Lock()
-		// defer i.ollamaClientMutex.Unlock()
+		i.ollamaClientMutex.Lock()
+		defer i.ollamaClientMutex.Unlock()
 
 		os.Setenv("OLLAMA_HOST", ollamaHost)
 		i.client, err = api.ClientFromEnvironment()
