@@ -82,13 +82,13 @@ func (suite *QuerySuite) SetupTest() {
 
 func (suite *QuerySuite) TestAnswer() {
 	// TODO:
-	suite.T().Skip()
+	// suite.T().Skip()
 
 	knowledge := &types.Knowledge{
-		Name:    "jenkins",
-		ID:      "kno_01j8ga2sr3cgkkycrnyzjmvppy",
-		AppID:   "app_01j8ab5q5xpfc3kgxt0a8j3ghd",
-		Version: "2024-10-13_15-07-27",
+		Name:    "whr-docs",
+		ID:      "kno_01jb21kpj5kjmngy419agfgbam",
+		AppID:   "app_01jb21k5rgkxahj0wmrn42tyrx",
+		Version: "2024-10-25_14-34-44",
 		State:   types.KnowledgeStateReady,
 	}
 
