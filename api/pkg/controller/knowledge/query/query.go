@@ -3,14 +3,17 @@ package query
 import (
 	"context"
 	"fmt"
+	"sync"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/helixml/helix/api/pkg/openai"
 	helix_langchain "github.com/helixml/helix/api/pkg/openai/langchain"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/rs/zerolog/log"
+	"github.com/sourcegraph/conc/pool"
 	"github.com/tmc/langchaingo/chains"
 	"github.com/tmc/langchaingo/schema"
 )
@@ -51,7 +54,55 @@ func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *typ
 		return "", fmt.Errorf("error listing knowledge: %w", err)
 	}
 
-	return q.research(ctx, llm, prompt, knowledgeList)
+	log.Info().Msg("generating variations")
+
+	variations, err := q.createVariations(ctx, prompt, 8)
+	if err != nil {
+		return "", fmt.Errorf("error creating variations: %w", err)
+	}
+
+	log.Info().Msgf("researching %d variations", len(variations))
+
+	pool := pool.New().
+		WithMaxGoroutines(len(variations)).
+		WithErrors()
+
+	var results []string
+	var resultsMu sync.Mutex
+
+	for _, variation := range variations {
+		variation := variation
+
+		pool.Go(func() error {
+			answer, err := q.research(ctx, llm, variation, knowledgeList)
+			if err != nil {
+				log.
+					Err(err).
+					Str("variation", variation).
+					Msg("error researching")
+				return err
+			}
+
+			resultsMu.Lock()
+			results = append(results, answer)
+			resultsMu.Unlock()
+
+			return nil
+		})
+	}
+
+	err = pool.Wait()
+	if err != nil {
+		log.Warn().Err(err).Msg("error while researching variations")
+	}
+
+	if len(results) == 0 {
+		return "", fmt.Errorf("no results found")
+	}
+
+	log.Info().Msg("combining results")
+
+	return q.combineResults(ctx, llm, prompt, results)
 }
 
 func (q *Query) research(ctx context.Context, llm *helix_langchain.LangchainAdapter, promptVariation string, knowledgeList []*types.Knowledge) (string, error) {
@@ -59,6 +110,11 @@ func (q *Query) research(ctx context.Context, llm *helix_langchain.LangchainAdap
 	if err != nil {
 		return "", fmt.Errorf("error getting documents: %w", err)
 	}
+
+	log.Info().
+		Str("variation", promptVariation).
+		Int("documents", len(docs)).
+		Msg("researching documents")
 
 	stuffQAChain := chains.LoadStuffQA(llm)
 
@@ -151,4 +207,38 @@ func (q *Query) listKnowledge(ctx context.Context, appID string, assistant *type
 	}
 
 	return knowledge, nil
+}
+
+func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.LangchainAdapter, prompt string, results []string) (string, error) {
+
+	stuffQAChain := chains.LoadStuffQA(llm)
+
+	var docs []schema.Document
+	for _, result := range results {
+		docs = append(docs, schema.Document{
+			PageContent: result,
+		})
+	}
+
+	answer, err := chains.Call(context.Background(), stuffQAChain, map[string]any{
+		"input_documents": docs,
+		"question":        prompt,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error calling QA chain: %w", err)
+	}
+
+	intf, ok := answer["text"]
+	if !ok {
+		spew.Dump(answer)
+		return "", fmt.Errorf("no answer found")
+	}
+
+	answerStr, ok := intf.(string)
+	if !ok {
+		spew.Dump(answer)
+		return "", fmt.Errorf("answer is not a string")
+	}
+
+	return answerStr, nil
 }
