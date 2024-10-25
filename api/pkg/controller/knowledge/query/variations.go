@@ -18,15 +18,15 @@ Given the following prompt:
 
 "{{ .Prompt}}"
 
-Generate {{.NumVariations }} variations of this prompt with similar meanings, focusing on the most important keywords. Each variation should be on a new line. The variations should be:
+Generate {{.NumVariations }} variations of this prompt with similar meanings, focusing on the most important keywords. Each variation should be on a new line. The variations should include:
 
-1. A rephrased version of the original prompt
-2. A more concise version of the original prompt
-3. A slightly expanded version of the original prompt, adding some context
-4. A version that focuses on a specific aspect of the original prompt
-5. A version containing only the most important keywords from the original prompt
+A rephrased version of the original prompt
+A more concise version of the original prompt
+A slightly expanded version of the original prompt, adding some context
+A version that focuses on a specific aspect of the original prompt
+A version containing only the most important keywords from the original prompt
 
-Ensure that each variation maintains the core meaning and intent of the original prompt.
+Ensure that each variation maintains the core meaning and intent of the original prompt. Do not number the variations or add any text before or after the list of variations.
 	`
 )
 
