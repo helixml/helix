@@ -44,7 +44,7 @@ func (q *Query) createVariations(ctx context.Context, prompt string, numVariatio
 		return nil, fmt.Errorf("error preparing variation chat completion request: %w", err)
 	}
 
-	ctx = q.setContextAndStep(ctx, "", "", types.LLMCallStepCreateVariations)
+	ctx = q.setContextAndStep(ctx, types.LLMCallStepCreateVariations)
 
 	resp, err := q.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -54,13 +54,7 @@ func (q *Query) createVariations(ctx context.Context, prompt string, numVariatio
 	return q.getVariationsFromResponse(resp)
 }
 
-func (q *Query) setContextAndStep(ctx context.Context, sessionID, interactionID string, step types.LLMCallStep) context.Context {
-	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       "system",
-		SessionID:     sessionID,
-		InteractionID: interactionID,
-	})
-
+func (q *Query) setContextAndStep(ctx context.Context, step types.LLMCallStep) context.Context {
 	return oai.SetStep(ctx, &oai.Step{
 		Step: step,
 	})
