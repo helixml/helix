@@ -46,39 +46,39 @@ func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *typ
 		return "", fmt.Errorf("error creating LLM client: %w", err)
 	}
 
-	knowledge, err := q.listKnowledge(ctx, appID, assistant)
+	knowledgeList, err := q.listKnowledge(ctx, appID, assistant)
 	if err != nil {
 		return "", fmt.Errorf("error listing knowledge: %w", err)
 	}
 
-	spew.Dump(knowledge)
+	return q.research(ctx, llm, prompt, knowledgeList)
+}
 
-	docs, err := q.getDocuments(ctx, prompt, knowledge)
+func (q *Query) research(ctx context.Context, llm *helix_langchain.LangchainAdapter, promptVariation string, knowledgeList []*types.Knowledge) (string, error) {
+	docs, err := q.getDocuments(ctx, promptVariation, knowledgeList)
 	if err != nil {
 		return "", fmt.Errorf("error getting documents: %w", err)
 	}
-
-	spew.Dump(docs)
 
 	stuffQAChain := chains.LoadStuffQA(llm)
 
 	answer, err := chains.Call(context.Background(), stuffQAChain, map[string]any{
 		"input_documents": docs,
-		"question":        prompt,
+		"question":        promptVariation,
 	})
 	if err != nil {
 		return "", fmt.Errorf("error calling QA chain: %w", err)
 	}
 
-	spew.Dump(answer)
-
 	intf, ok := answer["text"]
 	if !ok {
+		spew.Dump(answer)
 		return "", fmt.Errorf("no answer found")
 	}
 
 	answerStr, ok := intf.(string)
 	if !ok {
+		spew.Dump(answer)
 		return "", fmt.Errorf("answer is not a string")
 	}
 
