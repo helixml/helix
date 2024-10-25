@@ -96,6 +96,7 @@ type RAGSettings struct {
 	DistanceFunction string  `json:"distance_function" yaml:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
 	Threshold        float64 `json:"threshold" yaml:"threshold"`                 // this is the threshold for a "good" answer - will default to 0.2
 	ResultsCount     int     `json:"results_count" yaml:"results_count"`         // this is the max number of results to return - will default to 3
+	Concurrency      int     `json:"concurrency" yaml:"concurrency"`             // the number of concurrent agent requests to look for information in parallel
 
 	TextSplitter       TextSplitterType `json:"text_splitter" yaml:"text_splitter"`             // Markdown if empty or 'text'
 	ChunkSize          int              `json:"chunk_size" yaml:"chunk_size"`                   // the size of each text chunk - will default to 2000 bytes
@@ -1414,6 +1415,7 @@ const (
 	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
 	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
+	LLMCallStepCreateVariations  LLMCallStep = "create_variations"
 )
 
 // LLMCall used to store the request and response of LLM calls
