@@ -70,10 +70,18 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			log.Warn().Err(err).Str("id", req.RequestID).Msg("creating workload")
 			continue
 		}
+
+		log.Info().
+			Str("id", work.ID()).
+			Str("request_id", req.RequestID).
+			Msg("scheduling work")
+
 		err = c.scheduler.Schedule(work)
 		if err != nil {
 			retry, err := scheduler.ErrorHandlingStrategy(err, work)
-
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error checking scheduling strategy")
+			}
 			// If we can retry, break out of the loop and try again later
 			if retry {
 				break
@@ -94,11 +102,13 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			bts, err := json.Marshal(resp)
 			if err != nil {
 				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
+				return nil, fmt.Errorf("error marshalling runner response: %w", err)
 			}
 
 			err = c.pubsub.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
 			if err != nil {
 				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
+				return nil, fmt.Errorf("error publishing runner response: %w", err)
 			}
 		}
 		taken++
@@ -117,12 +127,22 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	// Now for this runner, get work
 	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly, filter.ModelName)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Any("filter", filter).
+			Msg("error getting work for runner")
 		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
 
 	if req != nil {
 		c.addSchedulingDecision(filter, runnerID, runnerID, req.LLMInferenceRequest().SessionID, req.LLMInferenceRequest().InteractionID)
-		log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
+		log.Info().
+			Str("runner_id", runnerID).
+			Any("filter", filter).
+			Any("req", req).
+			Int("len(queue)", len(c.queue)).
+			Msg("🟠 helix_openai_server GetNextLLMInferenceRequest END")
 		return req.LLMInferenceRequest(), nil
 	}
 	return nil, nil
