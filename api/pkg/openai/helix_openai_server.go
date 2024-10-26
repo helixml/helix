@@ -59,6 +59,18 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIMod
 // TODO: move logic from controller and other places. This method would be called directly from the runner
 // handler to get the next session. Pubsub is handled internally within this package
 func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, filter types.InferenceRequestFilter, runnerID string) (*types.RunnerLLMInferenceRequest, error) {
+	log.Info().
+		Str("runner_id", runnerID).
+		Any("filter", filter).
+		Msg("GetNextLLMInferenceRequest START")
+
+	defer func() {
+		log.Info().
+			Str("runner_id", runnerID).
+			Any("filter", filter).
+			Msg("GetNextLLMInferenceRequest END")
+	}()
+
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
@@ -84,6 +96,9 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			}
 			// If we can retry, break out of the loop and try again later
 			if retry {
+				log.Info().
+					Str("id", work.ID()).
+					Msg("scheduling work, retrying...")
 				break
 			}
 
@@ -131,6 +146,8 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			Err(err).
 			Str("runner_id", runnerID).
 			Any("filter", filter).
+			Int("queue_len", len(c.queue)).
+			Bool("new_work_only", newWorkOnly).
 			Msg("error getting work for runner")
 		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
@@ -141,8 +158,9 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			Str("runner_id", runnerID).
 			Any("filter", filter).
 			Any("req", req).
-			Int("len(queue)", len(c.queue)).
-			Msg("🟠 helix_openai_server GetNextLLMInferenceRequest END")
+			Int("queue_len", len(c.queue)).
+			Bool("new_work_only", newWorkOnly).
+			Msg("returning llm inference request")
 		return req.LLMInferenceRequest(), nil
 	}
 	return nil, nil
