@@ -333,7 +333,7 @@ func NewTestCmd() *cobra.Command {
 		Short: "Run tests for Helix app",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTest(cmd, args, yamlFile)
+			return runTest(cmd, yamlFile)
 		},
 	}
 
@@ -342,7 +342,7 @@ func NewTestCmd() *cobra.Command {
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
+func runTest(cmd *cobra.Command, yamlFile string) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
@@ -352,7 +352,7 @@ func runTest(cmd *cobra.Command, args []string, yamlFile string) error {
 	namespacedAppName := fmt.Sprintf("%s/%s", testID, appConfig.Name)
 
 	// Deploy the app with the namespaced name and appConfig
-	appID, err := deployApp(namespacedAppName, appConfig)
+	appID, err := deployApp(namespacedAppName, yamlFile)
 	if err != nil {
 		return fmt.Errorf("error deploying app: %v", err)
 	}
@@ -452,8 +452,9 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 
 					result, err := runSingleTest(assistantName, testName, step, appID, apiKey, helixURL, assistant.Model)
 					if err != nil {
+						result.Reason = err.Error()
+						result.Result = "ERROR"
 						fmt.Printf("Error running test %s: %v\n", testName, err)
-						return
 					}
 
 					resultsChan <- result
@@ -495,6 +496,15 @@ func runSingleTest(assistantName, testName string, step struct {
 }, appID, apiKey, helixURL, model string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
+	// partial result in case of error
+	result := TestResult{
+		TestName: fmt.Sprintf("%s - %s", assistantName, testName),
+		Prompt:   step.Prompt,
+		Expected: step.ExpectedOutput,
+		Model:    model,
+		HelixURL: helixURL,
+	}
+
 	chatReq := ChatRequest{
 		Messages: []Message{
 			{
@@ -510,7 +520,7 @@ func runSingleTest(assistantName, testName string, step struct {
 
 	responseContent, chatResp, err := sendChatRequest(chatReq, apiKey, helixURL)
 	if err != nil {
-		return TestResult{}, err
+		return result, err
 	}
 
 	inferenceTime := time.Since(inferenceStartTime)
@@ -533,24 +543,17 @@ func runSingleTest(assistantName, testName string, step struct {
 
 	evalContent, _, err := sendChatRequest(evalReq, apiKey, helixURL)
 	if err != nil {
-		return TestResult{}, err
+		return result, err
 	}
 
 	evaluationTime := time.Since(evaluationStartTime)
 
-	result := TestResult{
-		TestName:       fmt.Sprintf("%s - %s", assistantName, testName),
-		Prompt:         step.Prompt,
-		Response:       responseContent,
-		Expected:       step.ExpectedOutput,
-		Result:         evalContent[:4],
-		Reason:         evalContent[5:],
-		SessionID:      chatResp.ID,
-		Model:          model,
-		InferenceTime:  inferenceTime,
-		EvaluationTime: evaluationTime,
-		HelixURL:       helixURL, // Add this line
-	}
+	result.Response = responseContent
+	result.Result = evalContent[:4]
+	result.Reason = evalContent[5:]
+	result.SessionID = chatResp.ID
+	result.InferenceTime = inferenceTime
+	result.EvaluationTime = evaluationTime
 
 	return result, nil
 }
@@ -694,6 +697,10 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
 	}
+	err = os.WriteFile("summary_latest.md", []byte(summaryContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing summary to markdown file: %v", err)
+	}
 
 	// Create a client for uploading
 	apiClient, err := client.NewClientFromEnv()
@@ -724,9 +731,9 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		return fmt.Errorf("error uploading summary markdown: %v", err)
 	}
 
-	fmt.Printf("\nResults written to %s\n", jsonPath)
-	fmt.Printf("HTML report written to %s\n", htmlPath)
-	fmt.Printf("Summary written to %s\n", summaryPath)
+	fmt.Printf("\nResults written to %s\n", jsonFilename)
+	fmt.Printf("HTML report written to %s\n", htmlFilename)
+	fmt.Printf("Summary written to %s\n", summaryFilename)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
@@ -744,14 +751,14 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func deployApp(namespacedAppName string, _ types.AppHelixConfig) (string, error) {
+func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return "", fmt.Errorf("failed to create API client: %w", err)
 	}
 
 	// Use NewLocalApp to create the app from the original config
-	localApp, err := apps.NewLocalApp("helix.yaml")
+	localApp, err := apps.NewLocalApp(yamlFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to create local app: %w", err)
 	}
