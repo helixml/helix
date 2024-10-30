@@ -1,3 +1,19 @@
+# how we started this directory
+https://book.kubebuilder.io/quick-start
+```
+kubebuilder init --domain aispec.org --repo github.com/helixml/helix/operator
+```
+```
+kubebuilder create api --group app --version v1 --kind GenAIApp
+y
+y
+```
+```
+make manifests
+```
+Then commit to git.
+
+
 # operator
 // TODO(user): Add simple overview of use/purpose
 

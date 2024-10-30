@@ -14,32 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1
 
 import (
-	"github.com/helixml/helix/api/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// AIAppSpec defines the desired state of AIApp
-type AIAppSpec struct {
+// GenAIAppSpec defines the desired state of GenAIApp.
+type GenAIAppSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	Name        string                  `json:"name" yaml:"name"`
-	Description string                  `json:"description" yaml:"description"`
-	Avatar      string                  `json:"avatar" yaml:"avatar"`
-	Image       string                  `json:"image" yaml:"image"`
-	ExternalURL string                  `json:"external_url" yaml:"external_url"`
-	Assistants  []types.AssistantConfig `json:"assistants" yaml:"assistants"`
-	Triggers    []types.Trigger         `json:"triggers" yaml:"triggers"`
+	// Foo is an example field of GenAIApp. Edit genaiapp_types.go to remove/update
+	Foo string `json:"foo,omitempty"`
 }
 
-// AIAppStatus defines the observed state of AIApp
-type AIAppStatus struct {
+// GenAIAppStatus defines the observed state of GenAIApp.
+type GenAIAppStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -47,24 +41,24 @@ type AIAppStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// AIApp is the Schema for the aiapps API
-type AIApp struct {
+// GenAIApp is the Schema for the genaiapps API.
+type GenAIApp struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AIAppSpec   `json:"spec,omitempty"`
-	Status AIAppStatus `json:"status,omitempty"`
+	Spec   GenAIAppSpec   `json:"spec,omitempty"`
+	Status GenAIAppStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// AIAppList contains a list of AIApp
-type AIAppList struct {
+// GenAIAppList contains a list of GenAIApp.
+type GenAIAppList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AIApp `json:"items"`
+	Items           []GenAIApp `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&AIApp{}, &AIAppList{})
+	SchemeBuilder.Register(&GenAIApp{}, &GenAIAppList{})
 }

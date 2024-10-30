@@ -5,9 +5,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - aispec.aispec.org
+  - app.aispec.org
   resources:
-  - aiapps
+  - genaiapps
   verbs:
   - create
   - delete
@@ -17,15 +17,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - aispec.aispec.org
+  - app.aispec.org
   resources:
-  - aiapps/finalizers
+  - genaiapps/finalizers
   verbs:
   - update
 - apiGroups:
-  - aispec.aispec.org
+  - app.aispec.org
   resources:
-  - aiapps/status
+  - genaiapps/status
   verbs:
   - get
   - patch
