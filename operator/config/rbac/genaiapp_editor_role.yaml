@@ -1,23 +1,27 @@
-# permissions for end users to view aiapps.
+# permissions for end users to edit genaiapps.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
     app.kubernetes.io/name: operator
     app.kubernetes.io/managed-by: kustomize
-  name: aiapp-viewer-role
+  name: genaiapp-editor-role
 rules:
 - apiGroups:
-  - aispec.aispec.org
+  - app.aispec.org
   resources:
-  - aiapps
+  - genaiapps
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
-  - aispec.aispec.org
+  - app.aispec.org
   resources:
-  - aiapps/status
+  - genaiapps/status
   verbs:
   - get

@@ -6,15 +6,15 @@ domain: aispec.org
 layout:
 - go.kubebuilder.io/v4
 projectName: operator
-repo: github.com/helixml/helix
+repo: github.com/helixml/helix/operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: aispec.org
-  group: aispec
-  kind: AIApp
-  path: github.com/helixml/helix/api/v1alpha1
-  version: v1alpha1
+  group: app
+  kind: GenAIApp
+  path: github.com/helixml/helix/operator/api/v1
+  version: v1
 version: "3"

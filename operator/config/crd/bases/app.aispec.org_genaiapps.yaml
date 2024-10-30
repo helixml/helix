@@ -3,21 +3,21 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.1
-  name: aiapps.aispec.aispec.org
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: genaiapps.app.aispec.org
 spec:
-  group: aispec.aispec.org
+  group: app.aispec.org
   names:
-    kind: AIApp
-    listKind: AIAppList
-    plural: aiapps
-    singular: aiapp
+    kind: GenAIApp
+    listKind: GenAIAppList
+    plural: genaiapps
+    singular: genaiapp
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - name: v1
     schema:
       openAPIV3Schema:
-        description: AIApp is the Schema for the aiapps API
+        description: GenAIApp is the Schema for the genaiapps API.
         properties:
           apiVersion:
             description: |-
@@ -37,15 +37,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: AIAppSpec defines the desired state of AIApp
+            description: GenAIAppSpec defines the desired state of GenAIApp.
             properties:
               foo:
-                description: Foo is an example field of AIApp. Edit aiapp_types.go
+                description: Foo is an example field of GenAIApp. Edit genaiapp_types.go
                   to remove/update
                 type: string
             type: object
           status:
-            description: AIAppStatus defines the observed state of AIApp
+            description: GenAIAppStatus defines the observed state of GenAIApp.
             type: object
         type: object
     served: true
