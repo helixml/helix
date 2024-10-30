@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - app.aispec.org
   resources:
-  - genaiapps
+  - aiapps
   verbs:
   - create
   - delete
@@ -19,13 +19,13 @@ rules:
 - apiGroups:
   - app.aispec.org
   resources:
-  - genaiapps/finalizers
+  - aiapps/finalizers
   verbs:
   - update
 - apiGroups:
   - app.aispec.org
   resources:
-  - genaiapps/status
+  - aiapps/status
   verbs:
   - get
   - patch

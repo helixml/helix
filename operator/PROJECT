@@ -14,7 +14,7 @@ resources:
   controller: true
   domain: aispec.org
   group: app
-  kind: GenAIApp
+  kind: AIApp
   path: github.com/helixml/helix/operator/api/v1
   version: v1
 version: "3"
