@@ -27,26 +27,26 @@ import (
 	appv1 "github.com/helixml/helix/operator/api/v1"
 )
 
-// GenAIAppReconciler reconciles a GenAIApp object
-type GenAIAppReconciler struct {
+// AIAppReconciler reconciles a AIApp object
+type AIAppReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=app.aispec.org,resources=genaiapps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=app.aispec.org,resources=genaiapps/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=app.aispec.org,resources=genaiapps/finalizers,verbs=update
+// +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the GenAIApp object against the actual cluster state, and then
+// the AIApp object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
-func (r *GenAIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
@@ -55,9 +55,9 @@ func (r *GenAIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *GenAIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appv1.GenAIApp{}).
-		Named("genaiapp").
+		For(&appv1.AIApp{}).
+		Named("aiapp").
 		Complete(r)
 }

@@ -1,9 +1,9 @@
 apiVersion: app.aispec.org/v1
-kind: GenAIApp
+kind: AIApp
 metadata:
   labels:
     app.kubernetes.io/name: operator
     app.kubernetes.io/managed-by: kustomize
-  name: genaiapp-sample
+  name: aiapp-sample
 spec:
   # TODO(user): Add fields here

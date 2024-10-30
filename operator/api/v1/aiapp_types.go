@@ -23,17 +23,17 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// GenAIAppSpec defines the desired state of GenAIApp.
-type GenAIAppSpec struct {
+// AIAppSpec defines the desired state of AIApp.
+type AIAppSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of GenAIApp. Edit genaiapp_types.go to remove/update
+	// Foo is an example field of AIApp. Edit aiapp_types.go to remove/update
 	Foo string `json:"foo,omitempty"`
 }
 
-// GenAIAppStatus defines the observed state of GenAIApp.
-type GenAIAppStatus struct {
+// AIAppStatus defines the observed state of AIApp.
+type AIAppStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -41,24 +41,24 @@ type GenAIAppStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// GenAIApp is the Schema for the genaiapps API.
-type GenAIApp struct {
+// AIApp is the Schema for the aiapps API.
+type AIApp struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   GenAIAppSpec   `json:"spec,omitempty"`
-	Status GenAIAppStatus `json:"status,omitempty"`
+	Spec   AIAppSpec   `json:"spec,omitempty"`
+	Status AIAppStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// GenAIAppList contains a list of GenAIApp.
-type GenAIAppList struct {
+// AIAppList contains a list of AIApp.
+type AIAppList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []GenAIApp `json:"items"`
+	Items           []AIApp `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&GenAIApp{}, &GenAIAppList{})
+	SchemeBuilder.Register(&AIApp{}, &AIAppList{})
 }

@@ -30,7 +30,7 @@ import (
 	appv1 "github.com/helixml/helix/operator/api/v1"
 )
 
-var _ = Describe("GenAIApp Controller", func() {
+var _ = Describe("AIApp Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -40,13 +40,13 @@ var _ = Describe("GenAIApp Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		genaiapp := &appv1.GenAIApp{}
+		aiapp := &appv1.AIApp{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind GenAIApp")
-			err := k8sClient.Get(ctx, typeNamespacedName, genaiapp)
+			By("creating the custom resource for the Kind AIApp")
+			err := k8sClient.Get(ctx, typeNamespacedName, aiapp)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &appv1.GenAIApp{
+				resource := &appv1.AIApp{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,16 +59,16 @@ var _ = Describe("GenAIApp Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &appv1.GenAIApp{}
+			resource := &appv1.AIApp{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance GenAIApp")
+			By("Cleanup the specific resource instance AIApp")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &GenAIAppReconciler{
+			controllerReconciler := &AIAppReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
