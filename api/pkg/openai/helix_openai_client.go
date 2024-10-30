@@ -110,6 +110,9 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	select {
 	case <-doneCh:
 	case <-ctx.Done():
+		log.Warn().
+			Str("request_id", requestID).
+			Msg("timeout waiting for runner response, releasing allocation")
 		err := c.scheduler.Release(requestID)
 		if err != nil {
 			log.Error().Err(err).Msg("error releasing allocation")

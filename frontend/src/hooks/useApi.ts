@@ -44,10 +44,12 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
-      reportError(new Error(errorMessage))
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
+      if(options?.snackbar !== false) {
+        snackbar.setSnackbar(errorMessage, 'error')
+        reportError(new Error(errorMessage))
+      }
       if(options?.loading === true) loading.setLoading(false)
       return null
     }
@@ -61,10 +63,12 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
-      reportError(new Error(errorMessage))
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
+      if(options?.snackbar !== false) {
+        snackbar.setSnackbar(errorMessage, 'error')
+        reportError(new Error(errorMessage))
+      }
       if(options?.loading === true) loading.setLoading(false)
       return null
     }
@@ -87,10 +91,12 @@ export const useApi = () => {
       console.error('Full error object:', e);
       console.error('Error response:', e.response);
       const errorMessage = extractErrorMessage(e)
-      reportError(new Error(errorMessage))
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
+      if(options?.snackbar !== false) {
+        snackbar.setSnackbar(errorMessage, 'error')
+        reportError(new Error(errorMessage))
+      }
       if(options?.loading === true) loading.setLoading(false)
       return null
     }
@@ -104,10 +110,12 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
-      reportError(new Error(errorMessage))
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
+      if(options?.snackbar !== false) {
+        snackbar.setSnackbar(errorMessage, 'error')
+        reportError(new Error(errorMessage))
+      }
       if(options?.loading === true) loading.setLoading(false)
       return null
     }

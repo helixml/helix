@@ -34,6 +34,9 @@ import (
 // @Router /api/v1/sessions/chat [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
 	if err != nil {
 		log.Error().Err(err).Msg("error reading body")
@@ -48,9 +51,15 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	// Allow overriding from URL queries
-	if appID := req.URL.Query().Get("app_id"); appID != "" {
-		startReq.AppID = appID
+	// Priority is to use the app ID coming from the authentication context,
+	// this means that the caller is using app specific API key
+	if user.AppID != "" {
+		startReq.AppID = user.AppID
+	} else {
+		// Allow overriding from URL queries
+		if appID := req.URL.Query().Get("app_id"); appID != "" {
+			startReq.AppID = appID
+		}
 	}
 
 	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
@@ -98,9 +107,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		http.Error(rw, "only 1 message is allowed for now", http.StatusBadRequest)
 		return
 	}
-
-	ctx := req.Context()
-	user := getRequestUser(req)
 
 	// For finetunes, legacy route
 	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
