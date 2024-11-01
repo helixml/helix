@@ -540,3 +540,7 @@ func (i *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
 		MemoryUsage:      i.model.GetMemoryRequirements(i.initialSession.Mode),
 	}, nil
 }
+
+func (i *AxolotlModelInstance) IsActive() bool {
+	return i.currentSession != nil
+}

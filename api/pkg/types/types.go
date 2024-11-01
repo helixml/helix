@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gofrs/uuid"
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
@@ -1452,4 +1453,29 @@ type Secret struct {
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
 	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+}
+
+type PatchRunnerSlots struct {
+	Data []RunnerSlot `json:"data"`
+}
+
+type RunnerSlot struct {
+	ID         uuid.UUID            `json:"id"`
+	Attributes RunnerSlotAttributes `json:"attributes"`
+}
+
+type WorkloadType string
+
+const (
+	WorkloadTypeLLMInferenceRequest WorkloadType = "llm"
+	WorkloadTypeSession             WorkloadType = "session"
+)
+
+type RunnerSlotAttributes struct {
+	Workload *RunnerWorkload `json:"workload,omitempty"`
+}
+
+type RunnerWorkload struct {
+	LLMInferenceRequest *RunnerLLMInferenceRequest
+	Session             *Session
 }

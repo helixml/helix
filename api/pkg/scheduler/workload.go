@@ -106,3 +106,17 @@ func (w *Workload) LoraDir() string {
 	}
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }
+
+func (w *Workload) ToRunnerWorkload() *types.RunnerWorkload {
+	switch w.WorkloadType {
+	case WorkloadTypeLLMInferenceRequest:
+		return &types.RunnerWorkload{
+			LLMInferenceRequest: w.llmInfereceRequest,
+		}
+	case WorkloadTypeSession:
+		return &types.RunnerWorkload{
+			Session: w.session,
+		}
+	}
+	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
+}
