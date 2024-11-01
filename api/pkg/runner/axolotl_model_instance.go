@@ -121,6 +121,10 @@ func (i *AxolotlModelInstance) Done() <-chan bool {
 	return i.finishChan
 }
 
+func (i *AxolotlModelInstance) IsActive() bool {
+	return i.currentSession != nil
+}
+
 type ModelInstanceConfig struct {
 	// the session that meant this model instance is instantiated
 	InitialSession *types.Session
@@ -539,8 +543,4 @@ func (i *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
 		Stale:            i.Stale(),
 		MemoryUsage:      i.model.GetMemoryRequirements(i.initialSession.Mode),
 	}, nil
-}
-
-func (i *AxolotlModelInstance) IsActive() bool {
-	return i.currentSession != nil
 }
