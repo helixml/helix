@@ -762,3 +762,7 @@ func (i *OllamaInferenceModelInstance) errorResponse(req *types.RunnerLLMInferen
 }
 
 func (i *OllamaInferenceModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+
+func (i *OllamaInferenceModelInstance) IsActive() bool {
+	return i.currentRequest != nil
+}
