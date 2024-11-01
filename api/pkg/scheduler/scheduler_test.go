@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -13,14 +14,14 @@ import (
 
 func TestScheduler_NoRunnersAvailable(t *testing.T) {
 	config, _ := config.LoadServerConfig()
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	err := createTestWork(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b)
 	assert.ErrorContains(t, err, "no runners available")
 }
 
 func TestScheduler_TimeoutRunner(t *testing.T) {
 	config, _ := config.LoadServerConfig()
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 
 	// Monkeypatch the scheduler's cluster
 	timeoutRunner1Func := func(id string, t time.Time) bool {
@@ -54,7 +55,7 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 
 func TestScheduler_ThreeJobsOnSingleRunnerThatCanFitTwo(t *testing.T) {
 	config, _ := config.LoadServerConfig()
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(string(model.Model_Ollama_Llama3_8b))
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -74,7 +75,7 @@ func TestScheduler_ThreeJobsOnSingleRunnerThatCanFitTwo(t *testing.T) {
 
 func TestScheduler_TestWarmSlot(t *testing.T) {
 	config, _ := config.LoadServerConfig()
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -102,7 +103,7 @@ func TestScheduler_TestWarmSlot(t *testing.T) {
 func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -153,7 +154,7 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 
 func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 	config, _ := config.LoadServerConfig()
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -178,7 +179,7 @@ func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 func TestScheduler_MaximiseUtilization(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.SchedulingStrategy = string(SchedulingStrategy_MaxUtilization)
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-1",
@@ -212,7 +213,7 @@ func TestScheduler_MaximiseUtilization(t *testing.T) {
 func TestScheduler_TestSessionScheduler(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -243,7 +244,7 @@ func TestScheduler_TestSessionScheduler(t *testing.T) {
 
 func TestScheduler_LoraDirSession(t *testing.T) {
 	config, _ := config.LoadServerConfig()
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Axolotl_Mistral7b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-1",
@@ -289,7 +290,7 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 func TestScheduler_RunnerWithWrongModel(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
-	scheduler := NewScheduler(&config)
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -333,7 +334,8 @@ func TestScheduler_RunnerWithWrongModel(t *testing.T) {
 func TestScheduler_SlotTimeoutTest(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	config.Providers.Helix.SlotTTL = 1 * time.Microsecond
-	scheduler := NewScheduler(&config)
+	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
+	scheduler := NewScheduler(context.Background(), &config, nil)
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
@@ -373,7 +375,7 @@ func createTestSession(scheduler Scheduler, name string, model string, loraDir s
 		Mode:      types.SessionModeInference,
 		LoraDir:   loraDir,
 	}
-	work, err := NewSessonWorkload(req)
+	work, err := NewSessionWorkload(req)
 	if err != nil {
 		return err
 	}

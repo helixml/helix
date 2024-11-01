@@ -28,7 +28,7 @@ func NewLLMWorkload(work *types.RunnerLLMInferenceRequest) (*Workload, error) {
 	return validate(workload)
 }
 
-func NewSessonWorkload(work *types.Session) (*Workload, error) {
+func NewSessionWorkload(work *types.Session) (*Workload, error) {
 	workload := &Workload{
 		WorkloadType: WorkloadTypeSession,
 		session:      work,
