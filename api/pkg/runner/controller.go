@@ -14,10 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -126,6 +128,191 @@ type Runner struct {
 
 	nextRequestMutex       sync.Mutex
 	nextGlobalRequestMutex sync.Mutex
+
+	slots map[uuid.UUID]*runtime
+}
+
+type runtime struct {
+	modelInstance   ModelInstance
+	llmWorkChan     chan *types.RunnerLLMInferenceRequest
+	sessionWorkChan chan *types.Session
+	currentWork     *scheduler.Workload
+}
+
+func (r *runtime) Stop() {
+	err := r.modelInstance.Stop()
+	if err != nil {
+		log.Err(err).Msg("error stopping model instance")
+	}
+	if r.llmWorkChan != nil {
+		close(r.llmWorkChan)
+	}
+	if r.sessionWorkChan != nil {
+		close(r.sessionWorkChan)
+	}
+}
+
+func (r *runtime) CurrentWorkload() *types.RunnerWorkload {
+	if r.currentWork == nil {
+		return &types.RunnerWorkload{}
+	}
+	return r.currentWork.ToRunnerWorkload()
+}
+
+func (r *runtime) SetLLMInferenceRequest(work *scheduler.Workload) {
+	r.currentWork = work
+	r.llmWorkChan <- work.LLMInferenceRequest()
+}
+
+func (r *runtime) SetSessionRequest(work *scheduler.Workload) {
+	r.currentWork = work
+	r.sessionWorkChan <- work.Session()
+}
+
+func (r *runtime) IsScheduled() bool {
+	return len(r.sessionWorkChan) > 0 || len(r.llmWorkChan) > 0
+}
+
+func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
+	switch work.WorkloadType {
+	case scheduler.WorkloadTypeLLMInferenceRequest:
+		log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama runtime")
+		workCh := make(chan *types.RunnerLLMInferenceRequest, 1)
+		ollama, err := NewOllamaInferenceModelInstance(
+			r.Ctx,
+			&InferenceModelInstanceConfig{
+				ResponseHandler: r.handleInferenceResponse,
+				GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
+					return <-workCh, nil
+				},
+				RunnerOptions: r.Options,
+			},
+			work.LLMInferenceRequest(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating ollama runtime: %s", err.Error())
+		}
+		err = ollama.Start(r.Ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error starting ollama runtime: %s", err.Error())
+		}
+		return &runtime{
+			modelInstance: ollama,
+			llmWorkChan:   workCh,
+		}, nil
+	case scheduler.WorkloadTypeSession:
+		log.Debug().Str("workload_id", work.ID()).Msg("starting new session runtime")
+		var (
+			modelInstance ModelInstance
+			err           error
+		)
+		workCh := make(chan *types.Session, 1)
+		initialSession := work.Session()
+		runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
+
+		// if we are in mock mode - we need the axolotl model instance because
+		// it understands how to do a mock runner
+		if r.Options.MockRunner {
+			if initialSession.Type == types.SessionTypeText {
+				runtimeName = types.InferenceRuntimeAxolotl
+				initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
+			} else if initialSession.Type == types.SessionTypeImage {
+				// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
+				// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
+				// that does both axolotl and sdxl
+				runtimeName = types.InferenceRuntimeAxolotl
+				initialSession.ModelName = string(model.Model_Cog_SDXL)
+			}
+		}
+
+		switch runtimeName {
+		case types.InferenceRuntimeOllama:
+			log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama session runtime")
+			modelInstance, err = NewOllamaModelInstance(
+				r.Ctx,
+				&ModelInstanceConfig{
+					InitialSession:  initialSession,
+					ResponseHandler: r.handleWorkerResponse,
+					GetNextSession: func() (*types.Session, error) {
+						return <-workCh, nil
+					},
+					RunnerOptions: r.Options,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			err = modelInstance.Start(r.Ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &runtime{
+				modelInstance:   modelInstance,
+				sessionWorkChan: workCh,
+			}, nil
+		default:
+			// Defaulting to axolotl
+			log.Debug().Str("workload_id", work.ID()).Msg("starting new axolotl session runtime")
+			modelInstance, err = NewAxolotlModelInstance(
+				r.Ctx,
+				&ModelInstanceConfig{
+					InitialSession:    initialSession,
+					InitialSessionURL: r.Options.InitialSessionURL,
+					NextTaskURL:       r.Options.TaskURL,
+					// this function will convert any files it sees locally into an upload
+					// to the api server filestore - all files will be written to the filestore
+					// under a session sub path - you can include tar files and they will untarred at the other end
+					// into the filestore
+					// TODO: support the tar feature above
+					ResponseHandler: func(res *types.RunnerTaskResponse) error {
+						return r.handleWorkerResponse(res)
+					},
+					RunnerOptions: r.Options,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			go modelInstance.QueueSession(initialSession, true)
+
+			err = modelInstance.Start(r.Ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			go func() {
+				for {
+					select {
+					case <-r.Ctx.Done():
+						return
+					case work := <-workCh:
+						if modelInstance.IsActive() {
+							log.Debug().Str("workload_id", work.ID).Msg("ModelInstance is active, re-queueing session")
+							go func() {
+								workCh <- work
+							}()
+							time.Sleep(1 * time.Second)
+							continue
+						}
+						log.Debug().Str("workload_id", work.ID).Msg("Queueing axolotl session")
+						go modelInstance.QueueSession(work, false)
+					case <-modelInstance.Done():
+						return
+					}
+				}
+			}()
+
+			// TODO(PHIL): Remove this. Required for use in the axolotl runner for now.
+			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
+			return &runtime{
+				modelInstance:   modelInstance,
+				sessionWorkChan: workCh,
+			}, nil
+		}
+	default:
+		return nil, fmt.Errorf("unknown workload type: %s", work.WorkloadType)
+	}
 }
 
 func NewRunner(
@@ -175,6 +362,7 @@ func NewRunner(
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 		schedulingDecisions:   []string{},
 		warmupSessions:        warmupSessions,
+		slots:                 make(map[uuid.UUID]*runtime),
 	}
 	return runner, nil
 }
@@ -223,23 +411,181 @@ func (r *Runner) startTaskLoop() {
 		case <-r.Ctx.Done():
 			return
 		case <-time.After(time.Millisecond * time.Duration(r.Options.GetTaskDelayMilliseconds)):
-			// Experiment, transparent path for LLM inference requests
-			if r.Options.Config.Runtimes.V2Engine {
-				err := r.pollInferenceRequests(r.Ctx)
-				if err != nil {
-					log.Error().Msgf("error in inference request polling: %s", err.Error())
-					debug.PrintStack()
-				}
-			}
-
-			// Old-school session polling (images, finetuning, ollama)
-			err := r.pollSessions(r.Ctx)
+			err := r.pollSlots(r.Ctx)
 			if err != nil {
-				log.Error().Msgf("error in session polling: %s", err.Error())
+				log.Err(err).Msg("error in pollSlots")
 				debug.PrintStack()
 			}
 		}
 	}
+}
+
+func (r *Runner) pollSlots(ctx context.Context) error {
+	desiredSlots, err := r.getSlots()
+	if err != nil {
+		return err
+	}
+
+	l := log.With().
+		Str("runner_id", r.Options.ID).
+		Interface("r.slots", r.slots).
+		Interface("desiredSlots", desiredSlots).
+		Logger()
+
+	l.Trace().Msg("pollSlots")
+
+	// First stop and delete any runtimes that are no longer needed
+	for slotID, runtime := range r.slots {
+		found := false
+		for _, slot := range desiredSlots.Data {
+			if slot.ID == slotID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			l.Trace().Str("slot_id", slotID.String()).Msg("deleting slot")
+			runtime.Stop()
+
+			// TODO(PHIL): Remove this only required by axolotl
+			if runtime.modelInstance != nil {
+				r.activeModelInstances.Delete(runtime.modelInstance.ID())
+			}
+
+			delete(r.slots, slotID)
+		}
+	}
+
+	for _, slot := range desiredSlots.Data {
+		// If there's no work, then we don't need to do anything for now
+		if slot.Attributes.Workload == nil {
+			continue
+		}
+
+		l.Debug().Str("slot_id", slot.ID.String()).Msg("slot has workload")
+
+		// If there is work, then parse the RunnerWorkload into a Workload
+		var work *scheduler.Workload
+		if slot.Attributes.Workload.LLMInferenceRequest != nil {
+			work, err = scheduler.NewLLMWorkload(slot.Attributes.Workload.LLMInferenceRequest)
+			if err != nil {
+				return err
+			}
+		}
+		if slot.Attributes.Workload.Session != nil {
+			work, err = scheduler.NewSessionWorkload(slot.Attributes.Workload.Session)
+			if err != nil {
+				return err
+			}
+		}
+		if work == nil {
+			return fmt.Errorf("unable to parse workload")
+		}
+
+		// Get the current runtime for the slot
+		runtime, ok := r.slots[slot.ID]
+
+		// If it doesn't exist, start a new runtime and save
+		if !ok {
+			l.Debug().Str("slot_id", slot.ID.String()).Msg("starting new runtime")
+			runtime, err = r.startNewRuntime(work)
+			if err != nil {
+				return err
+			}
+			r.slots[slot.ID] = runtime
+			continue
+		}
+
+		// If the runtime already has work scheduled, then we don't need to do anything
+		if runtime.IsScheduled() {
+			l.Trace().Str("slot_id", slot.ID.String()).Msg("runtime already scheduled")
+			continue
+		}
+
+		// If the runtime is already running a workload, then we don't need to do anything
+		if runtime.modelInstance.IsActive() {
+			l.Trace().Str("slot_id", slot.ID.String()).Msg("runtime already active")
+			continue
+		}
+
+		// If we get here then that means the slot already has a runtime and is waiting for work
+		switch work.WorkloadType {
+		case scheduler.WorkloadTypeLLMInferenceRequest:
+			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing LLM inference request")
+			runtime.llmWorkChan <- work.LLMInferenceRequest()
+
+		case scheduler.WorkloadTypeSession:
+			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing session request")
+			runtime.sessionWorkChan <- work.Session()
+		}
+	}
+
+	return nil
+}
+
+func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
+	r.nextRequestMutex.Lock()
+	defer r.nextRequestMutex.Unlock()
+
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/slots", r.Options.ID))))
+	if err != nil {
+		return nil, err
+	}
+
+	runnerSlots := make([]types.RunnerSlot, 0, len(r.slots))
+	for slotID, runtime := range r.slots {
+		runnerSlot := types.RunnerSlot{
+			ID: slotID,
+			Attributes: types.RunnerSlotAttributes{
+				Workload: runtime.CurrentWorkload(),
+			},
+		}
+		runnerSlots = append(runnerSlots, runnerSlot)
+	}
+	patch := &types.PatchRunnerSlots{
+		Data: runnerSlots,
+	}
+
+	body, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := retryablehttp.NewRequest("GET", parsedURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	err = system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
+	if err != nil {
+		return nil, err
+	}
+
+	client := system.NewRetryClient(3)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var buffer bytes.Buffer
+	_, err = io.Copy(&buffer, resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Error().Int("status_code", resp.StatusCode).Str("url", parsedURL.String()).Str("body", buffer.String()).Msgf("error response from server")
+		return nil, nil
+	}
+
+	var slots *types.PatchRunnerSlots
+	err = json.Unmarshal(buffer.Bytes(), &slots)
+	if err != nil {
+		return nil, err
+	}
+
+	return slots, nil
 }
 
 func (r *Runner) pollSessions(ctx context.Context) error {
