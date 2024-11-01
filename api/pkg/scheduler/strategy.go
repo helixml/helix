@@ -60,6 +60,40 @@ func MaxSpreadStrategy(c Cluster, a WorkloadAllocator, req *Workload) (string, e
 	return validateBestRunner(bestRunnerID, modelRequirement, maxMemory, prioritizedRunners)
 }
 
+// DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
+// memory to allocate the new workload.
+func DeleteMostStaleStrategy(a WorkloadAllocator, runnerID string, runnerMem uint64, requiredMem uint64) error {
+	for {
+		allSlots := a.RunnerSlots(runnerID)
+		staleSlots := Filter(allSlots, func(slot *Slot) bool {
+			return slot.IsStale()
+		})
+		// If there is enough free space on the runner, break out of the loop.
+		if requiredMem <= runnerMem-memoryUsed(allSlots) {
+			break
+		}
+		// Sort the slots by last activity time
+		slices.SortFunc(staleSlots, func(i, j *Slot) int {
+			return int(i.lastActivityTime.Sub(j.lastActivityTime))
+		})
+		if len(staleSlots) == 0 {
+			return fmt.Errorf("unable to find stale slot to replace")
+		}
+		// Then delete the most stale slot
+		log.Debug().Str("slot_id", staleSlots[0].ID.String()).Msg("deleting stale slot")
+		a.DeleteSlot(staleSlots[0].ID)
+	}
+	return nil
+}
+
+func memoryUsed(slots []*Slot) uint64 {
+	var total uint64
+	for _, slot := range slots {
+		total += slot.Memory()
+	}
+	return total
+}
+
 // runnersByMaxUtilisation sorts runners by their available memory in descending order,
 // prioritizing runners with the least free memory for better utilization.
 func runnersByMaxUtilisation(c Cluster, a WorkloadAllocator) []string {
