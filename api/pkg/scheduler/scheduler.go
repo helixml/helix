@@ -115,7 +115,7 @@ func (s *scheduler) Schedule(work *Workload) (err error) {
 		err = s.allocator.AllocateSlot(slot.ID, work)
 		if err != nil {
 			// Return error if unable to allocate work to the warm model.
-			return fmt.Errorf("unable to allocate work to a warm model: %w", err)
+			return fmt.Errorf("unable to allocate work to a warm model slot (ID: %s, slot runner: %s): %w", slot.ID, slot.RunnerID, err)
 		}
 	} else {
 		// If no warm slots are available, pick a runner to allocate a slot to.
@@ -128,7 +128,7 @@ func (s *scheduler) Schedule(work *Workload) (err error) {
 		slot, err = s.allocator.AllocateNewSlot(bestRunnerID, work)
 		if err != nil {
 			// Return error if unable to allocate a new slot.
-			return fmt.Errorf("unable to allocate new work: %w", err)
+			return fmt.Errorf("unable to allocate new work on runner (ID: %s): %w", bestRunnerID, err)
 		}
 	}
 
