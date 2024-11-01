@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofrs/uuid"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
@@ -192,6 +192,7 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error creating ollama runtime: %s", err.Error())
 		}
+		r.activeModelInstances.Store(ollama.ID(), ollama)
 		err = ollama.Start(r.Ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error starting ollama runtime: %s", err.Error())
@@ -242,6 +243,7 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 			if err != nil {
 				return nil, err
 			}
+			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
 			err = modelInstance.Start(r.Ctx)
 			if err != nil {
 				return nil, err
@@ -276,6 +278,9 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 
 			go modelInstance.QueueSession(initialSession, true)
 
+			// TODO(PHIL): Remove this. Required for use in the axolotl runner for now.
+			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
+
 			err = modelInstance.Start(r.Ctx)
 			if err != nil {
 				return nil, err
@@ -303,8 +308,6 @@ func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
 				}
 			}()
 
-			// TODO(PHIL): Remove this. Required for use in the axolotl runner for now.
-			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
 			return &runtime{
 				modelInstance:   modelInstance,
 				sessionWorkChan: workCh,
@@ -492,6 +495,7 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			// TODO: Could do with storing this BEFORE it has started, because it takes time to start.
 			r.slots[slot.ID] = runtime
 			continue
 		}
@@ -1218,6 +1222,7 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		ModelInstances:      modelInstances,
 		SchedulingDecisions: r.schedulingDecisions,
 		Version:             data.GetHelixVersion(),
+		Slots:               r.getCurrentSlots(),
 	}, nil
 }
 
@@ -1227,4 +1232,17 @@ func (r *Runner) addSchedulingDecision(decision string) {
 	if len(r.schedulingDecisions) > r.Options.SchedulingDecisionBufferSize {
 		r.schedulingDecisions = r.schedulingDecisions[:len(r.schedulingDecisions)-1]
 	}
+}
+
+func (r *Runner) getCurrentSlots() []types.RunnerSlot {
+	slots := []types.RunnerSlot{}
+	for slotID, runtime := range r.slots {
+		slots = append(slots, types.RunnerSlot{
+			ID: slotID,
+			Attributes: types.RunnerSlotAttributes{
+				Workload: runtime.CurrentWorkload(),
+			},
+		})
+	}
+	return slots
 }

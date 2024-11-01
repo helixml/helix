@@ -198,3 +198,34 @@ func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, re
 	}
 	return runnerState, nil
 }
+
+func (apiServer *HelixAPIServer) getRunnerSlots(res http.ResponseWriter, req *http.Request) (*types.PatchRunnerSlots, error) {
+	vars := mux.Vars(req)
+	runnerID := vars["runnerid"]
+	if runnerID == "" {
+		return nil, fmt.Errorf("missing runner id")
+	}
+
+	log.Debug().Str("runner_id", runnerID).Msg("Getting slots for runner")
+	internalSlots := apiServer.scheduler.SlotsForRunner(runnerID)
+
+	// Convert the slots to a PatchRunnerSlots object.
+	patch := &types.PatchRunnerSlots{
+		Data: make([]types.RunnerSlot, 0, len(internalSlots)),
+	}
+	for slotID, workload := range internalSlots {
+		attr := types.RunnerSlotAttributes{}
+		// Only set the work if it is scheduled. This is how we signal to the runner we have new
+		// work. When runners request work this will keep being sent until slot is marked as started,
+		// which happens in the various runner response handlers.
+		if workload != nil {
+			attr.Workload = workload.ToRunnerWorkload()
+		}
+		patch.Data = append(patch.Data, types.RunnerSlot{
+			ID:         slotID,
+			Attributes: attr,
+		})
+	}
+
+	return patch, nil
+}
