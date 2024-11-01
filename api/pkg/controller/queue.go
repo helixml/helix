@@ -154,9 +154,12 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
+	// Store jobs that weren't able to be scheduled to re-add to the queue later
+	unscheduledQueue := make([]*types.Session, 0)
+	unscheduledSummaryQueue := make([]*types.SessionSummary, 0)
+
 	// Schedule all new sessions in the queue, until we run out of runners
-	taken := 0
-	for _, session := range c.sessionQueue {
+	for i, session := range c.sessionQueue {
 		log.Info().Str("session_id", session.ID).Msg("scheduling session")
 		work, err := scheduler.NewSessonWorkload(session)
 		if err != nil {
@@ -167,9 +170,11 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		if err != nil {
 			retry, err := scheduler.ErrorHandlingStrategy(err, work)
 
-			// If we can retry, break out of the loop and try again later
+			// If we can retry, add it to the unscheduled queue
 			if retry {
-				break
+				unscheduledQueue = append(unscheduledQueue, session)
+				unscheduledSummaryQueue = append(unscheduledSummaryQueue, c.sessionSummaryQueue[i])
+				continue
 			}
 
 			// If we can't retry, write an error to the request and continue so it takes it off
@@ -185,10 +190,9 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 				log.Error().Err(err).Msg("error updating session")
 			}
 		}
-		taken++
 	}
-	c.sessionQueue = c.sessionQueue[taken:]
-	c.sessionSummaryQueue = c.sessionSummaryQueue[taken:]
+	c.sessionQueue = unscheduledQueue
+	c.sessionSummaryQueue = unscheduledSummaryQueue
 
 	// Default to requesting warm work
 	newWorkOnly := false
