@@ -80,8 +80,10 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
+	// Store jobs that weren't able to be scheduled to re-add to the queue later
+	unscheduledQueue := make([]*types.RunnerLLMInferenceRequest, 0)
+
 	// Schedule any requests that are currently in the queue.
-	taken := 0
 	for _, req := range c.queue {
 		work, err := scheduler.NewLLMWorkload(req)
 		if err != nil {
@@ -114,7 +116,8 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 					Str("request_id", req.RequestID).
 					Str("runner_request_id", runnerReqID).
 					Msg("scheduling work, retrying...")
-				break
+				unscheduledQueue = append(unscheduledQueue, req)
+				continue
 			}
 
 			// If we can't retry, write an error to the request and continue so it takes it off
@@ -159,10 +162,9 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 				return nil, fmt.Errorf("error publishing runner response: %w", err)
 			}
 		}
-		taken++
 	}
-	// Clear processed queue
-	c.queue = c.queue[taken:]
+	// Re-add the unscheduled queue to the queue
+	c.queue = unscheduledQueue
 
 	// Default to requesting warm work
 	newWorkOnly := false
