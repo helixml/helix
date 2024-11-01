@@ -84,7 +84,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
-		Scheduler:       scheduler.NewScheduler(cfg),
+		Scheduler:       scheduler.NewScheduler(context.Background(), cfg, nil),
 	})
 	suite.NoError(err)
 
