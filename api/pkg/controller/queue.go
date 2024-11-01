@@ -161,7 +161,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	// Schedule all new sessions in the queue, until we run out of runners
 	for i, session := range c.sessionQueue {
 		log.Info().Str("session_id", session.ID).Msg("scheduling session")
-		work, err := scheduler.NewSessonWorkload(session)
+		work, err := scheduler.NewSessionWorkload(session)
 		if err != nil {
 			return nil, fmt.Errorf("creating session workload: %w", err)
 		}
