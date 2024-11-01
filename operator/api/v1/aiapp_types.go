@@ -18,19 +18,12 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	helix_types "github.com/helixml/helix/api/pkg/types"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// AIAppSpec defines the desired state of AIApp.
-type AIAppSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of AIApp. Edit aiapp_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
-}
 
 // AIAppStatus defines the observed state of AIApp.
 type AIAppStatus struct {
@@ -46,8 +39,9 @@ type AIApp struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AIAppSpec   `json:"spec,omitempty"`
-	Status AIAppStatus `json:"status,omitempty"`
+	// Spec defines the desired state of AIApp.
+	Spec   helix_types.AppHelixConfig `json:"spec,omitempty"`
+	Status AIAppStatus                `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
