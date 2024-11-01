@@ -121,6 +121,7 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			// the queue
 			log.Warn().
 				Err(err).
+				Str("schedule_err", scheduleErr.Error()).
 				Str("id", work.ID()).
 				Str("request_id", req.RequestID).
 				Str("runner_request_id", runnerReqID).
@@ -138,6 +139,7 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			if err != nil {
 				log.Error().
 					Err(err).
+					Str("schedule_err", scheduleErr.Error()).
 					Str("id", work.ID()).
 					Str("request_id", req.RequestID).
 					Str("runner_request_id", runnerReqID).
@@ -149,6 +151,7 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			if err != nil {
 				log.Error().
 					Err(err).
+					Str("schedule_err", scheduleErr.Error()).
 					Str("id", work.ID()).
 					Str("request_id", req.RequestID).
 					Str("runner_request_id", runnerReqID).
