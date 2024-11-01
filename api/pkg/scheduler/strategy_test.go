@@ -27,7 +27,7 @@ func TestPlacement_MaxSpread_Simple(t *testing.T) {
 		ID:          "test-runner-1",
 		TotalMemory: testModel.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
-	a := NewWorkloadAllocator(dummyTimeout)
+	a := NewWorkloadAllocator(dummyTimeout, dummyTimeout)
 
 	req := createPlacementWork("test", model.NewModel(testModelStr))
 
@@ -47,7 +47,7 @@ func TestPlacement_MaxSpread_MultiMachine(t *testing.T) {
 		ID:          "test-runner-1",
 		TotalMemory: 2 * testModel.GetMemoryRequirements(types.SessionModeInference),
 	})
-	a := NewWorkloadAllocator(dummyTimeout)
+	a := NewWorkloadAllocator(dummyTimeout, dummyTimeout)
 	req := createPlacementWork("test", model.NewModel(testModelStr))
 	a.AllocateNewSlot("test-runner-1", req)
 

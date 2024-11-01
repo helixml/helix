@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type Slot struct {
@@ -17,11 +18,15 @@ type Slot struct {
 	isActive         bool      // Private because I don't want people misinterpreting this
 	isScheduled      bool      // Private because I don't want people misinterpreting this
 	mu               *sync.RWMutex
-	timeoutFunc      TimeoutFunc
+	isStaleFunc      TimeoutFunc
+	isErrorFunc      TimeoutFunc
 	isNew            bool
 }
 
-func NewSlot(runnerID string, work *Workload, timeoutFunc TimeoutFunc) *Slot {
+// NewSlot creates a new slot with the given runnerID and work
+// staleTimeout is a function that determines if a slot is stale
+// errorTimeout is a function that determines if a slot has errored
+func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTimeout TimeoutFunc) *Slot {
 	return &Slot{
 		ID:               uuid.New(),
 		RunnerID:         runnerID,
@@ -31,7 +36,8 @@ func NewSlot(runnerID string, work *Workload, timeoutFunc TimeoutFunc) *Slot {
 		isScheduled:      false,
 		isNew:            true, // Is new when slot is created
 		mu:               &sync.RWMutex{},
-		timeoutFunc:      timeoutFunc,
+		isStaleFunc:      staleTimeout,
+		isErrorFunc:      errorTimeout,
 	}
 }
 
@@ -39,6 +45,19 @@ func NewSlot(runnerID string, work *Workload, timeoutFunc TimeoutFunc) *Slot {
 func (s *Slot) IsStale() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	// First if the work is active, or is scheduled...
+	if s.isActive || s.isScheduled {
+		// ... then check if the slot has timed out due to an error
+		if s.isErrorFunc(s.RunnerID, s.lastActivityTime) {
+			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out due to an unknown error, releasing slot")
+			s.mu.RUnlock()
+			s.Release()
+			s.mu.RLock()
+			// If it has errored, then it is stale
+			return true
+		}
+	}
 
 	// If work is active, not stale
 	if s.isActive {
@@ -50,8 +69,8 @@ func (s *Slot) IsStale() bool {
 		return false
 	}
 
-	// Now run the timeout function check
-	return s.timeoutFunc(s.RunnerID, s.lastActivityTime)
+	// Now check if the slot is stale
+	return s.isStaleFunc(s.RunnerID, s.lastActivityTime)
 }
 
 // True if this slot is currently active with work
@@ -85,6 +104,7 @@ func (s *Slot) Release() {
 	defer s.mu.Unlock()
 
 	s.isActive = false
+	s.isScheduled = false
 	s.lastActivityTime = time.Now()
 }
 

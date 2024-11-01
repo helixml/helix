@@ -27,15 +27,17 @@ type TimeoutFunc func(runnerID string, lastActivityTime time.Time) bool
 
 // allocator implements the WorkloadAllocator interface, managing runners, slots, and workload allocation.
 type allocator struct {
-	slots            *xsync.MapOf[uuid.UUID, *Slot] // Maps slot ID to Slot details.
-	modelTimeoutFunc TimeoutFunc                    // Function to check if models have timed out.
+	slots           *xsync.MapOf[uuid.UUID, *Slot] // Maps slot ID to Slot details.
+	modelStaleFunc  TimeoutFunc                    // Function to check if models are stale
+	slotTimeoutFunc TimeoutFunc                    // Function to check if slots have timed out due to error
 }
 
 // NewWorkloadAllocator creates a new allocator instance with timeout functions for models and runners.
-func NewWorkloadAllocator(modelTTL TimeoutFunc) *allocator {
+func NewWorkloadAllocator(staleFunc TimeoutFunc, slotTimeoutFunc TimeoutFunc) *allocator {
 	return &allocator{
-		slots:            xsync.NewMapOf[uuid.UUID, *Slot](),
-		modelTimeoutFunc: modelTTL,
+		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
+		modelStaleFunc:  staleFunc,
+		slotTimeoutFunc: slotTimeoutFunc,
 	}
 }
 
@@ -77,7 +79,7 @@ func (a *allocator) AllocateSlot(slotID uuid.UUID, req *Workload) error {
 // AllocateNewSlot creates a new slot for a workload and allocates it to the best available runner.
 func (a *allocator) AllocateNewSlot(runnerID string, req *Workload) (*Slot, error) {
 	// Create a new slot and schedule the workload.
-	slot := NewSlot(runnerID, req, a.modelTimeoutFunc)
+	slot := NewSlot(runnerID, req, a.modelStaleFunc, a.slotTimeoutFunc)
 	log.Trace().
 		Str("runner_id", slot.RunnerID).
 		Str("slot_id", slot.ID.String()).
