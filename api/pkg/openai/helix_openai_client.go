@@ -97,7 +97,7 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	defer sub.Unsubscribe()
 
 	// Enqueue the request, it will be picked up by the runner
-	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
+	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
 		OwnerID:       vals.OwnerID,
@@ -105,6 +105,9 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 		InteractionID: vals.InteractionID,
 		Request:       &request,
 	})
+	if err != nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("error enqueuing request: %w", err)
+	}
 
 	// Wait for the response or until the context is done (timeout)
 	select {
@@ -212,7 +215,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}
 
 	// Enqueue the request, it will be picked up by the runner
-	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
+	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
 		OwnerID:       vals.OwnerID,
@@ -220,6 +223,9 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 		InteractionID: vals.InteractionID,
 		Request:       &request,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("error enqueuing request: %w", err)
+	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)

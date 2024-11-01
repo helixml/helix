@@ -129,8 +129,12 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		runners = append(runners, metrics)
 		return true
 	})
+	summaryData, err := c.scheduler.DashboardData()
+	if err != nil {
+		return nil, err
+	}
 	return &types.DashboardData{
-		SessionQueue:              c.sessionSummaryQueue,
+		SessionQueue:              summaryData,
 		Runners:                   runners,
 		GlobalSchedulingDecisions: c.schedulingDecisions,
 	}, nil

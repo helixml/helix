@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
-	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -53,13 +52,6 @@ type Controller struct {
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
 
-	// the backlog of sessions that need a GPU
-	sessionQueue []*types.Session
-	// we keep this managed to avoid having to lock the queue mutex
-	// whilst we calculate all the summaries
-	sessionSummaryQueue []*types.SessionSummary
-	sessionQueueMtx     sync.Mutex
-
 	// keep a map of instantiated models so we can ask it about memory
 	// the models package looks after instantiating this for us
 	models map[string]model.Model
@@ -104,8 +96,6 @@ func NewController(
 		Options:              options,
 		providerManager:      options.ProviderManager,
 		dataprepOpenAIClient: options.DataprepOpenAIClient,
-		sessionQueue:         []*types.Session{},
-		sessionSummaryQueue:  []*types.SessionSummary{},
 		models:               models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
@@ -131,11 +121,6 @@ func NewController(
 }
 
 func (c *Controller) Initialize() error {
-	// load the session queue from the database to survive restarts
-	err := c.loadSessionQueues(c.Ctx)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
