@@ -330,6 +330,28 @@ func TestScheduler_RunnerWithWrongModel(t *testing.T) {
 	assert.NotNil(t, w)
 }
 
+func TestScheduler_SlotTimeoutTest(t *testing.T) {
+	config, _ := config.LoadServerConfig()
+	config.Providers.Helix.SlotTTL = 1 * time.Microsecond
+	scheduler := NewScheduler(&config)
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
+	scheduler.UpdateRunner(&types.RunnerState{
+		ID:          "test-runner",
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 1,
+	})
+
+	// Test request
+	err := createTestSession(scheduler, "test-request-1", model.Model_Ollama_Llama3_8b, "")
+	assert.NoError(t, err)
+
+	// Wait for the model to timeout
+	time.Sleep(2 * time.Millisecond)
+
+	// Since the model has timed out, the slot should be stale
+	err = createTestSession(scheduler, "test-request-2", model.Model_Ollama_Llama3_8b, "")
+	assert.NoError(t, err)
+}
+
 func createTestWork(scheduler Scheduler, name string, model string) error {
 	req := &types.RunnerLLMInferenceRequest{
 		RequestID: name,
