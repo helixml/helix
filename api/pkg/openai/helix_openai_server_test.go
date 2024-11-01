@@ -44,7 +44,7 @@ func (suite *HelixOpenAiServerTestSuite) SetupTest() {
 	})
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "runner-2",
-		TotalMemory: model.GB * 100, // 100GB runner
+		TotalMemory: model.GB * 48, // 48GB runner
 	})
 	suite.Require().NoError(err)
 	suite.srv = NewInternalHelixServer(&cfg, pubsub, scheduler)
