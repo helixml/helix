@@ -1416,6 +1416,8 @@ const (
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
 	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
 	LLMCallStepCreateVariations  LLMCallStep = "create_variations"
+	LLMCallStepResearchTopic     LLMCallStep = "research_topic"
+	LLMCallStepCombineResults    LLMCallStep = "combine_results"
 )
 
 // LLMCall used to store the request and response of LLM calls

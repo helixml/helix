@@ -118,7 +118,9 @@ func (q *Query) research(ctx context.Context, llm *helix_langchain.LangchainAdap
 
 	stuffQAChain := chains.LoadStuffQA(llm)
 
-	answer, err := chains.Call(context.Background(), stuffQAChain, map[string]any{
+	ctx = q.setContextAndStep(ctx, types.LLMCallStepResearchTopic)
+
+	answer, err := chains.Call(ctx, stuffQAChain, map[string]any{
 		"input_documents": docs,
 		"question":        promptVariation,
 	})
@@ -220,7 +222,9 @@ func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.Langcha
 		})
 	}
 
-	answer, err := chains.Call(context.Background(), stuffQAChain, map[string]any{
+	ctx = q.setContextAndStep(ctx, types.LLMCallStepCombineResults)
+
+	answer, err := chains.Call(ctx, stuffQAChain, map[string]any{
 		"input_documents": docs,
 		"question":        prompt,
 	})
