@@ -94,40 +94,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	return &resp, &req, nil
 }
 
-func (c *Controller) answerWithKnowledge(ctx context.Context, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
-	client, err := c.getClient(ctx, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	q := query.New(&query.QueryConfig{
-		Store:        c.Options.Store,
-		APIClient:    client,
-		GetRAGClient: c.GetRagClient,
-		Model:        assistant.Model,
-	})
-
-	prompt := getLastMessage(req)
-
-	answer, err := q.Answer(ctx, prompt, opts.AppID, assistant)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to answer with knowledge: %w", err)
-	}
-
-	resp := openai.ChatCompletionResponse{
-		Model: req.Model,
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Message: openai.ChatCompletionMessage{
-					Content: answer,
-				},
-			},
-		},
-	}
-
-	return &resp, &req, nil
-}
-
 // ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
@@ -603,6 +569,52 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				usedKnowledge = knowledge
 			}
 		}
+	}
+
+	return backgroundKnowledge, usedKnowledge, nil
+}
+
+func (c *Controller) evaluateKnowledgeV2(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, *types.Knowledge, error) {
+	var (
+		backgroundKnowledge []*prompts.BackgroundKnowledge
+		usedKnowledge       *types.Knowledge
+	)
+
+	prompt := getLastMessage(req)
+
+	client, err := c.getClient(ctx, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    "query_and_research",
+		Type:    types.StepInfoTypeRAG,
+		Message: "Searching for knowledge",
+	})
+
+	q := query.New(&query.QueryConfig{
+		Store:        c.Options.Store,
+		APIClient:    client,
+		GetRAGClient: c.GetRagClient,
+		Model:        assistant.Model,
+	})
+
+	results, err := q.QueryAndResearch(ctx, prompt, opts.AppID, assistant)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error querying and researching knowledge: %w", err)
+	}
+
+	c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    "query_and_research",
+		Type:    types.StepInfoTypeRAG,
+		Message: fmt.Sprintf("Found %d results", len(results)),
+	})
+
+	for _, result := range results {
+		backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
+			Content: result,
+		})
 	}
 
 	return backgroundKnowledge, usedKnowledge, nil

@@ -21,10 +21,11 @@ import (
 var model = "meta-llama/Llama-3-8b-chat-hf"
 
 type Query struct {
-	store        store.Store
-	apiClient    openai.Client
-	getRAGClient func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error)
-	model        string
+	store         store.Store
+	apiClient     openai.Client
+	getRAGClient  func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error)
+	model         string
+	streamingFunc func(ctx context.Context, chunk []byte) error
 }
 
 type QueryConfig struct {
@@ -41,6 +42,67 @@ func New(cfg *QueryConfig) *Query {
 		getRAGClient: cfg.GetRAGClient,
 		model:        cfg.Model,
 	}
+}
+
+// QueryAndResearch returns a list of answers
+func (q *Query) QueryAndResearch(ctx context.Context, prompt, appID string, assistant *types.AssistantConfig) ([]string, error) {
+	llm, err := helix_langchain.New(q.apiClient, q.model)
+	if err != nil {
+		return nil, fmt.Errorf("error creating LLM client: %w", err)
+	}
+
+	knowledgeList, err := q.listKnowledge(ctx, appID, assistant)
+	if err != nil {
+		return nil, fmt.Errorf("error listing knowledge: %w", err)
+	}
+
+	log.Info().Msg("generating variations")
+
+	variations, err := q.createVariations(ctx, prompt, 8)
+	if err != nil {
+		return nil, fmt.Errorf("error creating variations: %w", err)
+	}
+
+	log.Info().Msgf("researching %d variations", len(variations))
+
+	pool := pool.New().
+		WithMaxGoroutines(len(variations)).
+		WithErrors()
+
+	var results []string
+	var resultsMu sync.Mutex
+
+	for _, variation := range variations {
+		variation := variation
+
+		pool.Go(func() error {
+			answer, err := q.research(ctx, llm, variation, knowledgeList)
+			if err != nil {
+				log.
+					Err(err).
+					Str("variation", variation).
+					Msg("error researching")
+				return err
+			}
+
+			resultsMu.Lock()
+			results = append(results, answer)
+			resultsMu.Unlock()
+
+			return nil
+		})
+	}
+
+	err = pool.Wait()
+	if err != nil {
+		log.Warn().Err(err).Msg("error while researching variations")
+	}
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no results found")
+	}
+
+	return results, nil
 }
 
 func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *types.AssistantConfig) (string, error) {
