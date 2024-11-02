@@ -71,12 +71,12 @@ func (suite *QuerySuite) SetupTest() {
 	}
 
 	suite.query = New(&QueryConfig{
-		store:     suite.store,
-		apiClient: apiClient,
-		getRAGClient: func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
+		Store:     suite.store,
+		APIClient: apiClient,
+		GetRAGClient: func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
 			return suite.rag, nil
 		},
-		model: model,
+		Model: model,
 	})
 }
 

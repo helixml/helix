@@ -28,18 +28,18 @@ type Query struct {
 }
 
 type QueryConfig struct {
-	store        store.Store
-	apiClient    openai.Client
-	getRAGClient func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error)
-	model        string
+	Store        store.Store
+	APIClient    openai.Client
+	GetRAGClient func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error)
+	Model        string
 }
 
 func New(cfg *QueryConfig) *Query {
 	return &Query{
-		store:        cfg.store,
-		apiClient:    cfg.apiClient,
-		getRAGClient: cfg.getRAGClient,
-		model:        cfg.model,
+		store:        cfg.Store,
+		apiClient:    cfg.APIClient,
+		getRAGClient: cfg.GetRAGClient,
+		model:        cfg.Model,
 	}
 }
 
