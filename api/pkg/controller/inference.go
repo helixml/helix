@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/controller/knowledge/query"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -88,6 +89,40 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
 		return nil, nil, err
+	}
+
+	return &resp, &req, nil
+}
+
+func (c *Controller) answerWithKnowledge(ctx context.Context, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
+	client, err := c.getClient(ctx, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	q := query.New(&query.QueryConfig{
+		Store:        c.Options.Store,
+		APIClient:    client,
+		GetRAGClient: c.GetRagClient,
+		Model:        assistant.Model,
+	})
+
+	prompt := getLastMessage(req)
+
+	answer, err := q.Answer(ctx, prompt, opts.AppID, assistant)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to answer with knowledge: %w", err)
+	}
+
+	resp := openai.ChatCompletionResponse{
+		Model: req.Model,
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: answer,
+				},
+			},
+		},
 	}
 
 	return &resp, &req, nil
