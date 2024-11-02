@@ -134,6 +134,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 		log.Info().
 			Str("knowledge_id", d.knowledge.ID).
+			Str("app_id", d.knowledge.AppID).
 			Int32("visited_pages", visited).
 			Str("url", e.Request.URL.String()).Msg("visiting link")
 
@@ -144,6 +145,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			log.Warn().
 				Err(err).
 				Str("url", e.Request.URL.String()).
+				Str("app_id", d.knowledge.AppID).
 				Msg("error crawling URL")
 			return
 		}
@@ -151,6 +153,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		log.Info().
 			Str("knowledge_id", d.knowledge.ID).
 			Str("url", e.Request.URL.String()).
+			Str("app_id", d.knowledge.AppID).
 			Msg("crawled page")
 
 		crawledDocs = append(crawledDocs, doc)
@@ -176,6 +179,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	})
 
 	log.Info().
+		Str("app_id", d.knowledge.AppID).
 		Str("knowledge_id", d.knowledge.ID).
 		Str("knowledge_name", d.knowledge.Name).
 		Str("url", d.knowledge.Source.Web.URLs[0]).
@@ -192,6 +196,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	log.Info().
+		Str("app_id", d.knowledge.AppID).
 		Str("knowledge_id", d.knowledge.ID).
 		Str("knowledge_name", d.knowledge.Name).
 		Str("url", d.knowledge.Source.Web.URLs[0]).
