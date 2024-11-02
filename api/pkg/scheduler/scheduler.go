@@ -37,8 +37,18 @@ var _ Scheduler = &scheduler{}
 // NewScheduler creates a new scheduler with a workload allocator.
 // It returns a Scheduler instance for managing workloads.
 func NewScheduler(cfg *config.ServerConfig) *scheduler {
+	modelTTL := cfg.Providers.Helix.ModelTTL
+	if modelTTL == 0 {
+		modelTTL = 10 * time.Second
+	}
+	slotTTL := cfg.Providers.Helix.SlotTTL
+	if slotTTL == 0 {
+		slotTTL = 300 * time.Second
+	}
+	log.Info().Dur("model_stale_time", modelTTL).Dur("slot_timeout", slotTTL).Msg("slot timeouts")
 	allocator := NewWorkloadAllocator(
-		NewTimeoutFunc(cfg.Providers.Helix.ModelTTL),
+		NewTimeoutFunc(modelTTL),
+		NewTimeoutFunc(slotTTL),
 	)
 	cluster := NewCluster(
 		NewTimeoutFunc(cfg.Providers.Helix.RunnerTTL),
@@ -115,7 +125,7 @@ func (s *scheduler) Schedule(work *Workload) (err error) {
 		err = s.allocator.AllocateSlot(slot.ID, work)
 		if err != nil {
 			// Return error if unable to allocate work to the warm model.
-			return fmt.Errorf("unable to allocate work to a warm model: %w", err)
+			return fmt.Errorf("unable to allocate work to a warm model slot (ID: %s, slot runner: %s): %w", slot.ID, slot.RunnerID, err)
 		}
 	} else {
 		// If no warm slots are available, pick a runner to allocate a slot to.
@@ -128,7 +138,7 @@ func (s *scheduler) Schedule(work *Workload) (err error) {
 		slot, err = s.allocator.AllocateNewSlot(bestRunnerID, work)
 		if err != nil {
 			// Return error if unable to allocate a new slot.
-			return fmt.Errorf("unable to allocate new work: %w", err)
+			return fmt.Errorf("unable to allocate new work on runner (ID: %s): %w", bestRunnerID, err)
 		}
 	}
 

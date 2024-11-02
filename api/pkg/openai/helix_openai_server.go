@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -59,29 +60,75 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIMod
 // TODO: move logic from controller and other places. This method would be called directly from the runner
 // handler to get the next session. Pubsub is handled internally within this package
 func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, filter types.InferenceRequestFilter, runnerID string) (*types.RunnerLLMInferenceRequest, error) {
+	// Track beginning of request
+	runnerReqID := system.GenerateID()
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("runner_request_id", runnerReqID).
+		Any("filter", filter).
+		Msg("GetNextLLMInferenceRequest START")
+
+	defer func() {
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("runner_request_id", runnerReqID).
+			Any("filter", filter).
+			Msg("GetNextLLMInferenceRequest END")
+	}()
+
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
+	// Store jobs that weren't able to be scheduled to re-add to the queue later
+	unscheduledQueue := make([]*types.RunnerLLMInferenceRequest, 0)
+
 	// Schedule any requests that are currently in the queue.
-	taken := 0
 	for _, req := range c.queue {
 		work, err := scheduler.NewLLMWorkload(req)
 		if err != nil {
 			log.Warn().Err(err).Str("id", req.RequestID).Msg("creating workload")
 			continue
 		}
-		err = c.scheduler.Schedule(work)
-		if err != nil {
-			retry, err := scheduler.ErrorHandlingStrategy(err, work)
 
+		log.Info().
+			Str("id", work.ID()).
+			Str("request_id", req.RequestID).
+			Str("runner_request_id", runnerReqID).
+			Msg("scheduling work")
+
+		scheduleErr := c.scheduler.Schedule(work)
+		if scheduleErr != nil {
+			retry, err := scheduler.ErrorHandlingStrategy(scheduleErr, work)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("schedule_err", scheduleErr.Error()).
+					Str("request_id", req.RequestID).
+					Str("runner_request_id", runnerReqID).
+					Str("id", work.ID()).Msg("error checking scheduling strategy")
+			}
 			// If we can retry, break out of the loop and try again later
 			if retry {
-				break
+				log.Error().
+					Err(scheduleErr).
+					Str("id", work.ID()).
+					Str("request_id", req.RequestID).
+					Str("runner_request_id", runnerReqID).
+					Msg("scheduling work, retrying...")
+				unscheduledQueue = append(unscheduledQueue, req)
+				continue
 			}
 
 			// If we can't retry, write an error to the request and continue so it takes it off
 			// the queue
-			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work, removing from queue")
+			log.Warn().
+				Err(err).
+				Str("schedule_err", scheduleErr.Error()).
+				Str("id", work.ID()).
+				Str("request_id", req.RequestID).
+				Str("runner_request_id", runnerReqID).
+				Msg("error scheduling work, removing from queue")
 
 			resp := &types.RunnerLLMInferenceResponse{
 				RequestID:     req.RequestID,
@@ -93,18 +140,31 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 			}
 			bts, err := json.Marshal(resp)
 			if err != nil {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
+				log.Error().
+					Err(err).
+					Str("schedule_err", scheduleErr.Error()).
+					Str("id", work.ID()).
+					Str("request_id", req.RequestID).
+					Str("runner_request_id", runnerReqID).
+					Msg("error marshalling runner response")
+				return nil, fmt.Errorf("error marshalling runner response: %w", err)
 			}
 
 			err = c.pubsub.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
 			if err != nil {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
+				log.Error().
+					Err(err).
+					Str("schedule_err", scheduleErr.Error()).
+					Str("id", work.ID()).
+					Str("request_id", req.RequestID).
+					Str("runner_request_id", runnerReqID).
+					Msg("error publishing runner response")
+				return nil, fmt.Errorf("error publishing runner response: %w", err)
 			}
 		}
-		taken++
 	}
-	// Clear processed queue
-	c.queue = c.queue[taken:]
+	// Re-add the unscheduled queue to the queue
+	c.queue = unscheduledQueue
 
 	// Default to requesting warm work
 	newWorkOnly := false
@@ -117,12 +177,27 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	// Now for this runner, get work
 	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeLLMInferenceRequest, newWorkOnly, filter.ModelName)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("runner_request_id", runnerReqID).
+			Any("filter", filter).
+			Int("queue_len", len(c.queue)).
+			Bool("new_work_only", newWorkOnly).
+			Msg("error getting work for runner")
 		return nil, fmt.Errorf("error getting work for runner: %w", err)
 	}
 
 	if req != nil {
 		c.addSchedulingDecision(filter, runnerID, runnerID, req.LLMInferenceRequest().SessionID, req.LLMInferenceRequest().InteractionID)
-		log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("runner_request_id", runnerReqID).
+			Any("filter", filter).
+			Any("req", req).
+			Int("queue_len", len(c.queue)).
+			Bool("new_work_only", newWorkOnly).
+			Msg("returning llm inference request")
 		return req.LLMInferenceRequest(), nil
 	}
 	return nil, nil
