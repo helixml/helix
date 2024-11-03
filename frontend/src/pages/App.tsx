@@ -14,6 +14,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import ApiIntegrations from '../components/app/ApiIntegrations'
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
+import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import GPTScriptsSection from '../components/app/GPTScriptsSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
@@ -955,7 +956,11 @@ const App: FC = () => {
                 </Button>
               </Box>
             </Grid>
-            <PreviewPanel
+            {/* For API keys section show  */}
+            {tabValue === 'apikeys' ? (
+              <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
+            ) : (
+              <PreviewPanel
               loading={loading}
               name={name}
               avatar={avatar}
@@ -972,7 +977,8 @@ const App: FC = () => {
               serverConfig={account.serverConfig}
               themeConfig={themeConfig}
               snackbar={snackbar}
-            />
+              />
+            )}
           </Grid>
         </Box>
       </Container>
