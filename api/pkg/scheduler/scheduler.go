@@ -48,8 +48,19 @@ type scheduler struct {
 var _ Scheduler = &scheduler{}
 
 // NewScheduler creates a new scheduler with a workload allocator.
-// It returns a Scheduler instance for managing workloads.
+// This also starts a goroutine to process the queue in the background.
 func NewScheduler(ctx context.Context, cfg *config.ServerConfig, onSchedulingErr func(work *Workload, err error)) *scheduler {
+	scheduler := newSchedulerWithoutQueue(cfg, onSchedulingErr)
+
+	// Start a goroutine to process the buffered queue
+	go func() {
+		scheduler.processQueue(ctx)
+	}()
+
+	return scheduler
+}
+
+func newSchedulerWithoutQueue(cfg *config.ServerConfig, onSchedulingErr func(work *Workload, err error)) *scheduler {
 	modelTTL := cfg.Providers.Helix.ModelTTL
 	if modelTTL == 0 {
 		modelTTL = 10 * time.Second
@@ -98,11 +109,6 @@ func NewScheduler(ctx context.Context, cfg *config.ServerConfig, onSchedulingErr
 		queueSize:         queueSize,
 		onSchedulingErr:   onSchedulingErr,
 	}
-
-	// Start a goroutine to process the buffered queue
-	go func() {
-		scheduler.processQueue(ctx)
-	}()
 
 	return scheduler
 }
@@ -385,7 +391,7 @@ func (s *scheduler) SlotsForRunner(runnerID string) map[uuid.UUID]*Workload {
 			if ok {
 				slots[slot.ID] = work
 				// TODO(PHIL): This marks the slot as active immediately. I.e. this work is sent
-				// at most once.
+				// at most once. See the Begin method for how this should work.
 				slot.Start()
 			}
 		}
