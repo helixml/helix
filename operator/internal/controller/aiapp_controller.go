@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -65,9 +66,14 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Using dots instead of slashes for URL safety
 	appID := fmt.Sprintf("%s%s%s%s%s", k8sPrefix, k8sSeparator, req.Namespace, k8sSeparator, aiapp.Name)
 
+	// TODO: need to use Name: appID and ID should be set to randomly generated
+	// UUID with app_ prefix (doesn't app client already do this?)
+	// then we need to ensure we are searching by and reconciling by name, not id
+
 	// Convert CRD to Helix App type
 	app := &types.App{
-		ID: appID,
+		ID:        appID,
+		AppSource: types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        aiapp.Spec.Name,
@@ -98,6 +104,7 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		// Convert APIs
 		for _, api := range assistant.APIs {
+			logger.Info("Converting API", "name", api.Name)
 			helixAssistant.APIs = append(helixAssistant.APIs, types.AssistantAPI{
 				Name:                    api.Name,
 				Description:             api.Description,
@@ -138,11 +145,22 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Check if app exists in Helix API
 	_, err := r.helix.GetApp(app.ID)
 	if err != nil {
-		// If app doesn't exist, create it
-		if err.Error() == "not found" {
+		errStr := strings.ToLower(err.Error())
+		// Check for both 404 status code and "not found" message
+		if strings.Contains(errStr, "404") || strings.Contains(errStr, "not found") {
 			logger.Info("Creating new app in Helix", "id", app.ID)
 			_, err = r.helix.CreateApp(app)
 			if err != nil {
+				// If the error indicates the app already exists, try updating instead
+				if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+					logger.Info("App already exists, updating instead", "id", app.ID)
+					_, err = r.helix.UpdateApp(app)
+					if err != nil {
+						logger.Error(err, "Failed to update app in Helix", "id", app.ID)
+						return ctrl.Result{}, fmt.Errorf("failed to update app in Helix: %w", err)
+					}
+					return ctrl.Result{}, nil
+				}
 				logger.Error(err, "Failed to create app in Helix", "id", app.ID)
 				return ctrl.Result{}, fmt.Errorf("failed to create app in Helix: %w", err)
 			}
@@ -152,7 +170,7 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("failed to get app from Helix: %w", err)
 	}
 
-	// Update existing app - we know it's k8s managed because of the k8s prefix
+	// Update existing app
 	logger.Info("Updating existing app in Helix", "id", app.ID)
 	_, err = r.helix.UpdateApp(app)
 	if err != nil {
