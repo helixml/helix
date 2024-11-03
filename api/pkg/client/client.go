@@ -84,7 +84,10 @@ func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interfa
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, method, c.url+path, body)
+	fullURL := c.url + path
+	fmt.Printf("Making request to Helix API: %s %s\n", method, fullURL)
+
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
 	if err != nil {
 		return err
 	}
