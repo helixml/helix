@@ -17,9 +17,11 @@ interface CodeExamplesProps {
 const CodeExamples: FC<CodeExamplesProps> = ({ apiKey }) => {
   const [selectedTab, setSelectedTab] = useState(0);
 
+  const address = window.location.origin;
+
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(CODE_EXAMPLES[selectedTab].code(apiKey));
+      await navigator.clipboard.writeText(CODE_EXAMPLES[selectedTab].code(address, apiKey));
     } catch (err) {
       console.error('Failed to copy code:', err);
     }
@@ -72,7 +74,7 @@ const CodeExamples: FC<CodeExamplesProps> = ({ apiKey }) => {
                     borderRadius: '4px',
                   }}
                 >
-                  {example.code(apiKey)}
+                  {example.code(address, apiKey)}
                 </SyntaxHighlighter>
               </>
             )}
