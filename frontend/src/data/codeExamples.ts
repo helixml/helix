@@ -9,29 +9,23 @@ export const CODE_EXAMPLES: CodeExample[] = [
     language: 'javascript',
     label: 'Node.js',
     code: (address: string, apiKey: string) => `
-const axios = require('axios');
+// Using https://www.npmjs.com/package/openai
+import OpenAI from 'openai';
 
-async function chat() {
-  try {
-    const response = await axios.post('${address}/v1/chat/completions', {
-      model: 'llama3:instruct',
-      messages: [
-        { role: 'user', content: 'Hello, how are you?' }
-      ]
-    }, {
-      headers: {
-        'Authorization': 'Bearer ${apiKey}',
-        'Content-Type': 'application/json'
-      }
-    });
+const client = new OpenAI({
+  apiKey: "${apiKey}", // Usually this should be set in the environment
+  baseURL: "${address}/v1",
+});
 
-    console.log(response.data);
-  } catch (error) {
-    console.error('Error:', error);
-  }
+async function main() {
+  const chatCompletion = await client.chat.completions.create({
+    messages: [{ role: 'user', content: 'Hello, how are you?' }],    
+  });
+
+  console.log(chatCompletion.choices[0].message.content);
 }
 
-chat();
+main();
 `,
   },
   {
