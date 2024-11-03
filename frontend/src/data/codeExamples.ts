@@ -32,30 +32,24 @@ main();
     language: 'python',
     label: 'Python',
     code: (address: string, apiKey: string) => `
-import requests
+from openai import OpenAI
 
-def chat():
-    url = "${address}/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer ${apiKey}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "llama3:instruct",
-        "messages": [
-            {"role": "user", "content": "Hello, how are you?"}
-        ]
-    }
+client = OpenAI(
+  base_url="${address}/v1",
+  api_key="${apiKey}"
+)
 
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        print(response.json())
-    except requests.exceptions.RequestException as e:
-        print(f"Error: {e}")
+completion = client.chat.completions.create(
+    model="llama3:instruct", # Optional, will be set
+    messages=[
+        {
+            "role": "user",
+            "content": "Hello, how are you?"
+        }
+    ]
+)
 
-if __name__ == "__main__":
-    chat()
+print(completion.choices[0].message)
 `,
   },
   {
