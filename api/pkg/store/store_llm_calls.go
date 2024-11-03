@@ -22,16 +22,28 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 	return call, nil
 }
 
-func (s *PostgresStore) ListLLMCalls(ctx context.Context, page, pageSize int, sessionFilter string) ([]*types.LLMCall, int64, error) {
+type ListLLMCallsQuery struct {
+	AppID         string
+	SessionFilter string
+
+	Page    int
+	PerPage int
+}
+
+func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error) {
 	var calls []*types.LLMCall
 	var totalCount int64
 
-	offset := (page - 1) * pageSize
+	offset := (q.Page - 1) * q.PerPage
 
 	query := s.gdb.WithContext(ctx).Model(&types.LLMCall{})
 
-	if sessionFilter != "" {
-		query = query.Where("session_id LIKE ?", "%"+sessionFilter+"%")
+	if q.SessionFilter != "" {
+		query = query.Where("session_id LIKE ?", "%"+q.SessionFilter+"%")
+	}
+
+	if q.AppID != "" {
+		query = query.Where("app_id = ?", q.AppID)
 	}
 
 	err := query.Count(&totalCount).Error
@@ -42,7 +54,7 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, page, pageSize int, se
 	err = query.
 		Order("created DESC").
 		Offset(offset).
-		Limit(pageSize).
+		Limit(q.PerPage).
 		Find(&calls).Error
 
 	if err != nil {

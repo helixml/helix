@@ -8,8 +8,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
+	types "github.com/helixml/helix/api/pkg/types"
 )
 
 // MockStore is a mock of Store interface.
@@ -611,9 +611,9 @@ func (mr *MockStoreMockRecorder) ListKnowledgeVersions(ctx, q interface{}) *gomo
 }
 
 // ListLLMCalls mocks base method.
-func (m *MockStore) ListLLMCalls(ctx context.Context, page, pageSize int, sessionFilter string) ([]*types.LLMCall, int64, error) {
+func (m *MockStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListLLMCalls", ctx, page, pageSize, sessionFilter)
+	ret := m.ctrl.Call(m, "ListLLMCalls", ctx, q)
 	ret0, _ := ret[0].([]*types.LLMCall)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
@@ -621,9 +621,9 @@ func (m *MockStore) ListLLMCalls(ctx context.Context, page, pageSize int, sessio
 }
 
 // ListLLMCalls indicates an expected call of ListLLMCalls.
-func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, page, pageSize, sessionFilter interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, q interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, page, pageSize, sessionFilter)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, q)
 }
 
 // ListScriptRuns mocks base method.
