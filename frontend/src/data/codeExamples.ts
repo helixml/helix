@@ -99,4 +99,21 @@ func main() {
 }
 `,
   },
+  {
+    language: 'bash',
+    label: 'Curl',
+    code: (address: string, apiKey: string) => `
+curl -X POST "${address}/v1/chat/completions" \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "messages": [
+      {
+        "role": "user", 
+        "content": "Hello, how are you?"
+      }
+    ]
+  }'
+`,
+  }
 ]; 
