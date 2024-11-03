@@ -536,26 +536,7 @@ func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
 		return nil, err
 	}
 
-	runnerSlots := make([]types.RunnerSlot, 0, len(r.slots))
-	for slotID, runtime := range r.slots {
-		runnerSlot := types.RunnerSlot{
-			ID: slotID,
-			Attributes: types.RunnerSlotAttributes{
-				Workload: runtime.CurrentWorkload(),
-			},
-		}
-		runnerSlots = append(runnerSlots, runnerSlot)
-	}
-	patch := &types.PatchRunnerSlots{
-		Data: runnerSlots,
-	}
-
-	body, err := json.Marshal(patch)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := retryablehttp.NewRequest("GET", parsedURL.String(), body)
+	req, err := retryablehttp.NewRequestWithContext(r.Ctx, "GET", parsedURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}

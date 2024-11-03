@@ -12,6 +12,14 @@ func Values[K, V comparable](m *xsync.MapOf[K, V]) []V {
 	return values
 }
 
+func ValuesMap[K, V comparable](m map[K]V) []V {
+	values := make([]V, 0, len(m))
+	for _, value := range m {
+		values = append(values, value)
+	}
+	return values
+}
+
 func Keys[K comparable, V any](m *xsync.MapOf[K, V]) []K {
 	keys := make([]K, 0, m.Size())
 	// Collect all map keys.
@@ -19,6 +27,14 @@ func Keys[K comparable, V any](m *xsync.MapOf[K, V]) []K {
 		keys = append(keys, key)
 		return true
 	})
+	return keys
+}
+
+func KeysMap[K, V comparable](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
 	return keys
 }
 
