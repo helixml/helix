@@ -68,7 +68,6 @@ if __name__ == "__main__":
     language: 'go',
     label: 'Go',
     code: (address: string, apiKey: string) => `
-// Using https://github.com/sashabaranov/go-openai
 package main
 
 import (
@@ -79,7 +78,10 @@ import (
 )
 
 func main() {
+  // Configure to use the Helix API key
 	config := openai.DefaultConfig("${apiKey}")
+
+	// Configure to use the Helix API endpoint
 	config.BaseURL = "${address}/v1"
 
 	client := openai.NewClientWithConfig(config)
