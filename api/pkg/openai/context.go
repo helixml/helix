@@ -8,6 +8,7 @@ import (
 
 const (
 	contextValuesKey = "contextValues"
+	contextAppIDKey  = "appID"
 	stepKey          = "step"
 )
 
@@ -20,6 +21,15 @@ type ContextValues struct {
 	SessionID       string
 	InteractionID   string
 	OriginalRequest []byte
+}
+
+func SetContextAppID(ctx context.Context, appID string) context.Context {
+	return context.WithValue(ctx, contextAppIDKey, appID)
+}
+
+func GetContextAppID(ctx context.Context) (string, bool) {
+	appID, ok := ctx.Value(contextAppIDKey).(string)
+	return appID, ok
 }
 
 func SetContextValues(ctx context.Context, vals *ContextValues) context.Context {
