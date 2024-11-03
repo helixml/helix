@@ -68,64 +68,38 @@ if __name__ == "__main__":
     language: 'go',
     label: 'Go',
     code: (address: string, apiKey: string) => `
+// Using https://github.com/sashabaranov/go-openai
 package main
 
 import (
-    "bytes"
-    "encoding/json"
-    "fmt"
-    "net/http"
+	"context"
+	"fmt"
+
+	openai "github.com/sashabaranov/go-openai"
 )
 
-type Message struct {
-    Role    string \`json:"role"\`
-    Content string \`json:"content"\`
-}
-
-type ChatRequest struct {
-    Model    string    \`json:"model"\`
-    Messages []Message \`json:"messages"\`
-}
-
 func main() {
-    url := "${address}/v1/chat/completions"
-    
-    request := ChatRequest{
-        Model: "llama3:instruct",
-        Messages: []Message{
-            {
-                Role:    "user",
-                Content: "Hello, how are you?",
-            },
-        },
-    }
-    
-    jsonData, err := json.Marshal(request)
-    if err != nil {
-        fmt.Printf("Error marshaling JSON: %v\\n", err)
-        return
-    }
+	config := openai.DefaultConfig("${apiKey}")
+	config.BaseURL = "${address}/v1"
 
-    req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-    if err != nil {
-        fmt.Printf("Error creating request: %v\\n", err)
-        return
-    }
+	client := openai.NewClientWithConfig(config)
 
-    req.Header.Set("Authorization", "Bearer ${apiKey}")
-    req.Header.Set("Content-Type", "application/json")
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        fmt.Printf("Error making request: %v\\n", err)
-        return
-    }
-    defer resp.Body.Close()
-
-    var result map[string]interface{}
-    json.NewDecoder(resp.Body).Decode(&result)
-    fmt.Println(result)
+	resp, err := client.CreateChatCompletion(
+		context.Background(),
+		openai.ChatCompletionRequest{
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: "Hello, how are you?",
+				},
+			},
+		},
+	)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(resp)
 }
 `,
   },
