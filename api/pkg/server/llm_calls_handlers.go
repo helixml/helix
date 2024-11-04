@@ -107,6 +107,7 @@ func (s *HelixAPIServer) listAppLLMCalls(w http.ResponseWriter, r *http.Request)
 		PerPage:       pageSize,
 		SessionFilter: sessionFilter,
 		AppID:         appID,
+		UserID:        user.ID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
