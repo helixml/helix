@@ -72,6 +72,13 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	chatCompletionRequest.Model = modelName
 
+	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
+		OwnerID:         user.ID,
+		SessionID:       "n/a",
+		InteractionID:   "n/a",
+		OriginalRequest: body,
+	})
+
 	options := &controller.ChatCompletionOptions{
 		AppID:       r.URL.Query().Get("app_id"),
 		AssistantID: r.URL.Query().Get("assistant_id"),
@@ -80,18 +87,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	if user.AppID != "" {
 		options.AppID = user.AppID
-	}
-
-	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:         user.ID,
-		SessionID:       "n/a",
-		InteractionID:   "n/a",
-		OriginalRequest: body,
-	})
-
-	ctx = oai.SetContextAppID(ctx, options.AppID)
-
-	if options.AppID != "" {
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 
 		// Check if the appID contains a LORA
