@@ -193,8 +193,14 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		step = &oai.Step{}
 	}
 
+	appID, ok := oai.GetContextAppID(ctx)
+	if !ok {
+		log.Debug().Msg("failed to get app_id")
+	}
+
 	log.Debug().
 		Str("owner_id", vals.OwnerID).
+		Str("app_id", appID).
 		Str("model", req.Model).
 		Str("provider", string(m.provider)).
 		Str("step", string(step.Step)).
@@ -204,6 +210,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		Msg("logging LLM call")
 
 	llmCall := &types.LLMCall{
+		AppID:            appID,
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
 		Model:            req.Model,
