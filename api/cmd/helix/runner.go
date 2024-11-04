@@ -307,7 +307,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		}
 	}
 
-	runnerController, err := runner.NewRunner(ctx, options.Runner, useWarmupSessions)
+	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
 		return err
 	}
