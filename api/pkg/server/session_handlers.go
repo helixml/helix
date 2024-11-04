@@ -112,7 +112,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	// For finetunes, legacy route
 	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
-		s.startChatSessionLegacyHandler(req.Context(), user, &startReq, req, rw)
+		s.startChatSessionLegacyHandler(ctx, user, &startReq, req, rw)
 		return
 	}
 
@@ -239,7 +239,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}()
 	}
 
-	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         user.ID,
 		SessionID:       session.ID,
 		InteractionID:   session.Interactions[0].ID,
