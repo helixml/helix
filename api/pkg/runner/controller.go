@@ -174,6 +174,14 @@ func (r *Runner) Initialize(ctx context.Context) error {
 
 // this should be run in a go-routine
 func (r *Runner) Run() {
+	err := r.warmupInference(context.Background())
+	if err != nil {
+		log.Error().Msgf("error in warmup inference: %s", err.Error())
+		debug.PrintStack()
+	} else {
+		log.Info().Msg("🟢 warmup inference complete")
+	}
+
 	go r.startTaskLoop()
 	go r.startReportStateLoop()
 }
@@ -291,7 +299,6 @@ func (r *Runner) pollSlots(_ context.Context) error {
 		case scheduler.WorkloadTypeLLMInferenceRequest:
 			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing LLM inference request")
 			runtime.SetLLMInferenceRequest(work)
-
 		case scheduler.WorkloadTypeSession:
 			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing session request")
 			runtime.SetSessionRequest(work)
@@ -301,7 +308,7 @@ func (r *Runner) pollSlots(_ context.Context) error {
 	return nil
 }
 
-func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
+func (r *Runner) getSlots() (*types.GetDesiredRunnerSlotsResponse, error) {
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/slots", r.Options.ID))))
 	if err != nil {
 		return nil, err
@@ -335,7 +342,7 @@ func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
 		return nil, nil
 	}
 
-	var slots *types.PatchRunnerSlots
+	var slots *types.GetDesiredRunnerSlotsResponse
 	err = json.Unmarshal(buffer.Bytes(), &slots)
 	if err != nil {
 		return nil, err
@@ -522,19 +529,20 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		FreeMemory:          r.getFreeMemory(),
 		Labels:              r.Options.Labels,
 		ModelInstances:      modelInstances,
-		SchedulingDecisions: []string{"Deprecated: Runners no longer makes scheduling decisions."},
+		SchedulingDecisions: []string{"[Deprecated] Runners no longer make scheduling decisions. This will be removed shortly"},
 		Version:             data.GetHelixVersion(),
-		Slots:               r.getCurrentSlots(),
+		Slots:               r.getRunnerSlots(),
 	}, nil
 }
 
-func (r *Runner) getCurrentSlots() []types.RunnerSlot {
-	slots := []types.RunnerSlot{}
+func (r *Runner) getRunnerSlots() []types.RunnerActualSlot {
+	slots := []types.RunnerActualSlot{}
 	for slotID, runtime := range r.slots {
-		slots = append(slots, types.RunnerSlot{
+		slots = append(slots, types.RunnerActualSlot{
 			ID: slotID,
-			Attributes: types.RunnerSlotAttributes{
-				Workload: runtime.CurrentWorkload(),
+			Attributes: types.RunnerActualSlotAttributes{
+				OriginalWorkload: runtime.OriginalWorkload(),
+				CurrentWorkload:  runtime.CurrentWorkload(),
 			},
 		})
 	}

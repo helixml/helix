@@ -47,8 +47,8 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 	return HelixModels, nil
 }
 
-func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)
+func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	ctx, cancel := context.WithTimeout(requestCtx, chatCompletionTimeout)
 	defer cancel()
 
 	requestID := system.GenerateRequestID()
@@ -112,7 +112,15 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	// Wait for the response or until the context is done (timeout)
 	select {
 	case <-doneCh:
+	case <-requestCtx.Done():
+		// If this happens, the request has been cancelled, release the allocation
+		err := c.scheduler.Release(requestID)
+		if err != nil {
+			log.Error().Err(err).Msg("error releasing allocation")
+		}
+		return openai.ChatCompletionResponse{}, fmt.Errorf("request was cancelled")
 	case <-ctx.Done():
+		// If this happens, we have timed out
 		log.Warn().
 			Str("request_id", requestID).
 			Msg("timeout waiting for runner response, releasing allocation")

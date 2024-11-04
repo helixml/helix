@@ -27,9 +27,10 @@ type Scheduler interface {
 
 	// New queueing scheduler methods
 	Begin(requestID string) error
-	SlotsForRunner(runnerID string) map[uuid.UUID]*Workload
+	SlotsForRunner(runnerID string) []types.DesiredRunnerSlot
 	Enqueue(work *Workload) error
 	DashboardData() ([]*types.SessionSummary, error)
+	DashboardSlotsData() []types.DesiredSlots
 }
 
 // scheduler is a struct implementing the Scheduler interface.
@@ -141,13 +142,11 @@ func (s *scheduler) Schedule(work *Workload) (err error) {
 
 	// Try to find warm slots, which are ready to take new work.
 	slots := s.allocator.WarmSlots(work)
-	log.Trace().
-		Int("warm_slots", len(slots)).
-		Str("work_id", work.ID()).
-		Msg("finding warm slots")
 
 	// If warm slots are available, select a random one.
 	if len(slots) > 0 {
+		// TODO(PHIL): This doesn't use the scheduling strategy. That is only used for new models.
+		// I should probably refactor this to use the strategy for all scheduling.
 		// Randomly select one warm slot from the available warm slots.
 		slot = slots[rand.Intn(len(slots))]
 
@@ -361,12 +360,31 @@ func (s *scheduler) DashboardData() ([]*types.SessionSummary, error) {
 	return sessionSummaries, nil
 }
 
+// DashboardSlotsData returns the queue of work for the scheduler in new DesiredSlots format
+// TODO(PHIL): We shouldn't pass implementation details about types of work to the dashboard.
+func (s *scheduler) DashboardSlotsData() []types.DesiredSlots {
+	s.queueMtx.Lock()
+	defer s.queueMtx.Unlock()
+
+	// Convert the queue of work to a list of SessionSummary objects.
+	runnerIDs := s.cluster.RunnerIDs()
+	desiredSlots := make([]types.DesiredSlots, 0, len(runnerIDs))
+	for _, runnerID := range runnerIDs {
+		desiredSlots = append(desiredSlots, types.DesiredSlots{
+			ID:   runnerID,
+			Data: s.SlotsForRunner(runnerID),
+		})
+	}
+
+	return desiredSlots
+}
+
 func (s *scheduler) Begin(requestID string) error {
 	// Find the slot ID associated with the request.
 	slotID, ok := s.find(requestID)
 	if !ok {
-		// If the request is not found, return an error.
-		return fmt.Errorf("request not found: %s", requestID)
+		// If the request is not found, it has probably already been released
+		return nil
 	}
 
 	// Set the slot as started
@@ -378,26 +396,26 @@ func (s *scheduler) Begin(requestID string) error {
 	return nil
 }
 
-func (s *scheduler) SlotsForRunner(runnerID string) map[uuid.UUID]*Workload {
-	internalSlots := s.allocator.RunnerSlots(runnerID)
-	slots := make(map[uuid.UUID]*Workload, len(internalSlots))
-	for _, slot := range internalSlots {
-		// Default to empty slot
-		slots[slot.ID] = nil
-		// If the slot is active, then try to ge the work
-		if slot.IsScheduled() {
-			// If the workstore has work, then add it to the slots map.
-			work, ok := s.workStore.Load(slot.ID)
-			if ok {
-				slots[slot.ID] = work
-				// TODO(PHIL): This marks the slot as active immediately. I.e. this work is sent
-				// at most once. See the Begin method for how this should work.
-				slot.Start()
-			}
+func (s *scheduler) SlotsForRunner(runnerID string) []types.DesiredRunnerSlot {
+	slots := s.allocator.RunnerSlots(runnerID)
+	desiredRunnerSlots := make([]types.DesiredRunnerSlot, 0, len(slots))
+	for _, slot := range slots {
+		attr := types.DesiredRunnerSlotAttributes{
+			Mode:  string(slot.Mode()),
+			Model: string(slot.ModelName()),
 		}
+		slotWork, ok := s.workStore.Load(slot.ID)
+		if ok {
+			attr.Workload = slotWork.ToRunnerWorkload()
+		}
+		desiredRunnerSlot := types.DesiredRunnerSlot{
+			ID:         slot.ID,
+			Attributes: attr,
+		}
+		desiredRunnerSlots = append(desiredRunnerSlots, desiredRunnerSlot)
 	}
 
-	return slots
+	return desiredRunnerSlots
 }
 
 // processQueue runs in a goroutine to processes the queue of requests.
@@ -421,11 +439,6 @@ func (s *scheduler) processQueue(ctx context.Context) {
 
 					// If we can retry, break out of the loop and try again later
 					if retry {
-						log.Error().
-							Err(err).
-							Str("id", work.ID()).
-							Str("request_id", work.ID()).
-							Msg("scheduling work, retrying...")
 						unscheduledQueue = append(unscheduledQueue, work)
 						continue
 					}

@@ -60,8 +60,8 @@ func TestController_GetSlots(t *testing.T) {
 
 func TestController_SlotLifecycle(t *testing.T) {
 	testSlotID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	apiSlots := &types.PatchRunnerSlots{
-		Data: []types.RunnerSlot{},
+	apiSlots := &types.GetDesiredRunnerSlotsResponse{
+		Data: []types.DesiredRunnerSlot{},
 	}
 	// Create a httptest server to test the getSlots method
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -101,11 +101,11 @@ func TestController_SlotLifecycle(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the control plan adding a new slot
-	apiSlots = &types.PatchRunnerSlots{
-		Data: []types.RunnerSlot{
+	apiSlots = &types.GetDesiredRunnerSlotsResponse{
+		Data: []types.DesiredRunnerSlot{
 			{
 				ID: testSlotID,
-				Attributes: types.RunnerSlotAttributes{
+				Attributes: types.DesiredRunnerSlotAttributes{
 					Workload: &types.RunnerWorkload{
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test",
@@ -138,11 +138,48 @@ func TestController_SlotLifecycle(t *testing.T) {
 	assert.Len(t, mockLLMWorkChan, 1)
 
 	// Delete the slot
-	apiSlots = &types.PatchRunnerSlots{
-		Data: []types.RunnerSlot{},
+	apiSlots = &types.GetDesiredRunnerSlotsResponse{
+		Data: []types.DesiredRunnerSlot{},
 	}
 	err = runner.pollSlots(context.Background())
 	assert.NoError(t, err)
 
 	assert.Len(t, runner.slots, 0)
+
+	// Simulate the control plan adding two slots at the same time
+	apiSlots = &types.GetDesiredRunnerSlotsResponse{
+		Data: []types.DesiredRunnerSlot{
+			{
+				ID: testSlotID,
+				Attributes: types.DesiredRunnerSlotAttributes{
+					Workload: &types.RunnerWorkload{
+						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
+							RequestID: "test-1",
+							Request: &openai.ChatCompletionRequest{
+								Model: model.Model_Ollama_Llama3_8b,
+							},
+						},
+					},
+				},
+			},
+			{
+				ID: testSlotID,
+				Attributes: types.DesiredRunnerSlotAttributes{
+					Workload: &types.RunnerWorkload{
+						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
+							RequestID: "test-2",
+							Request: &openai.ChatCompletionRequest{
+								Model: model.Model_Ollama_Llama3_8b,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Runner should have two slots now
+	err = runner.pollSlots(context.Background())
+	assert.NoError(t, err)
+	assert.Len(t, runner.slots, 2)
 }
