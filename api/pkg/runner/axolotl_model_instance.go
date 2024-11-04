@@ -122,7 +122,7 @@ func (i *AxolotlModelInstance) Done() <-chan bool {
 }
 
 func (i *AxolotlModelInstance) IsActive() bool {
-	return i.currentSession != nil
+	return i.currentSession != nil || i.nextSession != nil || i.queuedSession != nil
 }
 
 type ModelInstanceConfig struct {
