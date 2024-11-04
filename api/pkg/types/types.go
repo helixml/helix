@@ -741,10 +741,11 @@ type RunnerState struct {
 	ModelInstances      []*ModelInstanceState `json:"model_instances"`
 	SchedulingDecisions []string              `json:"scheduling_decisions"`
 	Version             string                `json:"version"`
-	Slots               []RunnerSlot          `json:"slots"`
+	Slots               []RunnerActualSlot    `json:"slots"`
 }
 
 type DashboardData struct {
+	DesiredSlots              []DesiredSlots              `json:"desired_slots"`
 	SessionQueue              []*SessionSummary           `json:"session_queue"`
 	Runners                   []*RunnerState              `json:"runners"`
 	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
@@ -1456,13 +1457,18 @@ type Secret struct {
 	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
 }
 
-type PatchRunnerSlots struct {
-	Data []RunnerSlot `json:"data"`
+type GetDesiredRunnerSlotsResponse struct {
+	Data []DesiredRunnerSlot `json:"data"`
 }
 
-type RunnerSlot struct {
-	ID         uuid.UUID            `json:"id"`
-	Attributes RunnerSlotAttributes `json:"attributes"`
+type DesiredSlots struct {
+	ID   string              `json:"id"`
+	Data []DesiredRunnerSlot `json:"data"`
+}
+
+type DesiredRunnerSlot struct {
+	ID         uuid.UUID                   `json:"id"`
+	Attributes DesiredRunnerSlotAttributes `json:"attributes"`
 }
 
 type WorkloadType string
@@ -1472,11 +1478,23 @@ const (
 	WorkloadTypeSession             WorkloadType = "session"
 )
 
-type RunnerSlotAttributes struct {
+type DesiredRunnerSlotAttributes struct {
 	Workload *RunnerWorkload `json:"workload,omitempty"`
+	Model    string          `json:"model"`
+	Mode     string          `json:"mode"`
 }
 
 type RunnerWorkload struct {
 	LLMInferenceRequest *RunnerLLMInferenceRequest
 	Session             *Session
+}
+
+type RunnerActualSlot struct {
+	ID         uuid.UUID                  `json:"id"`
+	Attributes RunnerActualSlotAttributes `json:"attributes"`
+}
+
+type RunnerActualSlotAttributes struct {
+	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
+	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
 }

@@ -56,6 +56,13 @@ func (r *Slot) CurrentWorkload() *types.RunnerWorkload {
 	return r.currentWork.ToRunnerWorkload()
 }
 
+func (r *Slot) OriginalWorkload() *types.RunnerWorkload {
+	if r.originalWork == nil {
+		return &types.RunnerWorkload{}
+	}
+	return r.originalWork.ToRunnerWorkload()
+}
+
 func (r *Slot) SetLLMInferenceRequest(work *scheduler.Workload) {
 	r.currentWork = work
 	r.llmWorkChan <- work.LLMInferenceRequest()
@@ -78,6 +85,7 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 	slotID uuid.UUID,
 	work *scheduler.Workload,
 	// TODO(PHIL): Merge these response handlers
+	// TODO(PHIL): Also the slot doesn't know when the work has finished.
 	inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
 	sessionResponseHandler func(res *types.RunnerTaskResponse) error,
 	runnerOptions RunnerOptions,
@@ -86,6 +94,7 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 		ID:           slotID,
 		RunnerID:     runnerOptions.ID,
 		originalWork: work,
+		currentWork:  work,
 	}
 	switch work.WorkloadType {
 	case scheduler.WorkloadTypeLLMInferenceRequest:

@@ -134,6 +134,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		return nil, err
 	}
 	return &types.DashboardData{
+		DesiredSlots:              c.scheduler.DashboardSlotsData(),
 		SessionQueue:              summaryData,
 		Runners:                   runners,
 		GlobalSchedulingDecisions: c.schedulingDecisions,
