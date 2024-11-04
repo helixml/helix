@@ -30,6 +30,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
+  const headerCellStyle = {
+    bgcolor: 'rgba(0, 0, 0, 0.2)',
+    backdropFilter: 'blur(10px)'
+  };
+
   const fetchLLMCalls = async () => {
     try {
       const queryParams = new URLSearchParams({
@@ -80,7 +85,14 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   if (!llmCalls) return null;
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+    <Paper 
+      sx={{ 
+        width: '100%', 
+        overflow: 'hidden',
+        bgcolor: 'rgba(0, 0, 0, 0.2)',
+        backdropFilter: 'blur(10px)'
+      }}
+    >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
         <Typography variant="h6">LLM Calls</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
@@ -91,12 +103,12 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>
-              <TableCell>Created</TableCell>
-              <TableCell>Session ID</TableCell>
-              <TableCell>Step</TableCell>
-              <TableCell>Original Request</TableCell>
-              <TableCell>Request</TableCell>
-              <TableCell>Response</TableCell>
+              <TableCell sx={headerCellStyle}>Created</TableCell>
+              <TableCell sx={headerCellStyle}>Session ID</TableCell>
+              <TableCell sx={headerCellStyle}>Step</TableCell>
+              <TableCell sx={headerCellStyle}>Original Request</TableCell>
+              <TableCell sx={headerCellStyle}>Request</TableCell>
+              <TableCell sx={headerCellStyle}>Response</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
