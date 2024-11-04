@@ -63,8 +63,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     fetchLLMCalls();
   };
 
-  const handleOpenModal = (content: any) => {
-    setModalContent(content);
+  const handleOpenModal = (content: any, call: LLMCall) => {
+    setModalContent({
+      content,
+      sessionId: call.session_id,
+      interactionId: call.interaction_id,
+      step: call.step
+    });
     setModalOpen(true);
   };
 
@@ -88,7 +93,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             <TableRow>
               <TableCell>Created</TableCell>
               <TableCell>Session ID</TableCell>
-              <TableCell>Interaction ID</TableCell>
               <TableCell>Step</TableCell>
               <TableCell>Original Request</TableCell>
               <TableCell>Request</TableCell>
@@ -100,18 +104,17 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableRow key={call.id}>
                 <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
                 <TableCell>{call.session_id}</TableCell>
-                <TableCell>{call.interaction_id}</TableCell>                
-                <TableCell>{call.step}</TableCell>
+                <TableCell>{call.step || 'n/a'}</TableCell>
                 <TableCell>
                   {call.original_request && (
-                    <Button onClick={() => handleOpenModal(call.original_request)}>View</Button>
+                    <Button onClick={() => handleOpenModal(call.original_request, call)}>View</Button>
                   )}
                 </TableCell>
                 <TableCell>
-                  <Button onClick={() => handleOpenModal(call.request)}>View</Button>
+                  <Button onClick={() => handleOpenModal(call.request, call)}>View</Button>
                 </TableCell>
                 <TableCell>
-                  <Button onClick={() => handleOpenModal(call.response)}>View</Button>
+                  <Button onClick={() => handleOpenModal(call.response, call)}>View</Button>
                 </TableCell>
               </TableRow>
             ))}
@@ -149,7 +152,20 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           <Typography id="json-modal-title" variant="h6" component="h2" gutterBottom>
             JSON Content
           </Typography>
-          <JsonView data={modalContent} />
+          
+          <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Session ID: {modalContent?.sessionId}
+            </Typography>
+            <Typography variant="subtitle2" gutterBottom>
+              Interaction ID: {modalContent?.interactionId}
+            </Typography>
+            <Typography variant="subtitle2" gutterBottom>
+              Step: {modalContent?.step}
+            </Typography>
+          </Box>
+
+          <JsonView data={modalContent?.content} />
         </Box>
       </Modal>
     </Paper>
