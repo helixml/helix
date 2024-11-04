@@ -6,19 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"runtime/debug"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
@@ -91,237 +87,23 @@ type RunnerOptions struct {
 	// development settings
 	// never run more than this number of model instances
 	MaxModelInstances int
+
+	RuntimeFactory SlotFactory
 }
 
 type Runner struct {
-	Ctx     context.Context
-	Options RunnerOptions
-
-	httpClientOptions system.ClientOptions
-
-	// the map of model instances that we have loaded
-	// and are currently running
-	activeModelInstances *xsync.MapOf[string, ModelInstance]
-
-	// the lowest amount of memory that something can run with
-	// if we have less than this amount of memory then there is
-	// no point asking for more top level tasks
-	// we get this on boot by asking the model package
-	lowestMemoryRequirement uint64
-
-	// how we write web sockets messages to the api server
-	websocketEventChannel chan *types.WebsocketEvent
-
-	// if we are in "local" mode (i.e. posting jobs to a local runner using "helix run")
-	// then we keep state in memory
-	// in-memory state to record status that would normally be posted up as a result
-	State    map[string]types.RunnerTaskResponse
-	StateMtx sync.Mutex
-
-	// TODO: we could make this a struct but there are lots of various
-	// things happening and I can't be bothered to define them all
-	// so let's just add strings for the moment
-	schedulingDecisions []string
-
-	warmupSessions     []types.Session
-	warmupSessionMutex sync.Mutex
-
-	nextRequestMutex       sync.Mutex
-	nextGlobalRequestMutex sync.Mutex
-
-	slots map[uuid.UUID]*runtime
-}
-
-type runtime struct {
-	modelInstance   ModelInstance
-	llmWorkChan     chan *types.RunnerLLMInferenceRequest
-	sessionWorkChan chan *types.Session
-	currentWork     *scheduler.Workload
-}
-
-func (r *runtime) Stop() {
-	err := r.modelInstance.Stop()
-	if err != nil {
-		log.Err(err).Msg("error stopping model instance")
-	}
-	if r.llmWorkChan != nil {
-		close(r.llmWorkChan)
-	}
-	if r.sessionWorkChan != nil {
-		close(r.sessionWorkChan)
-	}
-}
-
-func (r *runtime) CurrentWorkload() *types.RunnerWorkload {
-	if r.currentWork == nil {
-		return &types.RunnerWorkload{}
-	}
-	return r.currentWork.ToRunnerWorkload()
-}
-
-func (r *runtime) SetLLMInferenceRequest(work *scheduler.Workload) {
-	r.currentWork = work
-	r.llmWorkChan <- work.LLMInferenceRequest()
-}
-
-func (r *runtime) SetSessionRequest(work *scheduler.Workload) {
-	r.currentWork = work
-	r.sessionWorkChan <- work.Session()
-}
-
-func (r *runtime) IsScheduled() bool {
-	return len(r.sessionWorkChan) > 0 || len(r.llmWorkChan) > 0
-}
-
-func (r *Runner) startNewRuntime(work *scheduler.Workload) (*runtime, error) {
-	switch work.WorkloadType {
-	case scheduler.WorkloadTypeLLMInferenceRequest:
-		log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama runtime")
-		workCh := make(chan *types.RunnerLLMInferenceRequest, 1)
-		ollama, err := NewOllamaInferenceModelInstance(
-			r.Ctx,
-			&InferenceModelInstanceConfig{
-				ResponseHandler: r.handleInferenceResponse,
-				GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
-					return <-workCh, nil
-				},
-				RunnerOptions: r.Options,
-			},
-			work.LLMInferenceRequest(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error creating ollama runtime: %s", err.Error())
-		}
-		r.activeModelInstances.Store(ollama.ID(), ollama)
-		err = ollama.Start(r.Ctx)
-		if err != nil {
-			return nil, fmt.Errorf("error starting ollama runtime: %s", err.Error())
-		}
-		return &runtime{
-			modelInstance: ollama,
-			llmWorkChan:   workCh,
-		}, nil
-	case scheduler.WorkloadTypeSession:
-		log.Debug().Str("workload_id", work.ID()).Msg("starting new session runtime")
-		var (
-			modelInstance ModelInstance
-			err           error
-		)
-		workCh := make(chan *types.Session, 1)
-		initialSession := work.Session()
-		runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
-
-		// if we are in mock mode - we need the axolotl model instance because
-		// it understands how to do a mock runner
-		if r.Options.MockRunner {
-			if initialSession.Type == types.SessionTypeText {
-				runtimeName = types.InferenceRuntimeAxolotl
-				initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
-			} else if initialSession.Type == types.SessionTypeImage {
-				// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
-				// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
-				// that does both axolotl and sdxl
-				runtimeName = types.InferenceRuntimeAxolotl
-				initialSession.ModelName = string(model.Model_Cog_SDXL)
-			}
-		}
-
-		switch runtimeName {
-		case types.InferenceRuntimeOllama:
-			log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama session runtime")
-			modelInstance, err = NewOllamaModelInstance(
-				r.Ctx,
-				&ModelInstanceConfig{
-					InitialSession:  initialSession,
-					ResponseHandler: r.handleWorkerResponse,
-					GetNextSession: func() (*types.Session, error) {
-						return <-workCh, nil
-					},
-					RunnerOptions: r.Options,
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
-			err = modelInstance.Start(r.Ctx)
-			if err != nil {
-				return nil, err
-			}
-			return &runtime{
-				modelInstance:   modelInstance,
-				sessionWorkChan: workCh,
-			}, nil
-		default:
-			// Defaulting to axolotl
-			log.Debug().Str("workload_id", work.ID()).Msg("starting new axolotl session runtime")
-			modelInstance, err = NewAxolotlModelInstance(
-				r.Ctx,
-				&ModelInstanceConfig{
-					InitialSession:    initialSession,
-					InitialSessionURL: r.Options.InitialSessionURL,
-					NextTaskURL:       r.Options.TaskURL,
-					// this function will convert any files it sees locally into an upload
-					// to the api server filestore - all files will be written to the filestore
-					// under a session sub path - you can include tar files and they will untarred at the other end
-					// into the filestore
-					// TODO: support the tar feature above
-					ResponseHandler: func(res *types.RunnerTaskResponse) error {
-						return r.handleWorkerResponse(res)
-					},
-					RunnerOptions: r.Options,
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			go modelInstance.QueueSession(initialSession, true)
-
-			// TODO(PHIL): Remove this. Required for use in the axolotl runner for now.
-			r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
-
-			err = modelInstance.Start(r.Ctx)
-			if err != nil {
-				return nil, err
-			}
-
-			go func() {
-				for {
-					select {
-					case <-r.Ctx.Done():
-						return
-					case work := <-workCh:
-						if modelInstance.IsActive() {
-							log.Debug().Str("workload_id", work.ID).Msg("ModelInstance is active, re-queueing session")
-							go func() {
-								workCh <- work
-							}()
-							time.Sleep(1 * time.Second)
-							continue
-						}
-						log.Debug().Str("workload_id", work.ID).Msg("Queueing axolotl session")
-						go modelInstance.QueueSession(work, false)
-					case <-modelInstance.Done():
-						return
-					}
-				}
-			}()
-
-			return &runtime{
-				modelInstance:   modelInstance,
-				sessionWorkChan: workCh,
-			}, nil
-		}
-	default:
-		return nil, fmt.Errorf("unknown workload type: %s", work.WorkloadType)
-	}
+	Ctx                   context.Context
+	Options               RunnerOptions
+	httpClientOptions     system.ClientOptions
+	activeModelInstances  *xsync.MapOf[string, ModelInstance] // the map of model instances that we have loaded and are currently running
+	websocketEventChannel chan *types.WebsocketEvent          // how we write web sockets messages to the api server
+	slots                 map[uuid.UUID]*Slot                 // A map recording the slots running on this runner
+	slotFactory           SlotFactory                         // A factory to create new slots. Required for testing since we don't actually want to spin up ollama on each test
 }
 
 func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
-	warmupSessions []types.Session,
 ) (*Runner, error) {
 
 	if options.ID == "" {
@@ -332,6 +114,9 @@ func NewRunner(
 	}
 	if options.ApiToken == "" {
 		return nil, fmt.Errorf("api token is required")
+	}
+	if options.RuntimeFactory == nil {
+		options.RuntimeFactory = &runtimeFactory{}
 	}
 
 	// Remove trailing slash from ApiHost if present
@@ -348,24 +133,17 @@ func NewRunner(
 	if options.MemoryBytes == 0 {
 		return nil, fmt.Errorf("memory is required")
 	}
-	lowestMemoryRequirement, err := model.GetLowestMemoryRequirement()
-	if err != nil {
-		return nil, err
-	}
 	runner := &Runner{
-		Ctx:                     ctx,
-		Options:                 options,
-		lowestMemoryRequirement: lowestMemoryRequirement,
+		Ctx:     ctx,
+		Options: options,
 		httpClientOptions: system.ClientOptions{
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
 		activeModelInstances:  xsync.NewMapOf[string, ModelInstance](),
-		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
-		schedulingDecisions:   []string{},
-		warmupSessions:        warmupSessions,
-		slots:                 make(map[uuid.UUID]*runtime),
+		slots:                 make(map[uuid.UUID]*Slot),
+		slotFactory:           options.RuntimeFactory,
 	}
 	return runner, nil
 }
@@ -396,14 +174,6 @@ func (r *Runner) Initialize(ctx context.Context) error {
 
 // this should be run in a go-routine
 func (r *Runner) Run() {
-	err := r.warmupInference(context.Background())
-	if err != nil {
-		log.Error().Msgf("error in warmup inference: %s", err.Error())
-		debug.PrintStack()
-	} else {
-		log.Info().Msg("🟢 warmup inference complete")
-	}
-
 	go r.startTaskLoop()
 	go r.startReportStateLoop()
 }
@@ -423,7 +193,11 @@ func (r *Runner) startTaskLoop() {
 	}
 }
 
-func (r *Runner) pollSlots(ctx context.Context) error {
+func (r *Runner) pollSlots(_ context.Context) error {
+	// TODO(PHIL): The old warmup code was sketchy. It had two paths (V1/V2 thing). And mostly just
+	// called the old llama:instruct model. Ideally the warmup should be orchestrated from the
+	// control plane anyway. So I'm just removing it for now.
+
 	desiredSlots, err := r.getSlots()
 	if err != nil {
 		return err
@@ -491,7 +265,7 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 		// If it doesn't exist, start a new runtime and save
 		if !ok {
 			l.Debug().Str("slot_id", slot.ID.String()).Msg("starting new runtime")
-			runtime, err = r.startNewRuntime(work)
+			runtime, err = r.startNewRuntime(slot.ID, work)
 			if err != nil {
 				return err
 			}
@@ -516,11 +290,11 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 		switch work.WorkloadType {
 		case scheduler.WorkloadTypeLLMInferenceRequest:
 			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing LLM inference request")
-			runtime.llmWorkChan <- work.LLMInferenceRequest()
+			runtime.SetLLMInferenceRequest(work)
 
 		case scheduler.WorkloadTypeSession:
 			log.Debug().Str("workload_id", work.ID()).Msg("enqueuing session request")
-			runtime.sessionWorkChan <- work.Session()
+			runtime.SetSessionRequest(work)
 		}
 	}
 
@@ -528,9 +302,6 @@ func (r *Runner) pollSlots(ctx context.Context) error {
 }
 
 func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
-	r.nextRequestMutex.Lock()
-	defer r.nextRequestMutex.Unlock()
-
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/slots", r.Options.ID))))
 	if err != nil {
 		return nil, err
@@ -573,50 +344,6 @@ func (r *Runner) getSlots() (*types.PatchRunnerSlots, error) {
 	return slots, nil
 }
 
-func (r *Runner) pollSessions(ctx context.Context) error {
-	session, err := r.getNextWarmupSession()
-	if err != nil {
-		return err
-	}
-
-	if session == nil {
-		// ask the api server if it currently has any work based on the amount of
-		// memory we could free if we killed stale sessions
-		session, err = r.getNextGlobalSession(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	if session != nil {
-
-		aiModel, err := model.GetModel(session.ModelName)
-		if err != nil {
-			return fmt.Errorf("error getting model %s: %s", session.ModelName, err.Error())
-		}
-		// if we need to kill any stale sessions, do it now
-
-		// check for running model instances that have not seen a job in a while
-		// and kill them if they are over the timeout AND the session requires it
-
-		// TODO: get the timeout to be configurable from the api and so dynamic
-		// based on load
-		err = r.checkForStaleModelInstances(ctx, aiModel, session.Mode)
-		if err != nil {
-			return err
-		}
-
-		log.Debug().
-			Msgf("🔵 runner start model instance")
-		err = r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func (r *Runner) startReportStateLoop() {
 	for {
 		select {
@@ -653,351 +380,10 @@ func GiB(bytes int64) float32 {
 	return float32(bytes) / 1024 / 1024 / 1024
 }
 
-// loop over the active model instances and stop any that have not processed a job
-// in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(_ context.Context, newModel model.Model, mode types.SessionMode) error {
-	// calculate stale model instances
-	// sort by memory usage
-	// kill as few of them as possible to free up newSession much memory
-
-	var (
-		allModels []ModelInstance
-		stales    []ModelInstance
-	)
-
-	r.activeModelInstances.Range(func(key string, activeModelInstance ModelInstance) bool {
-		allModels = append(allModels, activeModelInstance)
-
-		if activeModelInstance.Stale() {
-			stales = append(stales, activeModelInstance)
-		}
-		return true
-	})
-
-	// sort by memory usage ascending
-	sort.Slice(stales, func(i, j int) bool {
-		return stales[i].Model().GetMemoryRequirements(stales[i].Filter().Mode) < stales[j].Model().GetMemoryRequirements(stales[j].Filter().Mode)
-	})
-
-	// we don't need to free as much memory as we already have free
-	currentlyAvailableMemory := r.getFreeMemory()
-	if currentlyAvailableMemory < 0 {
-		currentlyAvailableMemory = 0
-	}
-
-	// for this session
-	newSessionMemory := newModel.GetMemoryRequirements(mode)
-	// this can go negative, so it needs to be a signed integer!
-	requiredMemoryFreed := int64(newSessionMemory) - int64(currentlyAvailableMemory)
-
-	if requiredMemoryFreed <= 0 {
-		r.addSchedulingDecision("Didn't need to kill any stale sessions because required memory <= 0")
-		return nil
-	}
-
-	for _, m := range stales {
-		if requiredMemoryFreed > 0 {
-			r.addSchedulingDecision(fmt.Sprintf(
-				"Killing stale model instance %s (%.2fGiB) to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
-				m.ID(), GiB(int64(m.Model().GetMemoryRequirements(m.Filter().Mode))), GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
-			)
-			log.Info().Msgf("Killing stale model instance %s", m.ID())
-			err := m.Stop()
-			if err != nil {
-				r.addSchedulingDecision(fmt.Sprintf("error stopping model instance %s: %s", m.ID(), err.Error()))
-				log.Error().Msgf("error stopping model instance %s: %s", m.ID(), err.Error())
-			}
-			r.activeModelInstances.Delete(m.ID())
-			requiredMemoryFreed -= int64(m.Model().GetMemoryRequirements(m.Filter().Mode))
-		} else {
-			r.addSchedulingDecision(fmt.Sprintf("Cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed)))
-			log.Info().Msgf("cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed))
-			break
-		}
-	}
-	if requiredMemoryFreed > 0 {
-		// uh-oh, we didn't free as much memory as we needed to
-		r.addSchedulingDecision(fmt.Sprintf(
-			"uh-oh, we didn't free as much memory as we needed to for %.2f GiB model by %.2f GiB; stales=%+v, allModels=%+v",
-			GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), stales, allModels,
-		))
-		return fmt.Errorf("uh-oh, we didn't free as much memory as we needed to for %.2f GiB model by %.2f GiB", GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed))
-	}
-	return nil
-}
-
-func (r *Runner) getNextWarmupSession() (*types.Session, error) {
-	if r.Options.MockRunner {
-		return nil, nil
-	}
-
-	if len(r.warmupSessions) == 0 {
-		return nil, nil
-	}
-
-	r.warmupSessionMutex.Lock()
-	defer r.warmupSessionMutex.Unlock()
-
-	lastIndex := len(r.warmupSessions) - 1
-	session := r.warmupSessions[lastIndex]
-	r.warmupSessions = r.warmupSessions[:lastIndex]
-
-	return &session, nil
-}
-
-// ask the master API if they have the next session for us
-// we check with the various models and filter based on the currently free memory
-// we pass that free memory back to the master API - it will filter out any tasks
-// for models that would require more memory than we have available
-func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
-	freeMemory := r.getHypotheticalFreeMemory()
-
-	// only run one for dev mode
-	if r.Options.MaxModelInstances > 0 && r.activeModelInstances.Size() >= r.Options.MaxModelInstances {
-		return nil, nil
-	}
-
-	if freeMemory < int64(r.lowestMemoryRequirement) {
-		// we don't have enough memory to run anything
-		// so we just wait for more memory to become available
-		return nil, nil
-	}
-
-	queryParams := url.Values{}
-
-	// this means "only give me sessions that will fit in this much RAM"
-	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
-
-	// give currently running models a head start on claiming jobs - this is for
-	// when we have > 1 runner
-	//
-	// TODO: using timing for this prioitization heuristic is flaky and adds
-	// latency unnecessarily, instead we could have a bidding system where the
-	// api requests bids from all the connected runners and they bid on how
-	// quickly they could service the request (e.g. what is their queue length,
-	// do they have the model loaded into memory)
-	queryParams.Add("older", "2s")
-
-	if !r.Options.AllowMultipleCopies {
-		// if we are not allowed to run multiple copies of the same model
-		// then we need to tell the api what we are currently running
-		r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
-			queryParams.Add("reject", fmt.Sprintf(
-				"%s:%s:%s",
-				modelInstance.Filter().ModelName,
-				modelInstance.Filter().Mode,
-				modelInstance.Filter().LoraDir,
-			))
-			return true
-		})
-	}
-
-	if r.Options.FilterModelName != "" {
-		queryParams.Add("model_name", string(r.Options.FilterModelName))
-	}
-
-	if r.Options.FilterMode != "" {
-		queryParams.Add("mode", string(r.Options.FilterMode))
-	}
-
-	// If v2 engine is enabled, filter only axolotl models
-	if r.Options.Config.Runtimes.V2Engine {
-		queryParams.Add("runtime", types.InferenceRuntimeAxolotl.String())
-	}
-
-	session, err := r.getNextApiSession(ctx, queryParams)
-	if err != nil {
-		return nil, err
-	}
-
-	if session != nil {
-		r.addSchedulingDecision(fmt.Sprintf("loaded global session %s from api with params %s", session.ID, queryParams.Encode()))
-	}
-
-	return session, nil
-}
-
-func (r *Runner) getNextGlobalLLMInferenceRequest(ctx context.Context) (*types.RunnerLLMInferenceRequest, error) {
-	freeMemory := r.getHypotheticalFreeMemory()
-
-	// only run one for dev mode
-	if r.Options.MaxModelInstances > 0 && r.activeModelInstances.Size() >= r.Options.MaxModelInstances {
-		return nil, nil
-	}
-
-	if freeMemory < int64(r.lowestMemoryRequirement) {
-		// we don't have enough memory to run anything
-		// so we just wait for more memory to become available
-		return nil, nil
-	}
-
-	log.Trace().
-		Str("runner_id", r.Options.ID).
-		Str("free_memory_gb", fmt.Sprintf("%.2f", GiB(freeMemory))).
-		Str("lowest_memory_requirement_gb", fmt.Sprintf("%.2f", GiB(int64(r.lowestMemoryRequirement)))).
-		Int("active_model_instances", r.activeModelInstances.Size()).
-		Int("max_model_instances", r.Options.MaxModelInstances).
-		Msgf("🟠 runner getNextGlobalLLMInferenceRequest")
-
-	queryParams := url.Values{}
-
-	// this means "only give me sessions that will fit in this much RAM"
-	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
-
-	// give currently running models a head start on claiming jobs - this is for
-	// when we have > 1 runner
-	//
-	// TODO: using timing for this prioitization heuristic is flaky and adds
-	// latency unnecessarily, instead we could have a bidding system where the
-	// api requests bids from all the connected runners and they bid on how
-	// quickly they could service the request (e.g. what is their queue length,
-	// do they have the model loaded into memory)
-	queryParams.Add("older", "2s")
-
-	if !r.Options.AllowMultipleCopies {
-		// if we are not allowed to run multiple copies of the same model
-		// then we need to tell the api what we are currently running
-		r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
-			queryParams.Add("reject", fmt.Sprintf(
-				"%s:%s:%s",
-				modelInstance.Filter().ModelName,
-				modelInstance.Filter().Mode,
-				modelInstance.Filter().LoraDir,
-			))
-			return true
-		})
-	}
-
-	if r.Options.FilterModelName != "" {
-		queryParams.Add("model_name", string(r.Options.FilterModelName))
-	}
-
-	request, err := r.getNextLLMInferenceRequest(ctx, queryParams)
-	if err != nil {
-		return nil, err
-	}
-
-	if request != nil {
-		r.addSchedulingDecision(fmt.Sprintf("loaded global session %s from api with params %s", request.SessionID, queryParams.Encode()))
-	}
-
-	return request, nil
-}
-
-// we have popped the next session from the master API
-// let's create a model for it
-// this means instantiating the model instance and then starting it
-// because this model consumes memory it means the global next job filter
-// will take into account the fact this model is running
-// and will add the de-prioritise filter to the next request
-// so that we get a different job type
-func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
-	var (
-		modelInstance ModelInstance
-		err           error
-	)
-
-	runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
-
-	// if we are in mock mode - we need the axolotl model instance because
-	// it understands how to do a mock runner
-	if r.Options.MockRunner {
-		if initialSession.Type == types.SessionTypeText {
-			runtimeName = types.InferenceRuntimeAxolotl
-			initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
-		} else if initialSession.Type == types.SessionTypeImage {
-			// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
-			// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
-			// that does both axolotl and sdxl
-			runtimeName = types.InferenceRuntimeAxolotl
-			initialSession.ModelName = string(model.Model_Cog_SDXL)
-		}
-	}
-
-	switch runtimeName {
-	case types.InferenceRuntimeOllama:
-		log.Info().Msg("using Ollama model instance")
-		modelInstance, err = NewOllamaModelInstance(
-			r.Ctx,
-			&ModelInstanceConfig{
-				InitialSession:  initialSession,
-				ResponseHandler: r.handleWorkerResponse,
-				GetNextSession: func() (*types.Session, error) {
-					queryParams := url.Values{}
-
-					queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
-					queryParams.Add("mode", string(modelInstance.Filter().Mode))
-					queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
-
-					nextSession, err := r.getNextApiSession(ctx, queryParams)
-					if err != nil {
-						return nil, err
-					}
-					return nextSession, nil
-				},
-				RunnerOptions: r.Options,
-			},
-		)
-		if err != nil {
-			return err
-		}
-	default:
-		// Defaulting to axolotl
-		log.Info().Msg("using Axolotl model instance")
-		modelInstance, err = NewAxolotlModelInstance(
-			r.Ctx,
-			&ModelInstanceConfig{
-				InitialSession:    initialSession,
-				InitialSessionURL: r.Options.InitialSessionURL,
-				NextTaskURL:       r.Options.TaskURL,
-				// this function will convert any files it sees locally into an upload
-				// to the api server filestore - all files will be written to the filestore
-				// under a session sub path - you can include tar files and they will untarred at the other end
-				// into the filestore
-				// TODO: support the tar feature above
-				ResponseHandler: func(res *types.RunnerTaskResponse) error {
-					return r.handleWorkerResponse(res)
-				},
-				RunnerOptions: r.Options,
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-	}
-
-	log.Info().
-		Str("model_instance", modelInstance.Filter().ModelName).
-		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
-
-	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
-
-	// THERE IS NOT A RACE HERE (so Kai please stop thinking there is)
-	// the files are dowloading at the same time as the python process is booting
-	// whilst the files are downloading - there is no session to pull as "nextSession"
-	// so even if the python process starts up first - it has nothing to pull until
-	// the files have downloaded
-	go modelInstance.QueueSession(initialSession, true)
-
-	err = modelInstance.Start(ctx)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		<-modelInstance.Done()
-		log.Debug().
-			Msgf("🔵 runner stop model instance: %s", modelInstance.ID())
-		r.activeModelInstances.Delete(modelInstance.ID())
-	}()
-	return nil
-}
-
+// TODO(Phil): This is currently required by the axolotl server. Since I'm updating the axolotl
+// version (and server) in another branch I don't want to convert it to the slots methodology just
+// yet.
 func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*types.Session, error) {
-	r.nextRequestMutex.Lock()
-	defer r.nextRequestMutex.Unlock()
-
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err
@@ -1041,54 +427,6 @@ func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*
 	return session, nil
 }
 
-// getNextLLMInferenceRequest returns the next LLM inference request from the controlplane
-func (r *Runner) getNextLLMInferenceRequest(ctx context.Context, queryParams url.Values) (*types.RunnerLLMInferenceRequest, error) {
-	r.nextRequestMutex.Lock()
-	defer r.nextRequestMutex.Unlock()
-
-	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/llm-inference-request", r.Options.ID))))
-	if err != nil {
-		return nil, err
-	}
-	parsedURL.RawQuery = queryParams.Encode()
-
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	err = system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
-	if err != nil {
-		return nil, err
-	}
-
-	client := system.NewRetryClient(3)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var buffer bytes.Buffer
-	_, err = io.Copy(&buffer, resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		log.Error().Msgf("error from runner getNextLLMInferenceRequest GET %s: %s", parsedURL.String(), buffer.String())
-		return nil, nil
-	}
-
-	var inferenceRequest *types.RunnerLLMInferenceRequest
-	err = json.Unmarshal(buffer.Bytes(), &inferenceRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	return inferenceRequest, nil
-}
-
 func (r *Runner) getUsedMemory() uint64 {
 	memoryUsed := uint64(0)
 	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
@@ -1098,25 +436,8 @@ func (r *Runner) getUsedMemory() uint64 {
 	return memoryUsed
 }
 
-func (r *Runner) getUsedMemoryByNonStale() uint64 {
-	memoryUsed := uint64(0)
-
-	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
-		if !modelInstance.Stale() {
-			memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
-		}
-		return true
-	})
-
-	return memoryUsed
-}
-
 func (r *Runner) getFreeMemory() int64 {
 	return int64(r.Options.MemoryBytes) - int64(r.getUsedMemory())
-}
-
-func (r *Runner) getHypotheticalFreeMemory() int64 {
-	return int64(r.Options.MemoryBytes) - int64(r.getUsedMemoryByNonStale())
 }
 
 func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
@@ -1201,18 +522,10 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		FreeMemory:          r.getFreeMemory(),
 		Labels:              r.Options.Labels,
 		ModelInstances:      modelInstances,
-		SchedulingDecisions: r.schedulingDecisions,
+		SchedulingDecisions: []string{"Deprecated: Runners no longer makes scheduling decisions."},
 		Version:             data.GetHelixVersion(),
 		Slots:               r.getCurrentSlots(),
 	}, nil
-}
-
-func (r *Runner) addSchedulingDecision(decision string) {
-	r.schedulingDecisions = append([]string{decision}, r.schedulingDecisions...)
-
-	if len(r.schedulingDecisions) > r.Options.SchedulingDecisionBufferSize {
-		r.schedulingDecisions = r.schedulingDecisions[:len(r.schedulingDecisions)-1]
-	}
 }
 
 func (r *Runner) getCurrentSlots() []types.RunnerSlot {
@@ -1226,4 +539,15 @@ func (r *Runner) getCurrentSlots() []types.RunnerSlot {
 		})
 	}
 	return slots
+}
+
+func (r *Runner) startNewRuntime(slotID uuid.UUID, work *scheduler.Workload) (*Slot, error) {
+	runtime, err := r.slotFactory.NewSlot(r.Ctx, slotID, work, r.handleInferenceResponse, r.handleWorkerResponse, r.Options)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(PHIL): Remove this. Required for use in the axolotl runner and dashboard data for now.
+	r.activeModelInstances.Store(runtime.modelInstance.ID(), runtime.modelInstance)
+	return runtime, nil
 }

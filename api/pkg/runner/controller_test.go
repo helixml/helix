@@ -9,10 +9,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
+	gomock "go.uber.org/mock/gomock"
 )
+
+var _ SlotFactory = &mockRuntimeFactory{}
+
+type mockRuntimeFactory struct {
+	getRuntimeFunc func() *Slot
+}
+
+func (m *mockRuntimeFactory) NewSlot(ctx context.Context,
+	slotID uuid.UUID,
+	work *scheduler.Workload,
+	inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
+	sessionResponseHandler func(res *types.RunnerTaskResponse) error,
+	runnerOptions RunnerOptions,
+) (*Slot, error) {
+	return m.getRuntimeFunc(), nil
+}
 
 func TestController_GetSlots(t *testing.T) {
 	// Create a httptest server to test the getSlots method
@@ -27,7 +45,12 @@ func TestController_GetSlots(t *testing.T) {
 		ID:          "test",
 		ApiToken:    "test",
 		MemoryBytes: 1,
-	}, nil)
+		RuntimeFactory: &mockRuntimeFactory{
+			getRuntimeFunc: func() *Slot {
+				return &Slot{}
+			},
+		},
+	})
 	assert.NoError(t, err)
 
 	// Test the getSlots method
@@ -51,12 +74,26 @@ func TestController_SlotLifecycle(t *testing.T) {
 	// Create a new controller with the server URL
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Cancel when we finish the test to kill all the started runtimes
+	ctrl := gomock.NewController(t)
+	m := NewMockModelInstance(ctrl)
+	m.EXPECT().ID().Return("test").AnyTimes()
+	m.EXPECT().IsActive().Return(true).Times(1)
+	m.EXPECT().Stop().Times(1)
+	mockLLMWorkChan := make(chan *types.RunnerLLMInferenceRequest, 1)
 	runner, err := NewRunner(ctx, RunnerOptions{
 		ApiHost:     server.URL,
 		ID:          "test",
 		ApiToken:    "test",
 		MemoryBytes: 1,
-	}, nil)
+		RuntimeFactory: &mockRuntimeFactory{
+			getRuntimeFunc: func() *Slot {
+				return &Slot{
+					modelInstance: m,
+					llmWorkChan:   mockLLMWorkChan,
+				}
+			},
+		},
+	})
 	assert.NoError(t, err)
 
 	// Test no slots
@@ -91,6 +128,14 @@ func TestController_SlotLifecycle(t *testing.T) {
 	err = runner.pollSlots(context.Background())
 	assert.NoError(t, err)
 	assert.Len(t, runner.slots, 1)
+
+	// Simulate the slot not being active any more, which should mean it takes new work
+	m.EXPECT().IsActive().Return(false).Times(1)
+	assert.Len(t, mockLLMWorkChan, 0)
+	err = runner.pollSlots(context.Background())
+	assert.NoError(t, err)
+	assert.Len(t, runner.slots, 1)
+	assert.Len(t, mockLLMWorkChan, 1)
 
 	// Delete the slot
 	apiSlots = &types.PatchRunnerSlots{
