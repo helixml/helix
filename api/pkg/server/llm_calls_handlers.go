@@ -63,7 +63,7 @@ func (s *HelixAPIServer) listLLMCalls(w http.ResponseWriter, r *http.Request) (*
 
 // listAppLLMCalls godoc
 // @Summary List LLM calls
-// @Description List LLM calls with pagination and optional session filtering
+// @Description List user's LLM calls with pagination and optional session filtering for a specific app
 // @Tags    llm_calls
 // @Produce json
 // @Param   page          query    int     false  "Page number"
@@ -107,6 +107,7 @@ func (s *HelixAPIServer) listAppLLMCalls(w http.ResponseWriter, r *http.Request)
 		PerPage:       pageSize,
 		SessionFilter: sessionFilter,
 		AppID:         appID,
+		UserID:        user.ID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
