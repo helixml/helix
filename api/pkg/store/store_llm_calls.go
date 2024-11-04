@@ -25,6 +25,7 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 type ListLLMCallsQuery struct {
 	AppID         string
 	SessionFilter string
+	UserID        string
 
 	Page    int
 	PerPage int
@@ -44,6 +45,10 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 
 	if q.AppID != "" {
 		query = query.Where("app_id = ?", q.AppID)
+	}
+
+	if q.UserID != "" {
+		query = query.Where("user_id = ?", q.UserID)
 	}
 
 	err := query.Count(&totalCount).Error
