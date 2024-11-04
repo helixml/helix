@@ -942,17 +942,19 @@ const App: FC = () => {
                 )}
               </Box>
               
-              <Box sx={{ mt: 2, pl: 3 }}>
-                <Button
-                  type="button"
-                  color="secondary"
-                  variant="contained"
-                  onClick={() => onSave(false)}
-                  disabled={isReadOnly && !isGithubApp}
-                >
-                  Save
-                </Button>
-              </Box>
+              {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+                <Box sx={{ mt: 2, pl: 3 }}>
+                  <Button
+                    type="button"
+                    color="secondary"
+                    variant="contained"
+                    onClick={() => onSave(false)}
+                    disabled={isReadOnly && !isGithubApp}
+                  >
+                    Save
+                  </Button>
+                </Box>
+              )}
             </Grid>
             {/* For API keys section show  */}
             {tabValue === 'apikeys' ? (
