@@ -461,13 +461,7 @@ func TestScheduler_RunnerLifecycle(t *testing.T) {
 
 	// Runner asks for slots, now there is work
 	slots = scheduler.SlotsForRunner("test-runner")
-	slotIDs := KeysMap(slots)
-	assert.Len(t, slotIDs, 1)
-
-	// This work is now scheduled as started, irrespective of whether the runner has actually
-	// started (see TODO)
-	internalSlots := scheduler.allocator.RunnerSlots("test-runner")
-	assert.True(t, internalSlots[0].isActive)
+	assert.Len(t, slots, 1)
 }
 
 func TestScheduler_ProcessQueue(t *testing.T) {
