@@ -163,7 +163,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 				},
 			},
 			{
-				ID: testSlotID,
+				ID: uuid.MustParse("00000000-0000-0000-0000-000000000002"),
 				Attributes: types.DesiredRunnerSlotAttributes{
 					Workload: &types.RunnerWorkload{
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
