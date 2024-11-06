@@ -12,6 +12,88 @@ import (
 	"gorm.io/gorm"
 )
 
+// rectifyApp handles the migration of app configurations from the old format (which used both
+// Tools and specific fields like APIs, GPTScripts, Zapier) to a new canonical format where
+// tools are only stored in their specific fields (APIs, GPTScripts, Zapier).
+//
+// This function:
+//  1. Processes any tools found in the deprecated Tools field and converts them to their
+//     appropriate specific fields (APIs, GPTScripts, Zapier)
+//  2. Handles deduplication by name - if a tool already exists in a specific field
+//     (e.g., in APIs), it won't be duplicated from the Tools field
+//  3. Gives precedence to tools defined in their specific fields over those in the Tools field
+//  4. Clears the Tools field after processing (as it's now deprecated)
+//
+// This allows us to handle old database records that might have tools defined in either or both places,
+// while ensuring we move forward with a clean, consistent format where tools are only stored in
+// their specific fields.
+func rectifyApp(app *types.App) {
+	for i := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[i]
+
+		// Create maps to track existing tools by name
+		existingAPIs := make(map[string]bool)
+		existingGPTScripts := make(map[string]bool)
+		existingZapier := make(map[string]bool)
+
+		// First mark all existing non-Tools items
+		for _, api := range assistant.APIs {
+			existingAPIs[api.Name] = true
+		}
+		for _, script := range assistant.GPTScripts {
+			existingGPTScripts[script.Name] = true
+		}
+		for _, zapier := range assistant.Zapier {
+			existingZapier[zapier.Name] = true
+		}
+
+		// Convert tools to their appropriate fields
+		// but only if they don't already exist in the non-Tools fields
+		for _, tool := range assistant.Tools {
+			switch tool.ToolType {
+			case types.ToolTypeAPI:
+				if !existingAPIs[tool.Name] && tool.Config.API != nil {
+					assistant.APIs = append(assistant.APIs, types.AssistantAPI{
+						Name:                    tool.Name,
+						Description:             tool.Description,
+						URL:                     tool.Config.API.URL,
+						Schema:                  tool.Config.API.Schema,
+						Headers:                 tool.Config.API.Headers,
+						Query:                   tool.Config.API.Query,
+						RequestPrepTemplate:     tool.Config.API.RequestPrepTemplate,
+						ResponseSuccessTemplate: tool.Config.API.ResponseSuccessTemplate,
+						ResponseErrorTemplate:   tool.Config.API.ResponseErrorTemplate,
+					})
+					existingAPIs[tool.Name] = true
+				}
+			case types.ToolTypeGPTScript:
+				if !existingGPTScripts[tool.Name] && tool.Config.GPTScript != nil {
+					assistant.GPTScripts = append(assistant.GPTScripts, types.AssistantGPTScript{
+						Name:        tool.Name,
+						Description: tool.Description,
+						Content:     tool.Config.GPTScript.Script,
+					})
+					existingGPTScripts[tool.Name] = true
+				}
+			case types.ToolTypeZapier:
+				if !existingZapier[tool.Name] && tool.Config.Zapier != nil {
+					assistant.Zapier = append(assistant.Zapier, types.AssistantZapier{
+						Name:          tool.Name,
+						Description:   tool.Description,
+						APIKey:        tool.Config.Zapier.APIKey,
+						Model:         tool.Config.Zapier.Model,
+						MaxIterations: tool.Config.Zapier.MaxIterations,
+					})
+					existingZapier[tool.Name] = true
+				}
+			}
+		}
+
+		// Clear the tools field as it's now deprecated
+		assistant.Tools = nil
+	}
+}
+
 func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
 	if app.ID == "" {
 		app.ID = system.GenerateAppID()
@@ -24,6 +106,7 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	app.Created = time.Now()
 
 	setAppDefaults(app)
+	rectifyApp(app)
 	sortAppTools(app)
 
 	err := s.gdb.WithContext(ctx).Create(app).Error
@@ -53,6 +136,7 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 
 	app.Updated = time.Now()
 
+	rectifyApp(app)
 	sortAppTools(app)
 
 	err := s.gdb.WithContext(ctx).Save(&app).Error
@@ -63,8 +147,8 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 }
 
 func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, error) {
-	var tool types.App
-	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&tool).Error
+	var app types.App
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&app).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -72,25 +156,62 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 		return nil, err
 	}
 
-	setAppDefaults(&tool)
+	setAppDefaults(&app)
 
-	return &tool, nil
+	// Check if any tools need to be rectified
+	hasTools := false
+	for _, assistant := range app.Config.Helix.Assistants {
+		if len(assistant.Tools) > 0 {
+			hasTools = true
+			break
+		}
+	}
+
+	// If we found tools, rectify and save back to database
+	if hasTools {
+		rectifyApp(&app)
+		err = s.gdb.WithContext(ctx).Save(&app).Error
+		if err != nil {
+			return nil, fmt.Errorf("error saving rectified app: %w", err)
+		}
+	}
+
+	return &app, nil
 }
 
 func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
-	var tools []*types.App
+	var apps []*types.App
 	err := s.gdb.WithContext(ctx).Where(&types.App{
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
 		Global:    q.Global,
-	}).Order("id DESC").Find(&tools).Error
+	}).Order("id DESC").Find(&apps).Error
 	if err != nil {
 		return nil, err
 	}
 
-	setAppDefaults(tools...)
+	setAppDefaults(apps...)
 
-	return tools, nil
+	// Check and rectify any apps that have tools
+	for _, app := range apps {
+		hasTools := false
+		for _, assistant := range app.Config.Helix.Assistants {
+			if len(assistant.Tools) > 0 {
+				hasTools = true
+				break
+			}
+		}
+
+		if hasTools {
+			rectifyApp(app)
+			err = s.gdb.WithContext(ctx).Save(app).Error
+			if err != nil {
+				return nil, fmt.Errorf("error saving rectified app: %w", err)
+			}
+		}
+	}
+
+	return apps, nil
 }
 
 func (s *PostgresStore) DeleteApp(ctx context.Context, id string) error {
