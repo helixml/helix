@@ -137,13 +137,13 @@ func (suite *PostgresStoreTestSuite) TestRectifyApp() {
 								ID:    "test-assistant",
 								Name:  "Test Assistant",
 								Model: "gpt-4",
-								Tools: []types.AssistantTool{
+								Tools: []*types.Tool{
 									{
 										Name:        "test-api",
 										Description: "Test API",
-										ToolType:    "api",
-										Config: types.AssistantToolConfig{
-											API: &types.AssistantToolConfigAPI{
+										ToolType:    types.ToolTypeAPI,
+										Config: types.ToolConfig{
+											API: &types.ToolApiConfig{
 												URL:    "http://example.com/api",
 												Schema: "openapi: 3.0.0\ninfo:\n  title: Test API\n  version: 1.0.0",
 												Headers: map[string]string{
