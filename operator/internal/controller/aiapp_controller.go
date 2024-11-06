@@ -35,8 +35,9 @@ import (
 
 const (
 	// Prefix for k8s managed apps, using . as separator since it's URL-safe
-	k8sPrefix    = "k8s"
-	k8sSeparator = "."
+	k8sPrefix     = "k8s"
+	k8sSeparator  = "."
+	finalizerName = "app.aispec.org/finalizer"
 )
 
 // AIAppReconciler reconciles a AIApp object
@@ -45,6 +46,8 @@ type AIAppReconciler struct {
 	Scheme *runtime.Scheme
 	helix  *helixclient.HelixClient
 }
+
+// TODO: implement deletion
 
 // +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps/status,verbs=get;update;patch
@@ -66,17 +69,26 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Using dots instead of slashes for URL safety
 	appID := fmt.Sprintf("%s%s%s%s%s", k8sPrefix, k8sSeparator, req.Namespace, k8sSeparator, aiapp.Name)
 
-	// TODO: need to use Name: appID and ID should be set to randomly generated
-	// UUID with app_ prefix (doesn't app client already do this?)
-	// then we need to ensure we are searching by and reconciling by name, not id
+	// Handle deletion
+	if !aiapp.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, &aiapp, appID)
+	}
+
+	// Add finalizer if it doesn't exist
+	if !containsString(aiapp.Finalizers, finalizerName) {
+		aiapp.Finalizers = append(aiapp.Finalizers, finalizerName)
+		if err := r.Update(ctx, &aiapp); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
 	// Convert CRD to Helix App type
 	app := &types.App{
-		ID:        appID,
 		AppSource: types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
-				Name:        aiapp.Spec.Name,
+				Name:        appID,
 				Description: aiapp.Spec.Description,
 				Avatar:      aiapp.Spec.Avatar,
 				Image:       aiapp.Spec.Image,
@@ -143,41 +155,49 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// Check if app exists in Helix API
-	_, err := r.helix.GetApp(app.ID)
+	logger.Info("Checking if app exists in Helix", "name", appID)
+	existingApp, err := r.helix.GetAppByName(appID)
 	if err != nil {
 		errStr := strings.ToLower(err.Error())
+		logger.Info("Error checking app existence", "error", errStr)
 		// Check for both 404 status code and "not found" message
 		if strings.Contains(errStr, "404") || strings.Contains(errStr, "not found") {
-			logger.Info("Creating new app in Helix", "id", app.ID)
-			_, err = r.helix.CreateApp(app)
+			logger.Info("App not found in Helix, creating new app", "name", appID)
+			createdApp, err := r.helix.CreateApp(app)
 			if err != nil {
-				// If the error indicates the app already exists, try updating instead
-				if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-					logger.Info("App already exists, updating instead", "id", app.ID)
-					_, err = r.helix.UpdateApp(app)
-					if err != nil {
-						logger.Error(err, "Failed to update app in Helix", "id", app.ID)
-						return ctrl.Result{}, fmt.Errorf("failed to update app in Helix: %w", err)
-					}
-					return ctrl.Result{}, nil
-				}
-				logger.Error(err, "Failed to create app in Helix", "id", app.ID)
+				logger.Error(err, "Failed to create app in Helix", "name", appID, "error", err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to create app in Helix: %w", err)
 			}
+			logger.Info("Successfully created new app", "name", appID, "id", createdApp.ID)
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Failed to get app from Helix", "id", app.ID)
+		logger.Error(err, "Failed to get app from Helix", "name", appID, "error", err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to get app from Helix: %w", err)
 	}
+	logger.Info("Successfully retrieved app from Helix", "name", appID, "id", existingApp.ID)
 
 	// Update existing app
-	logger.Info("Updating existing app in Helix", "id", app.ID)
-	_, err = r.helix.UpdateApp(app)
-	if err != nil {
-		logger.Error(err, "Failed to update app in Helix", "id", app.ID)
-		return ctrl.Result{}, fmt.Errorf("failed to update app in Helix: %w", err)
-	}
+	logger.Info("Preparing to update existing app in Helix", "name", appID, "id", existingApp.ID,
+		"existing_owner", existingApp.Owner,
+		"existing_name", existingApp.Config.Helix.Name,
+		"new_name", app.Config.Helix.Name)
 
+	// Preserve existing metadata
+	app.ID = existingApp.ID
+	app.Owner = existingApp.Owner
+	app.Created = existingApp.Created
+	app.Updated = existingApp.Updated
+	app.OwnerType = existingApp.OwnerType
+
+	logger.Info("Sending update request to Helix", "name", appID, "id", existingApp.ID,
+		"update_payload", fmt.Sprintf("%+v", app))
+
+	updatedApp, err := r.helix.UpdateApp(existingApp.ID, app)
+	if err != nil {
+		logger.Error(err, "Failed to update app in Helix", "name", appID, "id", existingApp.ID)
+		return ctrl.Result{}, fmt.Errorf("failed to update app %s in Helix: %w", existingApp.ID, err)
+	}
+	logger.Info("Successfully updated existing app", "name", appID, "id", updatedApp.ID)
 	return ctrl.Result{}, nil
 }
 
@@ -207,4 +227,60 @@ func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&appv1.AIApp{}).
 		Named("aiapp").
 		Complete(r)
+}
+
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	result := make([]string, 0, len(slice))
+	for _, item := range slice {
+		if item != s {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func (r *AIAppReconciler) handleDeletion(ctx context.Context, aiapp *appv1.AIApp, appID string) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if containsString(aiapp.Finalizers, finalizerName) {
+		// Delete the app from Helix
+		existingApp, err := r.helix.GetAppByName(appID)
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			// If the app doesn't exist in Helix, we can proceed with removing the finalizer
+			if strings.Contains(errStr, "404") || strings.Contains(errStr, "not found") {
+				logger.Info("App already deleted from Helix or doesn't exist", "appID", appID)
+			} else {
+				logger.Error(err, "Failed to get app from Helix during deletion", "appID", appID)
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Delete the app from Helix
+			logger.Info("Deleting app from Helix", "appID", existingApp.ID)
+			if err := r.helix.DeleteApp(existingApp.ID, true); err != nil {
+				logger.Error(err, "Failed to delete app from Helix", "appID", existingApp.ID)
+				return ctrl.Result{}, err
+			}
+			logger.Info("Successfully deleted app from Helix", "appID", existingApp.ID)
+		}
+
+		// Remove the finalizer
+		aiapp.Finalizers = removeString(aiapp.Finalizers, finalizerName)
+		if err := r.Update(ctx, aiapp); err != nil {
+			logger.Error(err, "Failed to remove finalizer")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Successfully removed finalizer", "appID", appID)
+	}
+
+	return ctrl.Result{}, nil
 }

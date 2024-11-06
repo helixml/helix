@@ -87,6 +87,18 @@ func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interfa
 	fullURL := c.url + path
 	fmt.Printf("Making request to Helix API: %s %s\n", method, fullURL)
 
+	// Read and store body content for curl logging
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return err
+		}
+		// Create new reader from bytes for the actual request
+		body = strings.NewReader(string(bodyBytes))
+	}
+
 	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
 	if err != nil {
 		return err
@@ -94,6 +106,18 @@ func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interfa
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Build curl command
+	curlCmd := fmt.Sprintf("curl -X %s '%s'", method, fullURL)
+	for key, values := range req.Header {
+		for _, value := range values {
+			curlCmd += fmt.Sprintf(" -H '%s: %s'", key, value)
+		}
+	}
+	if len(bodyBytes) > 0 {
+		curlCmd += fmt.Sprintf(" --data-raw '%s'", string(bodyBytes))
+	}
+	fmt.Printf("Equivalent curl command:\n%s\n", curlCmd)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
