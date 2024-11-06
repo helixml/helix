@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
@@ -740,9 +741,11 @@ type RunnerState struct {
 	ModelInstances      []*ModelInstanceState `json:"model_instances"`
 	SchedulingDecisions []string              `json:"scheduling_decisions"`
 	Version             string                `json:"version"`
+	Slots               []RunnerActualSlot    `json:"slots"`
 }
 
 type DashboardData struct {
+	DesiredSlots              []DesiredSlots              `json:"desired_slots"`
 	SessionQueue              []*SessionSummary           `json:"session_queue"`
 	Runners                   []*RunnerState              `json:"runners"`
 	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
@@ -1426,6 +1429,7 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string         `json:"id" gorm:"primaryKey"`
+	AppID            string         `json:"app_id" gorm:"index"`
 	UserID           string         `json:"user_id" gorm:"index"`
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
@@ -1458,4 +1462,46 @@ type Secret struct {
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
 	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+}
+
+type GetDesiredRunnerSlotsResponse struct {
+	Data []DesiredRunnerSlot `json:"data"`
+}
+
+type DesiredSlots struct {
+	ID   string              `json:"id"`
+	Data []DesiredRunnerSlot `json:"data"`
+}
+
+type DesiredRunnerSlot struct {
+	ID         uuid.UUID                   `json:"id"`
+	Attributes DesiredRunnerSlotAttributes `json:"attributes"`
+}
+
+type WorkloadType string
+
+const (
+	WorkloadTypeLLMInferenceRequest WorkloadType = "llm"
+	WorkloadTypeSession             WorkloadType = "session"
+)
+
+type DesiredRunnerSlotAttributes struct {
+	Workload *RunnerWorkload `json:"workload,omitempty"`
+	Model    string          `json:"model"`
+	Mode     string          `json:"mode"`
+}
+
+type RunnerWorkload struct {
+	LLMInferenceRequest *RunnerLLMInferenceRequest
+	Session             *Session
+}
+
+type RunnerActualSlot struct {
+	ID         uuid.UUID                  `json:"id"`
+	Attributes RunnerActualSlotAttributes `json:"attributes"`
+}
+
+type RunnerActualSlotAttributes struct {
+	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
+	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
 }

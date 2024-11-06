@@ -14,6 +14,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import ApiIntegrations from '../components/app/ApiIntegrations'
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
+import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import GPTScriptsSection from '../components/app/GPTScriptsSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
@@ -32,6 +33,7 @@ import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
+import AppLogsTable from '../components/app/AppLogsTable'
 
 import {
   APP_SOURCE_GITHUB,
@@ -800,16 +802,6 @@ const App: FC = () => {
       topbarContent={(
         <Box sx={{ textAlign: 'right' }}>
           <Button
-            id="cancelButton" 
-            sx={{ mr: 2 }}
-            type="button"
-            color="primary"
-            variant="outlined"
-            onClick={ () => navigate('apps') }
-          >
-            Cancel
-          </Button>
-          <Button
             sx={{ mr: 2 }}
             type="button"
             color="primary"
@@ -843,6 +835,7 @@ const App: FC = () => {
                 <Tab label="GPTScripts" value="gptscripts" />
                 <Tab label="API Keys" value="apikeys" />
                 <Tab label="Developers" value="developers" />
+                <Tab label="Logs" value="logs" />
               </Tabs>
               
               <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
@@ -941,21 +934,33 @@ const App: FC = () => {
                     navigate={navigate}
                   />
                 )}
+
+                {tabValue === 'logs' && (
+                  <Box sx={{ mt: 2 }}>
+                    <AppLogsTable appId={app.id} />
+                  </Box>
+                )}
               </Box>
               
-              <Box sx={{ mt: 2, pl: 3 }}>
-                <Button
-                  type="button"
-                  color="secondary"
-                  variant="contained"
-                  onClick={() => onSave(false)}
-                  disabled={isReadOnly && !isGithubApp}
-                >
-                  Save
-                </Button>
-              </Box>
+              {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+                <Box sx={{ mt: 2, pl: 3 }}>
+                  <Button
+                    type="button"
+                    color="secondary"
+                    variant="contained"
+                    onClick={() => onSave(false)}
+                    disabled={isReadOnly && !isGithubApp}
+                  >
+                    Save
+                  </Button>
+                </Box>
+              )}
             </Grid>
-            <PreviewPanel
+            {/* For API keys section show  */}
+            {tabValue === 'apikeys' ? (
+              <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
+            ) : (
+              <PreviewPanel
               loading={loading}
               name={name}
               avatar={avatar}
@@ -972,7 +977,8 @@ const App: FC = () => {
               serverConfig={account.serverConfig}
               themeConfig={themeConfig}
               snackbar={snackbar}
-            />
+              />
+            )}
           </Grid>
         </Box>
       </Container>

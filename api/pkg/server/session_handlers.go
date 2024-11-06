@@ -62,6 +62,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 	}
 
+	ctx = oai.SetContextAppID(ctx, startReq.AppID)
+
 	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
 		startReq.RAGSourceID = ragSourceID
 	}
@@ -110,7 +112,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	// For finetunes, legacy route
 	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
-		s.startChatSessionLegacyHandler(req.Context(), user, &startReq, req, rw)
+		s.startChatSessionLegacyHandler(ctx, user, &startReq, req, rw)
 		return
 	}
 
@@ -237,7 +239,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}()
 	}
 
-	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         user.ID,
 		SessionID:       session.ID,
 		InteractionID:   session.Interactions[0].ID,
@@ -341,8 +343,10 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		})
 	}
 
+	ctx = oai.SetContextAppID(ctx, session.ParentApp)
+
 	// Set required context values
-	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:       user.ID,
 		SessionID:     session.ID,
 		InteractionID: session.Interactions[len(session.Interactions)-1].ID,

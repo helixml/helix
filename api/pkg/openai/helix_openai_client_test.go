@@ -47,69 +47,13 @@ func (suite *HelixClientTestSuite) SetupTest() {
 	suite.pubsub = pubsub
 
 	cfg, _ := config.LoadServerConfig()
-	scheduler := scheduler.NewScheduler(&cfg)
+	scheduler := scheduler.NewScheduler(suite.ctx, &cfg, nil)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          runnerID,
 		TotalMemory: 9999999999,
 	})
 	suite.Require().NoError(err)
 	suite.srv = NewInternalHelixServer(&cfg, pubsub, scheduler)
-}
-
-func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
-	var (
-		ownerID       = "owner1"
-		sessionID     = "session1"
-		interactionID = "interaction1"
-	)
-
-	go func() {
-		ctx, cancel := context.WithTimeout(suite.ctx, 100*time.Millisecond)
-		defer cancel()
-
-		ctx = SetContextValues(ctx, &ContextValues{
-			OwnerID:       ownerID,
-			SessionID:     sessionID,
-			InteractionID: interactionID,
-		})
-		_, _ = suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-			Model:  model.Model_Ollama_Llama3_8b,
-			Stream: false,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    "system",
-					Content: "system prompt",
-				},
-				{
-					Role:    "user",
-					Content: "user prompt",
-				},
-			},
-		})
-	}()
-
-	// Request should be in the queue
-	time.Sleep(50 * time.Millisecond)
-
-	// The work has been scheduled immediately, so the queue should be empty
-	suite.srv.queueMu.Lock()
-	defer suite.srv.queueMu.Unlock()
-
-	suite.Len(suite.srv.queue, 1)
-
-	req := suite.srv.queue[0]
-
-	suite.Equal(ownerID, req.OwnerID)
-	suite.Equal(sessionID, req.SessionID)
-	suite.Equal(interactionID, req.InteractionID)
-
-	suite.Len(req.Request.Messages, 2)
-
-	suite.Equal("system", req.Request.Messages[0].Role)
-	suite.Equal("system prompt", req.Request.Messages[0].Content)
-
-	suite.Equal("user", req.Request.Messages[1].Role)
-	suite.Equal("user prompt", req.Request.Messages[1].Content)
 }
 
 func (suite *HelixClientTestSuite) Test_CreateChatCompletion_Response() {

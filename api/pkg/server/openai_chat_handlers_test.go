@@ -84,7 +84,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
-		Scheduler:       scheduler.NewScheduler(cfg),
+		Scheduler:       scheduler.NewScheduler(context.Background(), cfg, nil),
 	})
 	suite.NoError(err)
 
@@ -553,6 +553,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			// Get the app id from the context
+			appID, ok := openai.GetContextAppID(ctx)
+			suite.True(ok)
+			suite.Equal("app123", appID)
+
 			suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", req.Model)
 
 			suite.Require().Equal(2, len(req.Messages))

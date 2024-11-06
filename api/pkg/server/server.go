@@ -315,6 +315,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/github/{id}", system.Wrapper(apiServer.updateGithubApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
+	authRouter.HandleFunc("/apps/{id}/llm-calls", system.Wrapper(apiServer.listAppLLMCalls)).Methods("GET")
 
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods("GET")
 
@@ -342,6 +343,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
 	runnerRouter.HandleFunc("/runner/{runnerid}/llm-inference-request", system.DefaultWrapper(apiServer.runnerLLMInferenceRequestHandler)).Methods("GET")
+
+	runnerRouter.HandleFunc("/runner/{runnerid}/slots", system.DefaultWrapper(apiServer.getDesiredRunnerSlots)).Methods("GET")
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
