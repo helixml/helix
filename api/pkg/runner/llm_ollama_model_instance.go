@@ -149,7 +149,12 @@ func (i *OllamaInferenceModelInstance) Warmup(_ context.Context) error {
 		return err
 	}
 
-	return i.warmup(i.ctx)
+	err = i.warmup(i.ctx)
+	if err != nil {
+		return err
+	}
+
+	return i.Stop()
 }
 
 func (i *OllamaInferenceModelInstance) Start(_ context.Context) error {
@@ -271,6 +276,8 @@ func (i *OllamaInferenceModelInstance) warmup(_ context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error pulling model: %s", err.Error())
 	}
+
+	wg.Wait()
 
 	return nil
 }
@@ -762,3 +769,7 @@ func (i *OllamaInferenceModelInstance) errorResponse(req *types.RunnerLLMInferen
 }
 
 func (i *OllamaInferenceModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+
+func (i *OllamaInferenceModelInstance) IsActive() bool {
+	return i.currentRequest != nil
+}
