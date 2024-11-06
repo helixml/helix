@@ -516,6 +516,9 @@ const App: FC = () => {
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
     const cleanedConfig = removeEmptyValues(app.config.helix);
+    // during transition, hide tools from user even though it's still there in
+    // the response from the backend
+    cleanedConfig.assistants[0].tools = undefined
     setSchema(stringifyYaml(cleanedConfig, { indent: 2 }));
     setSecrets(app.config.secrets || {});
     setAllowedDomains(app.config.allowed_domains || []);
@@ -647,6 +650,7 @@ const App: FC = () => {
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
+      // TODO: remove model from embed code
       const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
 <script>
   ChatWidget({
