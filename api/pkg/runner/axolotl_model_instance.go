@@ -5,8 +5,10 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -15,15 +17,36 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 var (
 	_ ModelInstance = &AxolotlModelInstance{}
 )
+
+type TrainingStatusReport struct {
+	Type         string  `json:"type"`
+	Loss         float64 `json:"loss"`
+	GradNorm     float64 `json:"grad_norm"`
+	LearningRate float64 `json:"learning_rate"`
+	Epoch        float64 `json:"epoch"`
+	Progress     int     `json:"progress"`
+}
+
+type AxolotlModelInstanceConfig struct {
+	RunnerOptions RunnerOptions
+
+	// Get next chat completion request
+	GetNextRequest func() (*types.Session, error)
+
+	// Response writer
+	ResponseHandler func(res *types.RunnerLLMInferenceResponse) error
+}
 
 // a long running instance of a loaded into memory model
 // that can run multiple session tasks sequentially
@@ -31,23 +54,12 @@ var (
 // and are in charge of sending updates out of the model to the api
 // to update it's state
 type AxolotlModelInstance struct {
-	id string
-
-	model  model.Model
-	filter types.SessionFilter
-
-	finishChan chan bool
-
+	id                string
+	model             model.Model
+	filter            types.SessionFilter
+	finishChan        chan bool
 	runnerOptions     RunnerOptions
 	httpClientOptions system.ClientOptions
-
-	// these URLs will have the instance ID appended by the model instance
-	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
-	nextTaskURL string
-	// this is used to read what the next session is
-	// i.e. once the session has prepared - we can read the next session
-	// and know what the Lora file is
-	initialSessionURL string
 
 	// we write responses to this function and they will be sent to the api
 	responseHandler func(res *types.RunnerTaskResponse) error
@@ -67,16 +79,6 @@ type AxolotlModelInstance struct {
 	// the session currently running on this model
 	currentSession *types.Session
 
-	// if there is a value here - it will be fed into the running python
-	// process next - it acts as a buffer for a session we want to run right away
-	nextSession *types.Session
-
-	// this is the session that we are preparing to run next
-	// if there is a value here - then we return nil
-	// because there is a task running (e.g. downloading files)
-	// that we need to complete before we want this session to run
-	queuedSession *types.Session
-
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
 	// we use this timestamp to cleanup non-active model instances
@@ -87,6 +89,12 @@ type AxolotlModelInstance struct {
 
 	// a history of the session IDs
 	jobHistory []*types.SessionSummary
+
+	// New fields TODO tidy up
+	client         *openai.Client
+	workCh         chan *types.Session
+	getNextSession func() (*types.Session, error)
+	cancel         context.CancelFunc
 }
 
 func (i *AxolotlModelInstance) ID() string {
@@ -105,24 +113,12 @@ func (i *AxolotlModelInstance) Model() model.Model {
 	return i.model
 }
 
-func (i *AxolotlModelInstance) NextSession() *types.Session {
-	return i.nextSession
-}
-
-func (i *AxolotlModelInstance) SetNextSession(session *types.Session) {
-	i.nextSession = session
-}
-
-func (i *AxolotlModelInstance) GetQueuedSession() *types.Session {
-	return i.queuedSession
-}
-
 func (i *AxolotlModelInstance) Done() <-chan bool {
 	return i.finishChan
 }
 
 func (i *AxolotlModelInstance) IsActive() bool {
-	return i.currentSession != nil || i.nextSession != nil || i.queuedSession != nil
+	return i.currentSession != nil
 }
 
 type ModelInstanceConfig struct {
@@ -140,7 +136,8 @@ type ModelInstanceConfig struct {
 
 	GetNextSession func() (*types.Session, error)
 
-	RunnerOptions RunnerOptions
+	RunnerOptions  RunnerOptions
+	GetNextRequest func() (*types.Session, error)
 }
 
 func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*AxolotlModelInstance, error) {
@@ -164,29 +161,33 @@ func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Ax
 		Token: cfg.RunnerOptions.ApiToken,
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
 	modelInstance := &AxolotlModelInstance{
-		id:                id,
-		ctx:               ctx,
-		finishChan:        make(chan bool),
-		model:             aiModel,
-		responseHandler:   cfg.ResponseHandler,
-		nextTaskURL:       fmt.Sprintf("%s/%s", cfg.NextTaskURL, id),
-		initialSessionURL: fmt.Sprintf("%s/%s", cfg.InitialSessionURL, id),
-		initialSession:    cfg.InitialSession,
+		id:              id,
+		ctx:             ctx,
+		cancel:          cancel,
+		finishChan:      make(chan bool),
+		workCh:          make(chan *types.Session, 1),
+		model:           aiModel,
+		responseHandler: cfg.ResponseHandler,
+		getNextSession:  cfg.GetNextSession,
+		initialSession:  cfg.InitialSession,
 		filter: types.SessionFilter{
 			ModelName: cfg.InitialSession.ModelName,
 			Mode:      cfg.InitialSession.Mode,
-			LoraDir:   useLoraDir,
+			LoraDir:   cfg.InitialSession.LoraDir,
 			Type:      cfg.InitialSession.Type,
 		},
 		runnerOptions:     cfg.RunnerOptions,
-		httpClientOptions: httpClientOptions,
 		jobHistory:        []*types.SessionSummary{},
 		lastActivity:      time.Now(),
+		httpClientOptions: httpClientOptions,
 	}
 
 	fileHandler := NewFileHandler(cfg.RunnerOptions.ID, httpClientOptions, modelInstance.taskResponseHandler)
 	modelInstance.fileHandler = fileHandler
+
+	modelInstance.workCh <- cfg.InitialSession
 
 	return modelInstance, nil
 }
@@ -230,39 +231,7 @@ func (i *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *t
 	return task, nil
 }
 
-// to queue a session means to put it into a buffer and wait for the Python process to boot up and then "pull" it
-func (i *AxolotlModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
-	i.queuedSession = session
-	i.nextSession = nil
-
-	log.Debug().
-		Msgf("🔵 runner prepare session: %s", session.ID)
-
-	preparedSession, err := i.model.PrepareFiles(session, isInitialSession, i.getSessionFileHander(session))
-	if err != nil {
-		log.Error().Msgf("error preparing session: %s", err.Error())
-		i.queuedSession = nil
-		i.nextSession = nil
-		i.errorSession(session, err)
-		return
-	}
-
-	err = i.addJobToHistory(session)
-
-	if err != nil {
-		log.Error().Msgf("error preparing session: %s", err.Error())
-		i.queuedSession = nil
-		i.nextSession = nil
-		i.errorSession(session, err)
-		return
-	}
-
-	log.Debug().
-		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
-
-	i.queuedSession = nil
-	i.nextSession = preparedSession
-}
+func (i *AxolotlModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
 
 /*
 
@@ -290,13 +259,12 @@ func (i *AxolotlModelInstance) errorSession(session *types.Session, err error) {
 
 
 
-	PROCESS MANAGEMENT
+PROCESS MANAGEMENT
 
 
 
 */
 
-// we call this function from the text processors
 func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskResponse) {
 	if i.currentSession == nil {
 		log.Error().Msgf("no current session")
@@ -319,15 +287,21 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 	taskResponse.Owner = i.currentSession.Owner
 	i.lastActivity = time.Now()
 
-	// if it's the final result then we need to upload the files first
+	// if it's the final result then set the current session to nil
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
-		taskResponse, err = i.fileHandler.uploadWorkerResponse(taskResponse)
-		if err != nil {
-			log.Error().Msgf("error uploading task result files: %s", err.Error())
-			i.currentSession = nil
-			return
+
+		// If it's a fine-tuning session, we need to update the LORA dir
+		if i.currentSession.Mode == types.SessionModeFinetune {
+			taskResponse, err = i.fileHandler.uploadWorkerResponse(taskResponse)
+			if err != nil {
+				log.Error().Msgf("error uploading task result files: %s", err.Error())
+				i.currentSession = nil
+				return
+			}
 		}
 
+		// TODO(PHIL): This is pretty sketchy, this is the only reason why it would take new work, but it's
+		// buried within a handler that is only called when the session is done
 		i.currentSession = nil
 	}
 
@@ -338,18 +312,26 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
 	}
+
 }
 
-// run the model process
-// we pass the instance context in so we can cancel it using our stopProcess function
 func (i *AxolotlModelInstance) Start(ctx context.Context) error {
+	// Get random free port
+	port, err := freeport.GetFreePort()
+	if err != nil {
+		return fmt.Errorf("error getting free port: %s", err.Error())
+	}
+
+	config := openai.DefaultConfig("axolotl")
+	config.BaseURL = fmt.Sprintf("http://localhost:%d/v1", port)
+	i.client = openai.NewClientWithConfig(config)
+
 	cmd, err := i.model.GetCommand(i.ctx, i.filter, types.RunnerProcessConfig{
-		InstanceID:        i.id,
-		NextTaskURL:       i.nextTaskURL,
-		InitialSessionURL: i.initialSessionURL,
-		MockRunner:        i.runnerOptions.MockRunner,
-		MockRunnerError:   i.runnerOptions.MockRunnerError,
-		MockRunnerDelay:   i.runnerOptions.MockRunnerDelay,
+		InstanceID:      i.id,
+		MockRunner:      i.runnerOptions.MockRunner,
+		MockRunnerError: i.runnerOptions.MockRunnerError,
+		MockRunnerDelay: i.runnerOptions.MockRunnerDelay,
+		Port:            port,
 	})
 	if err != nil {
 		return err
@@ -369,7 +351,7 @@ func (i *AxolotlModelInstance) Start(ctx context.Context) error {
 		}
 	}
 
-	log.Info().
+	log.Debug().
 		Msgf("🟢 initial session: %s, %+v", i.initialSession.ID, sessionCopy)
 
 	i.currentCommand = cmd
@@ -390,32 +372,6 @@ func (i *AxolotlModelInstance) Start(ctx context.Context) error {
 
 	stdoutWriters := []io.Writer{os.Stdout}
 	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
-
-	// create the model textsream
-	// this is responsible for chunking stdout into session outputs
-	// and keeping track of the current session
-	// each model knows how to parse it's own stdout differently
-	// we pass a 'textStreamProcessor' function which will get events:
-	//  * a new session has started
-	//  * some more text has been generated (i.e. streaming output)
-	//  * the result has been generated
-	// in all cases - each model get's to decide what formatting
-	// it's Python needs to use so that these text streams will
-	// parse correctly
-	stdout, stderr, err := i.model.GetTextStreams(i.initialSession.Mode, i.taskResponseHandler)
-	if err != nil {
-		return err
-	}
-
-	if stdout != nil {
-		go stdout.Start()
-		stdoutWriters = append(stdoutWriters, stdout)
-	}
-
-	if stderr != nil {
-		go stderr.Start()
-		stderrWriters = append(stderrWriters, stderr)
-	}
 
 	go func() {
 		_, err := io.Copy(io.MultiWriter(stdoutWriters...), stdoutPipe)
@@ -441,15 +397,9 @@ func (i *AxolotlModelInstance) Start(ctx context.Context) error {
 	}
 
 	go func(cmd *exec.Cmd) {
-		// Signal the runner to drop the model instance
 		defer close(i.finishChan)
-
-		if err = cmd.Wait(); err != nil {
-			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
-
-			// we are currently running a session and we got an error from the Python process
-			// this normally means that a job caused an error so let's tell the api
-			// that this interaction has it's Error field set
+		if err := cmd.Wait(); err != nil {
+			log.Error().Msgf("Axolotl model instance exited with error: %s", err.Error())
 
 			errstr := string(stderrBuf.Bytes())
 			if i.currentSession != nil {
@@ -473,35 +423,114 @@ func (i *AxolotlModelInstance) Start(ctx context.Context) error {
 			return
 		}
 
-		log.Info().Msgf("🟢 stop model instance, exit code=%d", cmd.ProcessState.ExitCode())
+		log.Info().Msgf("🟢 Axolotl model instance stopped, exit code=%d", cmd.ProcessState.ExitCode())
 	}(cmd)
+
+	// Wait for the server to start
+	startCtx, cancel := context.WithTimeout(i.ctx, 10*time.Second)
+	defer cancel()
+
+WAIT:
+	for {
+		select {
+		case <-startCtx.Done():
+			return fmt.Errorf("timeout waiting for Axolotl model instance to start")
+		default:
+			resp, err := http.DefaultClient.Get(fmt.Sprintf("http://localhost:%d/healthz", port))
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				break WAIT
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	log.Info().Msgf("🟢 Axolotl model instance started on port %d", port)
+
+	// TODO: do we need to pull models?
+
+	go func() {
+		for {
+			select {
+			case <-i.ctx.Done():
+				log.Info().Msgf("🟢 Axolotl model instance has stopped, closing channel listener")
+				return
+			case session, ok := <-i.workCh:
+				if !ok {
+					log.Info().Msg("🟢 workCh closed, exiting")
+					return
+				}
+				log.Info().Str("session_id", session.ID).Msg("🟢 processing interaction")
+
+				i.currentSession = session
+				i.lastActivity = time.Now()
+
+				err := i.processInteraction(session)
+				if err != nil {
+					log.Error().
+						Str("session_id", session.ID).
+						Err(err).
+						Msg("error processing interaction")
+					i.errorSession(session, err)
+					if strings.Contains(err.Error(), "connection refused") {
+						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
+						os.Exit(1)
+					}
+				} else {
+					log.Info().
+						Str("session_id", session.ID).
+						Bool("stream", session.Metadata.Stream).
+						Msg("🟢 interaction processed")
+				}
+
+				i.currentSession = nil
+			default:
+				// Get next session
+				session, err := i.getNextSession()
+				if err != nil {
+					log.Error().Err(err).Msg("error getting next session")
+					time.Sleep(300 * time.Millisecond)
+					continue
+				}
+
+				if session == nil {
+					log.Trace().Msg("no next session")
+					time.Sleep(300 * time.Millisecond)
+					continue
+				}
+
+				log.Debug().Str("session_id", session.ID).Msg("🟢 enqueuing session")
+
+				i.workCh <- session
+			}
+		}
+	}()
+
 	return nil
 }
 
 func (i *AxolotlModelInstance) Stop() error {
 	if i.currentCommand == nil {
-		return fmt.Errorf("no process to stop")
+		return fmt.Errorf("no Axolotl process to stop")
 	}
-	log.Info().Msgf("🟢 stop model process tree")
+	log.Info().Msgf("🟢 stop Axolotl model instance tree")
 	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
-		log.Error().Msgf("error stopping model process: %s", err.Error())
+		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
 		return err
 	}
-	log.Info().Msgf("🟢 stopped model process")
-	return nil
-}
-
-func (i *AxolotlModelInstance) addJobToHistory(session *types.Session) error {
-	summary, err := data.GetSessionSummary(session)
-	if err != nil {
-		return err
-	}
-
-	// put the job at the start of the array
-	i.jobHistory = append([]*types.SessionSummary{summary}, i.jobHistory...)
-	if len(i.jobHistory) > i.runnerOptions.JobHistoryBufferSize {
-		i.jobHistory = i.jobHistory[:len(i.jobHistory)-1]
-	}
+	log.Info().Msgf("🟢 stopped Axolotl instance")
+	// from Karolis: and on model instance stop close the workCh but the writer
+	// needs to not write then as it will panic, better to cancel the ctx, I
+	// think that was the idea there
+	//
+	// Luke: so... try both?
+	close(i.workCh)
+	i.cancel()
 
 	return nil
 }
@@ -510,21 +539,12 @@ func (i *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
 	if i.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
 	}
-	currentSession := i.currentSession
-	if currentSession == nil {
-		currentSession = i.queuedSession
-	}
-	// this can happen when the session has downloaded and is ready
-	// but the python is still booting up
-	if currentSession == nil {
-		currentSession = i.nextSession
-	}
 
 	var sessionSummary *types.SessionSummary
 	var err error
 
-	if currentSession != nil {
-		sessionSummary, err = data.GetSessionSummary(currentSession)
+	if i.currentSession != nil {
+		sessionSummary, err = data.GetSessionSummary(i.currentSession)
 		if err != nil {
 			return nil, err
 		}
@@ -543,4 +563,212 @@ func (i *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
 		Stale:            i.Stale(),
 		MemoryUsage:      i.model.GetMemoryRequirements(i.initialSession.Mode),
 	}, nil
+}
+
+func (i *AxolotlModelInstance) processInteraction(session *types.Session) error {
+	switch session.Mode {
+	case types.SessionModeFinetune:
+		log.Info().Str("session_id", session.ID).Msg("processing fine-tuning interaction")
+		// accumulate all JSONL files across all interactions
+		// and append them to one large JSONL file
+		fileManager := i.getSessionFileHander(session)
+		userInteractions := data.FilterUserInteractions(session.Interactions)
+		finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
+		jsonLFiles := []string{}
+		for _, interaction := range finetuneInteractions {
+			for _, file := range interaction.Files {
+				if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+					localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
+					localPath := path.Join(fileManager.GetFolder(), localFilename)
+					err := fileManager.DownloadFile(file, localPath)
+					if err != nil {
+						return err
+					}
+					jsonLFiles = append(jsonLFiles, localPath)
+				}
+			}
+		}
+
+		combinedFile := path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+		err := system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
+		if err != nil {
+			return err
+		}
+
+		// Check that combined file size is not zero
+		fi, err := os.Stat(combinedFile)
+		if err != nil {
+			return err
+		}
+		if fi.Size() <= 1 {
+			// Check for 1 byte to account for just a newline character
+			return fmt.Errorf("training data file is empty")
+		}
+		log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
+
+		req := openai.FineTuningJobRequest{
+			Model:          string(session.ModelName),
+			TrainingFile:   combinedFile,
+			ValidationFile: "",
+			Hyperparameters: &openai.Hyperparameters{
+				Epochs:                 20, // TODO: connect this up to the finetuning API when it is ready
+				LearningRateMultiplier: 0.0002,
+				BatchSize:              6,
+			},
+			Suffix: session.ID, // Use the suffix to identify the session and the final directory for the LORA
+		}
+
+		job, err := i.client.CreateFineTuningJob(i.ctx, req)
+		if err != nil {
+			return fmt.Errorf("creating fine-tuning job: %w", err)
+		}
+		log.Debug().Str("session_id", session.ID).Msgf("fine-tuning job created: %s", job.ID)
+
+		for {
+			time.Sleep(1 * time.Second)
+			events, err := i.client.ListFineTuningJobEvents(i.ctx, job.ID)
+			if err != nil {
+				if strings.Contains(err.Error(), "connection refused") {
+					continue
+				}
+				return fmt.Errorf("retrieving fine-tuning events: %w", err)
+			}
+			log.Debug().Str("session_id", session.ID).Msgf("fine-tuning events: %d", len(events.Data))
+
+			status, err := i.client.RetrieveFineTuningJob(i.ctx, job.ID)
+			if err != nil {
+				if strings.Contains(err.Error(), "connection refused") {
+					continue
+				}
+				return fmt.Errorf("retrieving fine-tuning status: %w", err)
+			}
+			log.Debug().Str("session_id", session.ID).Interface("status", status).Msg("fine-tuning status")
+
+			// Get latest training report
+			var report TrainingStatusReport
+			for _, event := range events.Data {
+				// ignore errors, just capture latest whatever we can
+				var newReport TrainingStatusReport
+				err := json.Unmarshal([]byte(event.Message), &newReport)
+				if err == nil {
+					if newReport.Type == "training_progress_report" {
+						report = newReport
+					}
+				}
+			}
+
+			log.Debug().Str("session_id", session.ID).Interface("report", report).Msg("fine-tuning progress")
+
+			switch status.Status {
+			case "running":
+				i.responseHandler(&types.RunnerTaskResponse{
+					Type:      types.WorkerTaskResponseTypeProgress,
+					SessionID: session.ID,
+					Owner:     session.Owner,
+					Done:      false,
+					Progress:  report.Progress,
+					Status:    status.Status,
+				})
+			case "succeeded":
+				if len(status.ResultFiles) < 1 {
+					return fmt.Errorf("fine-tuning succeeded but no result files")
+				}
+				i.taskResponseHandler(&types.RunnerTaskResponse{
+					Type:      types.WorkerTaskResponseTypeResult,
+					SessionID: session.ID,
+					Owner:     session.Owner,
+					Done:      true,
+					Progress:  100,
+					LoraDir:   status.ResultFiles[0],
+					Status:    status.Status,
+				})
+				return nil
+			case string(openai.RunStatusFailed):
+				if len(events.Data) > 0 {
+					return fmt.Errorf("fine-tuning failed: %s", events.Data[len(events.Data)-1].Message)
+				} else {
+					return fmt.Errorf("fine-tuning failed with no events")
+				}
+			default:
+				return fmt.Errorf("unknown fine-tuning status: %s", status.Status)
+			}
+		}
+	case types.SessionModeInference:
+		log.Debug().Str("session_id", session.ID).Msg("processing inference interaction")
+
+		downloadedLoraDir := ""
+		if session.LoraDir != "" {
+			downloadedLoraDir = "/tmp/helix/results/" + session.ID
+			err := i.fileHandler.downloadFolder(session.ID, session.LoraDir, downloadedLoraDir)
+			if err != nil {
+				return fmt.Errorf("downloading LORA dir: %w", err)
+			}
+		}
+
+		// Convert session interactions to chat completion messages
+		var messages []openai.ChatCompletionMessage
+		// Adding the system prompt first
+		if session.Metadata.SystemPrompt != "" {
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleUser,
+				Content: session.Metadata.SystemPrompt,
+			})
+		}
+
+		for _, interaction := range session.Interactions {
+			switch interaction.Creator {
+			case types.CreatorTypeUser:
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleUser,
+					Content: interaction.Message,
+				})
+			case types.CreatorTypeSystem:
+				// Ignore because axoloatl doesn't support system messages after the initial one
+			case types.CreatorTypeAssistant:
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleAssistant,
+					Content: interaction.Message,
+				})
+			case types.CreatorTypeTool:
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleUser,
+					Content:    interaction.Message,
+					ToolCalls:  interaction.ToolCalls,
+					ToolCallID: interaction.ToolCallID,
+				})
+			}
+		}
+
+		resp, err := i.client.CreateChatCompletion(i.ctx, openai.ChatCompletionRequest{
+			Model:    downloadedLoraDir,
+			Messages: messages,
+		})
+		if err != nil {
+			return fmt.Errorf("creating chat completion: %w", err)
+		}
+
+		// Signal the end of the stream
+		assistantInteraction, err := data.GetAssistantInteraction(session)
+		if err != nil {
+			return fmt.Errorf("getting assistant interaction: %w", err)
+		}
+
+		i.taskResponseHandler(&types.RunnerTaskResponse{
+			Type:          types.WorkerTaskResponseTypeResult,
+			SessionID:     session.ID,
+			InteractionID: assistantInteraction.ID,
+			Owner:         session.Owner,
+			Done:          true,
+			Message:       resp.Choices[0].Message.Content,
+			Usage: types.Usage{
+				TotalTokens:      resp.Usage.TotalTokens,
+				PromptTokens:     resp.Usage.PromptTokens,
+				CompletionTokens: resp.Usage.CompletionTokens,
+				DurationMs:       int64(time.Since(time.UnixMilli(resp.Created)).Milliseconds()),
+			},
+		})
+	default:
+		return fmt.Errorf("unknown session mode: %s", session.Mode)
+	}
+	return nil
 }
