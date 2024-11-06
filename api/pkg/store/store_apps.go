@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
@@ -136,80 +134,6 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 	return s.GetApp(ctx, app.ID)
 }
 
-func addToolsToApps(apps []*types.App) []*types.App {
-	// for compatibility with both the backend (which actually processes
-	// inference requests for apps) and the frontend (which displays them), now
-	// we have the tools in canonical form in the database, we now need to
-	// transform them BACK into the deprecated Tools field
-	for _, app := range apps {
-		for i := range app.Config.Helix.Assistants {
-			assistant := &app.Config.Helix.Assistants[i]
-			var tools []*types.Tool
-
-			// Convert APIs to Tools
-			for _, api := range assistant.APIs {
-				tools = append(tools, &types.Tool{
-					ID:          uuid.New().String(), // Generate a new ID for the tool
-					Name:        api.Name,
-					Description: api.Description,
-					ToolType:    types.ToolTypeAPI,
-					Config: types.ToolConfig{
-						API: &types.ToolApiConfig{
-							URL:                     api.URL,
-							Schema:                  api.Schema,
-							Headers:                 api.Headers,
-							Query:                   api.Query,
-							RequestPrepTemplate:     api.RequestPrepTemplate,
-							ResponseSuccessTemplate: api.ResponseSuccessTemplate,
-							ResponseErrorTemplate:   api.ResponseErrorTemplate,
-						},
-					},
-				})
-			}
-
-			// Convert GPTScripts to Tools
-			for _, script := range assistant.GPTScripts {
-				tools = append(tools, &types.Tool{
-					ID:          uuid.New().String(),
-					Name:        script.Name,
-					Description: script.Description,
-					ToolType:    types.ToolTypeGPTScript,
-					Config: types.ToolConfig{
-						GPTScript: &types.ToolGPTScriptConfig{
-							Script: script.Content,
-						},
-					},
-				})
-			}
-
-			// Convert Zapier integrations to Tools
-			for _, zapier := range assistant.Zapier {
-				tools = append(tools, &types.Tool{
-					ID:          uuid.New().String(),
-					Name:        zapier.Name,
-					Description: zapier.Description,
-					ToolType:    types.ToolTypeZapier,
-					Config: types.ToolConfig{
-						Zapier: &types.ToolZapierConfig{
-							APIKey:        zapier.APIKey,
-							Model:         zapier.Model,
-							MaxIterations: zapier.MaxIterations,
-						},
-					},
-				})
-			}
-
-			// Sort tools by name
-			sort.Slice(tools, func(i, j int) bool {
-				return tools[i].Name < tools[j].Name
-			})
-
-			assistant.Tools = tools
-		}
-	}
-	return apps
-}
-
 func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, error) {
 	var app types.App
 	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&app).Error
@@ -241,7 +165,6 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 	}
 
 	return &app, nil
-	// return addToolsToApps([]*types.App{&app})[0], nil
 }
 
 func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
@@ -277,7 +200,6 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 	}
 
 	return apps, nil
-	// return addToolsToApps(apps), nil
 }
 
 func (s *PostgresStore) DeleteApp(ctx context.Context, id string) error {
