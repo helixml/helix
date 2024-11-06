@@ -27,7 +27,7 @@ func (l *Mistral7bInstruct01) GetMemoryRequirements(mode types.SessionMode) uint
 	if mode == types.SessionModeFinetune {
 		return GB * 24
 	} else {
-		return MB * 6440
+		return GB * 2
 	}
 }
 
@@ -204,50 +204,28 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 	if config.MockRunner {
 		return l.getMockCommand(ctx, sessionFilter, config)
 	}
-	var cmd *exec.Cmd
-	switch sessionFilter.Mode {
-	case types.SessionModeInference:
-		cmd = exec.CommandContext(
-			ctx,
-			"bash", "runner/venv_command.sh",
-			"python", "-u", "-m",
-			"axolotl.cli.inference",
-			"helix-mistral-instruct-v1.yml",
-		)
-	case types.SessionModeFinetune:
-		cmd = exec.CommandContext(
-			ctx,
-			"bash", "runner/venv_command.sh",
-			"python", "-u", "-m",
-			"axolotl.cli.train",
-			"helix-mistral-instruct-v1.yml",
-		)
-	}
+	cmd := exec.CommandContext(
+		ctx,
+		"uvicorn", "axolotl_finetune_server:app",
+		"--host", "0.0.0.0",
+		"--port", strconv.Itoa(config.Port),
+	)
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
+	// Set the working directory to the runner dir (which makes relative path stuff easier)
+	cmd.Dir = "runner"
 
-	cmd.Env = []string{
-		// inherit PATH set in docker image or elsewhere
-		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
-		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
-		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
-		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
-	}
-	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf(
-			"CUDA_VISIBLE_DEVICES=%s",
-			os.Getenv("CUDA_VISIBLE_DEVICES"),
-		))
-	}
-	if os.Getenv("HF_TOKEN") != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf(
-			"HF_TOKEN=%s",
-			os.Getenv("HF_TOKEN"),
-		))
-	}
+	// Inherit all the parent environment variables
+	cmd.Env = append(cmd.Env,
+		os.Environ()...,
+	)
+	cmd.Env = append(cmd.Env,
+		// Add the APP_FOLDER environment variable which is required by the old code
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join("..", "..", "axolotl"))),
+		// Set python to be unbuffered so we get logs in real time
+		"PYTHONUNBUFFERED=1",
+		// Set the log level, which is a name, but must be uppercased
+		fmt.Sprintf("LOG_LEVEL=%s", strings.ToUpper(os.Getenv("LOG_LEVEL"))),
+	)
 
 	return cmd, nil
 }

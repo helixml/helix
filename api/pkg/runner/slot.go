@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/model"
@@ -186,6 +185,9 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 					// TODO: support the tar feature above
 					ResponseHandler: sessionResponseHandler,
 					RunnerOptions:   runnerOptions,
+					GetNextSession: func() (*types.Session, error) {
+						return <-workCh, nil
+					},
 				},
 			)
 			if err != nil {
@@ -198,29 +200,6 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 			if err != nil {
 				return nil, err
 			}
-
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case work := <-workCh:
-						if modelInstance.IsActive() {
-							log.Debug().Str("workload_id", work.ID).Msg("ModelInstance is active, re-queueing session")
-							go func() {
-								workCh <- work
-							}()
-							time.Sleep(1 * time.Second)
-							continue
-						}
-						log.Debug().Str("workload_id", work.ID).Msg("Queueing axolotl session")
-						go modelInstance.QueueSession(work, false)
-					case <-modelInstance.Done():
-						return
-					}
-				}
-			}()
-
 			slot.modelInstance = modelInstance
 			slot.sessionWorkChan = workCh
 			return slot, nil

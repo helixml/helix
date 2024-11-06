@@ -20,7 +20,6 @@ import (
 type RunnerOptions struct {
 	Runner  runner.RunnerOptions
 	Janitor config.Janitor
-	Server  runner.RunnerServerOptions
 }
 
 func NewRunnerOptions() *RunnerOptions {
@@ -47,10 +46,6 @@ func NewRunnerOptions() *RunnerOptions {
 		},
 		Janitor: config.Janitor{
 			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),
-		},
-		Server: runner.RunnerServerOptions{
-			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
 		},
 	}
 }
@@ -157,15 +152,6 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Server.Host, "server-host", allOptions.Server.Host,
-		`The host to bind the runner server to.`,
-	)
-	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Server.Port, "server-port", allOptions.Server.Port,
-		`The port to bind the runner server to.`,
-	)
-
-	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Janitor.SentryDsnAPI, "janitor-sentry-dsn", allOptions.Janitor.SentryDsnAPI,
 		`The sentry DSN.`,
 	)
@@ -266,12 +252,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		log.Error().Err(err).Msgf("failed to initialize models cache")
 	}
 
-	// we will append the instance ID onto these paths
-	// because it's a model_instance that will spawn Python
-	// processes that will then speak back to these routes
-	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d%s", options.Server.Port, system.GetApiPath("/worker/task"))
-	options.Runner.InitialSessionURL = fmt.Sprintf("http://localhost:%d%s", options.Server.Port, system.GetApiPath("/worker/initial_session"))
-
 	// global state - expedient hack (TODO remove this when we switch cog away
 	// from downloading lora weights via http from the filestore)
 	model.API_HOST = options.Runner.ApiHost
@@ -318,20 +298,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	}
 
 	go runnerController.Run()
-
-	server, err := runner.NewRunnerServer(options.Server, runnerController)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Msgf("Helix runner listening on %s:%d", options.Server.Host, options.Server.Port)
-
-	go func() {
-		err := server.ListenAndServe(ctx, cm)
-		if err != nil {
-			panic(err)
-		}
-	}()
 
 	<-ctx.Done()
 	return nil

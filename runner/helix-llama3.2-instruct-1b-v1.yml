@@ -1,0 +1,87 @@
+# Compare this file with
+# https://github.com/axolotl-ai-cloud/axolotl/blob/main/examples/llama-3/instruct-lora-8b.yml and
+# https://github.com/axolotl-ai-cloud/axolotl/blob/main/examples/llama-3/qlora.yml 
+
+base_model: unsloth/Llama-3.2-1B-Instruct
+model_type: LlamaForCausalLM
+tokenizer_type: AutoTokenizer
+is_llama_derived_model: true
+chat_template: llama3
+load_in_8bit: false
+load_in_4bit: true
+strict: false
+
+dataset_prepared_path: last_run_prepared
+val_set_size: 0 # Disable validation set
+save_steps: 0 # Disable checkpoint save
+eval_steps: 0 # Disable evaluation
+
+adapter: qlora
+lora_model_dir:
+# See https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct for full context info.
+# But we need to reduce this to ensure it fits in 24GB GPU memory :-(
+sequence_len: 2048
+sample_packing: false
+eval_sample_packing: false
+pad_to_sequence_len: true
+
+# hyperparameters from QLoRA paper Appendix B.2
+# "We find hyperparameters to be largely robust across datasets"
+lora_r: 64
+lora_alpha: 16
+# 0.1 for models up to 13B
+# 0.05 for 33B and 65B models
+lora_dropout: 0.1
+# add LoRA modules on all linear layers of the base model
+lora_target_linear: true
+lora_fan_in_fan_out:
+lora_target_modules:
+  - gate_proj
+  - down_proj
+  - up_proj
+  - q_proj
+  - v_proj
+  - k_proj
+  - o_proj
+
+wandb_project:
+wandb_entity:
+wandb_watch:
+wandb_name:
+wandb_log_model:
+
+gradient_accumulation_steps: 1
+micro_batch_size: 6
+num_epochs: 10
+optimizer: adamw_bnb_8bit
+lr_scheduler: cosine
+learning_rate: 0.0002
+train_on_inputs: false
+group_by_length: false
+bf16: auto
+fp16:
+tf32: false
+gradient_checkpointing: true
+resume_from_checkpoint:
+local_rank:
+logging_steps: 1
+xformers_attention:
+flash_attention: true
+loss_watchdog_threshold: 5.0
+loss_watchdog_patience: 3
+warmup_steps: 10
+eval_table_size:
+eval_max_new_tokens: 128
+debug:
+deepspeed:
+weight_decay: 0.0
+fsdp:
+fsdp_config:
+special_tokens:
+  pad_token: "<|end_of_text|>"
+
+# Fields overridden by the runner, but need to be here for validation
+datasets:
+  - path: teknium/GPT4-LLM-Cleaned
+    type: alpaca
+output_dir: ./outputs/qlora-out
