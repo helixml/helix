@@ -35,7 +35,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
         rows={10}
         id="app-schema"
         name="app-schema"
-        label="App Configuration"
+        label="AISpec YAML for App"
         helperText={showErrors && !schema ? "Please enter a schema" : ""}
         InputProps={{
           style: { fontFamily: 'monospace' }
