@@ -220,7 +220,7 @@ func getValueIndexes(fields []string) string {
 	for i := range fields {
 		parts = append(parts, fmt.Sprintf("$%d", i+1))
 	}
-	return fmt.Sprintf("%s", strings.Join(parts, ", "))
+	return strings.Join(parts, ", ")
 }
 
 // given an array of field names - return the indexes as an update
@@ -231,7 +231,7 @@ func getKeyValueIndexes(fields []string, offset int) string {
 	for i, field := range fields {
 		parts = append(parts, fmt.Sprintf("%s = $%d", field, i+offset+1))
 	}
-	return fmt.Sprintf("%s", strings.Join(parts, ", "))
+	return strings.Join(parts, ", ")
 }
 
 var USERMETA_FIELDS = []string{
@@ -286,17 +286,6 @@ func (d *PostgresStore) GetUserMeta(
 	`, USERMETA_FIELDS_STRING), userID)
 
 	return scanUserMetaRow(row)
-}
-
-func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
-	where := goqu.Ex{}
-	if query.Owner != "" {
-		where["owner"] = query.Owner
-	}
-	if query.OwnerType != "" {
-		where["owner_type"] = query.OwnerType
-	}
-	return where
 }
 
 func (d *PostgresStore) CreateUserMeta(
