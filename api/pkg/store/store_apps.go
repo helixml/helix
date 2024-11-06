@@ -231,6 +231,11 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 		}
 
 		assistant.Tools = tools
+		// empty out the canonical fields to avoid confusion. Callers of this
+		// function should ONLY use the internal Tools field
+		assistant.APIs = nil
+		assistant.GPTScripts = nil
+		assistant.Zapier = nil
 	}
 
 	return app, nil
