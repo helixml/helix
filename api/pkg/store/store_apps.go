@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// rectifyApp handles the migration of app configurations from the old format (which used both
+// RectifyApp handles the migration of app configurations from the old format (which used both
 // Tools and specific fields like APIs, GPTScripts, Zapier) to a new canonical format where
 // tools are only stored in their specific fields (APIs, GPTScripts, Zapier).
 //
@@ -27,7 +27,7 @@ import (
 // This allows us to handle old database records that might have tools defined in either or both places,
 // while ensuring we move forward with a clean, consistent format where tools are only stored in
 // their specific fields.
-func rectifyApp(app *types.App) {
+func RectifyApp(app *types.App) {
 	for i := range app.Config.Helix.Assistants {
 		assistant := &app.Config.Helix.Assistants[i]
 
@@ -106,7 +106,7 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	app.Created = time.Now()
 
 	setAppDefaults(app)
-	rectifyApp(app)
+	RectifyApp(app)
 	sortAppTools(app)
 
 	err := s.gdb.WithContext(ctx).Create(app).Error
@@ -136,7 +136,7 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 
 	app.Updated = time.Now()
 
-	rectifyApp(app)
+	RectifyApp(app)
 	sortAppTools(app)
 
 	err := s.gdb.WithContext(ctx).Save(&app).Error
@@ -169,7 +169,7 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 
 	// If we found tools, rectify and save back to database
 	if hasTools {
-		rectifyApp(&app)
+		RectifyApp(&app)
 		err = s.gdb.WithContext(ctx).Save(&app).Error
 		if err != nil {
 			return nil, fmt.Errorf("error saving rectified app: %w", err)
@@ -203,7 +203,7 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 		}
 
 		if hasTools {
-			rectifyApp(app)
+			RectifyApp(app)
 			err = s.gdb.WithContext(ctx).Save(app).Error
 			if err != nil {
 				return nil, fmt.Errorf("error saving rectified app: %w", err)
