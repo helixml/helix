@@ -22,6 +22,7 @@ import (
 type MockModel struct {
 	ctrl     *gomock.Controller
 	recorder *MockModelMockRecorder
+	isgomock struct{}
 }
 
 // MockModelMockRecorder is the mock recorder for MockModel.
@@ -134,6 +135,7 @@ func (mr *MockModelMockRecorder) PrepareFiles(session, isInitialSession, fileMan
 type MockModelSessionFileManager struct {
 	ctrl     *gomock.Controller
 	recorder *MockModelSessionFileManagerMockRecorder
+	isgomock struct{}
 }
 
 // MockModelSessionFileManagerMockRecorder is the mock recorder for MockModelSessionFileManager.
