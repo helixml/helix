@@ -47,14 +47,14 @@ func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
 	return &createdApp, nil
 }
 
-func (c *HelixClient) UpdateApp(appID string, app *types.App) (*types.App, error) {
+func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
 		return nil, err
 	}
 
 	var updatedApp types.App
-	err = c.makeRequest(http.MethodPut, "/apps/"+appID, bytes.NewBuffer(bts), &updatedApp)
+	err = c.makeRequest(http.MethodPut, "/apps/"+app.ID, bytes.NewBuffer(bts), &updatedApp)
 	if err != nil {
 		return nil, err
 	}
