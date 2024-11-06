@@ -167,6 +167,75 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 	return &app, nil
 }
 
+// BACKWARD COMPATIBILITY ONLY: return an app with the apis, gptscripts, and zapier
+// transformed into the deprecated Tools field
+func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.App, error) {
+	app, err := s.GetApp(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert each assistant's specific tool fields into the deprecated Tools field
+	for i := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[i]
+		var tools []*types.Tool
+
+		// Convert APIs to Tools
+		for _, api := range assistant.APIs {
+			tools = append(tools, &types.Tool{
+				Name:        api.Name,
+				Description: api.Description,
+				ToolType:    types.ToolTypeAPI,
+				Config: types.ToolConfig{
+					API: &types.ToolApiConfig{
+						URL:                     api.URL,
+						Schema:                  api.Schema,
+						Headers:                 api.Headers,
+						Query:                   api.Query,
+						RequestPrepTemplate:     api.RequestPrepTemplate,
+						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
+						ResponseErrorTemplate:   api.ResponseErrorTemplate,
+					},
+				},
+			})
+		}
+
+		// Convert Zapier to Tools
+		for _, zapier := range assistant.Zapier {
+			tools = append(tools, &types.Tool{
+				Name:        zapier.Name,
+				Description: zapier.Description,
+				ToolType:    types.ToolTypeZapier,
+				Config: types.ToolConfig{
+					Zapier: &types.ToolZapierConfig{
+						APIKey:        zapier.APIKey,
+						Model:         zapier.Model,
+						MaxIterations: zapier.MaxIterations,
+					},
+				},
+			})
+		}
+
+		// Convert GPTScripts to Tools
+		for _, script := range assistant.GPTScripts {
+			tools = append(tools, &types.Tool{
+				Name:        script.Name,
+				Description: script.Description,
+				ToolType:    types.ToolTypeGPTScript,
+				Config: types.ToolConfig{
+					GPTScript: &types.ToolGPTScriptConfig{
+						Script: script.Content,
+					},
+				},
+			})
+		}
+
+		assistant.Tools = tools
+	}
+
+	return app, nil
+}
+
 func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
 	var apps []*types.App
 	err := s.gdb.WithContext(ctx).Where(&types.App{
