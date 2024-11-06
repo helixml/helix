@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	reflect "reflect"
 	"strings"
 	"time"
@@ -46,13 +47,20 @@ func NewPostgresStore(
 		return nil, err
 	}
 
+	// Read SSL setting from environment
+	sslSettings := "sslmode=disable"
+	if os.Getenv(ENV_POSTGRES_SSL) == "true" {
+		sslSettings = "sslmode=require"
+	}
+
 	connectionString := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		"postgres://%s:%s@%s:%d/%s?%s",
 		cfg.Username,
 		cfg.Password,
 		cfg.Host,
 		cfg.Port,
 		cfg.Database,
+		sslSettings,
 	)
 	pgDb, err := sql.Open("postgres", connectionString)
 	if err != nil {
@@ -427,6 +435,7 @@ func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 // Available DB types
 const (
 	DatabaseTypePostgres = "postgres"
+	ENV_POSTGRES_SSL     = "HELIX_POSTGRES_SSL"
 )
 
 func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
@@ -441,24 +450,11 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 				dialector gorm.Dialector
 			)
 
+			// Read SSL setting from environment
 			sslSettings := "sslmode=disable"
-			// crtPath := "/tmp/ca.crt"
-
-			// TODO: enable
-			// if c.Database.CaCrt != "" {
-			// 	_, err = os.Stat(c.Database.CaCrt)
-			// 	if err != nil {
-			// 		err = os.WriteFile(crtPath, []byte(c.Database.CaCrt), 0644)
-			// 		if err != nil {
-			// 			return nil, fmt.Errorf("failed to write ca.crt: %w", err)
-			// 		}
-			// 	} else {
-			// 		// File exists, so that's our path
-			// 		crtPath = c.Database.CaCrt
-			// 	}
-
-			// 	sslSettings = fmt.Sprintf("sslmode=verify-full sslrootcert=%s", crtPath)
-			// }
+			if os.Getenv(ENV_POSTGRES_SSL) == "true" {
+				sslSettings = "sslmode=require"
+			}
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
 				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
