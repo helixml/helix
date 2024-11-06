@@ -221,18 +221,13 @@ assistants:
 				require.Len(t, config.Assistants, 1)
 				assistant := config.Assistants[0]
 
-				// Both APIs and Tools fields should be populated
+				// Only APIs field should be populated
 				require.Len(t, assistant.APIs, 1)
 				api := assistant.APIs[0]
 				assert.Equal(t, "test-api", api.Name)
 				assert.Equal(t, "http://example.com/api", api.URL)
 
-				require.Len(t, assistant.Tools, 1)
-				tool := assistant.Tools[0]
-				assert.Equal(t, "test-api", tool.Name)
-				assert.Equal(t, types.ToolTypeAPI, tool.ToolType)
-				require.NotNil(t, tool.Config.API)
-				assert.Equal(t, "http://example.com/api", tool.Config.API.URL)
+				require.Len(t, assistant.Tools, 0)
 			},
 		},
 		{
@@ -268,30 +263,19 @@ assistants:
 				require.Len(t, config.Assistants, 1)
 				assistant := config.Assistants[0]
 
-				// Both APIs and Tools fields should be populated
-				require.Len(t, assistant.APIs, 1)
-				api := assistant.APIs[0]
-				assert.Equal(t, "api-1", api.Name)
+				// Only APIs field should be populated
+				require.Len(t, assistant.APIs, 2)
+				api1 := assistant.APIs[0]
+				api2 := assistant.APIs[1]
+				assert.Equal(t, "api-1", api1.Name)
+				assert.Equal(t, "api-2", api2.Name)
 
-				// Tools field should contain both APIs
-				require.Len(t, assistant.Tools, 2)
-
-				// Find tools by name
-				var api1Tool, api2Tool *types.Tool
-				for _, tool := range assistant.Tools {
-					if tool.Name == "api-1" {
-						api1Tool = tool
-					} else if tool.Name == "api-2" {
-						api2Tool = tool
-					}
-				}
-
-				require.NotNil(t, api1Tool)
-				require.NotNil(t, api2Tool)
-				assert.Equal(t, types.ToolTypeAPI, api1Tool.ToolType)
-				assert.Equal(t, types.ToolTypeAPI, api2Tool.ToolType)
-				assert.Equal(t, "http://example.com/api1", api1Tool.Config.API.URL)
-				assert.Equal(t, "http://example.com/api2", api2Tool.Config.API.URL)
+				// Tools field should be empty
+				require.Len(t, assistant.Tools, 0)
+				require.NotNil(t, api1)
+				require.NotNil(t, api2)
+				assert.Equal(t, "http://example.com/api1", api1.URL)
+				assert.Equal(t, "http://example.com/api2", api2.URL)
 			},
 		},
 	}
@@ -320,7 +304,7 @@ assistants:
 				Return(storedApp, nil).
 				AnyTimes()
 
-			// Create test server with actual handlers
+			// Create test server with actual handlers to check roundtripping works
 			router := mux.NewRouter()
 			srv := httptest.NewServer(router)
 			defer srv.Close()
@@ -473,31 +457,25 @@ func TestUpdatingAppsWithDifferentToolConfigs(t *testing.T) {
 				require.Len(t, app.Config.Helix.Assistants, 1)
 				assistant := app.Config.Helix.Assistants[0]
 
-				// Should only have tools, no APIs
-				assert.Empty(t, assistant.APIs)
-				require.Len(t, assistant.Tools, 1)
+				// Should only have APIs, no tools
+				assert.Empty(t, assistant.Tools)
+				require.Len(t, assistant.APIs, 1)
 
-				tool := assistant.Tools[0]
-				assert.Equal(t, "test-api", tool.Name)
-				assert.Equal(t, types.ToolTypeAPI, tool.ToolType)
-				require.NotNil(t, tool.Config.API)
-				assert.Equal(t, "http://example.com/api/v1", tool.Config.API.URL)
+				api := assistant.APIs[0]
+				assert.Equal(t, "test-api", api.Name)
+				assert.Equal(t, "http://example.com/api/v1", api.URL)
 			},
 			validateUpdated: func(t *testing.T, app *types.App) {
 				require.Len(t, app.Config.Helix.Assistants, 1)
 				assistant := app.Config.Helix.Assistants[0]
 
+				// Should only have APIs, no tools
+				assert.Empty(t, assistant.Tools)
 				require.Len(t, assistant.APIs, 1)
+
 				api := assistant.APIs[0]
 				assert.Equal(t, "test-api", api.Name)
 				assert.Equal(t, "http://example.com/api/v2", api.URL)
-
-				require.Len(t, assistant.Tools, 1)
-				tool := assistant.Tools[0]
-				assert.Equal(t, "test-api", tool.Name)
-				assert.Equal(t, types.ToolTypeAPI, tool.ToolType)
-				require.NotNil(t, tool.Config.API)
-				assert.Equal(t, "http://example.com/api/v2", tool.Config.API.URL)
 			},
 		},
 	}
@@ -730,4 +708,59 @@ func TestRectifyingAppsOnRead(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestLocalAppWithSchemaFile(t *testing.T) {
+	// Create a temporary directory for our test files
+	tmpDir, err := os.MkdirTemp("", "helix-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create the schema file
+	schemaContent := `openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /test:
+    get:
+      summary: Test endpoint
+      responses:
+        '200':
+          description: OK`
+
+	schemaPath := filepath.Join(tmpDir, "test-schema.yaml")
+	err = os.WriteFile(schemaPath, []byte(schemaContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the helix config file that references the schema
+	configContent := `assistants:
+- id: test-assistant
+  name: Test Assistant
+  model: gpt-4
+  apis:
+  - name: test-api
+    description: A test API
+    url: http://test-api
+    schema: test-schema.yaml`
+
+	configPath := filepath.Join(tmpDir, "helix.yaml")
+	err = os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Load and test the config
+	app, err := NewLocalApp(configPath)
+	assert.NoError(t, err)
+	assert.NotNil(t, app)
+
+	// Verify the schema was loaded correctly
+	assert.Len(t, app.app.Assistants, 1)
+	assert.Len(t, app.app.Assistants[0].APIs, 1)
+	assert.Equal(t, schemaContent, app.app.Assistants[0].APIs[0].Schema)
 }

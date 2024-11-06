@@ -44,13 +44,13 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 		return nil, fmt.Errorf("invalid repo name")
 	}
 	if options.Client == nil {
-		return nil, fmt.Errorf("Client is required")
+		return nil, fmt.Errorf("client is required")
 	}
 	if options.ToolsPlanner == nil {
 		return nil, fmt.Errorf("ToolsPlanner is required")
 	}
 	if options.App == nil {
-		return nil, fmt.Errorf("App struct is required")
+		return nil, fmt.Errorf("app struct is required")
 	}
 	if options.UpdateApp == nil {
 		return nil, fmt.Errorf("UpdateApp function is required")
