@@ -192,10 +192,10 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	logger.Info("Sending update request to Helix", "name", appID, "id", existingApp.ID,
 		"update_payload", fmt.Sprintf("%+v", app))
 
-	updatedApp, err := r.helix.UpdateApp(existingApp.ID, app)
+	updatedApp, err := r.helix.UpdateApp(app)
 	if err != nil {
-		logger.Error(err, "Failed to update app in Helix", "name", appID, "id", existingApp.ID)
-		return ctrl.Result{}, fmt.Errorf("failed to update app %s in Helix: %w", existingApp.ID, err)
+		logger.Error(err, "Failed to update app in Helix", "name", appID, "id", app.ID)
+		return ctrl.Result{}, fmt.Errorf("failed to update app %s in Helix: %w", app.ID, err)
 	}
 	logger.Info("Successfully updated existing app", "name", appID, "id", updatedApp.ID)
 	return ctrl.Result{}, nil
