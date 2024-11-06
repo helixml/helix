@@ -4,7 +4,7 @@ metadata:
   name: bitcoin-prices
 spec:
   name: bitcoin prices
-  description: I know about bitcoin prices, ask me!!!1112345
+  description: I know about bitcoin prices, ask me!!!111234567
   avatar: https://i.kinja-img.com/image/upload/c_fit,q_60,w_645/195319fe96647bc40102cd36d7a42128.jpg
   image: https://static.seekingalpha.com/cdn/s3/uploads/getty_images/1239809188/image_1239809188.jpg?io=getty-c-w1280
   assistants:

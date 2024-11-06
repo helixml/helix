@@ -182,6 +182,12 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		"existing_name", existingApp.Config.Helix.Name,
 		"new_name", app.Config.Helix.Name)
 
+	// What to do next: the transformation from apis -> tools seems to NEED to
+	// happen on the client side, but that's super lame to try and do when we
+	// don't have the right types here, so push it onto the server side (and
+	// make it happen when READING from the database, rather than when writing
+	// to it)
+
 	// Preserve existing metadata
 	app.ID = existingApp.ID
 	app.Owner = existingApp.Owner
