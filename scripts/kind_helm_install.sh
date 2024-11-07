@@ -59,7 +59,7 @@ kubectl cluster-info --context kind-$CLUSTER_NAME
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
-  --set image.tag="23.0" \
+  --set image.tag="23.0.7" \
   --set httpRelativePath="/auth/"
 
 # Wait for pod to exist
