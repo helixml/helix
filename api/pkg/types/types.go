@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
@@ -981,75 +982,60 @@ type AssistantAPI struct {
 	Description string            `json:"description" yaml:"description"`
 	Schema      string            `json:"schema" yaml:"schema"`
 	URL         string            `json:"url" yaml:"url"`
-	Headers     map[string]string `json:"headers" yaml:"headers"`
-	Query       map[string]string `json:"query" yaml:"query"`
+	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Query       map[string]string `json:"query,omitempty" yaml:"query,omitempty"`
 
-	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
-	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
-	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
+	RequestPrepTemplate     string `json:"request_prep_template,omitempty" yaml:"request_prep_template,omitempty"`
+	ResponseSuccessTemplate string `json:"response_success_template,omitempty" yaml:"response_success_template,omitempty"`
+	ResponseErrorTemplate   string `json:"response_error_template,omitempty" yaml:"response_error_template,omitempty"`
 }
 
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	ID          string   `json:"id" yaml:"id"`
-	Name        string   `json:"name" yaml:"name"`
-	Description string   `json:"description" yaml:"description"`
-	Avatar      string   `json:"avatar" yaml:"avatar"`
-	Image       string   `json:"image" yaml:"image"`
-	Provider    Provider `json:"provider" yaml:"provider"` // openai, togetherai, helix, etc.
-	Model       string   `json:"model" yaml:"model"`
-	// so we can have fine tuned image assistants or system prompt augmentedimage inference
-	// defaults to text
-	Type SessionType `json:"type" yaml:"type"`
+	ID          string      `json:"id,omitempty" yaml:"id,omitempty"`
+	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar      string      `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	Image       string      `json:"image,omitempty" yaml:"image,omitempty"`
+	Provider    Provider    `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model       string      `json:"model,omitempty" yaml:"model,omitempty"`
+	Type        SessionType `json:"type,omitempty" yaml:"type,omitempty"`
 
-	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
+	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
-	// the data entity ID that we have created as the RAG source
-	RAGSourceID string `json:"rag_source_id" yaml:"rag_source_id"`
+	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
+	LoraID      string `json:"lora_id,omitempty" yaml:"lora_id,omitempty"`
 
-	// the data entity ID that we have created for the lora fine tune
-	LoraID string `json:"lora_id" yaml:"lora_id"`
+	Knowledge []*AssistantKnowledge `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 
-	// Knowledge available to the assistant
-	Knowledge []*AssistantKnowledge `json:"knowledge" yaml:"knowledge"`
+	IsActionableTemplate string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
 
-	// Template for determining if the request is actionable or informative
-	IsActionableTemplate string `json:"is_actionable_template" yaml:"is_actionable_template"`
+	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
+	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
+	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	Tools      []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
 
-	// the list of api tools this assistant will use
-	APIs []AssistantAPI `json:"apis" yaml:"apis"`
-
-	// the list of gpt scripts this assistant will use
-	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
-
-	Zapier []AssistantZapier `json:"zapier" yaml:"zapier"`
-
-	// these are populated from the APIs and GPTScripts on create and update
-	// we include tools in the JSON that we send to the browser
-	// but we don't include it in the yaml which feeds this struct because
-	// we populate the tools array from the APIs and GPTScripts arrays
-	// so - Tools is readonly - hence only JSON for the frontend to see
-	Tools []*Tool `json:"tools"`
-
-	// Add these new fields for tests
 	Tests []struct {
-		Name  string `json:"name" yaml:"name"`
-		Steps []struct {
-			Prompt         string `json:"prompt" yaml:"prompt"`
-			ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
-		} `json:"steps" yaml:"steps"`
-	} `json:"tests" yaml:"tests"`
+		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`
+		Steps []TestStep `json:"steps,omitempty" yaml:"steps,omitempty"`
+	} `json:"tests,omitempty" yaml:"tests,omitempty"`
+}
+
+// Add this new type
+type TestStep struct {
+	Prompt         string `json:"prompt" yaml:"prompt"`
+	ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
 }
 
 type AppHelixConfig struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description" yaml:"description"`
-	Avatar      string            `json:"avatar" yaml:"avatar"`
-	Image       string            `json:"image" yaml:"image"`
-	ExternalURL string            `json:"external_url" yaml:"external_url"`
-	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
-	Triggers    []Trigger         `json:"triggers" yaml:"triggers"`
+	Name        string            `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar      string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	Image       string            `json:"image,omitempty" yaml:"image,omitempty"`
+	ExternalURL string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
+	Assistants  []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
+	Triggers    []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 }
 
 type AppHelixConfigMetadata struct {
