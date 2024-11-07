@@ -206,7 +206,7 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 }
 
 // BACKWARD COMPATIBILITY ONLY: return an app with the apis, gptscripts, and zapier
-// transformed into the deprecated Tools field
+// transformed into the deprecated (or at least internal) Tools field
 func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.App, error) {
 	app, err := s.GetApp(ctx, id)
 	if err != nil {
