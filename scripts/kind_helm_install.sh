@@ -102,8 +102,8 @@ fi
 
 # Install Helix using Helm
 echo "Installing Helix..."
-export LATEST_RELEASE=$(curl -s https://get.helix.ml/latest.txt)
+export HELIX_VERSION=${HELIX_VERSION:-$(curl -s https://get.helix.ml/latest.txt)}
 helm upgrade --install my-helix-controlplane $CHART \
   -f $DIR/values-example.yaml \
-  --set image.tag="${LATEST_RELEASE}" \
+  --set image.tag="${HELIX_VERSION}" \
   --set envVariables.TOGETHER_API_KEY=${TOGETHER_API_KEY}
