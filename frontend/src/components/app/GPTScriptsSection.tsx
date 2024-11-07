@@ -61,7 +61,7 @@ const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
               <Button
                 variant="outlined"
                 color="error"
-                onClick={() => onDeleteGptScript(script.file)}
+                onClick={() => onDeleteGptScript(script.file || '')}
                 disabled={isReadOnly || isGithubApp}
                 startIcon={<DeleteIcon />}
               >
