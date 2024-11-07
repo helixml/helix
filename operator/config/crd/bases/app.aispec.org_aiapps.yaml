@@ -1,0 +1,337 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: aiapps.app.aispec.org
+spec:
+  group: app.aispec.org
+  names:
+    kind: AIApp
+    listKind: AIAppList
+    plural: aiapps
+    singular: aiapp
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: AIApp is the Schema for the aiapps API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AIAppSpec defines the desired state of AIApp
+            properties:
+              assistants:
+                items:
+                  description: Create a local version of AssistantConfig
+                  properties:
+                    apis:
+                      description: The list of API tools this assistant will use
+                      items:
+                        description: AssistantAPI represents an API tool configuration
+                        properties:
+                          description:
+                            type: string
+                          headers:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          name:
+                            type: string
+                          query:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          request_prep_template:
+                            type: string
+                          response_error_template:
+                            type: string
+                          response_success_template:
+                            type: string
+                          schema:
+                            type: string
+                          url:
+                            type: string
+                        required:
+                        - description
+                        - name
+                        - schema
+                        - url
+                        type: object
+                      type: array
+                    avatar:
+                      type: string
+                    description:
+                      type: string
+                    gptscripts:
+                      description: The list of GPT scripts this assistant will use
+                      items:
+                        description: AssistantGPTScript represents a GPTScript tool
+                          configuration
+                        properties:
+                          content:
+                            type: string
+                          description:
+                            type: string
+                          file:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - content
+                        - description
+                        - file
+                        - name
+                        type: object
+                      type: array
+                    id:
+                      type: string
+                    image:
+                      type: string
+                    is_actionable_template:
+                      description: Template for determining if the request is actionable
+                        or informative
+                      type: string
+                    knowledge:
+                      description: Knowledge available to the assistant
+                      items:
+                        description: |-
+                          AssistantKnowledge represents knowledge configuration for an assistant
+                          Note: This type wasn't in the original types.go, but was referenced.
+                          You'll need to define its structure based on your requirements
+                        type: object
+                      type: array
+                    lora_id:
+                      description: The data entity ID that we have created for the
+                        lora fine tune
+                      type: string
+                    model:
+                      type: string
+                    name:
+                      type: string
+                    provider:
+                      type: string
+                    rag_source_id:
+                      description: The data entity ID that we have created as the
+                        RAG source
+                      type: string
+                    system_prompt:
+                      type: string
+                    tests:
+                      description: Test configurations
+                      items:
+                        description: AssistantTest represents test configuration for
+                          an assistant
+                        properties:
+                          name:
+                            type: string
+                          steps:
+                            items:
+                              description: TestStep represents a single test step
+                              properties:
+                                expected_output:
+                                  type: string
+                                prompt:
+                                  type: string
+                              required:
+                              - expected_output
+                              - prompt
+                              type: object
+                            type: array
+                        required:
+                        - name
+                        - steps
+                        type: object
+                      type: array
+                    tools:
+                      description: Tools is populated from the APIs and GPTScripts
+                        on create and update
+                      items:
+                        description: Tool represents a tool available to the assistant
+                        properties:
+                          config:
+                            description: ToolConfig represents tool configuration
+                            properties:
+                              api:
+                                description: ToolApiConfig represents API tool configuration
+                                properties:
+                                  actions:
+                                    items:
+                                      description: ToolApiAction represents an API
+                                        action configuration
+                                      properties:
+                                        description:
+                                          type: string
+                                        method:
+                                          type: string
+                                        name:
+                                          type: string
+                                        path:
+                                          type: string
+                                      required:
+                                      - description
+                                      - method
+                                      - name
+                                      - path
+                                      type: object
+                                    type: array
+                                  headers:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                  model:
+                                    type: string
+                                  query:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                  request_prep_template:
+                                    type: string
+                                  response_error_template:
+                                    type: string
+                                  response_success_template:
+                                    type: string
+                                  schema:
+                                    type: string
+                                  url:
+                                    type: string
+                                required:
+                                - actions
+                                - headers
+                                - model
+                                - query
+                                - request_prep_template
+                                - response_error_template
+                                - response_success_template
+                                - schema
+                                - url
+                                type: object
+                              gptscript:
+                                description: ToolGPTScriptConfig represents GPTScript
+                                  tool configuration
+                                properties:
+                                  script:
+                                    type: string
+                                  script_url:
+                                    type: string
+                                required:
+                                - script
+                                - script_url
+                                type: object
+                              zapier:
+                                description: ToolZapierConfig represents Zapier tool
+                                  configuration
+                                properties:
+                                  api_key:
+                                    type: string
+                                  max_iterations:
+                                    type: integer
+                                  model:
+                                    type: string
+                                required:
+                                - api_key
+                                - max_iterations
+                                - model
+                                type: object
+                            type: object
+                          created:
+                            format: date-time
+                            type: string
+                          description:
+                            type: string
+                          global:
+                            type: boolean
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          owner:
+                            type: string
+                          owner_type:
+                            type: string
+                          tool_type:
+                            type: string
+                          updated:
+                            format: date-time
+                            type: string
+                        required:
+                        - config
+                        - created
+                        - description
+                        - global
+                        - id
+                        - name
+                        - owner
+                        - owner_type
+                        - tool_type
+                        - updated
+                        type: object
+                      type: array
+                    type:
+                      type: string
+                    zapier:
+                      description: Zapier integration configuration
+                      items:
+                        description: AssistantZapier represents Zapier integration
+                          configuration
+                        properties:
+                          api_key:
+                            type: string
+                          description:
+                            type: string
+                          max_iterations:
+                            type: integer
+                          model:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - api_key
+                        - description
+                        - max_iterations
+                        - model
+                        - name
+                        type: object
+                      type: array
+                  required:
+                  - model
+                  type: object
+                type: array
+              avatar:
+                type: string
+              description:
+                type: string
+              image:
+                type: string
+              name:
+                type: string
+            required:
+            - description
+            - name
+            type: object
+          status:
+            description: AIAppStatus defines the observed state of AIApp
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
