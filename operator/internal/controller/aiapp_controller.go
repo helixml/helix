@@ -222,7 +222,7 @@ func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appv1.AIApp{}).
+		For(&appv1alpha1.AIApp{}).
 		Named("aiapp").
 		Complete(r)
 }
@@ -246,7 +246,7 @@ func removeString(slice []string, s string) []string {
 	return result
 }
 
-func (r *AIAppReconciler) handleDeletion(ctx context.Context, aiapp *appv1.AIApp, appID string) (ctrl.Result, error) {
+func (r *AIAppReconciler) handleDeletion(ctx context.Context, aiapp *appv1alpha1.AIApp, appID string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	if containsString(aiapp.Finalizers, finalizerName) {
