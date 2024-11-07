@@ -40,7 +40,9 @@ import {
   APP_SOURCE_HELIX,
   IApp,
   IAppUpdate,
+  IAssistantApi,
   IAssistantGPTScript,
+  IAssistantZapier,
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
@@ -88,10 +90,8 @@ const App: FC = () => {
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
-  const [ editingTool, setEditingTool ] = useState<ITool | null>(null)
 
   const [app, setApp] = useState<IApp | null>(null);
-  const [tools, setTools] = useState<ITool[]>([]);
   const [isNewApp, setIsNewApp] = useState(false);
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
@@ -118,6 +118,11 @@ const App: FC = () => {
 
   const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  const [editingGptScript, setEditingGptScript] = useState<{
+    tool: IAssistantGPTScript;
+    index: number;
+  } | null>(null);
 
   // for now, all the STATE related code for the various tabs is still in this file
   // that's because synchronising state between the components and the app page
@@ -235,6 +240,7 @@ const App: FC = () => {
               apis: [],
               gptscripts: [],
               tools: [],
+              zapier: []
             }],
           },
         },
@@ -253,7 +259,6 @@ const App: FC = () => {
     }
     setApp(initialApp);
     if (initialApp && initialApp.config.helix.assistants.length > 0) {
-      setTools(initialApp.config.helix.assistants[0].tools || []);
       setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
     }
   }, [params.app_id, apps.data, account.user]);
@@ -417,7 +422,7 @@ const App: FC = () => {
       }
       return null;
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
   const { NewInference } = useStreaming();
 
@@ -562,57 +567,20 @@ const App: FC = () => {
     });
   }, [account.user]);
 
-  const onSaveGptScript = useCallback((tool: ITool) => {
-    if (!app) {
-      console.error('App is not initialized');
-      snackbar.error('Unable to save GPT script: App is not initialized, save it first');
-      return;
-    }
-
-    const currentDateTime = new Date().toISOString();
-
-    const newScript: IAssistantGPTScript = {
-      name: tool.name,
-      description: tool.description,
-      file: tool.id,
-      content: tool.config.gptscript?.script || '',
-    };
-
-    const updatedTool: ITool = {
-      ...tool,
-      created: tool.created || currentDateTime,
-      updated: currentDateTime,
-      config: {
-        gptscript: {
-          script: tool.config.gptscript?.script || '',
-          script_url: tool.config.gptscript?.script ? '' : tool.config.gptscript?.script_url || '',
-        }
-      }
-    };
-
+  const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
+    if (!app) return;
+    
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
-        ...assistant,
-        gptscripts: assistant.gptscripts
-          ? assistant.gptscripts.some(script => script.file === newScript.file)
-            ? assistant.gptscripts.map(script => script.file === newScript.file ? newScript : script)
-            : [...assistant.gptscripts, newScript]
-          : [newScript],
-        tools: assistant.tools
-          ? assistant.tools.map(t => t.id === updatedTool.id ? updatedTool : t)
-          : [updatedTool]
-      }));
-
-      if (!updatedAssistants.some(assistant => assistant.tools.some(t => t.id === updatedTool.id))) {
-        if (updatedAssistants[0]) {
-          updatedAssistants[0].tools = [...(updatedAssistants[0].tools || []), updatedTool];
-        } else {
-          console.error('No assistants available to add the tool');
-        }
-      }
-
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+        const gptscripts = [...(assistant.gptscripts || [])];
+        const targetIndex = typeof index === 'number' ? index : gptscripts.length;
+        gptscripts[targetIndex] = script;
+        return {
+          ...assistant,
+          gptscripts
+        };
+      });
       return {
         ...prevApp,
         config: {
@@ -624,24 +592,28 @@ const App: FC = () => {
         },
       };
     });
-
-    setTools(prevTools => {
-      const updatedTools = prevTools.filter(t => t.id !== updatedTool.id);
-      return [...updatedTools, updatedTool];
-    });
-
-    setEditingTool(null);
-    snackbar.success('GPT Script saved successfully');
-  }, [app, snackbar]);
-
-  useEffect(() => {
-    if (app && app.config.helix) {      
-      const allTools = app.config.helix.assistants.flatMap(assistant => {
-        return assistant.tools || [];
-      });      
-      setTools(allTools);
-    }
+    setEditingGptScript(null);
   }, [app]);
+
+  const onDeleteGptScript = useCallback((scriptId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+        ...assistant,
+        gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
 
   const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]); 
 
@@ -699,62 +671,101 @@ const App: FC = () => {
     snackbar.success('Tool deleted successfully');
   }, [app, snackbar, onSave]);
 
-  const onSaveApiTool = useCallback(async (tool: ITool) => {
+  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
     if (!app) return;
-    console.log('saving api tool', tool);
-
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
-      ...assistant,
-      tools: assistant.tools.some(t => t.id === tool.id)
-        ? assistant.tools.map(t => t.id === tool.id ? tool : t)
-        : [...assistant.tools, tool]
-    }));
-
-    const updatedApp = {
-      ...app,
-      config: {
-        ...app.config,
-        helix: {
-          ...app.config.helix,
-          assistants: updatedAssistants,
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+        const apis = [...(assistant.apis || [])];
+        const targetIndex = typeof index === 'number' ? index : apis.length;
+        apis[targetIndex] = tool;
+        return {
+          ...assistant,
+          apis
+        };
+      });
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
         },
-      },
-    };    
+      };
+    });
+    setEditingApiTool(null);
+  }, [app]);
 
-    const result = await apps.updateApp(app.id, updatedApp);
-    if (result) {
-      setApp(result);
-    }
-
-    snackbar.success('API Tool saved successfully');
-  }, [app, snackbar]);
-
-  const onDeleteApiTool = useCallback(async (toolId: string) => {
+  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
     if (!app) return;
-
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
-      ...assistant,
-      tools: assistant.tools.filter(tool => tool.id !== toolId)
-    }));    
-
-    const updatedApp = {
-      ...app,
-      config: {
-        ...app.config,
-        helix: {
-          ...app.config.helix,
-          assistants: updatedAssistants,
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+        const zapier = [...(assistant.zapier || [])];
+        const targetIndex = typeof index === 'number' ? index : zapier.length;
+        zapier[targetIndex] = tool;
+        return {
+          ...assistant,
+          zapier
+        };
+      });
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
         },
-      },
-    };    
+      };
+    });
+    setEditingZapierTool(null);
+  }, [app]);
 
-    const result = await apps.updateApp(app.id, updatedApp);
-    if (result) {
-      setApp(result);
-    }
+  const onDeleteApiTool = useCallback((toolId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+        ...assistant,
+        apis: (assistant.apis || []).filter((api) => api.name !== toolId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
 
-    snackbar.success('API Tool deleted successfully');
-  }, [app, snackbar]);
+  const onDeleteZapierTool = useCallback((toolId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+        ...assistant,
+        zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
 
   if(!account.user) return null
   if(!app) return null
@@ -888,16 +899,16 @@ const App: FC = () => {
                 {tabValue === 'integrations' && (
                   <>
                     <ApiIntegrations
-                      tools={tools}
+                      apis={app?.config.helix.assistants[0]?.apis || []}
                       onSaveApiTool={onSaveApiTool}
                       onDeleteApiTool={onDeleteApiTool}
                       isReadOnly={isReadOnly}
                     />
 
                     <ZapierIntegrations
-                      tools={tools}
-                      onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteApiTool}
+                      zapier={app?.config.helix.assistants[0]?.zapier || []}
+                      onSaveZapierTool={onSaveZapierTool}
+                      onDeleteZapierTool={onDeleteZapierTool}
                       isReadOnly={isReadOnly}
                     />
                   </>
@@ -906,9 +917,19 @@ const App: FC = () => {
                 {tabValue === 'gptscripts' && (
                   <GPTScriptsSection
                     app={app}
-                    onAddGptScript={onAddGptScript}
-                    setEditingTool={setEditingTool}
-                    onDeleteTool={onDeleteTool}
+                    onAddGptScript={() => {
+                      const newScript: IAssistantGPTScript = {
+                        name: '',
+                        description: '',
+                        content: '',
+                      };
+                      setEditingGptScript({
+                        tool: newScript,
+                        index: app?.config.helix.assistants[0]?.gptscripts?.length || 0
+                      });
+                    }}
+                    onEdit={(tool, index) => setEditingGptScript({tool, index})}
+                    onDeleteGptScript={onDeleteGptScript}
                     isReadOnly={isReadOnly}
                     isGithubApp={isGithubApp}
                   />
@@ -1041,22 +1062,73 @@ const App: FC = () => {
           />
         )
       }
-      {editingTool && (
+
+      {editingGptScript && (
         <Window
-          title={`${editingTool.id ? 'Edit' : 'Add'} ${editingTool.tool_type === 'api' ? 'API Tool' : 'GPT Script'}`}
+          title={`${editingGptScript.tool.name ? 'Edit' : 'Add'} GPTScript`}
           fullHeight
           size="lg"
           open
           withCancel
           cancelTitle="Close"
-          onCancel={() => setEditingTool(null)}
+          onCancel={() => setEditingGptScript(null)}
+          onSubmit={() => {
+            if (editingGptScript.tool) {
+              onSaveGptScript(editingGptScript.tool, editingGptScript.index);
+            }
+          }}
         >
-          <ToolEditor
-            initialData={editingTool}
-            onSave={editingTool.tool_type === 'api' ? onSaveApiTool : onSaveGptScript}
-            onCancel={() => setEditingTool(null)}
-            isReadOnly={isReadOnly}
-          />
+          <Box sx={{ p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              GPTScript
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingGptScript.tool.name}
+                  onChange={(e) => setEditingGptScript(prev => prev ? {
+                    ...prev,
+                    tool: { ...prev.tool, name: e.target.value }
+                  } : null)}
+                  label="Name"
+                  fullWidth
+                  error={showErrors && !editingGptScript.tool.name}
+                  helperText={showErrors && !editingGptScript.tool.name ? 'Please enter a name' : ''}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingGptScript.tool.description}
+                  onChange={(e) => setEditingGptScript(prev => prev ? {
+                    ...prev,
+                    tool: { ...prev.tool, description: e.target.value }
+                  } : null)}
+                  label="Description"
+                  fullWidth
+                  error={showErrors && !editingGptScript.tool.description}
+                  helperText={showErrors && !editingGptScript.tool.description ? "Description is required" : ""}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingGptScript.tool.content}
+                  onChange={(e) => setEditingGptScript(prev => prev ? {
+                    ...prev,
+                    tool: { ...prev.tool, content: e.target.value }
+                  } : null)}
+                  label="Script Content"
+                  fullWidth
+                  multiline
+                  rows={10}
+                  error={showErrors && !editingGptScript.tool.content}
+                  helperText={showErrors && !editingGptScript.tool.content ? "Script content is required" : ""}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+            </Grid>
+          </Box>
         </Window>
       )}
     </Page>
