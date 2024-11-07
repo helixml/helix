@@ -30,7 +30,7 @@ import (
 
 	helixclient "github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
-	appv1 "github.com/helixml/helix/operator/api/v1"
+	appv1alpha1 "github.com/helixml/helix/operator/api/v1alpha1"
 )
 
 const (
@@ -56,7 +56,7 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	logger := log.FromContext(ctx)
 
 	// Get the AIApp resource
-	var aiapp appv1.AIApp
+	var aiapp appv1alpha1.AIApp
 	if err := r.Get(ctx, req.NamespacedName, &aiapp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}

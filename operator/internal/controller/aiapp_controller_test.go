@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	appv1 "github.com/helixml/helix/operator/api/v1"
+	appv1alpha1 "github.com/helixml/helix/operator/api/v1alpha1"
 )
 
 var _ = Describe("AIApp Controller", func() {
@@ -40,13 +40,13 @@ var _ = Describe("AIApp Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		aiapp := &appv1.AIApp{}
+		aiapp := &appv1alpha1.AIApp{}
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind AIApp")
 			err := k8sClient.Get(ctx, typeNamespacedName, aiapp)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &appv1.AIApp{
+				resource := &appv1alpha1.AIApp{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,7 +59,7 @@ var _ = Describe("AIApp Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &appv1.AIApp{}
+			resource := &appv1alpha1.AIApp{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
