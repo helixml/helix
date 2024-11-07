@@ -12,21 +12,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// RectifyApp handles the migration of app configurations from the old format (which used both
-// Tools and specific fields like APIs, GPTScripts, Zapier) to a new canonical format where
-// tools are only stored in their specific fields (APIs, GPTScripts, Zapier).
+// RectifyApp handles the migration of app configurations from the old format
+// (which used both Tools and specific fields like APIs, GPTScripts, Zapier) to
+// a new canonical AISpec compatible format where tools are only stored in their
+// specific fields (APIs, GPTScripts, Zapier).
 //
 // This function:
-//  1. Processes any tools found in the deprecated Tools field and converts them to their
-//     appropriate specific fields (APIs, GPTScripts, Zapier)
-//  2. Handles deduplication by name - if a tool already exists in a specific field
-//     (e.g., in APIs), it won't be duplicated from the Tools field
-//  3. Gives precedence to tools defined in their specific fields over those in the Tools field
+//  1. Processes any tools found in the deprecated Tools field and converts them
+//     to their appropriate specific fields (APIs, GPTScripts, Zapier)
+//  2. Handles deduplication by name - if a tool already exists in a specific
+//     field (e.g., in APIs), it won't be duplicated from the Tools field
+//  3. Gives precedence to tools defined in their specific fields over those in
+//     the Tools field
 //  4. Clears the Tools field after processing (as it's now deprecated)
 //
-// This allows us to handle old database records that might have tools defined in either or both places,
-// while ensuring we move forward with a clean, consistent format where tools are only stored in
-// their specific fields.
+// This allows us to handle old database records that might have tools defined
+// in either or both places, while ensuring we move forward with a clean,
+// consistent format where tools are only stored in their specific fields.
 func RectifyApp(app *types.App) {
 	for i := range app.Config.Helix.Assistants {
 		assistant := &app.Config.Helix.Assistants[i]
