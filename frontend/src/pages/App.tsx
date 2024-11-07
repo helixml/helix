@@ -520,7 +520,17 @@ const App: FC = () => {
     setName(app.config.helix.name || '');
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
-    const cleanedConfig = removeEmptyValues(app.config.helix);
+    let cleanedConfig = removeEmptyValues(app.config.helix);
+    const name = cleanedConfig.name
+    delete cleanedConfig.name
+    cleanedConfig = {
+      "apiVersion": "app.aispec.org/v1alpha1",
+      "kind": "AIApp",
+      "metadata": {
+        "name": name
+      },
+      "spec": cleanedConfig
+    }
     setSchema(stringifyYaml(cleanedConfig, { indent: 2 }));
     setSecrets(app.config.secrets || {});
     setAllowedDomains(app.config.allowed_domains || []);
