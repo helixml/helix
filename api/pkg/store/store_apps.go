@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
@@ -167,6 +168,41 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 	return &app, nil
 }
 
+// XXX Copy paste to avoid import cycle
+func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
+	loader := openapi3.NewLoader()
+
+	schema, err := loader.LoadFromData([]byte(spec))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
+	}
+
+	var actions []*types.ToolApiAction
+
+	for path, pathItem := range schema.Paths.Map() {
+
+		for method, operation := range pathItem.Operations() {
+			description := operation.Summary
+			if description == "" {
+				description = operation.Description
+			}
+
+			if operation.OperationID == "" {
+				return nil, fmt.Errorf("operationId is missing for all %s %s", method, path)
+			}
+
+			actions = append(actions, &types.ToolApiAction{
+				Name:        operation.OperationID,
+				Description: description,
+				Path:        path,
+				Method:      method,
+			})
+		}
+	}
+
+	return actions, nil
+}
+
 // BACKWARD COMPATIBILITY ONLY: return an app with the apis, gptscripts, and zapier
 // transformed into the deprecated Tools field
 func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.App, error) {
@@ -182,7 +218,7 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
-			tools = append(tools, &types.Tool{
+			t := &types.Tool{
 				Name:        api.Name,
 				Description: api.Description,
 				ToolType:    types.ToolTypeAPI,
@@ -197,7 +233,13 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 						ResponseErrorTemplate:   api.ResponseErrorTemplate,
 					},
 				},
-			})
+			}
+			// FFS this doesn't belong here
+			t.Config.API.Actions, err = GetActionsFromSchema(api.Schema)
+			if err != nil {
+				return nil, fmt.Errorf("error getting actions from schema: %w", err)
+			}
+			tools = append(tools, t)
 		}
 
 		// Convert Zapier to Tools
