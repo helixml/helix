@@ -30,7 +30,7 @@ import (
 
 	helixclient "github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
-	appv1 "github.com/helixml/helix/operator/api/v1"
+	appv1alpha1 "github.com/helixml/helix/operator/api/v1alpha1"
 )
 
 const (
@@ -56,7 +56,7 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	logger := log.FromContext(ctx)
 
 	// Get the AIApp resource
-	var aiapp appv1.AIApp
+	var aiapp appv1alpha1.AIApp
 	if err := r.Get(ctx, req.NamespacedName, &aiapp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -222,7 +222,7 @@ func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appv1.AIApp{}).
+		For(&appv1alpha1.AIApp{}).
 		Named("aiapp").
 		Complete(r)
 }
@@ -246,7 +246,7 @@ func removeString(slice []string, s string) []string {
 	return result
 }
 
-func (r *AIAppReconciler) handleDeletion(ctx context.Context, aiapp *appv1.AIApp, appID string) (ctrl.Result, error) {
+func (r *AIAppReconciler) handleDeletion(ctx context.Context, aiapp *appv1alpha1.AIApp, appID string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	if containsString(aiapp.Finalizers, finalizerName) {
