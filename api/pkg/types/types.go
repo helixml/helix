@@ -1052,13 +1052,15 @@ type AppHelixConfig struct {
 	Triggers    []Trigger         `json:"triggers" yaml:"triggers"`
 }
 
+type AppHelixConfigMetadata struct {
+	Name string `json:"name" yaml:"name"`
+}
+
 type AppHelixConfigCRD struct {
-	ApiVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Metadata   struct {
-		Name string `json:"name"`
-	} `json:"metadata"`
-	Spec AppHelixConfig `json:"spec"`
+	ApiVersion string                 `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                 `json:"kind" yaml:"kind"`
+	Metadata   AppHelixConfigMetadata `json:"metadata" yaml:"metadata"`
+	Spec       AppHelixConfig         `json:"spec" yaml:"spec"`
 }
 
 type AppGithubConfigUpdate struct {
