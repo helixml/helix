@@ -323,9 +323,6 @@ spec:
                 type: string
               name:
                 type: string
-            required:
-            - description
-            - name
             type: object
           status:
             description: AIAppStatus defines the observed state of AIApp

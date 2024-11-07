@@ -170,8 +170,8 @@ type ToolConfig struct {
 
 // AIAppSpec defines the desired state of AIApp
 type AIAppSpec struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
 	Avatar      string            `json:"avatar,omitempty"`
 	Image       string            `json:"image,omitempty"`
 	Assistants  []AssistantConfig `json:"assistants,omitempty"`
