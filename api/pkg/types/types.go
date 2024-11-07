@@ -1053,9 +1053,12 @@ type AppHelixConfig struct {
 }
 
 type AppHelixConfigCRD struct {
-	ApiVersion string         `json:"apiVersion"`
-	Kind       string         `json:"kind"`
-	Spec       AppHelixConfig `json:"spec"`
+	ApiVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Metadata   struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Spec AppHelixConfig `json:"spec"`
 }
 
 type AppGithubConfigUpdate struct {

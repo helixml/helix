@@ -80,7 +80,12 @@ func processConfig(yamlFile []byte) (*types.AppHelixConfig, error) {
 		if err := yaml.Unmarshal(yamlFile, &crd); err != nil {
 			return nil, fmt.Errorf("file appears to be a CRD but failed to parse: %w", err)
 		}
-		return &crd.Spec, nil
+		spec := crd.Spec
+		// If metadata.name is set, use it to overwrite spec.Name
+		if crd.Metadata.Name != "" {
+			spec.Name = crd.Metadata.Name
+		}
+		return &spec, nil
 	}
 
 	// Not a CRD, try to unmarshal as AppHelixConfig

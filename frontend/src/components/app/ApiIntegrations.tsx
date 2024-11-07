@@ -27,6 +27,7 @@ import ListItemText from '@mui/material/ListItemText';
 import EditIcon from '@mui/icons-material/Edit';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
+import { exchangeratesSchema } from './exchangerates_schema';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
@@ -108,6 +109,13 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
         description: "API for job vacancies",
         schema: jobVacanciesSchema,
         url: "https://demos.tryhelix.ai"
+      });
+    } else if (selectedTemplate === 'exchangerates') {
+      updateEditingTool({
+        name: "Exchange Rates API",
+        description: "Get latest currency exchange rates",
+        schema: exchangeratesSchema,
+        url: "https://open.er-api.com/v6"
       });
     }
   };
@@ -213,6 +221,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     <MenuItem value="custom">
                       <em>Custom</em>
                     </MenuItem>
+                    <MenuItem value="exchangerates">Exchange Rates</MenuItem>
                     <MenuItem value="coindesk">CoinDesk</MenuItem>
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
                   </Select>
