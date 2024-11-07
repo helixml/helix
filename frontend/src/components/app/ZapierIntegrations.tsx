@@ -20,15 +20,13 @@ interface ZapierIntegrationsProps {
   onSaveZapierTool: (tool: IAssistantZapier, index?: number) => void;
   onDeleteZapierTool: (toolId: string) => void;
   isReadOnly: boolean;
-  onEdit: (tool: IAssistantZapier, index: number) => void;
 }
 
 const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
   zapier,
   onSaveZapierTool,
   onDeleteZapierTool,
-  isReadOnly,
-  onEdit
+  isReadOnly
 }) => {
   const [editingTool, setEditingTool] = useState<IAssistantZapier | null>(null);
   const [showErrors, setShowErrors] = useState(false);

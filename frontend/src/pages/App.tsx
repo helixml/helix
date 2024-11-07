@@ -541,32 +541,6 @@ const App: FC = () => {
     }
   })
 
-  const onAddGptScript = useCallback(() => {
-    const currentDateTime = new Date().toISOString();
-    const newScript: IAssistantGPTScript = {
-      name: '',
-      description: '',
-      file: uuidv4(),
-      content: '',
-    };
-    setEditingTool({
-      id: newScript.file,
-      name: newScript.name,
-      description: newScript.description,
-      tool_type: 'gptscript',
-      global: false,
-      config: {
-        gptscript: {
-          script: newScript.content,
-        }
-      },
-      created: currentDateTime,
-      updated: currentDateTime,
-      owner: account.user?.id || '',
-      owner_type: 'user',
-    });
-  }, [account.user]);
-
   const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
     if (!app) return;
     
@@ -696,7 +670,6 @@ const App: FC = () => {
         },
       };
     });
-    setEditingApiTool(null);
   }, [app]);
 
   const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
@@ -724,7 +697,6 @@ const App: FC = () => {
         },
       };
     });
-    setEditingZapierTool(null);
   }, [app]);
 
   const onDeleteApiTool = useCallback((toolId: string) => {
