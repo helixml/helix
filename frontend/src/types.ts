@@ -1,4 +1,3 @@
-
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
 // did). At time of writing, it's unused in the frontend because the frontend
@@ -538,14 +537,14 @@ export interface IAssistantConfig {
   avatar: string;
   image: string;
   model: string;
-  type: ISessionType; // Make sure this is explicitly ISessionType
+  type: ISessionType;
   system_prompt: string;
   rag_source_id: string;
   lora_id: string;
   is_actionable_template: string;
   apis: IAssistantApi[];
   gptscripts: IAssistantGPTScript[];
-  zapier: IAssistantZapier[];
+  zapier?: IAssistantZapier[];
   tools: ITool[];
   knowledge?: IKnowledgeSource[];
 }
