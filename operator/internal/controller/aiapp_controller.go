@@ -47,8 +47,6 @@ type AIAppReconciler struct {
 	helix  *helixclient.HelixClient
 }
 
-// TODO: implement deletion
-
 // +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=app.aispec.org,resources=aiapps/finalizers,verbs=update
