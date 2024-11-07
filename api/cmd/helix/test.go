@@ -442,10 +442,7 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 		for _, test := range assistant.Tests {
 			for _, step := range test.Steps {
 				wg.Add(1)
-				go func(assistantName, testName string, step struct {
-					Prompt         string `json:"prompt" yaml:"prompt"`
-					ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
-				}) {
+				go func(assistantName, testName string, step types.TestStep) {
 					defer wg.Done()
 					semaphore <- struct{}{}
 					defer func() { <-semaphore }()
@@ -490,10 +487,7 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 	return results, totalTime, nil
 }
 
-func runSingleTest(assistantName, testName string, step struct {
-	Prompt         string `json:"prompt" yaml:"prompt"`
-	ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
-}, appID, apiKey, helixURL, model string) (TestResult, error) {
+func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
 	// partial result in case of error
