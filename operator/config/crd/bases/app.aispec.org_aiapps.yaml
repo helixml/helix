@@ -14,7 +14,7 @@ spec:
     singular: aiapp
   scope: Namespaced
   versions:
-  - name: v1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: AIApp is the Schema for the aiapps API

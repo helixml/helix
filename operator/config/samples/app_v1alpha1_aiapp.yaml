@@ -1,4 +1,4 @@
-apiVersion: app.aispec.org/v1
+apiVersion: app.aispec.org/v1alpha1
 kind: AIApp
 metadata:
   labels:
