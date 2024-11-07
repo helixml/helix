@@ -511,13 +511,24 @@ export interface IAssistantApi {
   url: string,
   headers: Record<string, string>,
   query: Record<string, string>,
+  request_prep_template?: string,
+  response_success_template?: string,
+  response_error_template?: string,
 }
 
 export interface IAssistantGPTScript {
   name: string,
   description: string,
-  file: string,
+  file?: string,
   content: string,
+}
+
+export interface IAssistantZapier {
+  name: string,
+  description: string,
+  api_key?: string,
+  model?: string,
+  max_iterations?: number,
 }
 
 export interface IAssistantConfig {
@@ -534,6 +545,7 @@ export interface IAssistantConfig {
   is_actionable_template: string;
   apis: IAssistantApi[];
   gptscripts: IAssistantGPTScript[];
+  zapier: IAssistantZapier[];
   tools: ITool[];
   knowledge?: IKnowledgeSource[];
 }
