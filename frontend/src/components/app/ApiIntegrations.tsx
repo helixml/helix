@@ -33,15 +33,13 @@ interface ApiIntegrationsProps {
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
   onDeleteApiTool: (toolId: string) => void;
   isReadOnly: boolean;
-  onEdit: (tool: IAssistantApi, index: number) => void;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   apis,
   onSaveApiTool,
   onDeleteApiTool,
-  isReadOnly,
-  onEdit
+  isReadOnly
 }) => {
   const [editingTool, setEditingTool] = useState<IAssistantApi | null>(null);
   const [showErrors, setShowErrors] = useState(false);
