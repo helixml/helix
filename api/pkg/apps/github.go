@@ -2,7 +2,6 @@ package apps
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"strings"
@@ -45,13 +44,13 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 		return nil, fmt.Errorf("invalid repo name")
 	}
 	if options.Client == nil {
-		return nil, fmt.Errorf("Client is required")
+		return nil, fmt.Errorf("client is required")
 	}
 	if options.ToolsPlanner == nil {
 		return nil, fmt.Errorf("ToolsPlanner is required")
 	}
 	if options.App == nil {
-		return nil, fmt.Errorf("App struct is required")
+		return nil, fmt.Errorf("app struct is required")
 	}
 	if options.UpdateApp == nil {
 		return nil, fmt.Errorf("UpdateApp function is required")
@@ -281,180 +280,16 @@ func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
 }
 
 func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
-	if config.Assistants == nil {
-		config.Assistants = []types.AssistantConfig{}
-	}
-
-	for i, assistant := range config.Assistants {
-		if assistant.APIs == nil {
-			config.Assistants[i].APIs = []types.AssistantAPI{}
-		}
-		if assistant.GPTScripts == nil {
-			config.Assistants[i].GPTScripts = []types.AssistantGPTScript{}
-		}
-
-		var (
-			newTools   []*types.Tool
-			newScripts []types.AssistantGPTScript
-		)
-
-		// scripts means you can configure the GPTScript contents inline with the helix.yaml
-		for _, script := range assistant.GPTScripts {
-			if script.File != "" {
-				expandedFiles, err := system.ExpandAndCheckFiles(githubApp.Filepath(""), []string{script.File})
-				if err != nil {
-					return nil, err
-				}
-				for _, filepath := range expandedFiles {
-					content, err := os.ReadFile(filepath)
-					if err != nil {
-						return nil, err
-					}
-					file := githubApp.RelativePath(filepath)
-					newScripts = append(newScripts, types.AssistantGPTScript{
-						Name:        file,
-						File:        file,
-						Content:     string(content),
-						Description: script.Description,
-					})
-					newTools = append(newTools, &types.Tool{
-						ID:       system.GenerateToolID(),
-						Name:     file,
-						ToolType: types.ToolTypeGPTScript,
-						Config: types.ToolConfig{
-							GPTScript: &types.ToolGPTScriptConfig{
-								Script: string(content),
-							},
-						},
-						Created: time.Now(),
-						Updated: time.Now(),
-					})
-				}
-			} else {
-				if script.Content == "" {
-					return nil, fmt.Errorf("gpt script %s has no content", script.Name)
-				}
-				newScripts = append(newScripts, script)
-				newTools = append(newTools, &types.Tool{
-					ID:          system.GenerateToolID(),
-					Name:        script.Name,
-					Description: script.Description,
-					ToolType:    types.ToolTypeGPTScript,
-					Config: types.ToolConfig{
-						GPTScript: &types.ToolGPTScriptConfig{
-							Script: script.Content,
-						},
-					},
-					Created: time.Now(),
-					Updated: time.Now(),
-				})
-			}
-		}
-
-		newAPIs := []types.AssistantAPI{}
-
-		for _, api := range assistant.APIs {
-			if api.Schema == "" {
-				return nil, fmt.Errorf("api %s has no schema", api.Name)
-			}
-
-			processedSchema, err := githubApp.processApiSchema(api.Schema)
-			if err != nil {
-				return nil, err
-			}
-
-			api.Schema = processedSchema
-
-			if api.Headers == nil {
-				api.Headers = map[string]string{}
-			}
-
-			if api.Query == nil {
-				api.Query = map[string]string{}
-			}
-
-			newTools = append(newTools, &types.Tool{
-				ID:          system.GenerateToolID(),
-				Created:     time.Now(),
-				Updated:     time.Now(),
-				Name:        api.Name,
-				Description: api.Description,
-				ToolType:    types.ToolTypeAPI,
-				Config: types.ToolConfig{
-					API: &types.ToolApiConfig{
-						URL:                     api.URL,
-						Schema:                  api.Schema,
-						Headers:                 api.Headers,
-						Query:                   api.Query,
-						RequestPrepTemplate:     api.RequestPrepTemplate,
-						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
-						ResponseErrorTemplate:   api.ResponseErrorTemplate,
-						Model:                   assistant.Model,
-					},
-				},
-			})
-		}
-
-		for _, zapier := range assistant.Zapier {
-			newTools = append(newTools, &types.Tool{
-				ID:          system.GenerateToolID(),
-				Created:     time.Now(),
-				Updated:     time.Now(),
-				Name:        zapier.Name,
-				Description: zapier.Description,
-				ToolType:    types.ToolTypeZapier,
-				Config: types.ToolConfig{
-					Zapier: &types.ToolZapierConfig{
-						APIKey:        zapier.APIKey,
-						Model:         zapier.Model,
-						MaxIterations: zapier.MaxIterations,
-					},
-				},
-			})
-		}
-
-		for i := range newTools {
-			err := tools.ValidateTool(newTools[i], githubApp.ToolsPlanner, false)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		config.Assistants[i].GPTScripts = newScripts
-		config.Assistants[i].APIs = newAPIs
-		config.Assistants[i].Tools = newTools
+	// Process any file references relative to the repo root
+	err := processLocalFiles(config, githubApp.Filepath(""))
+	if err != nil {
+		return nil, fmt.Errorf("error processing repo files: %w", err)
 	}
 
 	return config, nil
 }
 
-func (githubApp *GithubApp) processApiSchema(schema string) (string, error) {
-	if strings.HasPrefix(strings.ToLower(schema), "http://") || strings.HasPrefix(strings.ToLower(schema), "https://") {
-		client := system.NewRetryClient(3)
-		resp, err := client.Get(schema)
-		if err != nil {
-			return "", fmt.Errorf("failed to get schema from URL: %w", err)
-		}
-		defer resp.Body.Close()
-		bts, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to read response body: %w", err)
-		}
-		return string(bts), nil
-	}
-
-	// if the schema is only one line then assume it's a file path
-	if !strings.Contains(schema, "\n") && !strings.Contains(schema, "\r") {
-		// it must be a YAML file
-		if !strings.HasSuffix(schema, ".yaml") && !strings.HasSuffix(schema, ".yml") {
-			return "", fmt.Errorf("schema must be in yaml format")
-		}
-		content, err := os.ReadFile(githubApp.Filepath(schema))
-		if err != nil {
-			return "", fmt.Errorf("failed to read schema file: %w", err)
-		}
-		return string(content), nil
-	}
-
-	return schema, nil
+// Add this method to implement FilePathResolver
+func (g *GithubApp) ResolvePath(path string) string {
+	return g.Filepath(path)
 }

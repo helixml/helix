@@ -10,7 +10,7 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { ITool, IToolApiAction } from '../../types';
+import { IAssistantApi } from '../../types';
 import Window from '../widgets/Window';
 import StringMapEditor from '../widgets/StringMapEditor';
 import ClickLink from '../widgets/ClickLink';
@@ -29,50 +29,42 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
 interface ApiIntegrationsProps {
-  tools: ITool[];
-  onSaveApiTool: (tool: ITool) => void;
+  apis: IAssistantApi[];
+  onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
   onDeleteApiTool: (toolId: string) => void;
   isReadOnly: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
-  tools,
+  apis,
   onSaveApiTool,
   onDeleteApiTool,
   isReadOnly
 }) => {
-  const [editingTool, setEditingTool] = useState<ITool | null>(null);
+  const [editingTool, setEditingTool] = useState<{tool: IAssistantApi, index: number} | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
 
   const onAddApiTool = useCallback(() => {
-    const newTool: ITool = {
-      id: uuidv4(),
+    const newTool: IAssistantApi = {
       name: '',
       description: '',
-      tool_type: 'api',
-      global: false,
-      config: {
-        api: {
-          url: '',
-          schema: '',
-          actions: [],
-          headers: {},
-          query: {},
-        }
-      },
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
-      owner: '', // You might want to set this from a context or prop
-      owner_type: 'user',
+      schema: '',
+      url: '',
+      headers: {},
+      query: {},
     };
-
-    setEditingTool(newTool);
+    setEditingTool({tool: newTool, index: -1});
   }, []);
 
-  const handleEditTool = (tool: ITool) => {
-    setEditingTool(tool);
+  const validate = () => {
+    if (!editingTool) return false;
+    if (!editingTool.tool.name) return false;
+    if (!editingTool.tool.description) return false;
+    if (!editingTool.tool.url) return false;
+    if (!editingTool.tool.schema) return false;
+    return true;
   };
 
   const handleSaveTool = () => {
@@ -82,32 +74,20 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       return;
     }
     setShowErrors(false);
-    onSaveApiTool(editingTool);
+    console.log('ApiIntegrations - saving tool:', {
+      tool: editingTool.tool,
+      index: editingTool.index,
+      isNew: editingTool.index === -1
+    });
+    onSaveApiTool(editingTool.tool, editingTool.index >= 0 ? editingTool.index : undefined);
     setEditingTool(null);
   };
 
-  const validate = () => {
-    if (!editingTool) return false;
-    if (!editingTool.name) return false;
-    if (!editingTool.description) return false;
-    if (!editingTool.config.api?.url) return false;
-    if (!editingTool.config.api?.schema) return false;
-    return true;
-  };
-
-  const updateEditingTool = (updates: Partial<ITool>) => {
+  const updateEditingTool = (updates: Partial<IAssistantApi>) => {
     if (editingTool) {
-      setEditingTool({ ...editingTool, ...updates });
-    }
-  };
-
-  const updateApiConfig = (updates: Partial<ITool['config']['api']>) => {
-    if (editingTool && editingTool.config.api) {
-      updateEditingTool({
-        config: {
-          ...editingTool.config,
-          api: { ...editingTool.config.api, ...updates },
-        },
+      setEditingTool({
+        ...editingTool,
+        tool: { ...editingTool.tool, ...updates }
       });
     }
   };
@@ -119,8 +99,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       updateEditingTool({
         name: "CoinDesk API",
         description: "API for CoinDesk",
-      });
-      updateApiConfig({        
         schema: coindeskSchema,
         url: "https://api.coindesk.com/v1"
       });
@@ -128,8 +106,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       updateEditingTool({
         name: "Job Vacancies API",
         description: "API for job vacancies",
-      });
-      updateApiConfig({        
         schema: jobVacanciesSchema,
         url: "https://demos.tryhelix.ai"
       });
@@ -168,9 +144,9 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
         Add API Tool
       </Button>
       <Box sx={{ mb: 2, overflowY: 'auto' }}>
-        {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
+        {apis.map((apiTool, index) => (
           <Box
-            key={apiTool.id}
+            key={apiTool.name}
             sx={{
               p: 2,
               border: '1px solid #303047',
@@ -180,24 +156,14 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
             <Typography variant="h6">{apiTool.name}</Typography>
             <Typography variant="subtitle2" sx={{ mt: 2 }}>Description: {apiTool.description}</Typography>
             
-            {apiTool.config.api?.actions && apiTool.config.api.actions.length > 0 && (
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="subtitle2">Actions:</Typography>
-                <ul>
-                  {apiTool.config.api.actions.map((action, index) => (
-                    <li key={index}>
-                      {action.name}: {action.method} {action.path}
-                    </li>
-                  ))}
-                </ul>
-              </Box>
-            )}
-            
             <Box sx={{ mt: 1 }}>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
                   variant="outlined"
-                  onClick={() => handleEditTool(apiTool)}
+                  onClick={() => {
+                    console.log('ApiIntegrations - editing tool at index:', index);
+                    setEditingTool({tool: apiTool, index})
+                  }}
                   sx={{ mr: 1 }}
                   disabled={isReadOnly}
                   startIcon={<EditIcon />}
@@ -207,7 +173,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => onDeleteApiTool(apiTool.id)}
+                  onClick={() => onDeleteApiTool(apiTool.name)}
                   disabled={isReadOnly}
                   startIcon={<DeleteIcon />}
                 >
@@ -218,9 +184,10 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           </Box>
         ))}
       </Box>
+
       {editingTool && (
         <Window
-          title={`${editingTool.id ? 'Edit' : 'Add'} API tool`}
+          title={`${editingTool.tool.name ? 'Edit' : 'Add'} API Tool`}
           fullHeight
           size="lg"
           open
@@ -228,7 +195,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           cancelTitle="Close"
           onCancel={() => setEditingTool(null)}
           onSubmit={handleSaveTool}
-
         >          
           <Box sx={{ p: 2 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
@@ -236,36 +202,12 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12}>
-                <TextField
-                  value={editingTool.name}
-                  onChange={(e) => updateEditingTool({ name: e.target.value })}
-                  label="Name"
-                  fullWidth
-                  error={showErrors && !editingTool.name}
-                  helperText={showErrors && !editingTool.name ? 'Please enter a name' : ''}
-                  disabled={isReadOnly}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  value={editingTool.description}
-                  onChange={(e) => updateEditingTool({ description: e.target.value })}
-                  label="Description"
-                  fullWidth
-                  error={showErrors && !editingTool.description}
-                  helperText={showErrors && !editingTool.description ? "Description is required" : ""}
-                  disabled={isReadOnly}
-                />
-              </Grid>
-              <Grid item xs={12}>
                 <FormControl fullWidth sx={{ mb: 2 }}>
                   <InputLabel id="schema-template-label">Example Schemas</InputLabel>
                   <Select
                     labelId="schema-template-label"
                     value={schemaTemplate}
-                    onChange={(e) => {
-                      handleSchemaTemplateChange(e.target.value);
-                    }}
+                    onChange={(e) => handleSchemaTemplateChange(e.target.value)}
                     disabled={isReadOnly}
                   >
                     <MenuItem value="custom">
@@ -275,26 +217,50 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12}>
                 <TextField
-                  value={editingTool.config.api?.url}
-                  onChange={(e) => updateApiConfig({ url: e.target.value })}
+                  value={editingTool.tool.name}
+                  onChange={(e) => updateEditingTool({ name: e.target.value })}
+                  label="Name"
+                  fullWidth
+                  error={showErrors && !editingTool.tool.name}
+                  helperText={showErrors && !editingTool.tool.name ? 'Please enter a name' : ''}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingTool.tool.description}
+                  onChange={(e) => updateEditingTool({ description: e.target.value })}
+                  label="Description"
+                  fullWidth
+                  error={showErrors && !editingTool.tool.description}
+                  helperText={showErrors && !editingTool.tool.description ? "Description is required" : ""}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingTool.tool.url}
+                  onChange={(e) => updateEditingTool({ url: e.target.value })}
                   label="URL"
                   fullWidth
-                  error={showErrors && !editingTool.config.api?.url}
-                  helperText={showErrors && !editingTool.config.api?.url ? 'Please enter a URL' : ''}
+                  error={showErrors && !editingTool.tool.url}
+                  helperText={showErrors && !editingTool.tool.url ? 'Please enter a URL' : ''}
                   disabled={isReadOnly}
                 />
               </Grid>
               <Grid item xs={12}>                
                 <TextField
-                  value={editingTool.config.api?.schema}
-                  onChange={(e) => updateApiConfig({ schema: e.target.value })}
+                  value={editingTool.tool.schema}
+                  onChange={(e) => updateEditingTool({ schema: e.target.value })}
                   fullWidth
                   multiline
                   rows={10}
                   label="OpenAPI (Swagger) schema"
-                  error={showErrors && !editingTool.config.api?.schema}
-                  helperText={showErrors && !editingTool.config.api?.schema ? "Please enter a schema" : ""}
+                  error={showErrors && !editingTool.tool.schema}
+                  helperText={showErrors && !editingTool.tool.schema ? "Please enter a schema" : ""}
                   disabled={isReadOnly}
                 />
                 <Box sx={{ textAlign: 'right', mb: 1 }}>
@@ -305,68 +271,19 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
               </Grid>
               <Grid item xs={12}>
                 <StringMapEditor
-                  data={editingTool.config.api?.headers || {}}
-                  onChange={(headers) => updateApiConfig({ headers })}
+                  data={editingTool.tool.headers || {}}
+                  onChange={(headers) => updateEditingTool({ headers })}
                   entityTitle="header"
                   disabled={isReadOnly}
                 />
               </Grid>
               <Grid item xs={12}>
                 <StringMapEditor
-                  data={editingTool.config.api?.query || {}}
-                  onChange={(query) => updateApiConfig({ query })}
+                  data={editingTool.tool.query || {}}
+                  onChange={(query) => updateEditingTool({ query })}
                   entityTitle="query parameter"
                   disabled={isReadOnly}
                 />
-              </Grid>
-              <Grid item xs={12}>
-                {editingTool.config.api?.actions?.map((action, index) => (
-                  <Box key={index} sx={{ mb: 2 }}>
-                    <TextField
-                      label="Name"
-                      value={action.name}
-                      onChange={(e) => {
-                        const newActions = [...(editingTool.config.api?.actions || [])];
-                        newActions[index].name = e.target.value;
-                        updateApiConfig({ actions: newActions });
-                      }}
-                      disabled={isReadOnly}
-                      sx={{ mr: 2 }}
-                    />
-                    <TextField
-                      label="Description"
-                      value={action.description}
-                      onChange={(e) => {
-                        const newActions = [...(editingTool.config.api?.actions || [])];
-                        newActions[index].description = e.target.value;
-                        updateApiConfig({ actions: newActions });
-                      }}
-                      disabled={isReadOnly}
-                      sx={{ mr: 2 }}
-                    />
-                    <TextField
-                      label="Method"
-                      value={action.method}
-                      onChange={(e) => {
-                        const newActions = [...(editingTool.config.api?.actions || [])];
-                        newActions[index].method = e.target.value;
-                        updateApiConfig({ actions: newActions });
-                      }}
-                      disabled={isReadOnly}
-                      sx={{ mr: 2 }}
-                    />
-                    <TextField
-                      label="Path"
-                      value={action.path}
-                      onChange={(e) => {
-                        const newActions = [...(editingTool.config.api?.actions || [])];
-                        newActions[index].path = e.target.value;
-                        updateApiConfig({ actions: newActions });
-                      }}
-                      disabled={isReadOnly}
-                    />
-                  </Box>
-                ))}
               </Grid>
               <Grid item xs={12}>
                 <Accordion>
@@ -375,8 +292,8 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   </AccordionSummary>
                   <AccordionDetails>
                     <TextField
-                      value={editingTool.config.api?.request_prep_template}
-                      onChange={(e) => updateApiConfig({ request_prep_template: e.target.value })}
+                      value={editingTool.tool.request_prep_template}
+                      onChange={(e) => updateEditingTool({ request_prep_template: e.target.value })}
                       label="Request Prep Template"
                       fullWidth
                       multiline
@@ -385,24 +302,24 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                       sx={{ mb: 2 }}
                     />
                     <TextField
-                    value={editingTool.config.api?.response_success_template}
-                    onChange={(e) => updateApiConfig({ response_success_template: e.target.value })}
-                    label="Response Success Template"
-                    fullWidth
-                    multiline
-                    rows={4}
-                    disabled={isReadOnly}
-                    sx={{ mb: 2 }}
-                  />
-                  <TextField
-                    value={editingTool.config.api?.response_error_template}
-                    onChange={(e) => updateApiConfig({ response_error_template: e.target.value })}
-                    label="Response Error Template"
-                    fullWidth
-                    multiline
-                    rows={4}
-                    disabled={isReadOnly}
-                  />
+                      value={editingTool.tool.response_success_template}
+                      onChange={(e) => updateEditingTool({ response_success_template: e.target.value })}
+                      label="Response Success Template"
+                      fullWidth
+                      multiline
+                      rows={4}
+                      disabled={isReadOnly}
+                      sx={{ mb: 2 }}
+                    />
+                    <TextField
+                      value={editingTool.tool.response_error_template}
+                      onChange={(e) => updateEditingTool({ response_error_template: e.target.value })}
+                      label="Response Error Template"
+                      fullWidth
+                      multiline
+                      rows={4}
+                      disabled={isReadOnly}
+                    />
                   </AccordionDetails>
                 </Accordion>
               </Grid>
@@ -410,7 +327,8 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           </Box>
         </Window>
       )}
-      {showBigSchema && (
+
+      {showBigSchema && editingTool && (
         <Window
           title="Schema"
           fullHeight
@@ -422,13 +340,13 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
         >
           <Box sx={{ p: 2, height: '100%' }}>
             <TextField
-              value={editingTool?.config.api?.schema}
-              onChange={(e) => updateApiConfig({ schema: e.target.value })}
+              value={editingTool.tool.schema}
+              onChange={(e) => updateEditingTool({ schema: e.target.value })}
               fullWidth
               multiline
               label="OpenAPI (Swagger) schema"
-              error={showErrors && !editingTool?.config.api?.schema}
-              helperText={showErrors && !editingTool?.config.api?.schema ? "Please enter a schema" : ""}
+              error={showErrors && !editingTool.tool.schema}
+              helperText={showErrors && !editingTool.tool.schema ? "Please enter a schema" : ""}
               sx={{ height: '100%' }}
               disabled={isReadOnly}
             />

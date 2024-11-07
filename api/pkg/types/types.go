@@ -1052,6 +1052,12 @@ type AppHelixConfig struct {
 	Triggers    []Trigger         `json:"triggers" yaml:"triggers"`
 }
 
+type AppHelixConfigCRD struct {
+	ApiVersion string         `json:"apiVersion"`
+	Kind       string         `json:"kind"`
+	Spec       AppHelixConfig `json:"spec"`
+}
+
 type AppGithubConfigUpdate struct {
 	Updated time.Time `json:"updated"`
 	Hash    string    `json:"hash"`
