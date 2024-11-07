@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
+package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -170,8 +170,8 @@ type ToolConfig struct {
 
 // AIAppSpec defines the desired state of AIApp
 type AIAppSpec struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
 	Avatar      string            `json:"avatar,omitempty"`
 	Image       string            `json:"image,omitempty"`
 	Assistants  []AssistantConfig `json:"assistants,omitempty"`
