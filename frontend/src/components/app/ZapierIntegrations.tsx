@@ -28,7 +28,7 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
   onDeleteZapierTool,
   isReadOnly
 }) => {
-  const [editingTool, setEditingTool] = useState<IAssistantZapier | null>(null);
+  const [editingTool, setEditingTool] = useState<{tool: IAssistantZapier, index: number} | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
   const onAddZapierTool = useCallback(() => {
@@ -39,15 +39,15 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
       model: '',
       max_iterations: 4,
     };
-    setEditingTool(newTool);
+    setEditingTool({tool: newTool, index: -1});
   }, []);
 
   const validate = () => {
     if (!editingTool) return false;
-    if (!editingTool.name) return false;
-    if (!editingTool.description) return false;
-    if (!editingTool.api_key) return false;
-    if (!editingTool.model) return false;
+    if (!editingTool.tool.name) return false;
+    if (!editingTool.tool.description) return false;
+    if (!editingTool.tool.api_key) return false;
+    if (!editingTool.tool.model) return false;
     return true;
   };
 
@@ -58,13 +58,21 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
       return;
     }
     setShowErrors(false);
-    onSaveZapierTool(editingTool);
+    console.log('ZapierIntegrations - saving tool:', {
+      tool: editingTool.tool,
+      index: editingTool.index,
+      isNew: editingTool.index === -1
+    });
+    onSaveZapierTool(editingTool.tool, editingTool.index >= 0 ? editingTool.index : undefined);
     setEditingTool(null);
   };
 
   const updateEditingTool = (updates: Partial<IAssistantZapier>) => {
     if (editingTool) {
-      setEditingTool({ ...editingTool, ...updates });
+      setEditingTool({
+        ...editingTool,
+        tool: { ...editingTool.tool, ...updates }
+      });
     }
   };
 
@@ -152,7 +160,10 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
                   variant="outlined"
-                  onClick={() => setEditingTool(zapierTool)}
+                  onClick={() => {
+                    console.log('ZapierIntegrations - editing tool at index:', index);
+                    setEditingTool({tool: zapierTool, index})
+                  }}
                   sx={{ mr: 1 }}
                   disabled={isReadOnly}
                 >
@@ -175,7 +186,7 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
 
       {editingTool && (
         <Window
-          title={`${editingTool.name ? 'Edit' : 'Add'} Zapier Integration`}
+          title={`${editingTool.tool.name ? 'Edit' : 'Add'} Zapier Integration`}
           size="lg"
           open
           withCancel
@@ -190,23 +201,23 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <TextField
-                  value={editingTool.name}
+                  value={editingTool.tool.name}
                   onChange={(e) => updateEditingTool({ name: e.target.value })}
                   label="Name"
                   fullWidth
-                  error={showErrors && !editingTool.name}
-                  helperText={showErrors && !editingTool.name ? 'Please enter a name' : ''}
+                  error={showErrors && !editingTool.tool.name}
+                  helperText={showErrors && !editingTool.tool.name ? 'Please enter a name' : ''}
                   disabled={isReadOnly}
                 />
               </Grid>
               <Grid item xs={12}>
                 <TextField
-                  value={editingTool.description}
+                  value={editingTool.tool.description}
                   onChange={(e) => updateEditingTool({ description: e.target.value })}
                   label="Description"
                   fullWidth
-                  error={showErrors && !editingTool.description}
-                  helperText={showErrors && !editingTool.description ? "Description is required" : ""}
+                  error={showErrors && !editingTool.tool.description}
+                  helperText={showErrors && !editingTool.tool.description ? "Description is required" : ""}
                   disabled={isReadOnly}
                 />
                 <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
@@ -215,12 +226,12 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
               </Grid>
               <Grid item xs={12}>         
                 <TextField
-                  value={editingTool.api_key}
+                  value={editingTool.tool.api_key}
                   onChange={(e) => updateEditingTool({ api_key: e.target.value })}
                   label="API Key"
                   fullWidth
-                  error={showErrors && !editingTool.api_key}
-                  helperText={showErrors && !editingTool.api_key ? 'Please enter Zapier API Key' : ''}
+                  error={showErrors && !editingTool.tool.api_key}
+                  helperText={showErrors && !editingTool.tool.api_key ? 'Please enter Zapier API Key' : ''}
                   disabled={isReadOnly}
                 />
                 <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
@@ -229,12 +240,12 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
               </Grid>
               <Grid item xs={12}>                
                 <TextField
-                  value={editingTool.model}
+                  value={editingTool.tool.model}
                   onChange={(e) => updateEditingTool({ model: e.target.value })}
                   fullWidth                  
                   label="Model"
-                  error={showErrors && !editingTool.model}
-                  helperText={showErrors && !editingTool.model ? "Please enter a model" : ""}
+                  error={showErrors && !editingTool.tool.model}
+                  helperText={showErrors && !editingTool.tool.model ? "Please enter a model" : ""}
                   disabled={isReadOnly}
                 />
                 <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
@@ -243,13 +254,13 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
               </Grid>              
               <Grid item xs={12}>
                 <TextField
-                  value={editingTool.max_iterations}
+                  value={editingTool.tool.max_iterations}
                   onChange={(e) => updateEditingTool({ max_iterations: parseInt(e.target.value, 10) })}
                   fullWidth                  
                   label="Max Iterations"
                   type="number"
-                  error={showErrors && !editingTool.max_iterations}
-                  helperText={showErrors && !editingTool.max_iterations ? "Please enter max iterations" : ""}
+                  error={showErrors && !editingTool.tool.max_iterations}
+                  helperText={showErrors && !editingTool.tool.max_iterations ? "Please enter max iterations" : ""}
                   disabled={isReadOnly}
                 />
                 <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>

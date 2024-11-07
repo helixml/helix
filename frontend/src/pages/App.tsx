@@ -647,12 +647,18 @@ const App: FC = () => {
 
   const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
     if (!app) return;
+    console.log('App - saving API tool:', { tool, index });
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
       const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
         const apis = [...(assistant.apis || [])];
         const targetIndex = typeof index === 'number' ? index : apis.length;
+        console.log('App - API tool update:', {
+          currentApis: apis,
+          targetIndex,
+          isNew: typeof index !== 'number'
+        });
         apis[targetIndex] = tool;
         return {
           ...assistant,
@@ -674,12 +680,18 @@ const App: FC = () => {
 
   const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
     if (!app) return;
+    console.log('App - saving Zapier tool:', { tool, index });
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
       const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
         const zapier = [...(assistant.zapier || [])];
         const targetIndex = typeof index === 'number' ? index : zapier.length;
+        console.log('App - Zapier tool update:', {
+          currentZapier: zapier,
+          targetIndex,
+          isNew: typeof index !== 'number'
+        });
         zapier[targetIndex] = tool;
         return {
           ...assistant,
