@@ -43,14 +43,14 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 8844
+              containerPort: 8080
               protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ include "helix-controlplane.fullname" . }}-config
           env:
             - name: SERVER_PORT
-              value: "8844"
+              value: "8080"
             - name: SERVER_URL
               value: {{ .Values.global.serverUrl }}
             - name: FILESTORE_LOCALFS_PATH
