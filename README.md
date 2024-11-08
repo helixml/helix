@@ -16,8 +16,9 @@
 
 # HelixML
 
-[👥 Discord](https://discord.gg/VJftd844GE)
 [![sbomified](https://sbomify.com/assets/images/logo/badge.svg)](https://app.sbomify.com/project/YKA8fn8v2Q)
+
+[👥 Discord](https://discord.gg/VJftd844GE)
 
 Private GenAI stack. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
