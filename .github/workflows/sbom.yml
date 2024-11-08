@@ -2,10 +2,6 @@
 name: Generate SBOMs
 
 on:
-  # Remove me later
-  push:
-    branches:
-      - main
   release:
     types:
       - published
