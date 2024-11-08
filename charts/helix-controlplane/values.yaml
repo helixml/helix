@@ -10,7 +10,7 @@ global:
   ##
   imagePullSecrets: []
   storageClass: ""
-  serverUrl: http://localhost:8844
+  serverUrl: http://localhost:8080
 
 image:
   repository: registry.helix.ml/helix/controlplane
