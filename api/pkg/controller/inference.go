@@ -365,7 +365,11 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 		return &types.AssistantConfig{}, nil
 	}
 
-	app, err := c.Options.Store.GetApp(ctx, opts.AppID)
+	// TODO: change GetAppWithTools to GetApp when we've updated all inference
+	// code to use apis, gptscripts, and zapier fields directly. Meanwhile, the
+	// flattened tools list is the internal only representation, and should not
+	// be exposed to the user.
+	app, err := c.Options.Store.GetAppWithTools(ctx, opts.AppID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting app: %w", err)
 	}

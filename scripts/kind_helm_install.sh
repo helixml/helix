@@ -59,7 +59,7 @@ kubectl cluster-info --context kind-$CLUSTER_NAME
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
-  --set image.tag="23" \
+  --set image.tag="23.0.7" \
   --set httpRelativePath="/auth/"
 
 # Wait for pod to exist
@@ -102,8 +102,8 @@ fi
 
 # Install Helix using Helm
 echo "Installing Helix..."
-export LATEST_RELEASE=$(curl -s https://get.helix.ml/latest.txt)
+export HELIX_VERSION=${HELIX_VERSION:-$(curl -s https://get.helix.ml/latest.txt)}
 helm upgrade --install my-helix-controlplane $CHART \
   -f $DIR/values-example.yaml \
-  --set image.tag="${LATEST_RELEASE}" \
+  --set image.tag="${HELIX_VERSION}" \
   --set envVariables.TOGETHER_API_KEY=${TOGETHER_API_KEY}

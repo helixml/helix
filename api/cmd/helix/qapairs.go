@@ -28,7 +28,7 @@ func newQapairCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scheduler := scheduler.NewScheduler(&serverConfig)
+			scheduler := scheduler.NewScheduler(cmd.Context(), &serverConfig, nil)
 			helixInference := openai.NewInternalHelixServer(&serverConfig, ps, scheduler)
 			client, err := createDataPrepOpenAIClient(&serverConfig, helixInference)
 			if err != nil {

@@ -33,6 +33,7 @@ func (c *cluster) UpdateRunner(props *types.RunnerState) {
 		Str("runner_id", props.ID).
 		Int64("total_memory", int64(props.TotalMemory)).
 		Int64("free_memory", int64(props.FreeMemory)).
+		Interface("slots", props.Slots).
 		Msg("updating runner state")
 
 	// Update runner properties and activity.

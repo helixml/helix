@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
@@ -37,7 +38,7 @@ func (suite *HelixOpenAiServerTestSuite) SetupTest() {
 	suite.pubsub = pubsub
 
 	cfg, _ := config.LoadServerConfig()
-	scheduler := scheduler.NewScheduler(&cfg)
+	scheduler := scheduler.NewScheduler(suite.ctx, &cfg, nil)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "runner-1",
 		TotalMemory: model.GB * 24, // 24GB runner
@@ -51,26 +52,30 @@ func (suite *HelixOpenAiServerTestSuite) SetupTest() {
 }
 
 func (suite *HelixOpenAiServerTestSuite) Test_GetNextLLMInferenceRequest() {
+	enqueueTestLLMWorkload(suite.srv.scheduler, "req-1", model.Model_Ollama_Llama3_70b)
+	enqueueTestLLMWorkload(suite.srv.scheduler, "req-2", model.Model_Ollama_Llama3_8b)
 
-	// Add a request to the queue
-	suite.srv.queue = append(suite.srv.queue,
-		&types.RunnerLLMInferenceRequest{
-			RequestID: "req-1",
-			Request: &openai.ChatCompletionRequest{
-				Model: model.Model_Ollama_Llama3_70b,
-			},
-		},
-		&types.RunnerLLMInferenceRequest{
-			RequestID: "req-2",
-			Request: &openai.ChatCompletionRequest{
-				Model: model.Model_Ollama_Llama3_8b,
-			},
-		},
-	)
+	// Enough time for the internal goroutine to process the queue. No way of getting access to this
+	// outside of the scheduler.
+	time.Sleep(100 * time.Millisecond)
 
 	req, err := suite.srv.GetNextLLMInferenceRequest(suite.ctx, types.InferenceRequestFilter{}, "runner-1")
 	suite.Require().NoError(err)
 	suite.Require().NotNil(req)
 
 	suite.Equal("req-2", req.RequestID)
+}
+
+func enqueueTestLLMWorkload(s scheduler.Scheduler, name string, model string) error {
+	req := &types.RunnerLLMInferenceRequest{
+		RequestID: name,
+		Request: &openai.ChatCompletionRequest{
+			Model: model,
+		},
+	}
+	work, err := scheduler.NewLLMWorkload(req)
+	if err != nil {
+		return err
+	}
+	return s.Enqueue(work)
 }

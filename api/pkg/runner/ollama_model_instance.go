@@ -768,3 +768,7 @@ func (c *ollamaClient) stream(ctx context.Context, method, path string, data any
 
 	return nil
 }
+
+func (i *OllamaModelInstance) IsActive() bool {
+	return i.currentSession != nil
+}
