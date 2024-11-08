@@ -19,6 +19,7 @@ import (
 type MockFreePortFinder struct {
 	ctrl     *gomock.Controller
 	recorder *MockFreePortFinderMockRecorder
+	isgomock struct{}
 }
 
 // MockFreePortFinderMockRecorder is the mock recorder for MockFreePortFinder.

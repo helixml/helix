@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 )
@@ -34,15 +35,27 @@ var inspectCmd = &cobra.Command{
 		// only show app.Config.Helix since that is the thing that roundtrips with helix apply -f
 		appConfig := app.Config.Helix
 
+		// Convert to CRD format for both JSON and YAML output
+		crd := types.AppHelixConfigCRD{
+			ApiVersion: "app.aispec.org/v1alpha1",
+			Kind:       "AIApp",
+			Metadata: types.AppHelixConfigMetadata{
+				Name: appConfig.Name,
+			},
+			Spec: appConfig,
+		}
+		// Clear the name from the spec since it's now in metadata
+		crd.Spec.Name = ""
+
 		outputFormat, _ := cmd.Flags().GetString("output")
 		outputFormat = strings.ToLower(outputFormat)
 
 		var output []byte
 		switch outputFormat {
 		case "json":
-			output, err = json.MarshalIndent(appConfig, "", "  ")
+			output, err = json.MarshalIndent(crd, "", "  ")
 		case "yaml":
-			output, err = yaml.Marshal(appConfig)
+			output, err = yaml.Marshal(crd)
 		default:
 			return fmt.Errorf("unsupported output format: %s", outputFormat)
 		}

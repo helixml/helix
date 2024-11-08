@@ -68,6 +68,7 @@ type Helix struct {
 	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"300s"`                          // How long to wait for work to complete before slots are considered dead
 	RunnerTTL          time.Duration `envconfig:"HELIX_RUNNER_TTL" default:"30s"`                         // How long before runners are considered dead
 	SchedulingStrategy string        `envconfig:"HELIX_SCHEDULING_STRATEGY" default:"max_spread" description:"The strategy to use for scheduling workloads."`
+	QueueSize          int           `envconfig:"HELIX_QUEUE_SIZE" default:"100" description:"The size of the queue when buffering workloads."`
 }
 
 type Tools struct {

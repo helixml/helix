@@ -27,6 +27,8 @@ type ModelInstanceConfig struct {
 // RunnerOptions is already defined in controller.go, so we'll remove it from here
 
 // Stub implementation of AxolotlModelInstance
+var _ ModelInstance = &AxolotlModelInstance{}
+
 type AxolotlModelInstance struct{}
 
 func (a *AxolotlModelInstance) ID() string                                   { return "" }
@@ -41,6 +43,7 @@ func (a *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) { r
 func (a *AxolotlModelInstance) QueueSession(*types.Session, bool)            {}
 func (a *AxolotlModelInstance) Start(context.Context) error                  { return nil }
 func (a *AxolotlModelInstance) Stop() error                                  { return nil }
+func (a *AxolotlModelInstance) IsActive() bool                               { return false }
 func (a *AxolotlModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
 	return nil, nil
 }

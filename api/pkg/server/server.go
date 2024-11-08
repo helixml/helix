@@ -344,6 +344,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	runnerRouter.HandleFunc("/runner/{runnerid}/llm-inference-request", system.DefaultWrapper(apiServer.runnerLLMInferenceRequestHandler)).Methods("GET")
 
+	runnerRouter.HandleFunc("/runner/{runnerid}/slots", system.DefaultWrapper(apiServer.getDesiredRunnerSlots)).Methods("GET")
+
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 

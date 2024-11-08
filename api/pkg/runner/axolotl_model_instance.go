@@ -121,6 +121,10 @@ func (i *AxolotlModelInstance) Done() <-chan bool {
 	return i.finishChan
 }
 
+func (i *AxolotlModelInstance) IsActive() bool {
+	return i.currentSession != nil || i.nextSession != nil || i.queuedSession != nil
+}
+
 type ModelInstanceConfig struct {
 	// the session that meant this model instance is instantiated
 	InitialSession *types.Session

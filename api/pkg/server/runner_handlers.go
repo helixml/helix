@@ -198,3 +198,15 @@ func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, re
 	}
 	return runnerState, nil
 }
+
+func (apiServer *HelixAPIServer) getDesiredRunnerSlots(res http.ResponseWriter, req *http.Request) (*types.GetDesiredRunnerSlotsResponse, error) {
+	vars := mux.Vars(req)
+	runnerID := vars["runnerid"]
+	if runnerID == "" {
+		return nil, fmt.Errorf("missing runner id")
+	}
+
+	return &types.GetDesiredRunnerSlotsResponse{
+		Data: apiServer.scheduler.SlotsForRunner(runnerID),
+	}, nil
+}
