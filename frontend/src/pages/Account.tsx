@@ -25,9 +25,6 @@ const Account: FC = () => {
   const api = useApi()
   const snackbar = useSnackbar()
 
-  const paymentsActive = account.serverConfig.stripe_enabled
-  const colSize = paymentsActive ? 6 : 12
-
   const handleDeleteApiKey = useCallback(async (key: string) => {
     await api.delete(`/api/v1/api_keys`, {
       params: {
@@ -79,20 +76,23 @@ const Account: FC = () => {
     account.token,
   ])
 
-  if(!account.user) return null
-  if(!account.apiKeys) return null
-  // Get API key
+  if (!account.user || !account.apiKeys || !account.models || !account.serverConfig) {
+    return null
+  }
+
+  const paymentsActive = account.serverConfig.stripe_enabled
+  const colSize = paymentsActive ? 6 : 12
+
   const apiKey = account.apiKeys.length > 0 ? account.apiKeys[0].key : ''
 
-  // TODO: replace with 
-  // https://www.npmjs.com/package/@readme/httpsnippet
-  // and have a selector for python/javascript/curl/golang
+  const modelId = account.models && account.models.length > 0 ? account.models[0].id : 'default_model'
+
   const curlExample = `curl --request POST \\
   --url ${window.location.protocol}//${window.location.host}/api/v1/sessions/chat \\
   --header 'Authorization: Bearer ${apiKey}' \\
   --header 'Content-Type: application/json' \\
   --data '{
-    "model": "${account.models[0].id}",
+    "model": "${modelId}",
     "session_id": "",
     "system": "you are an intelligent assistant that helps with geography",
     "messages": [
@@ -108,7 +108,7 @@ const Account: FC = () => {
   --header 'Authorization: Bearer ${apiKey}' \\
   --header 'Content-Type: application/json' \\
   --data '{
-    "model": "${account.models[0].id}",
+    "model": "${modelId}",
     "stream": false,
     "messages": [
       { "role": "system", "content": "You are a helpful assistant." },
