@@ -257,6 +257,11 @@ const htmlTemplate = `
             if (window.location.protocol === 'file:') {
                 window.open(url, '_blank');
             } else {
+			    // typically ngrok URLs don't have keycloak properly configured
+			    // to use the ngrok url, so use localhost in that case
+                if (url.includes('ngrok')) {
+                    url = url.replace(/https?:\/\/[^\/]+/, 'http://localhost:8080');
+                }
                 openDashboard(url);
             }
         }
@@ -755,6 +760,11 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	fmt.Printf("\nResults written to %s\n", jsonFilename)
 	fmt.Printf("HTML report written to %s\n", htmlFilename)
 	fmt.Printf("Summary written to %s\n", summaryFilename)
+	helixURL := getHelixURL()
+	if strings.Contains(helixURL, "ngrok") {
+		helixURL = "http://localhost:8080"
+	}
+	fmt.Printf("View results at: %s/files?path=/test-runs/%s\n", helixURL, testID)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
