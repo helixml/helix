@@ -882,7 +882,7 @@ func openBrowser(url string) {
 }
 
 func getAvailableModels(apiKey, helixURL string) ([]string, error) {
-	req, err := http.NewRequest("GET", helixURL+"/api/v1/models", nil)
+	req, err := http.NewRequest("GET", helixURL+"/v1/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
