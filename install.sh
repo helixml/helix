@@ -46,15 +46,6 @@ case $ARCH in
     *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Determine version to install
-if [ -n "$HELIX_VERSION" ]; then
-    LATEST_RELEASE="$HELIX_VERSION"
-    echo "Using specified Helix version: $LATEST_RELEASE"
-else
-    LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
-    echo "Using latest Helix version: $LATEST_RELEASE"
-fi
-
 # Set binary name
 BINARY_NAME="helix-${OS}-${ARCH}"
 
@@ -221,6 +212,16 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Determine version to install
+if [ -n "$HELIX_VERSION" ]; then
+    LATEST_RELEASE="$HELIX_VERSION"
+    echo "Using specified Helix version: $LATEST_RELEASE"
+else
+    LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
+    echo "Using latest Helix version: $LATEST_RELEASE"
+fi
+
 
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
