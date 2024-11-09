@@ -405,7 +405,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string) error 
 		return err
 	}
 
-	displayResults(cmd, results, totalTime, helixURL)
+	displayResults(cmd, results, totalTime, helixURL, testID)
 
 	err = writeResultsToFile(results, totalTime, helixYamlContent, testID, namespacedAppName)
 	if err != nil {
@@ -623,7 +623,7 @@ func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResp
 	return chatResp.Choices[0].Message.Content, chatResp, nil
 }
 
-func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string) string {
+func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string, testID string) string {
 	var builder strings.Builder
 	builder.WriteString("| Test Name | Result | Reason | Model | Inference Time | Evaluation Time | Session Link | Debug Link |\n")
 	builder.WriteString("|-----------|--------|--------|-------|----------------|-----------------|--------------|------------|\n")
@@ -651,11 +651,20 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 	builder.WriteString(fmt.Sprintf("\nTotal execution time: %s\n", totalTime.Round(time.Millisecond)))
 	builder.WriteString(fmt.Sprintf("Overall result: %s\n", overallResult))
 
+	// Add report link at the bottom
+	reportURL := helixURL
+	if strings.Contains(reportURL, "ngrok") {
+		reportURL = "http://localhost:8080"
+	}
+	builder.WriteString(fmt.Sprintf("\n* [View full test report 🚀](%s/files?path=/test-runs/%s)\n",
+		reportURL,
+		testID))
+
 	return builder.String()
 }
 
-func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string) {
-	cmd.Println(generateResultsSummary(results, totalTime, helixURL))
+func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string, testID string) {
+	cmd.Println(generateResultsSummary(results, totalTime, helixURL, testID))
 }
 
 func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYamlContent string, testID, namespacedAppName string) error {
@@ -718,7 +727,7 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	}
 
 	// Write summary markdown file
-	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL())
+	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL(), testID)
 	err = os.WriteFile(summaryFilename, []byte(summaryContent), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
