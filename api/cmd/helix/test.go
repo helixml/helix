@@ -628,11 +628,17 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 	builder.WriteString("| Test Name | Result | Reason | Model | Inference Time | Evaluation Time | Session Link | Debug Link |\n")
 	builder.WriteString("|-----------|--------|--------|-------|----------------|-----------------|--------------|------------|\n")
 
+	// If helixURL contains ngrok, use localhost instead
+	reportURL := helixURL
+	if strings.Contains(reportURL, "ngrok") {
+		reportURL = "http://localhost:8080"
+	}
+
 	overallResult := "PASS"
 	for _, result := range results {
-		sessionLink := fmt.Sprintf("%s/session/%s", helixURL, result.SessionID)
+		sessionLink := fmt.Sprintf("%s/session/%s", reportURL, result.SessionID)
+		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", reportURL, result.SessionID)
 
-		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", helixURL, result.SessionID)
 		builder.WriteString(fmt.Sprintf("| %-20s | %-6s | %-50s | %-25s | %-15s | %-15s | [Session](%s) | [Debug](%s) |\n",
 			result.TestName,
 			result.Result,
@@ -652,10 +658,6 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 	builder.WriteString(fmt.Sprintf("Overall result: %s\n", overallResult))
 
 	// Add report link at the bottom
-	reportURL := helixURL
-	if strings.Contains(reportURL, "ngrok") {
-		reportURL = "http://localhost:8080"
-	}
 	builder.WriteString(fmt.Sprintf("\n* [View full test report 🚀](%s/files?path=/test-runs/%s)\n",
 		reportURL,
 		testID))
