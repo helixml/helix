@@ -23,7 +23,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v2"
 )
 
 type ChatRequest struct {
@@ -398,6 +397,7 @@ func runTest(cmd *cobra.Command, yamlFile string) error {
 }
 
 func readHelixYaml(yamlFile string) (types.AppHelixConfig, string, error) {
+	// Read the raw YAML content first
 	yamlContent, err := os.ReadFile(yamlFile)
 	if err != nil {
 		return types.AppHelixConfig{}, "", fmt.Errorf("error reading YAML file %s: %v", yamlFile, err)
@@ -405,13 +405,18 @@ func readHelixYaml(yamlFile string) (types.AppHelixConfig, string, error) {
 
 	helixYamlContent := string(yamlContent)
 
-	var appConfig types.AppHelixConfig
-	err = yaml.Unmarshal(yamlContent, &appConfig)
+	// Use NewLocalApp to handle both regular config and CRD formats
+	localApp, err := apps.NewLocalApp(yamlFile)
 	if err != nil {
 		return types.AppHelixConfig{}, "", fmt.Errorf("error parsing YAML file %s: %v", yamlFile, err)
 	}
 
-	return appConfig, helixYamlContent, nil
+	appConfig := localApp.GetAppConfig()
+	if appConfig == nil {
+		return types.AppHelixConfig{}, "", fmt.Errorf("error: app config is nil")
+	}
+
+	return *appConfig, helixYamlContent, nil
 }
 
 func getAPIKey() (string, error) {
