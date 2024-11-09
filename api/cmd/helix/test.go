@@ -903,7 +903,7 @@ func getAvailableModels(apiKey, helixURL string) ([]string, error) {
 	var modelResp ModelResponse
 	err = json.Unmarshal(body, &modelResp)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing response JSON: %v (response body: %s)", err, string(body))
+		return nil, fmt.Errorf("error parsing response JSON: %v (response body: %s) calling URL %s with apiKey '%s'", err, string(body), helixURL+"/v1/models", apiKey)
 	}
 
 	if len(modelResp.Data) == 0 {
