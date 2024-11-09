@@ -361,6 +361,21 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string) error 
 	testID := system.GenerateTestRunID()
 	namespacedAppName := fmt.Sprintf("%s/%s", testID, appConfig.Name)
 
+	helixURL := getHelixURL()
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	// Get available models if evaluation model is not specified
+	if evaluationModel == "" {
+		models, err := getAvailableModels(apiKey, helixURL)
+		if err != nil {
+			return fmt.Errorf("error getting available models: %v", err)
+		}
+		evaluationModel = models[0]
+	}
 	fmt.Printf("Using evaluation model: %s\n", evaluationModel)
 
 	// Deploy the app with the namespaced name and appConfig
@@ -379,22 +394,6 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string) error 
 			fmt.Printf("Error deleting app: %v\n", err)
 		}
 	}()
-
-	apiKey, err := getAPIKey()
-	if err != nil {
-		return err
-	}
-
-	helixURL := getHelixURL()
-
-	// Get available models if evaluation model is not specified
-	if evaluationModel == "" {
-		models, err := getAvailableModels(apiKey, helixURL)
-		if err != nil {
-			return fmt.Errorf("error getting available models: %v", err)
-		}
-		evaluationModel = models[0]
-	}
 
 	results, totalTime, err := runTests(appConfig, appID, apiKey, helixURL, evaluationModel)
 	if err != nil {
