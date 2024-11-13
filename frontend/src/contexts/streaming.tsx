@@ -18,6 +18,7 @@ interface NewInferenceParams {
 
 interface StreamingContextType {
   NewInference: (params: NewInferenceParams) => Promise<ISession>;
+  setCurrentSessionId: (sessionId: string) => void;
   currentResponses: Map<string, Partial<IInteraction>>;
   stepInfos: Map<string, any[]>;
   updateCurrentResponse: (sessionId: string, interaction: Partial<IInteraction>) => void;
@@ -266,6 +267,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
   const value = {
     NewInference,
+    setCurrentSessionId,
     currentResponses,
     updateCurrentResponse,
     stepInfos,
