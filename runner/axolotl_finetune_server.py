@@ -4,6 +4,11 @@ import time
 import traceback
 import uuid
 from typing import List, Optional
+import os
+
+# Set default LOG_LEVEL if it doesn't exist to prevent axolotl from crashing
+if os.environ["LOG_LEVEL"] == "":
+    os.environ["LOG_LEVEL"] = "INFO"
 
 import torch
 import transformers
@@ -149,7 +154,7 @@ def run_fine_tuning(
         add_fine_tuning_event(job_id, "info", "Fine-tuning job started.")
 
         parsed_cfg = unified_config(job_id, training_file, "")
-        
+
         cli_args = TrainerCliArgs()
         dataset_meta = load_datasets(cfg=parsed_cfg, cli_args=cli_args)
 
@@ -361,7 +366,7 @@ async def healthz():
     return {"status": "ok"}
 
 
-def unified_config(job_id = "", training_file = "", lora_dir = ""):
+def unified_config(job_id="", training_file="", lora_dir=""):
     print("unified_content")
     parsed_cfg = load_cfg("helix-llama3.2-instruct-1b-v1.yml")
     parsed_cfg["sample_packing"] = False
@@ -377,7 +382,6 @@ def unified_config(job_id = "", training_file = "", lora_dir = ""):
         parsed_cfg["datasets"][0]["roles"]["user"] = ["human"]
         parsed_cfg["datasets"][0]["roles"]["assistant"] = ["gpt"]
         parsed_cfg["datasets"][0]["roles"]["system"] = ["system"]
-
 
     if job_id != "":
         # Monkeypatch mlflow for our own logging purposes
