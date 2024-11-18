@@ -43,14 +43,14 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 8844
+              containerPort: 8080
               protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ include "helix-controlplane.fullname" . }}-config
           env:
             - name: SERVER_PORT
-              value: "8844"
+              value: "8080"
             - name: SERVER_URL
               value: {{ .Values.global.serverUrl }}
             - name: FILESTORE_LOCALFS_PATH
@@ -60,8 +60,7 @@ spec:
             - name: RAG_INDEX_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/chunk
             - name: RAG_QUERY_URL
-              value: http://{{ include "helix-controlplane.fullname" .
-              }}-llamaindex:5000/api/v1/rag/query
+              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/query
             - name: RAG_TYPESENSE_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-typesense:8108
             - name: RAG_TYPESENSE_API_KEY
