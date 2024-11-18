@@ -76,7 +76,7 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
-  const { NewInference } = useStreaming()
+  const { NewInference, setCurrentSessionId } = useStreaming()
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
@@ -115,6 +115,10 @@ const Session: FC = () => {
   }, [
     session.data,
   ])
+
+  useEffect(() => {
+    setCurrentSessionId(sessionID);
+  }, [sessionID]);
 
   const lastFinetuneInteraction = useMemo(() => {
     if(!session.data) return undefined

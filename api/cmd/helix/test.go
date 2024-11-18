@@ -23,7 +23,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v2"
 )
 
 type ChatRequest struct {
@@ -45,17 +44,18 @@ type Content struct {
 }
 
 type TestResult struct {
-	TestName       string        `json:"test_name"`
-	Prompt         string        `json:"prompt"`
-	Response       string        `json:"response"`
-	Expected       string        `json:"expected"`
-	Result         string        `json:"result"`
-	Reason         string        `json:"reason"`
-	SessionID      string        `json:"session_id"`
-	Model          string        `json:"model"`
-	InferenceTime  time.Duration `json:"inference_time"`
-	EvaluationTime time.Duration `json:"evaluation_time"`
-	HelixURL       string        `json:"helix_url"`
+	TestName        string        `json:"test_name"`
+	Prompt          string        `json:"prompt"`
+	Response        string        `json:"response"`
+	Expected        string        `json:"expected"`
+	Result          string        `json:"result"`
+	Reason          string        `json:"reason"`
+	SessionID       string        `json:"session_id"`
+	Model           string        `json:"model"`
+	EvaluationModel string        `json:"evaluation_model"`
+	InferenceTime   time.Duration `json:"inference_time"`
+	EvaluationTime  time.Duration `json:"evaluation_time"`
+	HelixURL        string        `json:"helix_url"`
 }
 
 type ChatResponse struct {
@@ -65,6 +65,14 @@ type ChatResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+}
+
+type ModelResponse struct {
+	Data []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	} `json:"data"`
 }
 
 const htmlTemplate = `
@@ -249,6 +257,11 @@ const htmlTemplate = `
             if (window.location.protocol === 'file:') {
                 window.open(url, '_blank');
             } else {
+			    // typically ngrok URLs don't have keycloak properly configured
+			    // to use the ngrok url, so use localhost in that case
+                if (url.includes('ngrok')) {
+                    url = url.replace(/https?:\/\/[^\/]+/, 'http://localhost:8080');
+                }
                 openDashboard(url);
             }
         }
@@ -327,22 +340,24 @@ const htmlTemplate = `
 
 func NewTestCmd() *cobra.Command {
 	var yamlFile string
+	var evaluationModel string
 
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run tests for Helix app",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTest(cmd, yamlFile)
+			return runTest(cmd, yamlFile, evaluationModel)
 		},
 	}
 
 	cmd.Flags().StringVarP(&yamlFile, "file", "f", "helix.yaml", "Path to the YAML file containing test definitions")
+	cmd.Flags().StringVar(&evaluationModel, "evaluation-model", "", "Model to use for evaluating test results")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, yamlFile string) error {
+func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
@@ -350,6 +365,23 @@ func runTest(cmd *cobra.Command, yamlFile string) error {
 
 	testID := system.GenerateTestRunID()
 	namespacedAppName := fmt.Sprintf("%s/%s", testID, appConfig.Name)
+
+	helixURL := getHelixURL()
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	// Get available models if evaluation model is not specified
+	if evaluationModel == "" {
+		models, err := getAvailableModels(apiKey, helixURL)
+		if err != nil {
+			return fmt.Errorf("error getting available models: %v", err)
+		}
+		evaluationModel = models[0]
+	}
+	fmt.Printf("Using evaluation model: %s\n", evaluationModel)
 
 	// Deploy the app with the namespaced name and appConfig
 	appID, err := deployApp(namespacedAppName, yamlFile)
@@ -368,19 +400,12 @@ func runTest(cmd *cobra.Command, yamlFile string) error {
 		}
 	}()
 
-	apiKey, err := getAPIKey()
+	results, totalTime, err := runTests(appConfig, appID, apiKey, helixURL, evaluationModel)
 	if err != nil {
 		return err
 	}
 
-	helixURL := getHelixURL()
-
-	results, totalTime, err := runTests(appConfig, appID, apiKey, helixURL)
-	if err != nil {
-		return err
-	}
-
-	displayResults(cmd, results, totalTime, helixURL)
+	displayResults(cmd, results, totalTime, helixURL, testID)
 
 	err = writeResultsToFile(results, totalTime, helixYamlContent, testID, namespacedAppName)
 	if err != nil {
@@ -398,6 +423,7 @@ func runTest(cmd *cobra.Command, yamlFile string) error {
 }
 
 func readHelixYaml(yamlFile string) (types.AppHelixConfig, string, error) {
+	// Read the raw YAML content first
 	yamlContent, err := os.ReadFile(yamlFile)
 	if err != nil {
 		return types.AppHelixConfig{}, "", fmt.Errorf("error reading YAML file %s: %v", yamlFile, err)
@@ -405,13 +431,18 @@ func readHelixYaml(yamlFile string) (types.AppHelixConfig, string, error) {
 
 	helixYamlContent := string(yamlContent)
 
-	var appConfig types.AppHelixConfig
-	err = yaml.Unmarshal(yamlContent, &appConfig)
+	// Use NewLocalApp to handle both regular config and CRD formats
+	localApp, err := apps.NewLocalApp(yamlFile)
 	if err != nil {
 		return types.AppHelixConfig{}, "", fmt.Errorf("error parsing YAML file %s: %v", yamlFile, err)
 	}
 
-	return appConfig, helixYamlContent, nil
+	appConfig := localApp.GetAppConfig()
+	if appConfig == nil {
+		return types.AppHelixConfig{}, "", fmt.Errorf("error: app config is nil")
+	}
+
+	return *appConfig, helixYamlContent, nil
 }
 
 func getAPIKey() (string, error) {
@@ -430,7 +461,7 @@ func getHelixURL() string {
 	return helixURL
 }
 
-func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([]TestResult, time.Duration, error) {
+func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluationModel string) ([]TestResult, time.Duration, error) {
 	var results []TestResult
 	totalStartTime := time.Now()
 
@@ -447,7 +478,7 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 					semaphore <- struct{}{}
 					defer func() { <-semaphore }()
 
-					result, err := runSingleTest(assistantName, testName, step, appID, apiKey, helixURL, assistant.Model)
+					result, err := runSingleTest(assistantName, testName, step, appID, apiKey, helixURL, assistant.Model, evaluationModel)
 					if err != nil {
 						result.Reason = err.Error()
 						result.Result = "ERROR"
@@ -487,16 +518,17 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL string) ([
 	return results, totalTime, nil
 }
 
-func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model string) (TestResult, error) {
+func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
 	// partial result in case of error
 	result := TestResult{
-		TestName: fmt.Sprintf("%s - %s", assistantName, testName),
-		Prompt:   step.Prompt,
-		Expected: step.ExpectedOutput,
-		Model:    model,
-		HelixURL: helixURL,
+		TestName:        fmt.Sprintf("%s - %s", assistantName, testName),
+		Prompt:          step.Prompt,
+		Expected:        step.ExpectedOutput,
+		Model:           model,
+		EvaluationModel: evaluationModel,
+		HelixURL:        helixURL,
 	}
 
 	chatReq := ChatRequest{
@@ -522,7 +554,7 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 	evaluationStartTime := time.Now()
 
 	evalReq := ChatRequest{
-		Model:  "llama3.1:8b-instruct-q8_0",
+		Model:  evaluationModel,
 		System: "You are an AI assistant tasked with evaluating test results. Output only PASS or FAIL followed by a brief explanation on the next line. Be fairly liberal about what you consider to be a PASS, as long as everything specifically requested is present. However, if the response is not as expected, you should output FAIL.",
 		Messages: []Message{
 			{
@@ -581,7 +613,7 @@ func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResp
 	var chatResp ChatResponse
 	err = json.Unmarshal(body, &chatResp)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error parsing response JSON: %v (%s)", err, string(body))
+		return "", ChatResponse{}, fmt.Errorf("error parsing response JSON: %v (response body: %s)", err, string(body))
 	}
 
 	if len(chatResp.Choices) == 0 {
@@ -591,16 +623,22 @@ func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResp
 	return chatResp.Choices[0].Message.Content, chatResp, nil
 }
 
-func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string) string {
+func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string, testID string) string {
 	var builder strings.Builder
 	builder.WriteString("| Test Name | Result | Reason | Model | Inference Time | Evaluation Time | Session Link | Debug Link |\n")
 	builder.WriteString("|-----------|--------|--------|-------|----------------|-----------------|--------------|------------|\n")
 
+	// If helixURL contains ngrok, use localhost instead
+	reportURL := helixURL
+	if strings.Contains(reportURL, "ngrok") {
+		reportURL = "http://localhost:8080"
+	}
+
 	overallResult := "PASS"
 	for _, result := range results {
-		sessionLink := fmt.Sprintf("%s/session/%s", helixURL, result.SessionID)
+		sessionLink := fmt.Sprintf("%s/session/%s", reportURL, result.SessionID)
+		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", reportURL, result.SessionID)
 
-		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", helixURL, result.SessionID)
 		builder.WriteString(fmt.Sprintf("| %-20s | %-6s | %-50s | %-25s | %-15s | %-15s | [Session](%s) | [Debug](%s) |\n",
 			result.TestName,
 			result.Result,
@@ -619,11 +657,16 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 	builder.WriteString(fmt.Sprintf("\nTotal execution time: %s\n", totalTime.Round(time.Millisecond)))
 	builder.WriteString(fmt.Sprintf("Overall result: %s\n", overallResult))
 
+	// Add report link at the bottom
+	builder.WriteString(fmt.Sprintf("\n* [View full test report 🚀](%s/files?path=/test-runs/%s)\n",
+		reportURL,
+		testID))
+
 	return builder.String()
 }
 
-func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string) {
-	cmd.Println(generateResultsSummary(results, totalTime, helixURL))
+func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string, testID string) {
+	cmd.Println(generateResultsSummary(results, totalTime, helixURL, testID))
 }
 
 func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYamlContent string, testID, namespacedAppName string) error {
@@ -686,7 +729,7 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	}
 
 	// Write summary markdown file
-	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL())
+	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL(), testID)
 	err = os.WriteFile(summaryFilename, []byte(summaryContent), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
@@ -728,6 +771,11 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	fmt.Printf("\nResults written to %s\n", jsonFilename)
 	fmt.Printf("HTML report written to %s\n", htmlFilename)
 	fmt.Printf("Summary written to %s\n", summaryFilename)
+	helixURL := getHelixURL()
+	if strings.Contains(helixURL, "ngrok") {
+		helixURL = "http://localhost:8080"
+	}
+	fmt.Printf("View results at: %s/files?path=/test-runs/%s\n", helixURL, testID)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
@@ -851,4 +899,43 @@ func openBrowser(url string) {
 	if err != nil {
 		fmt.Printf("Error opening browser: %v\n", err)
 	}
+}
+
+func getAvailableModels(apiKey, helixURL string) ([]string, error) {
+	req, err := http.NewRequest("GET", helixURL+"/v1/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching models: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %v", err)
+	}
+
+	var modelResp ModelResponse
+	err = json.Unmarshal(body, &modelResp)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing response JSON: %v (response body: %s) calling URL %s with apiKey '%s'", err, string(body), helixURL+"/v1/models", apiKey)
+	}
+
+	if len(modelResp.Data) == 0 {
+		return nil, fmt.Errorf("no models available")
+	}
+
+	// Extract model IDs from the response
+	var models []string
+	for _, model := range modelResp.Data {
+		models = append(models, model.ID)
+	}
+
+	return models, nil
 }
