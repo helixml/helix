@@ -1,10 +1,10 @@
-import React, { FC } from 'react'
 import Box from '@mui/material/Box'
-import { prettyBytes } from '../../utils/format'
-import Typography from '@mui/material/Typography'
 import LinearProgress from '@mui/material/LinearProgress'
-import Row from '../widgets/Row'
+import Typography from '@mui/material/Typography'
+import { FC } from 'react'
+import { prettyBytes } from '../../utils/format'
 import Cell from '../widgets/Cell'
+import Row from '../widgets/Row'
 import ModelInstanceSummary from './ModelInstanceSummary'
 
 import {
@@ -53,7 +53,9 @@ export const RunnerSummary: FC<{
         </Cell>
       </Row>
       {
-        runner.model_instances.map(modelInstance => {
+        runner.model_instances
+        .sort((a, b) => a.model_name.localeCompare(b.model_name))
+        .map(modelInstance => {
           return (
             <ModelInstanceSummary
               key={ modelInstance.id }
@@ -63,24 +65,6 @@ export const RunnerSummary: FC<{
           )
         })
       }
-      <Box
-        sx={{
-          height: '100px',
-          maxHeight: '100px',
-          overflowY: 'auto',
-        }}
-      >
-        <Typography component="ul" variant="caption" gutterBottom>
-          {
-            runner.scheduling_decisions.map((decision, i) => {
-              return (
-                <li key={ i }>{ decision }</li>
-              )
-              
-            })
-          }
-        </Typography>
-      </Box>
     </Box>
   )
 }
