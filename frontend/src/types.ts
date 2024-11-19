@@ -343,6 +343,42 @@ export interface IDashboardData {
   session_queue: ISessionSummary[],
   runners: IRunnerState[],
   global_scheduling_decisions: IGlobalSchedulingDecision[],
+  desired_slots: ISlot[],
+}
+
+export interface ISlot {
+  id: string,
+  data: ISlotData[],
+}
+
+export interface ISlotData {
+  id: string,
+  attributes: ISlotAttributes,
+}
+
+export interface ISlotAttributes {
+  model: string,
+  mode: ISessionMode,
+  workload: ISlotAttributesWorkload,
+}
+
+export interface LLMInferenceRequest {
+  RequestID: string,
+  CreatedAt: string,
+  Priority: boolean,
+  OwnerID: string,
+  SessionID: string,
+  InteractionID: string,
+  Request: {
+    model: string,
+    messages: IInteractionMessage[],
+    stream: boolean,
+  }
+}
+
+export interface ISlotAttributesWorkload {
+  Session: ISession,
+  LLMInferenceRequest: LLMInferenceRequest,
 }
 
 export interface ISessionSummary {

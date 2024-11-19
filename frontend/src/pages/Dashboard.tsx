@@ -1,37 +1,40 @@
-import React, { FC, useState, useEffect, useRef, useCallback } from 'react'
-import Box from '@mui/material/Box'
-import Grid from '@mui/material/Grid'
-import Divider from '@mui/material/Divider'
-import Typography from '@mui/material/Typography'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Switch from '@mui/material/Switch'
-import Container from '@mui/material/Container'
-import Tabs from '@mui/material/Tabs'
-import Tab from '@mui/material/Tab'
-import TextField from '@mui/material/TextField'
-import IconButton from '@mui/material/IconButton'
 import ClearIcon from '@mui/icons-material/Clear'
-
-import Page from '../components/system/Page'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import Divider from '@mui/material/Divider'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import FormGroup from '@mui/material/FormGroup'
+import Grid from '@mui/material/Grid'
+import IconButton from '@mui/material/IconButton'
+import Paper from '@mui/material/Paper/Paper'
+import Switch from '@mui/material/Switch'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react'
+import LLMCallsTable from '../components/dashboard/LLMCallsTable'
 import Interaction from '../components/session/Interaction'
-import Window from '../components/widgets/Window'
-import JsonWindowLink from '../components/widgets/JsonWindowLink'
-import SessionSummary from '../components/session/SessionSummary'
-import SessionToolbar from '../components/session/SessionToolbar'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 import SessionBadgeKey from '../components/session/SessionBadgeKey'
-import LLMCallsTable from '../components/dashboard/LLMCallsTable'
-
-import useRouter from '../hooks/useRouter'
+import SessionSummary from '../components/session/SessionSummary'
+import SessionToolbar from '../components/session/SessionToolbar'
+import Page from '../components/system/Page'
+import JsonWindowLink from '../components/widgets/JsonWindowLink'
+import Window from '../components/widgets/Window'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
-
+import useRouter from '../hooks/useRouter'
 import {
   IDashboardData,
+  IModelInstanceState,
+  IRunnerState,
   ISession,
   ISessionSummary,
+  ISlot,
+  ISlotAttributesWorkload,
+  ISlotData
 } from '../types'
 
 const START_ACTIVE = true
@@ -43,11 +46,11 @@ const Dashboard: FC = () => {
 
   const activeRef = useRef(START_ACTIVE)
 
-  const [ viewingSession, setViewingSession ] = useState<ISession>()
-  const [ active, setActive ] = useState(START_ACTIVE)
-  const [ data, setData ] = useState<IDashboardData>()
-  const [ activeTab, setActiveTab ] = useState(0)
-  const [ sessionFilter, setSessionFilter ] = useState('')
+  const [viewingSession, setViewingSession] = useState<ISession>()
+  const [active, setActive] = useState(START_ACTIVE)
+  const [data, setData] = useState<IDashboardData>()
+  const [activeTab, setActiveTab] = useState(0)
+  const [sessionFilter, setSessionFilter] = useState('')
 
   const {
     session_id,
@@ -67,11 +70,11 @@ const Dashboard: FC = () => {
   }, [])
 
   useEffect(() => {
-    if(!session_id) return
-    if(!account.user) return
+    if (!session_id) return
+    if (!account.user) return
     const loadSession = async () => {
-      const session = await api.get<ISession>(`/api/v1/sessions/${ session_id }`)
-      if(!session) return
+      const session = await api.get<ISession>(`/api/v1/sessions/${session_id}`)
+      if (!session) return
       setViewingSession(session)
     }
     loadSession()
@@ -81,17 +84,17 @@ const Dashboard: FC = () => {
   ])
 
   useEffect(() => {
-    if(!account.user) return
+    if (!account.user) return
     const loadDashboard = async () => {
-      if(!activeRef.current) return
+      if (!activeRef.current) return
       const data = await api.get<IDashboardData>(`/api/v1/dashboard`)
-      if(!data) return
+      if (!data) return
       setData(originalData => {
         return JSON.stringify(data) == JSON.stringify(originalData) ? originalData : data
       })
     }
     const intervalId = setInterval(loadDashboard, 1000)
-    if(activeRef.current) loadDashboard()
+    if (activeRef.current) loadDashboard()
     return () => {
       clearInterval(intervalId)
     }
@@ -137,8 +140,93 @@ const Dashboard: FC = () => {
     router.removeParams(['filter_sessions'])
   }
 
-  if(!account.user) return null
-  if(!data) return null
+
+  const convertWorkloadToSessionSummary = (workload: ISlotAttributesWorkload): ISessionSummary | null => {
+    if (!workload) return null
+    if (workload.Session) {
+      const lastInteraction = workload.Session.interactions?.[workload.Session.interactions?.length - 1]
+      return {
+        created: workload.Session.created,
+        updated: workload.Session.updated,
+        scheduled: lastInteraction?.created,
+        completed: lastInteraction?.completed,
+        session_id: workload.Session.id,
+        name: workload.Session.name,
+        interaction_id: lastInteraction?.id ?? '',
+        model_name: workload.Session.model_name,
+        mode: workload.Session.mode,
+        type: workload.Session.type,
+        owner: workload.Session.owner,
+        lora_dir: workload.Session.lora_dir,
+        summary: lastInteraction?.state 
+          ? [
+              lastInteraction.state,
+              lastInteraction.status,
+              lastInteraction.message
+            ].filter(Boolean).join(" ") 
+          : "No summary available",
+        app_id: workload.Session.parent_app,
+      }
+    } else if (workload.LLMInferenceRequest) {
+      return {
+        created: workload.LLMInferenceRequest.CreatedAt,
+        updated: workload.LLMInferenceRequest.CreatedAt,
+        scheduled: workload.LLMInferenceRequest.CreatedAt,
+        completed: workload.LLMInferenceRequest.CreatedAt,
+        session_id: '',
+        name: '',
+        interaction_id: workload.LLMInferenceRequest.InteractionID,
+        model_name: workload.LLMInferenceRequest.Request.model,
+        mode: "inference",
+        type: "text",
+        owner: workload.LLMInferenceRequest.OwnerID,
+        lora_dir: "",
+        app_id: "",
+        summary: workload.LLMInferenceRequest?.Request?.messages?.[
+          (workload.LLMInferenceRequest?.Request?.messages?.length || 1) - 1
+        ]?.content || 'No message content',
+      }
+    }
+    return null
+  };
+
+  const convertSlotDataToModelInstanceState = (slotData: ISlotData) => {
+    return {
+      id: slotData.id,
+      model_name: slotData.attributes.model,
+      mode: slotData.attributes.mode,
+      lora_dir: '',
+      initial_session_id: '',
+      current_session: convertWorkloadToSessionSummary(slotData.attributes.workload),
+      job_history: [],
+      timeout: 0,
+      last_activity: 0,
+      stale: false,
+      memory: 0,
+      status: slotData.id,
+    } as IModelInstanceState
+  }
+
+  const convertSlotDataToRunnerState = (runnerId: string, desiredSlots: ISlot[]) => {
+    const matchingSlot = desiredSlots.find(slot => slot.id === runnerId)
+    if (!matchingSlot) return {} as IRunnerState
+
+    return {
+      id: runnerId,
+      created: '',
+      memory: 0,
+      free_memory: 0,
+      total_memory: 0,
+      labels: {},
+      model_instances: matchingSlot.data
+        .map(convertSlotDataToModelInstanceState)
+        .sort((a, b) => a.model_name.localeCompare(b.model_name)),
+      scheduling_decisions: [],
+    } as IRunnerState
+  }
+
+  if (!account.user) return null
+  if (!data) return null
 
   return (
     <Page
@@ -218,7 +306,7 @@ const Dashboard: FC = () => {
                           onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                             activeRef.current = event.target.checked
                             setActive(event.target.checked)
-                          } } />}
+                          }} />}
                         label="Live Updates?" />
                     </FormGroup>
                   </Box>
@@ -241,13 +329,13 @@ const Dashboard: FC = () => {
                     mt: 1,
                     mb: 1,
                   }} />
-                  { account.serverConfig.version && (
-                    <Box>
-                      <Typography variant="h6">
-                        Helix Control Plane version: { account.serverConfig.version }
-                      </Typography>
-                    </Box>
-                  )}
+                {account.serverConfig.version && (
+                  <Box>
+                    <Typography variant="h6">
+                      Helix Control Plane version: {account.serverConfig.version}
+                    </Typography>
+                  </Box>
+                )}
                 {data?.runners.map((runner) => {
                   const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
                     return modelInstance.current_session ? [...allSessions, modelInstance.current_session] : allSessions
@@ -305,11 +393,26 @@ const Dashboard: FC = () => {
                 >
                   {data.runners.map((runner) => {
                     return (
-                      <Grid item key={runner.id} sm={12} md={6}>
-                        <RunnerSummary
-                          runner={runner}
-                          onViewSession={onViewSession} />
-                      </Grid>
+                      <Paper key={runner.id}>
+                        <Grid container spacing={2}>
+                          <Grid item>
+                            <Typography variant="h6">Desired State</Typography>
+                            <Grid item key={runner.id} sm={12} md={12}>
+                              <RunnerSummary
+                                runner={convertSlotDataToRunnerState(runner.id, data.desired_slots)}
+                                onViewSession={onViewSession} />
+                            </Grid>
+                          </Grid>
+                          <Grid item>
+                            <Typography variant="h6">Actual State</Typography>
+                            <Grid item sm={12} md={12}>
+                              <RunnerSummary
+                                runner={runner}
+                                onViewSession={onViewSession} />
+                            </Grid>
+                          </Grid>
+                        </Grid>
+                      </Paper>
                     )
                   })}
                 </Grid>
@@ -352,7 +455,7 @@ const Dashboard: FC = () => {
             withCancel
             cancelTitle="Close"
             onCancel={onCloseViewingSession}
-          >  
+          >
             <SessionToolbar
               session={viewingSession}
             />
@@ -365,7 +468,7 @@ const Dashboard: FC = () => {
                   interaction={interaction}
                   session={viewingSession}
                 />
-              )   
+              )
             })}
           </Window>
         )}
