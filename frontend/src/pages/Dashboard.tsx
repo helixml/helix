@@ -158,12 +158,12 @@ const Dashboard: FC = () => {
         type: workload.Session.type,
         owner: workload.Session.owner,
         lora_dir: workload.Session.lora_dir,
-        summary: lastInteraction?.state 
+        summary: lastInteraction?.state
           ? [
-              lastInteraction.state,
-              lastInteraction.status,
-              lastInteraction.message
-            ].filter(Boolean).join(" ") 
+            lastInteraction.state,
+            lastInteraction.status,
+            lastInteraction.message
+          ].filter(Boolean).join(" ")
           : "No summary available",
         app_id: workload.Session.parent_app,
       }
@@ -285,6 +285,7 @@ const Dashboard: FC = () => {
                   width: '480px',
                   minWidth: '480px',
                   overflowY: 'auto',
+                  display: { xs: 'none', md: 'block' }
                 }}
               >
                 <Box
@@ -386,33 +387,31 @@ const Dashboard: FC = () => {
               >
                 <Grid
                   container
-                  spacing={2}
                   sx={{
                     width: '100%',
+                    overflow: "auto",
                   }}
                 >
                   {data.runners.map((runner) => {
                     return (
-                      <Paper key={runner.id}>
-                        <Grid container spacing={2}>
-                          <Grid item>
-                            <Typography variant="h6">Desired State</Typography>
-                            <Grid item key={runner.id} sm={12} md={12}>
+                      <Grid item key={runner.id} spacing={2} padding={2}>
+                        <Paper>
+                          <Grid container spacing={1} padding={1}>
+                            <Grid item xs={6}>
+                              <Typography variant="h6">Desired State</Typography>
                               <RunnerSummary
                                 runner={convertSlotDataToRunnerState(runner.id, data.desired_slots)}
                                 onViewSession={onViewSession} />
                             </Grid>
-                          </Grid>
-                          <Grid item>
-                            <Typography variant="h6">Actual State</Typography>
-                            <Grid item sm={12} md={12}>
+                            <Grid item xs={6}>
+                              <Typography variant="h6">Actual State</Typography>
                               <RunnerSummary
                                 runner={runner}
                                 onViewSession={onViewSession} />
                             </Grid>
                           </Grid>
-                        </Grid>
-                      </Paper>
+                        </Paper>
+                      </Grid>
                     )
                   })}
                 </Grid>
