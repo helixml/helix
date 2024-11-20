@@ -205,6 +205,34 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 	return actions, nil
 }
 
+// ConvertAPIToTool converts an AssistantAPI to a Tool
+func ConvertAPIToTool(api types.AssistantAPI) (*types.Tool, error) {
+	t := &types.Tool{
+		Name:        api.Name,
+		Description: api.Description,
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:                     api.URL,
+				Schema:                  api.Schema,
+				Headers:                 api.Headers,
+				Query:                   api.Query,
+				RequestPrepTemplate:     api.RequestPrepTemplate,
+				ResponseSuccessTemplate: api.ResponseSuccessTemplate,
+				ResponseErrorTemplate:   api.ResponseErrorTemplate,
+			},
+		},
+	}
+
+	actions, err := GetActionsFromSchema(api.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("error getting actions from schema: %w", err)
+	}
+	t.Config.API.Actions = actions
+
+	return t, nil
+}
+
 // BACKWARD COMPATIBILITY ONLY: return an app with the apis, gptscripts, and zapier
 // transformed into the deprecated (or at least internal) Tools field
 func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.App, error) {
@@ -220,26 +248,9 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
-			t := &types.Tool{
-				Name:        api.Name,
-				Description: api.Description,
-				ToolType:    types.ToolTypeAPI,
-				Config: types.ToolConfig{
-					API: &types.ToolApiConfig{
-						URL:                     api.URL,
-						Schema:                  api.Schema,
-						Headers:                 api.Headers,
-						Query:                   api.Query,
-						RequestPrepTemplate:     api.RequestPrepTemplate,
-						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
-						ResponseErrorTemplate:   api.ResponseErrorTemplate,
-					},
-				},
-			}
-			// FFS this doesn't belong here
-			t.Config.API.Actions, err = GetActionsFromSchema(api.Schema)
+			t, err := ConvertAPIToTool(api)
 			if err != nil {
-				return nil, fmt.Errorf("error getting actions from schema: %w", err)
+				return nil, err
 			}
 			tools = append(tools, t)
 		}
