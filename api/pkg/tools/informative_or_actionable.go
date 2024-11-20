@@ -15,6 +15,11 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+const (
+	NeedsToolYes = "yes"
+	NeedsToolNo  = "no"
+)
+
 type IsActionableResponse struct {
 	NeedsTool     string `json:"needs_tool"`
 	Api           string `json:"api"`
@@ -22,7 +27,7 @@ type IsActionableResponse struct {
 }
 
 func (i *IsActionableResponse) Actionable() bool {
-	return i.NeedsTool == "yes"
+	return i.NeedsTool == NeedsToolYes
 }
 
 func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, options ...Option) (*IsActionableResponse, error) {
