@@ -262,6 +262,15 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			AssistantID: startReq.AssistantID,
 			RAGSourceID: startReq.RAGSourceID,
 			Provider:    startReq.Provider,
+			QueryParams: func() map[string]string {
+				params := make(map[string]string)
+				for key, values := range req.URL.Query() {
+					if len(values) > 0 {
+						params[key] = values[0]
+					}
+				}
+				return params
+			}(),
 		}
 	)
 
