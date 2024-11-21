@@ -73,3 +73,25 @@ func (s *stubFreePortFinder) GetFreePort() (int, error) {
 var freePortFinder FreePortFinder = &stubFreePortFinder{}
 
 // Add any other necessary stub functions or types here
+
+type CogModelInstance struct{}
+
+func (a *CogModelInstance) ID() string                                   { return "" }
+func (a *CogModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
+func (a *CogModelInstance) Stale() bool                                  { return false }
+func (a *CogModelInstance) Model() model.Model                           { return nil }
+func (a *CogModelInstance) NextSession() *types.Session                  { return nil }
+func (a *CogModelInstance) SetNextSession(*types.Session)                {}
+func (a *CogModelInstance) GetQueuedSession() *types.Session             { return nil }
+func (a *CogModelInstance) Done() <-chan bool                            { return nil }
+func (a *CogModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
+func (a *CogModelInstance) QueueSession(*types.Session, bool)            {}
+func (a *CogModelInstance) Start(context.Context) error                  { return nil }
+func (a *CogModelInstance) Stop() error                                  { return nil }
+func (a *CogModelInstance) IsActive() bool                               { return false }
+func (a *CogModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
+	return nil, nil
+}
+func NewCogModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*CogModelInstance, error) {
+	return nil, nil
+}

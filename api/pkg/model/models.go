@@ -50,6 +50,9 @@ func (m ModelName) InferenceRuntime() types.InferenceRuntime {
 	if strings.Contains(m.String(), ":") {
 		return types.InferenceRuntimeOllama
 	}
+	if m.String() == Model_Cog_SDXL {
+		return types.InferenceRuntimeCog
+	}
 	// misnamed: axolotl runtime handles axolotl and cog/sd-scripts
 	return types.InferenceRuntimeAxolotl
 }

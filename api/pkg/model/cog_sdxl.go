@@ -165,21 +165,17 @@ func (l *CogSDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFil
 	}
 	var cmd *exec.Cmd
 	if sessionFilter.Mode == types.SessionModeInference {
-		args := []string{
-			"runner/venv_command.sh",
-			"python3", "-u",
-			"helix_cog_wrapper.py", "inference",
-		}
-
 		cmd = exec.CommandContext(
 			ctx,
-			"bash",
-			args...,
+			"bash", "/workspace/helix/runner/venv_command.sh",
+			"uvicorn", "helix_cog_wrapper:app",
+			"--host", "0.0.0.0",
+			"--port", strconv.Itoa(config.Port),
 		)
 	} else if sessionFilter.Mode == types.SessionModeFinetune {
 		cmd = exec.CommandContext(
 			ctx,
-			"bash", "runner/venv_command.sh",
+			"bash", "/workspace/helix/runner/venv_command.sh",
 			"python3", "-u",
 			"helix_cog_wrapper.py", "finetune",
 		)
@@ -187,21 +183,26 @@ func (l *CogSDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFil
 		return nil, fmt.Errorf("invalid session mode: %s", sessionFilter.Mode)
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
+	// Set the working directory to the runner dir (which makes relative path stuff easier)
+	cmd.Dir = "/workspace/cog-sdxl"
 
-	cmd.Env = []string{
-		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "cog-sdxl"))),
-		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
-		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+	// Inherit all the parent environment variables
+	cmd.Env = append(cmd.Env,
+		os.Environ()...,
+	)
+
+	cmd.Env = append(cmd.Env,
+		// Add the APP_FOLDER environment variable which is required by the old code
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(cmd.Dir)),
+		// Set python to be unbuffered so we get logs in real time
+		"PYTHONUNBUFFERED=1",
+		// Set the log level, which is a name, but must be uppercased
+		fmt.Sprintf("LOG_LEVEL=%s", strings.ToUpper(os.Getenv("LOG_LEVEL"))),
 		// cog likes to download LoRA from a URL, so we construct one for it
 		fmt.Sprintf("API_HOST=%s", API_HOST),
 		// one day it will need to auth to the API server to download LoRAs
 		fmt.Sprintf("API_TOKEN=%s", API_TOKEN),
-		"PYTHONUNBUFFERED=1",
-	}
+	)
 
 	return cmd, nil
 }
