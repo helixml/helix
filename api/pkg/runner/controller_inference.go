@@ -40,5 +40,8 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 		return fmt.Errorf("error warming up inference model instance: %s", err.Error())
 	}
 
+	// Decided not to warmup Cog models for now, as it takes too long. Should happen from the runner
+	// anyway.
+
 	return nil
 }
