@@ -1,6 +1,6 @@
 #syntax=docker/dockerfile:1.4
 
-ARG TAG=2024-11-12a-empty
+ARG TAG=2024-11-21a-empty
 
 ### BUILD
 
@@ -44,6 +44,9 @@ WORKDIR /workspace/helix
 
 # Copy runner directory from the repo
 COPY runner ./runner
+
+# Copy the cog wrapper, cog and cog-sdxl is installed in the base image, this is just the cog server
+COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py
 
 # So that the runner can function when run as non-root, symlink some stuff into
 # locations in /tmp (needed for locked down OpenShift support)
