@@ -202,6 +202,39 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 			slot.modelInstance = modelInstance
 			slot.sessionWorkChan = workCh
 			return slot, nil
+		case types.InferenceRuntimeDiffusers:
+			log.Debug().Str("workload_id", work.ID()).Msg("starting new diffusers session runtime")
+			modelInstance, err = NewDiffusersModelInstance(
+				ctx,
+				&ModelInstanceConfig{
+					InitialSession:    initialSession,
+					InitialSessionURL: runnerOptions.InitialSessionURL,
+					NextTaskURL:       runnerOptions.TaskURL,
+					// this function will convert any files it sees locally into an upload
+					// to the api server filestore - all files will be written to the filestore
+					// under a session sub path - you can include tar files and they will untarred at the other end
+					// into the filestore
+					// TODO: support the tar feature above
+					ResponseHandler: sessionResponseHandler,
+					RunnerOptions:   runnerOptions,
+					GetNextSession: func() (*types.Session, error) {
+						return <-workCh, nil
+					},
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			go modelInstance.QueueSession(initialSession, true)
+
+			err = modelInstance.Start(ctx)
+			if err != nil {
+				return nil, err
+			}
+			slot.modelInstance = modelInstance
+			slot.sessionWorkChan = workCh
+			return slot, nil
 		default:
 			// Defaulting to axolotl
 			log.Debug().Str("workload_id", work.ID()).Msg("starting new axolotl session runtime")

@@ -204,9 +204,10 @@ func (r InferenceRuntime) String() string {
 }
 
 const (
-	InferenceRuntimeAxolotl InferenceRuntime = "axolotl"
-	InferenceRuntimeOllama  InferenceRuntime = "ollama"
-	InferenceRuntimeCog     InferenceRuntime = "cog"
+	InferenceRuntimeAxolotl   InferenceRuntime = "axolotl"
+	InferenceRuntimeOllama    InferenceRuntime = "ollama"
+	InferenceRuntimeCog       InferenceRuntime = "cog"
+	InferenceRuntimeDiffusers InferenceRuntime = "diffusers"
 	// TODO: vllm
 )
 
