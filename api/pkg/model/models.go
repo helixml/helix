@@ -122,7 +122,7 @@ func ProcessModelName(
 			}
 		}
 	case types.SessionTypeImage:
-		return Model_Diffusers_SD35, nil
+		return Model_Diffusers_SDTurbo, nil
 	}
 
 	// shouldn't get here
@@ -157,6 +157,7 @@ const (
 	Model_Axolotl_Mistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Cog_SDXL          string = "stabilityai/stable-diffusion-xl-base-1.0"
 	Model_Diffusers_SD35    string = "stabilityai/stable-diffusion-3.5-medium"
+	Model_Diffusers_SDTurbo string = "stabilityai/sd-turbo"
 
 	// We only need constants for _some_ ollama models that are hardcoded in
 	// various places (backward compat). Other ones can be added dynamically now.
@@ -170,10 +171,10 @@ const (
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 	return []*DiffusersGenericImage{
 		{
-			Id:          Model_Diffusers_SD35,
-			Name:        "Stable Diffusion 3.5 Medium",
-			Memory:      GB * 21,
-			Description: "Medium model, from Stability AI",
+			Id:          Model_Diffusers_SDTurbo,
+			Name:        "Stable Diffusion Turbo",
+			Memory:      GB * 5,
+			Description: "Turbo model, from Stability AI",
 			Hide:        false,
 		},
 	}, nil
