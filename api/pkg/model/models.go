@@ -53,6 +53,16 @@ func (m ModelName) InferenceRuntime() types.InferenceRuntime {
 	if m.String() == Model_Cog_SDXL {
 		return types.InferenceRuntimeCog
 	}
+	diffusersModels, err := GetDefaultDiffusersModels()
+	if err != nil {
+		return types.InferenceRuntimeAxolotl
+	}
+	for _, model := range diffusersModels {
+		if m.String() == model.Id {
+			return types.InferenceRuntimeDiffusers
+		}
+	}
+
 	// misnamed: axolotl runtime handles axolotl and cog/sd-scripts
 	return types.InferenceRuntimeAxolotl
 }
@@ -112,7 +122,7 @@ func ProcessModelName(
 			}
 		}
 	case types.SessionTypeImage:
-		return Model_Cog_SDXL, nil
+		return Model_Diffusers_SD35, nil
 	}
 
 	// shouldn't get here
@@ -133,12 +143,20 @@ func GetModels() (map[string]Model, error) {
 	for _, model := range ollamaModels {
 		models[model.Id] = model
 	}
+	diffusersModels, err := GetDefaultDiffusersModels()
+	if err != nil {
+		return nil, err
+	}
+	for _, model := range diffusersModels {
+		models[model.Id] = model
+	}
 	return models, nil
 }
 
 const (
 	Model_Axolotl_Mistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Cog_SDXL          string = "stabilityai/stable-diffusion-xl-base-1.0"
+	Model_Diffusers_SD35    string = "stabilityai/stable-diffusion-3.5-medium"
 
 	// We only need constants for _some_ ollama models that are hardcoded in
 	// various places (backward compat). Other ones can be added dynamically now.
@@ -148,6 +166,18 @@ const (
 	Model_Ollama_Llama3_70b             string = "llama3:70b"
 	Model_Ollama_Phi3                   string = "phi3:instruct"
 )
+
+func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
+	return []*DiffusersGenericImage{
+		{
+			Id:          Model_Diffusers_SD35,
+			Name:        "Stable Diffusion 3.5 Medium",
+			Memory:      GB * 21,
+			Description: "Medium model, from Stability AI",
+			Hide:        false,
+		},
+	}, nil
+}
 
 // See also types/models.go for model name constants
 func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
