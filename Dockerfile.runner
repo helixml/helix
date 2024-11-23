@@ -2,6 +2,8 @@
 
 ARG TAG=2024-11-21a-empty
 
+FROM ghcr.io/astral-sh/uv:0.5.4 as uv
+
 ### BUILD
 
 FROM golang:1.22 AS go-build-env
@@ -44,6 +46,15 @@ WORKDIR /workspace/helix
 
 # Copy runner directory from the repo
 COPY runner ./runner
+
+# We need to set this environment variable so that uv knows where
+# the virtual environment is to install packages
+ENV UV_PROJECT_ENVIRONMENT=/workspace/helix/runner/helix-diffusers/venv
+
+# Install the packages with uv using --mount=type=cache to cache the downloaded packages
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=from=uv,source=/uv,target=/usr/bin/uv \
+    cd /workspace/helix/runner/helix-diffusers && uv sync --no-dev
 
 # Copy the cog wrapper, cog and cog-sdxl is installed in the base image, this is just the cog server
 COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py

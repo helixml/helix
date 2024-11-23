@@ -223,7 +223,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 			modelName = model.Model_Axolotl_Mistral7b
 		}
 	case types.SessionTypeImage:
-		modelName = model.Model_Cog_SDXL
+		modelName = model.Model_Diffusers_SD35
 	}
 
 	sessionID := system.GenerateUUID()
