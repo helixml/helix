@@ -307,7 +307,7 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 	if i.filter.Mode == types.SessionModeInference {
 		cmd = exec.CommandContext(
 			ctx,
-			"bash", "/workspace/helix/runner/venv_command.sh",
+			"uv", "run",
 			"uvicorn", "main:app",
 			"--host", "0.0.0.0",
 			"--port", strconv.Itoa(i.port),
@@ -321,14 +321,9 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 	// Set the working directory to the runner dir (which makes relative path stuff easier)
 	cmd.Dir = "/workspace/helix/runner/helix-diffusers"
 
-	// Inherit all the parent environment variables
 	cmd.Env = append(cmd.Env,
-		os.Environ()...,
-	)
-
-	cmd.Env = append(cmd.Env,
-		// Add the APP_FOLDER environment variable which is required by the old code
-		fmt.Sprintf("APP_FOLDER=%s", path.Clean(cmd.Dir)),
+		// Add the HF_TOKEN environment variable which is required by the diffusers library
+		fmt.Sprintf("HF_TOKEN=hf_ISxQhTIkdWkfZgUFPNUwVtHrCpMiwOYPIEKEN=%s", os.Getenv("HF_TOKEN")),
 		// Set python to be unbuffered so we get logs in real time
 		"PYTHONUNBUFFERED=1",
 	)
