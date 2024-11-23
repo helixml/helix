@@ -9,9 +9,7 @@ from typing import List
 
 import PIL
 import torch
-from diffusers.pipelines.stable_diffusion_3 import (
-    StableDiffusion3Pipeline,
-)
+from diffusers import AutoPipelineForText2Image
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +23,7 @@ logger = logging.getLogger(__name__)
 server_host = os.getenv("SERVER_HOST", "0.0.0.0")
 server_port = int(os.getenv("SERVER_PORT", 8000))
 server_url = f"http://{server_host}:{server_port}"
-model_id = os.getenv("MODEL_ID", "stabilityai/stable-diffusion-3.5-medium")
+model_id = os.getenv("MODEL_ID", "stabilityai/sd-turbo")
 
 
 class TextToImageInput(BaseModel):
@@ -46,16 +44,18 @@ class TextToImagePipeline:
             if torch.cuda.is_available():
                 logger.info("Loading CUDA")
                 self.device = "cuda"
-                self.pipeline = StableDiffusion3Pipeline.from_pretrained(
+                self.pipeline = AutoPipelineForText2Image.from_pretrained(
                     model_id,
                     torch_dtype=torch.bfloat16,
+                    local_files_only=True,
                 ).to(device=self.device)
             elif torch.backends.mps.is_available():
                 logger.info("Loading MPS for Mac M Series")
                 self.device = "mps"
-                self.pipeline = StableDiffusion3Pipeline.from_pretrained(
+                self.pipeline = AutoPipelineForText2Image.from_pretrained(
                     model_id,
                     torch_dtype=torch.bfloat16,
+                    local_files_only=True,
                 ).to(device=self.device)
             else:
                 raise Exception("No CUDA or MPS device available")
