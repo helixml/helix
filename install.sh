@@ -292,7 +292,7 @@ fi
 # Function to gather planned modifications
 gather_modifications() {
     local modifications=""
-    
+
     if [ "$CLI" = true ]; then
         modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
@@ -309,7 +309,7 @@ gather_modifications() {
         modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
-    
+
     echo -e "$modifications"
 }
 
@@ -318,7 +318,7 @@ ask_for_approval() {
     if [ "$AUTO_APPROVE" = true ]; then
         return 0
     fi
-    
+
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ The following modifications will be made to your system:                  │"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
@@ -331,7 +331,7 @@ ask_for_approval() {
     echo
     read -p "Do you want to proceed? (y/N) " response
     case "$response" in
-        [yY][eE][sS]|[yY]) 
+        [yY][eE][sS]|[yY])
             return 0
             ;;
         *)
@@ -490,7 +490,7 @@ EOF
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
     echo
-    
+
     # Default to localhost if it wasn't passed
     if [ -z "$API_HOST" ]; then
         API_HOST="http://localhost:8080"
