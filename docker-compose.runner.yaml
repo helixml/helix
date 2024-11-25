@@ -4,9 +4,9 @@ services:
     restart: always
     build:
       context: .
-      dockerfile: Dockerfile.runner    
+      dockerfile: Dockerfile.runner
     network_mode: "host" # So the runner can access the control plane that is running on the host
-    volumes:      
+    volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
     environment:
       - RUNNER_ID=local-dev-runner
