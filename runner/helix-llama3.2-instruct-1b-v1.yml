@@ -1,6 +1,6 @@
 # Compare this file with
 # https://github.com/axolotl-ai-cloud/axolotl/blob/main/examples/llama-3/instruct-lora-8b.yml and
-# https://github.com/axolotl-ai-cloud/axolotl/blob/main/examples/llama-3/qlora.yml 
+# https://github.com/axolotl-ai-cloud/axolotl/blob/main/examples/llama-3/qlora.yml
 
 base_model: unsloth/Llama-3.2-1B-Instruct
 model_type: LlamaForCausalLM
