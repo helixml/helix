@@ -89,6 +89,7 @@ export interface IUserConfig {
 
 export interface IHelixModel {
   id: string;
+  type: string;
   name: string;
   description: string;
   hide?: boolean;
