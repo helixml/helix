@@ -24,6 +24,11 @@ server_host = os.getenv("SERVER_HOST", "0.0.0.0")
 server_port = int(os.getenv("SERVER_PORT", 8000))
 server_url = f"http://{server_host}:{server_port}"
 model_id = os.getenv("MODEL_ID", "stabilityai/sd-turbo")
+cache_dir = os.getenv("CACHE_DIR", "/root/.cache/huggingface/hub")
+
+# Check that the cache dir exists
+if not os.path.exists(cache_dir):
+    raise RuntimeError(f"Cache directory {cache_dir} does not exist")
 
 
 class TextToImageInput(BaseModel):
@@ -39,7 +44,7 @@ class TextToImagePipeline:
         logging.info("Pipeline instance created")
 
     def start(self, model_id: str):
-        logging.info(f"Starting pipeline with model: {model_id}")
+        logging.info(f"Starting pipeline for model {model_id}, cache dir: {cache_dir}")
         try:
             if torch.cuda.is_available():
                 logger.info("Loading CUDA")
@@ -48,6 +53,7 @@ class TextToImagePipeline:
                     model_id,
                     torch_dtype=torch.bfloat16,
                     local_files_only=True,
+                    cache_dir=cache_dir,
                 ).to(device=self.device)
             elif torch.backends.mps.is_available():
                 logger.info("Loading MPS for Mac M Series")
@@ -56,6 +62,7 @@ class TextToImagePipeline:
                     model_id,
                     torch_dtype=torch.bfloat16,
                     local_files_only=True,
+                    cache_dir=cache_dir,
                 ).to(device=self.device)
             else:
                 raise Exception("No CUDA or MPS device available")

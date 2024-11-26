@@ -26,13 +26,14 @@ type SlotFactory interface {
 // the horrible logic involved with starting and destroying a ModelInstance.
 // E.g. axolotl expects a session, whereas ollama expects an LLMInferenceRequest.
 type Slot struct {
-	ID              uuid.UUID           // Same as scheduler.Slot
-	RunnerID        string              // Same as scheduler.Slot
-	originalWork    *scheduler.Workload // The original work that was assigned to this slot
-	modelInstance   ModelInstance
-	llmWorkChan     chan *types.RunnerLLMInferenceRequest
-	sessionWorkChan chan *types.Session
-	currentWork     *scheduler.Workload
+	ID                     uuid.UUID           // Same as scheduler.Slot
+	RunnerID               string              // Same as scheduler.Slot
+	originalWork           *scheduler.Workload // The original work that was assigned to this slot
+	modelInstance          ModelInstance
+	llmWorkChan            chan *types.RunnerLLMInferenceRequest
+	sessionWorkChan        chan *types.Session
+	currentWork            *scheduler.Workload
+	sessionResponseHandler func(res *types.RunnerTaskResponse) error
 }
 
 func (r *Slot) Stop() {
@@ -76,6 +77,15 @@ func (r *Slot) IsScheduled() bool {
 	return len(r.sessionWorkChan) > 0 || len(r.llmWorkChan) > 0
 }
 
+func (r *Slot) ErrorWorkload(workload *scheduler.Workload, err error) {
+	switch workload.WorkloadType {
+	case scheduler.WorkloadTypeSession:
+		ErrorSession(r.sessionResponseHandler, workload.Session(), err)
+	default:
+		log.Error().Msgf("unknown workload type: %s", workload.WorkloadType)
+	}
+}
+
 var _ SlotFactory = &runtimeFactory{}
 
 type runtimeFactory struct{}
@@ -90,10 +100,11 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 	runnerOptions RunnerOptions,
 ) (*Slot, error) {
 	slot := &Slot{
-		ID:           slotID,
-		RunnerID:     runnerOptions.ID,
-		originalWork: work,
-		currentWork:  work,
+		ID:                     slotID,
+		RunnerID:               runnerOptions.ID,
+		originalWork:           work,
+		currentWork:            work,
+		sessionResponseHandler: sessionResponseHandler,
 	}
 	switch work.WorkloadType {
 	case scheduler.WorkloadTypeLLMInferenceRequest:
@@ -223,6 +234,7 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 				},
 			)
 			if err != nil {
+				slot.ErrorWorkload(work, fmt.Errorf("error creating diffusers runtime: %w", err))
 				return nil, err
 			}
 
@@ -230,6 +242,7 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 
 			err = modelInstance.Start(ctx)
 			if err != nil {
+				slot.ErrorWorkload(work, fmt.Errorf("error starting diffusers runtime: %w", err))
 				return nil, err
 			}
 			slot.modelInstance = modelInstance

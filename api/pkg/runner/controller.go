@@ -559,3 +559,11 @@ func (r *Runner) startNewRuntime(slotID uuid.UUID, work *scheduler.Workload) (*S
 	r.activeModelInstances.Store(runtime.modelInstance.ID(), runtime.modelInstance)
 	return runtime, nil
 }
+
+func ErrorSession(sessionResponseHandler func(res *types.RunnerTaskResponse) error, session *types.Session, err error) error {
+	return sessionResponseHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeResult,
+		SessionID: session.ID,
+		Error:     err.Error(),
+	})
+}
