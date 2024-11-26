@@ -306,27 +306,37 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 // inbuiltModelsDirectory directory inside the Docker image that can have
 // a cache of models that are already downloaded during the build process.
 // These files need to be copied into runner cache dir
-const inbuiltModelsDirectory = "/workspace/ollama"
+var bakedModelDirectories = []string{"/workspace/ollama", "/workspace/diffusers"}
 
 func initializeModelsCache(cfg *config.RunnerConfig) error {
-	log.Info().Msgf("Copying baked models from %s into cache dir %s - this may take a while...", inbuiltModelsDirectory, cfg.CacheDir)
-	_, err := os.Stat(inbuiltModelsDirectory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// If the directory doesn't exist, nothing to do
-			return nil
-		}
-		return fmt.Errorf("error checking inbuilt models directory: %w", err)
-	}
+	log.Info().Msgf("Copying baked models from %v into container cache dir %s - this may take a while the first time...", bakedModelDirectories, cfg.CacheDir)
 
-	// Check if the cache dir exists, if not create it
-	if _, err := os.Stat(cfg.CacheDir); os.IsNotExist(err) {
-		err = os.MkdirAll(cfg.CacheDir, 0755)
+	for _, dir := range bakedModelDirectories {
+		// If the directory doesn't exist, nothing to do
+		_, err := os.Stat(dir)
 		if err != nil {
-			return err
+			if os.IsNotExist(err) {
+				log.Debug().Msgf("Baked models directory %s does not exist", dir)
+				continue
+			}
+			return fmt.Errorf("error checking inbuilt models directory: %w", err)
+		}
+
+		// Check if the cache dir exists, if not create it
+		if _, err := os.Stat(cfg.CacheDir); os.IsNotExist(err) {
+			err = os.MkdirAll(cfg.CacheDir, 0755)
+			if err != nil {
+				return fmt.Errorf("error creating cache dir: %w", err)
+			}
+		}
+
+		// Copy the directory from the Docker image into the cache dir
+		log.Debug().Msgf("Copying %s into container dir %s", dir, cfg.CacheDir)
+		err = copydir.CopyDir(cfg.CacheDir, dir)
+		if err != nil {
+			return fmt.Errorf("error copying inbuilt models directory: %w", err)
 		}
 	}
 
-	return copydir.CopyDir(cfg.CacheDir, inbuiltModelsDirectory)
-
+	return nil
 }

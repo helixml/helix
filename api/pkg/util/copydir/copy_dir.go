@@ -35,21 +35,6 @@ func CopyDir(dst, src string) error {
 		// destination with the path without the src on it.
 		dstPath := filepath.Join(dst, path[len(src):])
 
-		// If dstPath exists and has the same size as path, don't copy it again.
-		// We're mainly copying content addressed blobs here, so this is
-		// probably fine.
-		dstInfo, err := os.Stat(dstPath)
-		if err == nil && dstInfo.Size() == info.Size() {
-			return nil
-		}
-
-		// we don't want to try and copy the same file over itself.
-		if eq, err := SameFile(path, dstPath); eq {
-			return nil
-		} else if err != nil {
-			return err
-		}
-
 		// If we have a directory, make that subdirectory, then continue
 		// the walk.
 		if info.IsDir() {
@@ -63,6 +48,22 @@ func CopyDir(dst, src string) error {
 			}
 
 			return nil
+		}
+
+		// If dstPath exists and has the same size as path, don't copy it again.
+		// We're mainly copying content addressed blobs here, so this is
+		// probably fine.
+		// Must use Lstat to get the file status here in case the file is a symlink
+		dstInfo, err := os.Lstat(dstPath)
+		if err == nil && dstInfo.Size() == info.Size() {
+			return nil
+		}
+
+		// we don't want to try and copy the same file over itself.
+		if eq, err := SameFile(path, dstPath); eq {
+			return nil
+		} else if err != nil {
+			return err
 		}
 
 		// If the current path is a symlink, recreate the symlink relative to
