@@ -82,6 +82,7 @@ const AppSettings: React.FC<AppSettingsProps> = ({
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Model</Typography>
         <ModelPicker
+          type="text"
           model={model}
           onSetModel={setModel}
         />

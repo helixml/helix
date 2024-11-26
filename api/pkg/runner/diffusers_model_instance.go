@@ -322,6 +322,7 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 	cmd.Dir = "/workspace/helix/runner/helix-diffusers"
 
 	cmd.Env = append(cmd.Env,
+		fmt.Sprintf("MODEL_ID=%s", i.initialSession.ModelName),
 		// Add the HF_TOKEN environment variable which is required by the diffusers library
 		fmt.Sprintf("HF_TOKEN=hf_ISxQhTIkdWkfZgUFPNUwVtHrCpMiwOYPIEKEN=%s", os.Getenv("HF_TOKEN")),
 		// Set python to be unbuffered so we get logs in real time

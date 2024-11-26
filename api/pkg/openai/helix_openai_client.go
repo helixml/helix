@@ -41,6 +41,23 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 			Name:        m.GetHumanReadableName(),
 			Description: m.GetDescription(),
 			Hide:        m.GetHidden(),
+			Type:        "text",
+		})
+	}
+
+	diffusersModels, err := model.GetDefaultDiffusersModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Diffusers models: %w", err)
+	}
+	for _, m := range diffusersModels {
+		HelixModels = append(HelixModels, model.OpenAIModel{
+			ID:          m.ModelName().String(),
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        m.GetHumanReadableName(),
+			Description: m.GetDescription(),
+			Hide:        m.GetHidden(),
+			Type:        "image",
 		})
 	}
 

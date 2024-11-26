@@ -1,19 +1,18 @@
-import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
 import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
+import { createContext, FC, useCallback, useEffect, useMemo, useState } from 'react'
 import useApi from '../hooks/useApi'
-import useSnackbar from '../hooks/useSnackbar'
+import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
-import { extractErrorMessage } from '../hooks/useErrorCallback'
+import useSnackbar from '../hooks/useSnackbar'
 
 import {
-  IKeycloakUser,
-  ISession,
   IApiKey,
-  IServerConfig,
-  IUserConfig,
   IHelixModel,
+  IKeycloakUser,
+  IServerConfig,
+  IUserConfig
 } from '../types'
 
 const REALM = 'helix'
@@ -225,7 +224,8 @@ export const useAccountContext = (): IAccountContext => {
           id: m.id,
           name: m.name || m.id,
           description: m.description || '',
-          hide: m.hide || false
+          hide: m.hide || false,
+          type: m.type || 'text',
         }));
 
         // Filter out hidden models
