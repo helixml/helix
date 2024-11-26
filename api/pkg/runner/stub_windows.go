@@ -72,8 +72,6 @@ func (s *stubFreePortFinder) GetFreePort() (int, error) {
 
 var freePortFinder FreePortFinder = &stubFreePortFinder{}
 
-// Add any other necessary stub functions or types here
-
 type CogModelInstance struct{}
 
 func (a *CogModelInstance) ID() string                                   { return "" }
@@ -93,5 +91,29 @@ func (a *CogModelInstance) AssignSessionTask(context.Context, *types.Session) (*
 	return nil, nil
 }
 func NewCogModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*CogModelInstance, error) {
+	return nil, nil
+}
+
+var _ ModelInstance = &DiffusersModelInstance{}
+
+type DiffusersModelInstance struct{}
+
+func (a *DiffusersModelInstance) ID() string                                   { return "" }
+func (a *DiffusersModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
+func (a *DiffusersModelInstance) Stale() bool                                  { return false }
+func (a *DiffusersModelInstance) Model() model.Model                           { return nil }
+func (a *DiffusersModelInstance) NextSession() *types.Session                  { return nil }
+func (a *DiffusersModelInstance) SetNextSession(*types.Session)                {}
+func (a *DiffusersModelInstance) GetQueuedSession() *types.Session             { return nil }
+func (a *DiffusersModelInstance) Done() <-chan bool                            { return nil }
+func (a *DiffusersModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
+func (a *DiffusersModelInstance) QueueSession(*types.Session, bool)            {}
+func (a *DiffusersModelInstance) Start(context.Context) error                  { return nil }
+func (a *DiffusersModelInstance) Stop() error                                  { return nil }
+func (a *DiffusersModelInstance) IsActive() bool                               { return false }
+func (a *DiffusersModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
+	return nil, nil
+}
+func NewDiffusersModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*DiffusersModelInstance, error) {
 	return nil, nil
 }

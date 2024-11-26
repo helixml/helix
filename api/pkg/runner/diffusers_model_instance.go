@@ -1,3 +1,6 @@
+//go:build !windows
+// +build !windows
+
 package runner
 
 import (
@@ -174,16 +177,6 @@ func NewDiffusersModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*
 	return modelInstance, nil
 }
 
-/*
-
-
-
-	QUEUE
-
-
-
-*/
-
 func (i *DiffusersModelInstance) getSessionFileHander(session *types.Session) *SessionFileHandler {
 	return &SessionFileHandler{
 		folder:    path.Join(os.TempDir(), "helix", "downloads", session.ID),
@@ -214,38 +207,6 @@ func (i *DiffusersModelInstance) AssignSessionTask(ctx context.Context, session 
 }
 
 func (i *DiffusersModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
-
-/*
-
-
-
-	EVENT HANDLERS
-
-
-
-*/
-
-func (i *DiffusersModelInstance) errorSession(session *types.Session, err error) {
-	apiUpdateErr := i.responseHandler(&types.RunnerTaskResponse{
-		Type:      types.WorkerTaskResponseTypeResult,
-		SessionID: session.ID,
-		Error:     err.Error(),
-	})
-
-	if apiUpdateErr != nil {
-		log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
-	}
-}
-
-/*
-
-
-
-PROCESS MANAGEMENT
-
-
-
-*/
 
 func (i *DiffusersModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskResponse) {
 	if i.currentSession == nil {
@@ -295,6 +256,22 @@ func (i *DiffusersModelInstance) taskResponseHandler(taskResponse *types.RunnerT
 }
 
 func (i *DiffusersModelInstance) Start(ctx context.Context) error {
+	userInteraction, err := data.GetLastUserInteraction(i.initialSession.Interactions)
+	if err != nil {
+		return fmt.Errorf("error getting last user interaction: %w", err)
+	}
+	err = i.responseHandler(&types.RunnerTaskResponse{
+		Type:          types.WorkerTaskResponseTypeProgress,
+		SessionID:     i.initialSession.ID,
+		Status:        "starting",
+		Owner:         i.initialSession.Owner,
+		InteractionID: userInteraction.ID,
+		Progress:      1,
+	})
+	if err != nil {
+		return fmt.Errorf("error writing event: %s", err.Error())
+	}
+
 	// Get random free port
 	port, err := freeport.GetFreePort()
 	if err != nil {
@@ -322,9 +299,10 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 	cmd.Dir = "/workspace/helix/runner/helix-diffusers"
 
 	cmd.Env = append(cmd.Env,
+		fmt.Sprintf("CACHE_DIR=%s", path.Join(i.runnerOptions.Config.CacheDir, "hub")), // Mimic the diffusers library's default cache dir
 		fmt.Sprintf("MODEL_ID=%s", i.initialSession.ModelName),
 		// Add the HF_TOKEN environment variable which is required by the diffusers library
-		fmt.Sprintf("HF_TOKEN=hf_ISxQhTIkdWkfZgUFPNUwVtHrCpMiwOYPIEKEN=%s", os.Getenv("HF_TOKEN")),
+		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 		// Set python to be unbuffered so we get logs in real time
 		"PYTHONUNBUFFERED=1",
 	)
@@ -388,11 +366,11 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 	go func(cmd *exec.Cmd) {
 		defer close(i.finishChan)
 		if err := cmd.Wait(); err != nil {
-			log.Error().Msgf("Cog model instance exited with error: %s", err.Error())
+			log.Error().Msgf("Diffusers model instance exited with error: %s", err.Error())
 
 			errstr := string(stderrBuf.Bytes())
 			if i.currentSession != nil {
-				i.errorSession(i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
+				ErrorSession(i.responseHandler, i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
 			}
 
 			if strings.Contains(errstr, "(core dumped)") {
@@ -439,8 +417,18 @@ WAIT:
 		}
 	}
 
-	log.Info().Msgf("🟢 Cog model instance started on port %d", i.port)
-
+	log.Info().Msgf("🟢 Diffusers model instance started on port %d", i.port)
+	err = i.responseHandler(&types.RunnerTaskResponse{
+		Type:          types.WorkerTaskResponseTypeProgress,
+		SessionID:     i.initialSession.ID,
+		Status:        "started",
+		Owner:         i.initialSession.Owner,
+		InteractionID: userInteraction.ID,
+		Progress:      1,
+	})
+	if err != nil {
+		return fmt.Errorf("error writing event: %s", err.Error())
+	}
 	// TODO: do we need to pull models?
 
 	go func() {
@@ -465,7 +453,7 @@ WAIT:
 						Str("session_id", session.ID).
 						Err(err).
 						Msg("error processing interaction")
-					i.errorSession(session, err)
+					ErrorSession(i.responseHandler, i.currentSession, err)
 					if strings.Contains(err.Error(), "connection refused") {
 						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
 						os.Exit(1)
@@ -560,10 +548,20 @@ func (i *DiffusersModelInstance) processInteraction(session *types.Session) erro
 		return fmt.Errorf("fine-tuning not supported")
 	case types.SessionModeInference:
 		log.Debug().Str("session_id", session.ID).Msg("processing inference interaction")
-
 		lastUserInteraction, err := data.GetLastUserInteraction(session.Interactions)
 		if err != nil {
 			return fmt.Errorf("getting last user interaction: %w", err)
+		}
+		err = i.responseHandler(&types.RunnerTaskResponse{
+			Type:          types.WorkerTaskResponseTypeProgress,
+			SessionID:     session.ID,
+			Status:        "processing",
+			Owner:         session.Owner,
+			InteractionID: lastUserInteraction.ID,
+			Progress:      1,
+		})
+		if err != nil {
+			return fmt.Errorf("error writing event: %s", err.Error())
 		}
 
 		// Marshall the request
@@ -618,6 +616,8 @@ func (i *DiffusersModelInstance) processInteraction(session *types.Session) erro
 			InteractionID: assistantInteraction.ID,
 			Owner:         session.Owner,
 			Done:          true,
+			Status:        "done",
+			Progress:      100,
 			Files:         imagePaths,
 		})
 	default:

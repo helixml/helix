@@ -178,13 +178,6 @@ const (
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 	return []*DiffusersGenericImage{
 		{
-			Id:          Model_Diffusers_SDTurbo,
-			Name:        "Stable Diffusion Turbo",
-			Memory:      GB * 5,
-			Description: "Turbo model, from Stability AI",
-			Hide:        false,
-		},
-		{
 			Id:          Model_Diffusers_SD35,
 			Name:        "Stable Diffusion 3.5 Medium",
 			Memory:      GB * 24,
@@ -192,9 +185,16 @@ func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 			Hide:        false,
 		},
 		{
+			Id:          Model_Diffusers_SDTurbo,
+			Name:        "Stable Diffusion Turbo",
+			Memory:      GB * 5,
+			Description: "Turbo model, from Stability AI",
+			Hide:        false,
+		},
+		{
 			Id:          Model_Diffusers_FluxDev,
 			Name:        "Flux 1 Dev",
-			Memory:      GB * 24,
+			Memory:      GB * 32,
 			Description: "Dev model, from Black Forest Labs",
 			Hide:        false,
 		},
