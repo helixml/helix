@@ -122,7 +122,13 @@ func ProcessModelName(
 			}
 		}
 	case types.SessionTypeImage:
-		return Model_Diffusers_SDTurbo, nil
+		if modelName == "" {
+			// default image model for image inference
+			return Model_Diffusers_SDTurbo, nil
+		}
+		// allow user-provided model name (e.g. assume API users
+		// know what they're doing).
+		return modelName, nil
 	}
 
 	// shouldn't get here
@@ -158,6 +164,7 @@ const (
 	Model_Cog_SDXL          string = "stabilityai/stable-diffusion-xl-base-1.0"
 	Model_Diffusers_SD35    string = "stabilityai/stable-diffusion-3.5-medium"
 	Model_Diffusers_SDTurbo string = "stabilityai/sd-turbo"
+	Model_Diffusers_FluxDev string = "black-forest-labs/FLUX.1-dev"
 
 	// We only need constants for _some_ ollama models that are hardcoded in
 	// various places (backward compat). Other ones can be added dynamically now.
@@ -175,6 +182,20 @@ func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 			Name:        "Stable Diffusion Turbo",
 			Memory:      GB * 5,
 			Description: "Turbo model, from Stability AI",
+			Hide:        false,
+		},
+		{
+			Id:          Model_Diffusers_SD35,
+			Name:        "Stable Diffusion 3.5 Medium",
+			Memory:      GB * 24,
+			Description: "Medium model, from Stability AI",
+			Hide:        false,
+		},
+		{
+			Id:          Model_Diffusers_FluxDev,
+			Name:        "Flux 1 Dev",
+			Memory:      GB * 24,
+			Description: "Dev model, from Black Forest Labs",
 			Hide:        false,
 		},
 	}, nil
