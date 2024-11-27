@@ -237,9 +237,9 @@ type modelTool struct {
 	ToolType    string
 }
 
-const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use an tool. If the user asks about a specific item or person, always check with an appropriate tool rather than making something up/depending on your background knowledge. There are two types of tools: api tools and gptscript tools. API tools are used to call APIs. gptscript tools can do anything. If the user mentions gptscript, use one of the gptscript tools.
+const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use a tool but ONLY if you have a tool that exactly matches what they are trying to do. NEVER invent tools, only use the ones provided below in "the available tools". If the user asks about a specific item or person, always check with an appropriate tool if there is one rather than making something up/depending on your background knowledge. There are two types of tools: api tools and gptscript tools. API tools are used to call APIs. gptscript tools can do anything. If the user mentions gptscript, use one of the gptscript tools.
 
-Examples:  
+Examples:
 
 **User Input:** Create a B-1 visa application
 
@@ -259,10 +259,10 @@ Examples:
 
 **Another Example:**
 
-**User Input:** How to renew a B-1 visa  
+**User Input:** How to renew a B-1 visa
 
-**Available APIs:**   
-- API(createVisaApplication): This API creates a B-1 visa application.  
+**Available APIs:**
+- API(createVisaApplication): This API creates a B-1 visa application.
 - API(renewVisa): This API renews an existing B-1 visa.
 
 **Verdict:** Does not need API call so the response should be:
@@ -271,7 +271,7 @@ Examples:
   "needs_tool": "no",
   "justification": "The user is asking how to renew a B-1 visa, which is an informational question that does not require an API call.",
   "api": ""
-} 
+}
 ` + "```" + `
 
 
@@ -279,7 +279,7 @@ Examples:
 
 **User Input:** What job is Marcus applying for?
 
-**Available APIs:**   
+**Available APIs:**
 - API(listJobVacancies): List all job vacancies and the associated candidate, optionally filter by job title and/or candidate name
 
 **Verdict:** Needs API call so the response should be:
@@ -288,15 +288,15 @@ Examples:
   "needs_tool": "yes",
   "justification": "In order to find out what job Marcus is applying for, we can query by candidate name",
   "api": "listJobVacancies"
-} 
+}
 ` + "```" + `
 
 
 **One More Example:**
 
-**User Input:** Get status of my B-1 visa application  
+**User Input:** Get status of my B-1 visa application
 
-**Available APIs:**    
+**Available APIs:**
 - API(getVisaStatus): This API queries status of a B-1 visa application.
 
 **Verdict:** Needs tool so the response should be:
