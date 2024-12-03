@@ -45,9 +45,15 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
 	})
 
-	// Simulate not updating the runner for a while so that subsequent jobs get rescheduled
-	work, err := scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	// Allow the background goroutine to run
+	var work *Workload
+	WaitFor(t, func() bool {
+		work, err = scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+		return work != nil
+	}, 2*time.Second)
+
 	assert.NoError(t, err)
+	assert.NotNil(t, work)
 
 	// Assert that the work, originally scheduled for runner-1 is now on runner-2
 	assert.Equal(t, work.ID(), "test-request-1")
@@ -533,13 +539,17 @@ func TestScheduler_ChangingRunnerName(t *testing.T) {
 	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
-	// Allow the the first runner to die
+	// Allow the runner to die
 	WaitFor(t, func() bool {
 		data := scheduler.DashboardSlotsData()
 		return len(data) == 0
 	}, 2*time.Second)
 	data := scheduler.DashboardSlotsData()
 	assert.Len(t, data, 0)
+
+	// Make sure that the work has gone from the old slot
+	_, ok := scheduler.find("request-1")
+	assert.False(t, ok)
 }
 
 func enqueueTestLLMWorkload(scheduler Scheduler, name string, model string) error {
