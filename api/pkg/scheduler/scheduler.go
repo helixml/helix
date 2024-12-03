@@ -58,6 +58,11 @@ func NewScheduler(ctx context.Context, cfg *config.ServerConfig, onSchedulingErr
 		scheduler.processQueue(ctx)
 	}()
 
+	// Start a goroutine that will periodically check for dead runners and reschedule their work
+	go func() {
+		scheduler.rescheduleDeadWork(ctx)
+	}()
+
 	return scheduler
 }
 
@@ -215,31 +220,6 @@ func (s *scheduler) Release(id string) error {
 // It checks the runner's slots and assigns the work if any slot is ready.
 // If newWorkOnly is set, it will only return work from new slots
 func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly bool, model string) (*Workload, error) {
-	// Before retrieving work, check for dead runners and attempt to reschedule their work.
-	deadSlots := s.allocator.DeadSlots(s.cluster.DeadRunnerIDs())
-	for _, dead := range deadSlots {
-		// Get work associated with the dead slot.
-		work, ok := s.workStore.Load(dead.ID)
-		if !ok {
-			continue // Work not owned by this scheduler, ignore it.
-		}
-
-		// Attempt to reschedule the work.
-		log.Trace().
-			Str("runner_id", id).
-			Str("slot_id", dead.ID.String()).
-			Msg("rescheduling work for dead slot")
-		err := s.Schedule(work)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("runner_id", id).
-				Str("slot_id", dead.ID.String()).
-				Msg("failed to reschedule work for dead slot")
-			continue
-		}
-	}
-
 	// Iterate through the slots assigned to the runner.
 	for _, slot := range s.allocator.RunnerSlots(id) {
 		// If the slot is ready for scheduling, retrieve the associated work.
@@ -453,6 +433,47 @@ func (s *scheduler) processQueue(ctx context.Context) {
 			s.queueMtx.Unlock()
 
 			// Sleep for a while to allow others to access the queue
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func (s *scheduler) rescheduleDeadWork(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			deadRunnerIDs := s.cluster.DeadRunnerIDs()
+			for _, id := range deadRunnerIDs {
+				deadSlots := s.allocator.DeadSlots([]string{id})
+				for _, dead := range deadSlots {
+					// Get work associated with the dead slot.
+					work, ok := s.workStore.Load(dead.ID)
+					if !ok {
+						continue // No work to reschedule
+					}
+
+					// Attempt to reschedule the work.
+					log.Trace().
+						Str("runner_id", id).
+						Str("slot_id", dead.ID.String()).
+						Msg("rescheduling work for dead slot")
+					err := s.Enqueue(work)
+					if err != nil {
+						log.Error().
+							Err(err).
+							Str("runner_id", id).
+							Str("slot_id", dead.ID.String()).
+							Msg("failed to reschedule work for dead slot")
+						continue
+					}
+					// Delete the workload from the store now it has been rescheduled
+					s.workStore.Delete(dead.ID)
+				}
+			}
+
+			// Sleep for a while to allow others to access the scheduler
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
