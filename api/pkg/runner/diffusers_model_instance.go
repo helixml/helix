@@ -284,7 +284,7 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 	if i.filter.Mode == types.SessionModeInference {
 		cmd = exec.CommandContext(
 			ctx,
-			"uv", "run",
+			"uv", "run", "--no-dev", // Don't install dev dependencies
 			"uvicorn", "main:app",
 			"--host", "0.0.0.0",
 			"--port", strconv.Itoa(i.port),
