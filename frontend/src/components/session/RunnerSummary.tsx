@@ -54,8 +54,8 @@ export const RunnerSummary: FC<{
       </Row>
       {
         runner.model_instances
-        .sort((a, b) => a.model_name.localeCompare(b.model_name))
-        .map(modelInstance => {
+          ?.sort((a, b) => a.model_name.localeCompare(b.model_name))
+          .map(modelInstance => {
           return (
             <ModelInstanceSummary
               key={ modelInstance.id }

@@ -286,6 +286,11 @@ func (a *allocator) DeadSlots(deadRunnerIDs []string) []*Slot {
 		slots := make([]*Slot, 0, a.slots.Size())
 		runnerSlots := a.RunnerSlots(runnerID)
 		for _, slot := range runnerSlots {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model_name", slot.ModelName().String()).
+				Msg("deleting dead slot")
 			a.slots.Delete(slot.ID)
 			slots = append(slots, slot)
 		}
