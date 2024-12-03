@@ -16,7 +16,7 @@ services:
     env_file:
       - .env
     environment:
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
