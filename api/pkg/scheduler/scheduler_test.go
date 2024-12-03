@@ -515,6 +515,33 @@ func TestScheduler_ProcessQueue(t *testing.T) {
 	assert.Len(t, scheduler.queue, 1)
 }
 
+func TestScheduler_ChangingRunnerName(t *testing.T) {
+	// We had a bug where if a runner changed its name, the new scheduler code did not run the
+	// dead runner cleanup code. This test ensures that that bug is fixed.
+	config, _ := config.LoadServerConfig()
+	config.Providers.Helix.RunnerTTL = 50 * time.Millisecond // Needs to be long enough to wait for the async runner cleanup goroutine to run
+	scheduler := NewScheduler(context.Background(), &config, nil)
+
+	// Add a runner
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
+	scheduler.UpdateRunner(&types.RunnerState{
+		ID:          "test-runner",
+		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 1,
+	})
+
+	// Schedule some work
+	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
+
+	// Allow the the first runner to die
+	WaitFor(t, func() bool {
+		data := scheduler.DashboardSlotsData()
+		return len(data) == 0
+	}, 2*time.Second)
+	data := scheduler.DashboardSlotsData()
+	assert.Len(t, data, 0)
+}
+
 func enqueueTestLLMWorkload(scheduler Scheduler, name string, model string) error {
 	req := &types.RunnerLLMInferenceRequest{
 		RequestID: name,
