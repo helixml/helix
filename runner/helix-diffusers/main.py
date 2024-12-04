@@ -84,7 +84,7 @@ class TextToImagePipeline:
             scheduler = self.pipeline.scheduler.from_config(self.pipeline.scheduler.config)
             self.pipeline.scheduler = scheduler
 
-            return self.pipeline(prompt=prompt, num_inference_steps=50, guidance_scale=7.5).images
+            return self.pipeline(prompt=prompt, num_inference_steps=50, guidance_scale=7.5, height=720, width=1280).images
 
         except Exception as e:
             raise RuntimeError(f"Error during image generation: {str(e)}") from e
