@@ -162,7 +162,7 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.4 // indirect
-	github.com/gptscript-ai/chat-completion-client v0.0.0-20240813051153-a440ada7e3c3 // indirect
+	github.com/gptscript-ai/chat-completion-client v0.0.0-20241104122544-5fe75f07c131 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
@@ -255,3 +255,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.6 // indirect
 )
+
+replace github.com/gptscript-ai/gptscript => github.com/helixml/gptscript v0.0.0-20241204095353-9c7fd8d5cf45
