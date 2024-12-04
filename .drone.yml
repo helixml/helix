@@ -8,7 +8,7 @@ workspace:
 
 steps:
 - name: build-backend
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.23.4-alpine3.20
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -25,7 +25,7 @@ steps:
   depends_on: []
 
 - name: unit-test
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.23.4-alpine3.20
   environment:
     OPENAI_API_KEY:
       from_secret: openai_tools
@@ -47,7 +47,7 @@ steps:
   depends_on: []
 
 - name: release-backend
-  image: golang:1.22.5-bullseye
+  image: golang:1.23.4-bullseye
   when:
     event:
     - tag

@@ -1,6 +1,6 @@
 ### API Base ###
 #---------------
-FROM golang:1.22-alpine AS api-base
+FROM golang:1.23-alpine AS api-base
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -60,7 +60,7 @@ RUN yarn build
 
 ### Production Image ###
 #-----------------------
-FROM alpine:3.17
+FROM alpine:3.20
 RUN apk --update add --no-cache ca-certificates
 
 COPY --from=api-build-env /helix /helix
