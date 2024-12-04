@@ -206,7 +206,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
 		// Latest models, Oct 2024 updates
 		{
-			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
+			Id:            "llama3.1:8b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:8b-instruct-q4_K_M
 			Name:          "Llama 3.1 8B",
 			Memory:        GB * 15,
 			ContextLength: 32768, // goes up to 128k, but then uses 35GB
@@ -214,7 +214,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "llama3.1:70b", // https://ollama.com/library/llama3.1:70b
+			Id:            "llama3.1:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
 			Name:          "Llama 3.1 70B",
 			Memory:        GB * 48,
 			ContextLength: 16384,
@@ -311,7 +311,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "aya:35b", // https://ollama.com/library/aya:35b
+			Id:            "aya:35b-23-q4_0", // https://ollama.com/library/aya:35b-23-q4_0
 			Name:          "Aya 35B",
 			Memory:        GB * 32,
 			ContextLength: 8192,
