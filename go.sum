@@ -360,6 +360,8 @@ github.com/gptscript-ai/chat-completion-client v0.0.0-20240813051153-a440ada7e3c
 github.com/gptscript-ai/chat-completion-client v0.0.0-20240813051153-a440ada7e3c3/go.mod h1:7P/o6/IWa1KqsntVf68hSnLKuu3+xuqm6lYhch1w4jo=
 github.com/gptscript-ai/gptscript v0.9.4 h1:8msPI7zdzNv6kElLqP/mIFFoir2CWbyf+1OJiC479FY=
 github.com/gptscript-ai/gptscript v0.9.4/go.mod h1:STd/eyhAkkC0YUL8B0tBs15m+uxm7yliur8HicZJL68=
+github.com/gptscript-ai/gptscript v0.9.5 h1:EWq+AyJ6CBdU9hS6xOnqBQGpWIy74Zx/Fd6tN0I6Bxc=
+github.com/gptscript-ai/gptscript v0.9.5/go.mod h1:+CC86EbcmMMBgvv5NBqHzep63SobtB5vhNOq4i6aPrA=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/errwrap v1.1.0 h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=
 github.com/hashicorp/errwrap v1.1.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=

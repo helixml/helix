@@ -1,8 +1,8 @@
 module github.com/helixml/helix
 
-go 1.22.5
+go 1.23.1
 
-toolchain go1.22.6
+toolchain go1.23.3
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
@@ -30,7 +30,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/gptscript-ai/gptscript v0.9.4
+	github.com/gptscript-ai/gptscript v0.9.5
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/jinzhu/copier v0.4.0
