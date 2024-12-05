@@ -30,7 +30,7 @@ const ModelPicker: FC<{
 
   const modelData = models.find(m => m.id === model) || models[0];
 
-  const filteredModels = models.filter(m => m.type === type)
+  const filteredModels = models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
 
   useEffect(() => {
     // Set the first model as default if current model is not set or not in the list
