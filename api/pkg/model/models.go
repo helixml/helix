@@ -194,7 +194,7 @@ func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 		{
 			Id:          Model_Diffusers_FluxDev,
 			Name:        "Flux 1 Dev",
-			Memory:      GB * 48,
+			Memory:      GB * 40,
 			Description: "Dev model, from Black Forest Labs",
 			Hide:        false,
 		},
