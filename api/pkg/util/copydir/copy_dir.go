@@ -77,7 +77,13 @@ func CopyDir(dst, src string) error {
 			return os.Symlink(target, dstPath)
 		}
 
-		// If we have a file, copy the contents.
+		// Try to create a hard link first
+		err = os.Link(path, dstPath)
+		if err == nil {
+			return nil
+		}
+
+		// If hard linking fails (e.g., across filesystems), fall back to copying
 		srcF, err := os.Open(path)
 		if err != nil {
 			return err
