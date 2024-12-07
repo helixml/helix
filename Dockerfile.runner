@@ -1,6 +1,6 @@
 #syntax=docker/dockerfile:1.4
 
-ARG TAG=main-empty
+ARG TAG=latest-small
 ARG UV_VERSION="0.5.4"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
@@ -45,7 +45,7 @@ FROM registry.helix.ml/helix/runner-base:${TAG}
 
 # Install ollama
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
-    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.3.13/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
+    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.5.1/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
     tar -xzf $TEMP_DIR/ollama.tgz -C $TEMP_DIR && \
     mv $TEMP_DIR/bin/ollama /usr/bin/ollama && \
     chmod +x /usr/bin/ollama && \

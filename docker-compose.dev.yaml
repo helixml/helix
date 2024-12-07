@@ -191,14 +191,17 @@ services:
       - api
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
-    image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    #image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env
     volumes:
       - .:/workspace/helix
       - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
-      - ~/.cache/huggingface:/root/.cache/huggingface
+      # - ~/.cache/huggingface:/root/.cache/huggingface
       # comment these out if you don't have appropriate repos checked out
       #- ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
       #- ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
