@@ -194,6 +194,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.runner
+      args:
+        TAG: 2024-12-07a-small
     #image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
