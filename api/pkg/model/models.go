@@ -206,7 +206,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
 		// Latest models, Oct 2024 updates
 		{
-			Id:            "llama3.1:8b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:8b-instruct-q4_K_M
+			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
 			Memory:        GB * 15,
 			ContextLength: 32768, // goes up to 128k, but then uses 35GB
