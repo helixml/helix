@@ -273,6 +273,14 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Description:   "Fast and good for everyday tasks",
 			Hide:          true,
 		},
+		{
+			Id:            "llama3:70b", // https://ollama.com/library/llama3:70b
+			Name:          "Llama 3 70B",
+			Memory:        GB * 40,
+			ContextLength: 8192,
+			Description:   "Large model with enhanced capabilities",
+			Hide:          true,
+		},
 	}
 
 	return models, nil
