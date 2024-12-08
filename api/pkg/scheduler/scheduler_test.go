@@ -330,7 +330,7 @@ func TestScheduler_RunnerWithWrongModel(t *testing.T) {
 	assert.NotNil(t, w)
 
 	// Test any new work will do part 2 -- new work only, ignore filter
-	err = createTestSession(scheduler, "test-request-2", "adrienbrault/nous-hermes2pro:Q5_K_S", "")
+	err = createTestSession(scheduler, "test-request-2", "phi3:instruct", "")
 	assert.NoError(t, err)
 	w, err = scheduler.WorkForRunner("test-runner", WorkloadTypeSession, true, "gemma2:2b-instruct-q8_0")
 	assert.NoError(t, err)
