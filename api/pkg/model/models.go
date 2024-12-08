@@ -255,6 +255,15 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Description:   "Large multi-lingual model from Cohere - 4bit quantized, 8K context",
 			Hide:          false,
 		},
+		// Old llama3:instruct, leaving in here because the id is in lots of our examples and tests
+		{
+			Id:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
+			Name:          "Llama 3 8B",
+			Memory:        MB * 6390,
+			ContextLength: 8192,
+			Description:   "Older model, from Meta - 4bit quantized, 8K context",
+			Hide:          true,
+		},
 	}
 
 	return models, nil
