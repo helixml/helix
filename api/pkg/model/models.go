@@ -287,7 +287,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Memory:        MB * 4916,
 			ContextLength: 8192,
 			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
-			Hide:          false,
+			Hide:          true,
 		},
 	}
 
