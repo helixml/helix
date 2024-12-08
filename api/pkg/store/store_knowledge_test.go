@@ -104,6 +104,49 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledge() {
 	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
+	knowledge := types.Knowledge{
+		ID:    system.GenerateKnowledgeID(),
+		Owner: "user_id",
+		Name:  "Test Knowledge",
+	}
+
+	_, err := suite.db.CreateKnowledge(context.Background(), &knowledge)
+	suite.NoError(err)
+
+	err = suite.db.UpdateKnowledgeState(context.Background(),
+		knowledge.ID, types.KnowledgeStateIndexing, "Indexing", 100,
+		[]*types.CrawledURL{
+			{
+				URL:        "https://example.com/1",
+				StatusCode: 200,
+			},
+			{
+				URL:        "https://example.com/2",
+				StatusCode: 401,
+				Message:    "Unauthorized",
+			},
+		})
+	suite.NoError(err, "failed to update knowledge state")
+
+	updatedKnowledge, err := suite.db.GetKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err, "failed to get knowledge")
+	suite.NotNil(updatedKnowledge)
+	suite.Equal(knowledge.ID, updatedKnowledge.ID)
+	suite.Equal(knowledge.Owner, updatedKnowledge.Owner)
+	suite.Equal("Test Knowledge", updatedKnowledge.Name)
+
+	// Check the crawled URLs
+	suite.Len(updatedKnowledge.CrawledURLs.URLs, 2)
+	suite.Equal("https://example.com/1", updatedKnowledge.CrawledURLs.URLs[0].URL)
+	suite.Equal(200, updatedKnowledge.CrawledURLs.URLs[0].StatusCode)
+	suite.Equal("https://example.com/2", updatedKnowledge.CrawledURLs.URLs[1].URL)
+	suite.Equal(401, updatedKnowledge.CrawledURLs.URLs[1].StatusCode)
+
+	// Cleanup
+	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListKnowledge() {
 	// Create multiple knowledge entries
 	knowledge1 := types.Knowledge{ID: system.GenerateKnowledgeID(), Owner: "user_id", Name: "Knowledge 1", AppID: "app_id"}
