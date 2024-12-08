@@ -34,6 +34,19 @@ func (r *Reconciler) index(ctx context.Context) error {
 		k.State = types.KnowledgeStateIndexing
 		k.Message = ""
 
+		// Sanity check the limits
+		if k.Source.Web != nil {
+			if r.config.RAG.Crawler.MaxPages > 0 && k.Source.Web.Crawler.MaxPages > r.config.RAG.Crawler.MaxPages {
+				log.Warn().Msg("knowledge limit is above the server config, updating")
+				k.Source.Web.Crawler.MaxPages = r.config.RAG.Crawler.MaxPages
+			}
+
+			if r.config.RAG.Crawler.MaxDepth > 0 && k.Source.Web.Crawler.MaxDepth > r.config.RAG.Crawler.MaxDepth {
+				log.Warn().Msg("knowledge limit is above the server config, updating")
+				k.Source.Web.Crawler.MaxDepth = r.config.RAG.Crawler.MaxDepth
+			}
+		}
+
 		_, _ = r.store.UpdateKnowledge(ctx, k)
 
 		log.
