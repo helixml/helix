@@ -2,7 +2,9 @@ package knowledge
 
 import (
 	"testing"
+	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -71,9 +73,14 @@ func TestValidate(t *testing.T) {
 		// Add more test cases for web source validation if needed
 	}
 
+	serverConfig := config.ServerConfig{}
+	serverConfig.RAG.Crawler.MaxFrequency = 10 * time.Minute
+	serverConfig.RAG.Crawler.MaxPages = 50
+	serverConfig.RAG.Crawler.MaxDepth = 3
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := Validate(tt.knowledge)
+			err := Validate(&serverConfig, tt.knowledge)
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
