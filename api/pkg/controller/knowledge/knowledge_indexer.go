@@ -115,13 +115,27 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		return err
 	}
 
+	crawledSources := getCrawledSources(data)
+
 	elapsed := time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("indexing data loaded")
 
-	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data", 0)
+	k.Message = "indexing data"
+	k.ProgressPercent = 0
+	k.CrawledSources = &types.CrawledSources{
+		URLs: crawledSources,
+	}
+
+	_, err = r.store.UpdateKnowledge(ctx, k)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("knowledge_id", k.ID).
+			Msg("failed to update knowledge state")
+	}
 
 	start = time.Now()
 
@@ -146,10 +160,11 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	}
 
 	_, err = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
-		KnowledgeID: k.ID,
-		Version:     version,
-		Size:        k.Size,
-		State:       types.KnowledgeStateReady,
+		KnowledgeID:    k.ID,
+		Version:        version,
+		Size:           k.Size,
+		State:          types.KnowledgeStateReady,
+		CrawledSources: k.CrawledSources,
 	})
 	if err != nil {
 		log.Warn().
@@ -469,4 +484,16 @@ func checkContents(data []*indexerData) error {
 	}
 
 	return fmt.Errorf("couldn't extract any data for indexing, check your data source or configuration")
+}
+
+func getCrawledSources(data []*indexerData) []*types.CrawledURL {
+	var crawledSources []*types.CrawledURL
+
+	for _, d := range data {
+		crawledSources = append(crawledSources, &types.CrawledURL{
+			URL: d.Source,
+		})
+	}
+
+	return crawledSources
 }
