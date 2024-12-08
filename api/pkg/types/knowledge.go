@@ -245,4 +245,5 @@ func (CrawledURLs) GormDataType() string {
 type CrawledURL struct {
 	URL        string `json:"url"`
 	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
 }
