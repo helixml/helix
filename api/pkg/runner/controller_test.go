@@ -110,7 +110,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test",
 							Request: &openai.ChatCompletionRequest{
-								Model: model.Model_Ollama_Llama3_8b,
+								Model: model.Model_Ollama_Llama31_8b,
 							},
 						},
 					},
@@ -156,7 +156,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test-1",
 							Request: &openai.ChatCompletionRequest{
-								Model: model.Model_Ollama_Llama3_8b,
+								Model: model.Model_Ollama_Llama31_8b,
 							},
 						},
 					},
@@ -169,7 +169,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test-2",
 							Request: &openai.ChatCompletionRequest{
-								Model: model.Model_Ollama_Llama3_8b,
+								Model: model.Model_Ollama_Llama31_8b,
 							},
 						},
 					},

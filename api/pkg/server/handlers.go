@@ -197,27 +197,12 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	helixModel := req.FormValue("helixModel")
-
 	var modelName string
 	switch sessionType {
 	case types.SessionTypeText:
 		// switch based on user toggle e.g. GPT-3.5 vs GPT-4
 		if sessionMode == types.SessionModeInference {
-			switch helixModel {
-			case "helix-4":
-				modelName = model.Model_Ollama_Llama3_70b
-			case "helix-3.5":
-				modelName = model.Model_Ollama_Llama3_8b
-			case "helix-mixtral":
-				modelName = model.Model_Ollama_Mixtral
-			case "helix-json":
-				modelName = model.Model_Ollama_NousHermes2ThetaLlama3
-			case "helix-small":
-				modelName = model.Model_Ollama_Phi3
-			default:
-				modelName = model.Model_Ollama_Llama3_8b
-			}
+			modelName = model.Model_Ollama_Llama31_8b
 		} else {
 			// fine tuning doesn't work with ollama yet
 			modelName = model.Model_Axolotl_Mistral7b
@@ -269,7 +254,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 			ragEnable = true
 
 			// Using the same model for RAG as the main model
-			modelName = model.Model_Ollama_Llama3_8b
+			modelName = model.Model_Ollama_Llama31_8b
 		}
 	}
 

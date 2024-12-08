@@ -43,7 +43,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: false,
 				ragEnabled:  true,
 			},
-			want: NewModel(Model_Ollama_Llama3_8b),
+			want: NewModel(Model_Ollama_Llama31_8b),
 		},
 		{
 			name: "empty model, finetune, no rag",
@@ -67,31 +67,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: NewModel(Model_Ollama_Llama3_8b),
-		},
-		{
-			name: "normal inference, model set helix-4",
-			args: args{
-				provider:    "helix",
-				modelName:   "helix-4",
-				sessionMode: types.SessionModeInference,
-				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  false,
-			},
-			want: NewModel(Model_Ollama_Llama3_70b),
-		},
-		{
-			name: "normal inference, model set helix-mixtral",
-			args: args{
-				provider:    "helix",
-				modelName:   "helix-mixtral",
-				sessionMode: types.SessionModeInference,
-				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  false,
-			},
-			want: NewModel(Model_Ollama_Mixtral),
+			want: NewModel(Model_Ollama_Llama31_8b),
 		},
 	}
 	for _, tt := range tests {
