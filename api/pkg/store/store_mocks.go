@@ -768,17 +768,17 @@ func (mr *MockStoreMockRecorder) UpdateKnowledge(ctx, knowledge any) *gomock.Cal
 }
 
 // UpdateKnowledgeState mocks base method.
-func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string, percent int, crawledURLs []*types.CrawledURL) error {
+func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string, percent int) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateKnowledgeState", ctx, id, state, message, percent, crawledURLs)
+	ret := m.ctrl.Call(m, "UpdateKnowledgeState", ctx, id, state, message, percent)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateKnowledgeState indicates an expected call of UpdateKnowledgeState.
-func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message, percent, crawledURLs any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message, percent any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message, percent, crawledURLs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message, percent)
 }
 
 // UpdateSecret mocks base method.
