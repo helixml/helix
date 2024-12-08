@@ -28,6 +28,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
 import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
+import CrawledUrlsDialog from './CrawledUrlsDialog';
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
@@ -41,6 +42,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
+  const [urlDialogOpen, setUrlDialogOpen] = useState(false);
+  const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
 
   const default_max_depth = 1;
   const default_max_pages = 5;
@@ -452,6 +455,19 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   Version: {knowledge?.version || 'N/A'}
                 </Typography>
               </Box>
+              <Tooltip title="View crawled URLs">
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedKnowledge(knowledge);
+                    setUrlDialogOpen(true);
+                  }}
+                  disabled={disabled || !knowledge}
+                  sx={{ mr: 1 }}
+                >
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Refresh knowledge and reindex data">
                 <IconButton
                   onClick={(e) => {
@@ -497,6 +513,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           Please specify at least one URL for each knowledge source.
         </Alert>
       )}
+      <CrawledUrlsDialog
+        open={urlDialogOpen}
+        onClose={() => setUrlDialogOpen(false)}
+        knowledge={selectedKnowledge}
+      />
     </Box>
   );
 };
