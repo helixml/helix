@@ -13,7 +13,7 @@ services:
       - API_TOKEN=${API_TOKEN-oh-hallo-insecure-token}
       - MEMORY_STRING=${MEMORY_STRING-24GB}
       - ALLOW_MULTIPLE_COPIES=true
-      - RUNNER_WARMUP_MODELS=${RUNNER_WARMUP_MODELS-llama3:instruct}
+      - RUNNER_WARMUP_MODELS=${RUNNER_WARMUP_MODELS-llama3.1:8b-instruct-q8_0}
     env_file:
       - .env
     deploy:

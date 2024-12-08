@@ -101,19 +101,15 @@ func ProcessModelName(
 		// TODO: we plan to retire the helix-* model names, but we are keeping for now for backwards compatibility
 		switch modelName {
 		case "helix-4":
-			return Model_Ollama_Llama3_70b, nil
 		case "helix-3.5":
-			return Model_Ollama_Llama3_8b, nil
 		case "helix-mixtral":
-			return Model_Ollama_Mixtral, nil
 		case "helix-json":
-			return Model_Ollama_NousHermes2ThetaLlama3, nil
 		case "helix-small":
-			return Model_Ollama_Phi3, nil
+			return Model_Ollama_Llama31_8b, nil
 		default:
 			if modelName == "" {
 				// default text model for non-finetune inference
-				return Model_Ollama_Llama3_8b, nil
+				return Model_Ollama_Llama31_8b, nil
 
 			} else {
 				// allow user-provided model name (e.g. assume API users
@@ -168,11 +164,7 @@ const (
 
 	// We only need constants for _some_ ollama models that are hardcoded in
 	// various places (backward compat). Other ones can be added dynamically now.
-	Model_Ollama_Llama3_8b              string = "llama3:instruct"
-	Model_Ollama_Mixtral                string = "mixtral:instruct"
-	Model_Ollama_NousHermes2ThetaLlama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
-	Model_Ollama_Llama3_70b             string = "llama3:70b"
-	Model_Ollama_Phi3                   string = "phi3:instruct"
+	Model_Ollama_Llama31_8b string = "llama3.1:8b-instruct-q8_0"
 )
 
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
@@ -254,15 +246,6 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			ContextLength: 8192,
 			Description:   "Large multi-lingual model from Cohere - 4bit quantized, 8K context",
 			Hide:          false,
-		},
-		// Old llama3:instruct, leaving in here because the id is in lots of our examples and tests
-		{
-			Id:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
-			Name:          "Llama 3 8B",
-			Memory:        MB * 6390,
-			ContextLength: 8192,
-			Description:   "Older model, from Meta - 4bit quantized, 8K context",
-			Hide:          true,
 		},
 	}
 

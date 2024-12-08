@@ -187,14 +187,14 @@ var WarmupSession_Model_Mistral7b = types.Session{
 	OwnerType:    "user",
 }
 
-var WarmupSession_Model_Ollama_Llama3_8b = types.Session{
+var WarmupSession_Model_Ollama_Llama31_8b = types.Session{
 	ID:           types.WarmupTextSessionID,
 	Name:         "warmup-text",
 	Created:      time.Now(),
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeText,
-	ModelName:    "llama3:instruct",
+	ModelName:    "llama3.1:8b-instruct-q8_0",
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -279,9 +279,9 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		if options.Runner.Config.Runtimes.Ollama.Enabled && !options.Runner.Config.Runtimes.V2Engine {
 			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
 				switch modelName {
-				case model.Model_Ollama_Llama3_8b:
+				case model.Model_Ollama_Llama31_8b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
-					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Llama3_8b)
+					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Llama31_8b)
 				}
 			}
 		}

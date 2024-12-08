@@ -608,7 +608,7 @@ const App: FC = () => {
 <script>
   ChatWidget({
     url: '${window.location.origin}/v1/chat/completions',
-    model: 'llama3:instruct',
+    model: 'llama3.1:8b-instruct-q8_0',
     bearerToken: '${account.apiKeys[0].key}',
   })
 </script>`

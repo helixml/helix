@@ -46,7 +46,7 @@ services:
       # Tools configuration
       - TOOLS_ENABLED=true
       - TOOLS_PROVIDER=${TOOLS_PROVIDER:-helix}
-      - TOOLS_MODEL=${TOOLS_MODEL:-llama3:instruct}
+      - TOOLS_MODEL=${TOOLS_MODEL:-llama3.1:8b-instruct-q8_0}
       # Email notifications
       - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
       - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
