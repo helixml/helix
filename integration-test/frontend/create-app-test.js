@@ -212,7 +212,7 @@ import puppeteer from 'puppeteer'
 
     // Run the curl command using the API key
   // const apiKey = 'hl-1Nilik7peB39jifa1y0QQJS11kJWfRYV9fugmlxQTGE='; 
-  // const curlCommand = `curl -s -i -H "Authorization: Bearer ${apiKey}" https://app.tryhelix.ai/v1/chat/completions --data-raw '{"messages":[{"role":"user","content":"Using the Coinbase API, what is the live Bitcoin price in GBP"}], "model":"llama3.1:8b-instruct-q8_0", "stream":false}'`;
+  // const curlCommand = `curl -s -i -H "Authorization: Bearer ${apiKey}" https://app.tryhelix.ai/v1/chat/completions --data-raw '{"messages":[{"role":"user","content":"Using the Coinbase API, what is the live Bitcoin price in GBP"}], "model":"llama3:instruct", "stream":false}'`;
 
   // exec(curlCommand, (error, stdout, stderr) => {
   //   if (error) {

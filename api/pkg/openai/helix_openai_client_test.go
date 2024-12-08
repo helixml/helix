@@ -93,7 +93,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_Response() {
 	})
 
 	resp, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    model.Model_Ollama_Llama31_8b,
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   false,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -126,7 +126,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ErrorResponse() {
 	})
 
 	_, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    model.Model_Ollama_Llama31_8b,
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   false,
 		Messages: []openai.ChatCompletionMessage{},
 	})
@@ -195,7 +195,7 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_StreamingResponse()
 	})
 
 	stream, err := suite.srv.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:    model.Model_Ollama_Llama31_8b,
+		Model:    model.Model_Ollama_Llama3_8b,
 		Stream:   true,
 		Messages: []openai.ChatCompletionMessage{},
 	})

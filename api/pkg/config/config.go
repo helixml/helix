@@ -77,8 +77,8 @@ type Tools struct {
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
-	// - Helix: llama3.1:8b-instruct-q8_0
-	Model string `envconfig:"TOOLS_MODEL" default:"llama3.1:8b-instruct-q8_0"`
+	// - Helix: llama3:instruct
+	Model string `envconfig:"TOOLS_MODEL" default:"llama3:instruct"`
 
 	// IsActionableTemplate is used to determine whether Helix should
 	// use a tool or not. Leave empty for default
@@ -293,7 +293,7 @@ type FineTuning struct {
 	Provider types.Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
 	// Suggestions based on provider:
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
-	// - Helix: llama3.1:8b-instruct-q8_0
+	// - Helix: llama3:instruct
 	QAPairGenModel string `envconfig:"FINETUNING_QA_PAIR_GEN_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for QA pairs."`
 }
 

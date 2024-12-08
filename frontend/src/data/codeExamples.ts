@@ -40,7 +40,7 @@ client = OpenAI(
 )
 
 completion = client.chat.completions.create(
-    model="llama3.1:8b-instruct-q8_0", # Optional, will be set
+    model="llama3:instruct", # Optional, will be set
     messages=[
         {
             "role": "user",
