@@ -79,6 +79,9 @@ type Knowledge struct {
 	Versions []*KnowledgeVersion `json:"versions" `
 
 	NextRun time.Time `json:"next_run" gorm:"-"` // Populated by the cron job controller
+
+	// URLs crawled in the last run
+	CrawledURLs *CrawledURLs `json:"crawled_urls" gorm:"jsonb"`
 }
 
 func (k *Knowledge) GetDataEntityID() string {
@@ -211,4 +214,35 @@ type KnowledgeSearchResult struct {
 	Knowledge  *Knowledge          `json:"knowledge"`
 	Results    []*SessionRAGResult `json:"results"`
 	DurationMs int64               `json:"duration_ms"`
+}
+
+type CrawledURLs struct {
+	URLs []*CrawledURL `json:"urls"`
+}
+
+func (m CrawledURLs) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *CrawledURLs) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result CrawledURLs
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (CrawledURLs) GormDataType() string {
+	return "json"
+}
+
+type CrawledURL struct {
+	URL        string `json:"url"`
+	StatusCode int    `json:"status_code"`
 }
