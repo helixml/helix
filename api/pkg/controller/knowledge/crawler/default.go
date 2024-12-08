@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -121,12 +122,19 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		})
 	}
 
-	var crawledDocs []*types.CrawledDocument
+	var (
+		crawledMu   sync.Mutex
+		crawledDocs []*types.CrawledDocument
+	)
 
-	visitedURLs := make(map[string]bool)
+	crawledURLs := make(map[string]bool)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		if visitedURLs[e.Request.URL.String()] {
+		crawledMu.Lock()
+		alreadyCrawled := crawledURLs[e.Request.URL.String()]
+		crawledMu.Unlock()
+
+		if alreadyCrawled {
 			return
 		}
 
@@ -137,8 +145,11 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			Int32("visited_pages", visited).
 			Str("url", e.Request.URL.String()).Msg("visiting link")
 
-		visitedURLs[e.Request.URL.String()] = true
+		crawledMu.Lock()
+		crawledURLs[e.Request.URL.String()] = true
+		crawledMu.Unlock()
 
+		// TODO: get more URLs from the browser too, it can render
 		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
 		if err != nil {
 			log.Warn().
@@ -153,7 +164,9 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			Str("url", e.Request.URL.String()).
 			Msg("crawled page")
 
+		crawledMu.Lock()
 		crawledDocs = append(crawledDocs, doc)
+		crawledMu.Unlock()
 
 		pageCounter.Add(1)
 	})
