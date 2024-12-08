@@ -221,7 +221,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 }
 
 func (s *HelixAPIServer) validateKnowledge(k *types.AssistantKnowledge) error {
-	return knowledge.Validate(k)
+	return knowledge.Validate(s.Cfg, k)
 }
 
 func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
