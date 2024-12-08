@@ -28,7 +28,7 @@ const CrawledUrlsDialog: React.FC<CrawledUrlsDialogProps> = ({ open, onClose, kn
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Crawled URLs</Typography>
+        <Typography variant="h6">Crawled URLs ({crawledUrls.length})</Typography>
         <IconButton
           aria-label="close"
           onClick={onClose}
@@ -56,7 +56,7 @@ const CrawledUrlsDialog: React.FC<CrawledUrlsDialogProps> = ({ open, onClose, kn
                     <TableCell component="th" scope="row">
                       {url.url}
                     </TableCell>
-                    <TableCell align="right">{url.status_code}</TableCell>
+                    <TableCell align="right">{url.status_code ? url.status_code : ''}</TableCell>
                     <TableCell>{url.message}</TableCell>
                   </TableRow>
                 ))}
