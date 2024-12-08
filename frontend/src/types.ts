@@ -640,14 +640,14 @@ export interface IKnowledgeSource {
   refresh_schedule?: string;
 }
 
-export interface ICrawledSources {
-  urls: ICrawledSource[];
-}
-
-export interface ICrawledSource {
+export interface ICrawledURL {
   url: string;
   status_code: number;
   message: string;
+}
+
+export interface ICrawledSources {
+  urls: ICrawledURL[];
 }
 
 export interface IKnowledgeSearchResult {
