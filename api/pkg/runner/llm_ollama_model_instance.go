@@ -324,6 +324,7 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 		"OLLAMA_MAX_LOADED_MODELS=1",
 		"OLLAMA_NUM_PARALLEL=1",
 		"OLLAMA_FLASH_ATTENTION=1",
+		"OLLAMA_KV_CACHE_TYPE=q8_0",
 		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_HOST="+ollamaHost,                 // Bind on localhost with random port
