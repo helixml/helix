@@ -281,6 +281,14 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Description:   "Large model with enhanced capabilities",
 			Hide:          true,
 		},
+		{
+			Id:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
+			Name:          "Gemma 2 2B",
+			Memory:        MB * 4916,
+			ContextLength: 8192,
+			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
+			Hide:          false,
+		},
 	}
 
 	return models, nil
