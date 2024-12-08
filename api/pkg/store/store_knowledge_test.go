@@ -115,18 +115,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
 	suite.NoError(err)
 
 	err = suite.db.UpdateKnowledgeState(context.Background(),
-		knowledge.ID, types.KnowledgeStateIndexing, "Indexing", 100,
-		[]*types.CrawledURL{
-			{
-				URL:        "https://example.com/1",
-				StatusCode: 200,
-			},
-			{
-				URL:        "https://example.com/2",
-				StatusCode: 401,
-				Message:    "Unauthorized",
-			},
-		})
+		knowledge.ID, types.KnowledgeStateIndexing, "Indexing", 99)
 	suite.NoError(err, "failed to update knowledge state")
 
 	updatedKnowledge, err := suite.db.GetKnowledge(context.Background(), knowledge.ID)
@@ -136,12 +125,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
 	suite.Equal(knowledge.Owner, updatedKnowledge.Owner)
 	suite.Equal("Test Knowledge", updatedKnowledge.Name)
 
-	// Check the crawled URLs
-	suite.Len(updatedKnowledge.CrawledURLs.URLs, 2)
-	suite.Equal("https://example.com/1", updatedKnowledge.CrawledURLs.URLs[0].URL)
-	suite.Equal(200, updatedKnowledge.CrawledURLs.URLs[0].StatusCode)
-	suite.Equal("https://example.com/2", updatedKnowledge.CrawledURLs.URLs[1].URL)
-	suite.Equal(401, updatedKnowledge.CrawledURLs.URLs[1].StatusCode)
+	// Check percentage
+	suite.Equal(99, updatedKnowledge.ProgressPercent)
 
 	// Cleanup
 	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
