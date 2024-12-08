@@ -436,7 +436,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
-			suite.Equal("llama3.1:8b-instruct-q8_0", req.Model)
+			suite.Equal("llama3:instruct", req.Model)
 
 			suite.Require().Equal(2, len(req.Messages))
 
@@ -452,7 +452,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
-				Model: "llama3.1:8b-instruct-q8_0",
+				Model: "llama3:instruct",
 				Choices: []oai.ChatCompletionChoice{
 					{
 						Message: oai.ChatCompletionMessage{
@@ -474,7 +474,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	suite.NoError(err)
 
-	suite.Equal("llama3.1:8b-instruct-q8_0", resp.Model)
+	suite.Equal("llama3:instruct", resp.Model)
 	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
 	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
 	suite.Equal("assistant", resp.Choices[0].Message.Role)
@@ -750,7 +750,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
-			suite.Equal("llama3.1:8b-instruct-q8_0", req.Model)
+			suite.Equal("llama3:instruct", req.Model)
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)

@@ -39,7 +39,7 @@ Let's create an example to illustrate how to write tests. Create a file called `
 ```yaml
 assistants:
   - name: math_assistant
-    model: llama3.1:8b-instruct-q8_0
+    model: llama3:instruct
     tests:
       - name: addition_test
         steps:
@@ -51,7 +51,7 @@ assistants:
             expected_output: "2"
 ```
 
-In this example, we have an assistant named math_assistant using the `llama3.1:8b-instruct-q8_0` model. We’ve defined two tests:
+In this example, we have an assistant named math_assistant using the `llama3:instruct` model. We’ve defined two tests:
 
 1. addition_test: Checks if the assistant correctly answers “What is 2 + 2?” with “4”.
 2. subtraction_test: Checks if the assistant correctly answers “What is 5 - 3?” with “2”.
@@ -77,7 +77,7 @@ name: My Example Helix Bitcoin Bot
 description: A bot to keep me up to date with bitcoin prices
 assistants:
 - name: Bitcoin price API
-  model: llama3.1:8b-instruct-q8_0
+  model: llama3:instruct
   apis:
     - name: Coindesk API
       description: Gets the current Bitcoin price in USD, GBP and EUR.
@@ -211,7 +211,7 @@ export HELIX_API_KEY=your_api_key
 ```yaml
 assistants:
   - name: faq_assistant
-    model: llama3.1:8b-instruct-q8_0
+    model: llama3:instruct
     tests:
       - name: greeting_test
         steps:
