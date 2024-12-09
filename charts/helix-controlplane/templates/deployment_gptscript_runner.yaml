@@ -5,7 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/component: script-runner
     {{- include "helix-controlplane.labels" . | nindent 4 }}
-spec:  
+spec:
   replicas: {{ .Values.gptscript.replicas }}
   strategy:
     type: RollingUpdate
@@ -38,7 +38,7 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.gptscript.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}          
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef:
                 name: {{ include "helix-controlplane.fullname" . }}-config
@@ -53,3 +53,5 @@ spec:
               value: "{{ .Values.gptscript.concurrency }}"
             - name: MAX_TASKS
               value: "{{ .Values.gptscript.maxTasks }}"
+            - name: GPTSCRIPT_PROVIDER_{{ include "helix-controlplane.fullname" . | replace "." "_" | replace "-" "_" | upper }}_API_KEY
+              value: "{{ .Values.envVariables.HELIX_API_KEY }}"
