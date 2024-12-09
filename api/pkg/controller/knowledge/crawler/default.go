@@ -162,6 +162,8 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		log.Info().
 			Str("knowledge_id", d.knowledge.ID).
 			Str("url", e.Request.URL.String()).
+			Int64("duration_ms", doc.DurationMs).
+			Int("status_code", doc.StatusCode).
 			Msg("crawled page")
 
 		crawledMu.Lock()
@@ -174,7 +176,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	// Add this new OnHTML callback to find and visit links
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		if pageCounter.Load() >= maxPages {
-			log.Warn().
+			log.Trace().
 				Str("knowledge_id", d.knowledge.ID).
 				Msg("Max pages reached")
 			return

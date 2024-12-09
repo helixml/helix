@@ -644,6 +644,7 @@ export interface ICrawledURL {
   url: string;
   status_code: number;
   message: string;
+  duration_ms: number;
 }
 
 export interface ICrawledSources {
