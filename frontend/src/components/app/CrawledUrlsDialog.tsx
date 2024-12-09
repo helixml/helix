@@ -18,7 +18,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { IKnowledgeSource } from '../../types';
 import UrlPreviewDialog from './UrlPreviewDialog';
-import PreviewIcon from '@mui/icons-material/Preview';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
 
 interface CrawledUrlsDialogProps {
   open: boolean;
@@ -79,7 +79,7 @@ const CrawledUrlsDialog: React.FC<CrawledUrlsDialogProps> = ({ open, onClose, kn
                             onClick={() => setPreviewUrl(url.url)}
                             title="Preview URL"
                           >
-                            <PreviewIcon fontSize="small" />
+                            <ZoomInIcon fontSize="small" />
                           </IconButton>
                         </Box>
                       </TableCell>
