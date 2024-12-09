@@ -98,6 +98,33 @@ func TestDefault_CrawlSingle(t *testing.T) {
 	assert.Equal(t, 1, len(docs))
 }
 
+func TestDefault_CrawlSingle_Slow(t *testing.T) {
+	k := &types.Knowledge{
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{"https://www.theguardian.com/uk-news/2024/sep/13/plans-unveiled-for-cheaper-high-speed-alternative-to-scrapped-hs2-northern-leg"},
+				Crawler: &types.WebsiteCrawler{
+					Enabled: false, // Will do single URL
+				},
+			},
+		},
+	}
+
+	cfg, err := config.LoadServerConfig()
+	require.NoError(t, err)
+
+	browserManager, err := browser.New(&cfg)
+	require.NoError(t, err)
+
+	d, err := NewDefault(browserManager, k)
+	require.NoError(t, err)
+
+	docs, err := d.Crawl(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, len(docs))
+}
+
 func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
