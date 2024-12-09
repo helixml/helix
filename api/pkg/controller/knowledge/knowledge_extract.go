@@ -130,6 +130,7 @@ func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types
 			Data:       []byte(doc.Content),
 			Source:     doc.SourceURL,
 			StatusCode: doc.StatusCode,
+			DurationMs: doc.DurationMs,
 		})
 	}
 
