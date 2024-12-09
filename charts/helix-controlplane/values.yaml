@@ -199,7 +199,7 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 10
   failureThreshold: 6
-  
+
 # Volumes is mounted to the controlplane for persistence. All user
 # uploads and generated images, finetunes and models are stored here.
 volumes:
