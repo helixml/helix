@@ -127,6 +127,10 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, len(docs))
+
+	// Check that the message is set
+	assert.NotEmpty(t, docs[0].Message)
+	assert.Contains(t, docs[0].Message, "context deadline exceeded")
 }
 
 func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
