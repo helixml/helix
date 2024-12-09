@@ -37,14 +37,17 @@ type Default struct {
 	parser    readability.Parser
 
 	browser *browser.Browser
+
+	pageTimeout time.Duration
 }
 
 func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
 	crawler := &Default{
-		knowledge: k,
-		converter: md.NewConverter("", true, nil),
-		parser:    readability.NewParser(),
-		browser:   browser,
+		knowledge:   k,
+		converter:   md.NewConverter("", true, nil),
+		parser:      readability.NewParser(),
+		browser:     browser,
+		pageTimeout: 5 * time.Second,
 	}
 
 	return crawler, nil
@@ -156,6 +159,19 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 				Err(err).
 				Str("url", e.Request.URL.String()).
 				Msg("error crawling URL")
+
+			// Errored pages still count as visited
+			crawledMu.Lock()
+			crawledDocs = append(crawledDocs, &types.CrawledDocument{
+				SourceURL:  e.Request.URL.String(),
+				StatusCode: 0,
+				DurationMs: 0,
+				Message:    err.Error(),
+			})
+			crawledMu.Unlock()
+
+			pageCounter.Add(1)
+
 			return
 		}
 
@@ -251,7 +267,7 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 	e := proto.NetworkResponseReceived{}
 	wait := page.WaitEvent(&e)
 
-	err = page.Timeout(5 * time.Second).WaitLoad()
+	err = page.Timeout(d.pageTimeout).WaitLoad()
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for page to load for %s: %w", url, err)
 	}
