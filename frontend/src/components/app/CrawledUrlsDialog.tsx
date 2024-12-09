@@ -53,7 +53,7 @@ const CrawledUrlsDialog: React.FC<CrawledUrlsDialogProps> = ({ open, onClose, kn
                   <TableRow>
                     <TableCell>URL</TableCell>
                     <TableCell align="right">Status Code</TableCell>
-                    <TableCell>Load time</TableCell>
+                    <TableCell>Load Time</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
