@@ -127,8 +127,9 @@ func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types
 
 	for _, doc := range result {
 		data = append(data, &indexerData{
-			Data:   []byte(doc.Content),
-			Source: doc.SourceURL,
+			Data:       []byte(doc.Content),
+			Source:     doc.SourceURL,
+			StatusCode: doc.StatusCode,
 		})
 	}
 
