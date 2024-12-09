@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
@@ -118,6 +119,9 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 
 	d, err := NewDefault(browserManager, k)
 	require.NoError(t, err)
+
+	// Setting very short timeout to force the page to timeout
+	d.pageTimeout = 5 * time.Millisecond
 
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)

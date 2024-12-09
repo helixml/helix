@@ -211,6 +211,7 @@ type CrawledDocument struct {
 	Content     string
 	StatusCode  int
 	DurationMs  int64
+	Message     string
 }
 
 type KnowledgeSearchResult struct {
