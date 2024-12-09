@@ -219,6 +219,8 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 
 	log.Info().Str("url", url).Msg("crawling with browser")
 
+	start := time.Now()
+
 	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
 	if err != nil {
 		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
@@ -250,6 +252,8 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 		return nil, fmt.Errorf("error getting HTML for %s: %w", url, err)
 	}
 
+	duration := time.Since(start).Milliseconds()
+
 	article, err := d.parser.Parse(ctx, html, url)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing HTML for %s: %w", url, err)
@@ -261,6 +265,7 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 		Title:       article.Title,
 		Description: article.Excerpt,
 		StatusCode:  e.Response.Status,
+		DurationMs:  duration,
 	}
 
 	doc, err = d.convertToMarkdown(ctx, doc)
