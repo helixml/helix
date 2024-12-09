@@ -175,15 +175,26 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	// Add this new OnHTML callback to find and visit links
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+
 		if pageCounter.Load() >= maxPages {
-			log.Trace().
+			log.Warn().
 				Str("knowledge_id", d.knowledge.ID).
+				Str("url", e.Request.URL.String()).
+				Str("absolute_url", e.Request.AbsoluteURL(link)).
 				Msg("Max pages reached")
 			return
 		}
 
-		link := e.Attr("href")
-		collector.Visit(e.Request.AbsoluteURL(link))
+		err := collector.Visit(e.Request.AbsoluteURL(link))
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("url", e.Request.URL.String()).
+				Str("absolute_url", e.Request.AbsoluteURL(link)).
+				Msg("error visiting link")
+		}
+
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
