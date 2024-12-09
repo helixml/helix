@@ -438,8 +438,9 @@ func getDocumentID(contents []byte) string {
 // This might be a text/html/pdf but it could also be something else
 // for example an sqlite database.
 type indexerData struct {
-	Source string
-	Data   []byte
+	Source     string
+	Data       []byte
+	StatusCode int
 }
 
 func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
@@ -491,7 +492,8 @@ func getCrawledSources(data []*indexerData) []*types.CrawledURL {
 
 	for _, d := range data {
 		crawledSources = append(crawledSources, &types.CrawledURL{
-			URL: d.Source,
+			URL:        d.Source,
+			StatusCode: d.StatusCode,
 		})
 	}
 

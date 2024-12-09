@@ -233,10 +233,15 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 
 	log.Trace().Str("url", url).Msg("waiting for page to load")
 
+	e := proto.NetworkResponseReceived{}
+	wait := page.WaitEvent(&e)
+
 	err = page.Timeout(5 * time.Second).WaitLoad()
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for page to load for %s: %w", url, err)
 	}
+
+	wait()
 
 	log.Trace().Str("url", url).Msg("getting page HTML")
 
@@ -255,6 +260,7 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 		Content:     strings.TrimSpace(article.Content),
 		Title:       article.Title,
 		Description: article.Excerpt,
+		StatusCode:  e.Response.Status,
 	}
 
 	doc, err = d.convertToMarkdown(ctx, doc)

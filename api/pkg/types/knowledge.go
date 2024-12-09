@@ -209,6 +209,7 @@ type CrawledDocument struct {
 	Description string
 	SourceURL   string
 	Content     string
+	StatusCode  int
 }
 
 type KnowledgeSearchResult struct {
