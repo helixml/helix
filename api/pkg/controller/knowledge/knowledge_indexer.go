@@ -441,6 +441,7 @@ type indexerData struct {
 	Source     string
 	Data       []byte
 	StatusCode int
+	DurationMs int64
 }
 
 func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
@@ -494,6 +495,7 @@ func getCrawledSources(data []*indexerData) []*types.CrawledURL {
 		crawledSources = append(crawledSources, &types.CrawledURL{
 			URL:        d.Source,
 			StatusCode: d.StatusCode,
+			DurationMs: d.DurationMs,
 		})
 	}
 

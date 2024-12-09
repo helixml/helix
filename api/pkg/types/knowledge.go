@@ -210,6 +210,7 @@ type CrawledDocument struct {
 	SourceURL   string
 	Content     string
 	StatusCode  int
+	DurationMs  int64
 }
 
 type KnowledgeSearchResult struct {
@@ -249,4 +250,5 @@ type CrawledURL struct {
 	URL        string `json:"url"`
 	StatusCode int    `json:"status_code"`
 	Message    string `json:"message"`
+	DurationMs int64  `json:"duration_ms"`
 }
