@@ -849,11 +849,11 @@ func api2OaiTool(tool api.ToolCall) (*openai.ToolCall, error) {
 			Name: tool.Function.Name,
 		},
 	}
-	argArgs, ok := tool.Function.Arguments["arguments"]
-	if ok {
-		if args, isStr := argArgs.(string); isStr {
-			tc.Function.Arguments = args
-		}
+	args, err := json.Marshal(tool.Function.Arguments)
+	if err != nil {
+		return nil, err
 	}
+	tc.Function.Arguments = string(args)
+
 	return tc, nil
 }
