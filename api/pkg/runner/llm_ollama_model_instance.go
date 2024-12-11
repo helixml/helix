@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 
-	"github.com/jmorganca/ollama/api"
+	"github.com/ollama/ollama/api"
 	"github.com/rs/zerolog/log"
 )
 
@@ -575,6 +576,15 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 		})
 	}
 
+	tools := make(api.Tools, 0, len(inferenceReq.Request.Tools))
+	for _, t := range inferenceReq.Request.Tools {
+		tool, err := oai2ApiTool(t)
+		if err != nil {
+			return fmt.Errorf("failed to get function call tool: %#v", err)
+		}
+		tools = append(tools, *tool)
+	}
+
 	req := api.ChatRequest{
 		Model:    inferenceReq.Request.Model,
 		Messages: messages,
@@ -586,6 +596,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 			"top_p":       inferenceReq.Request.TopP,
 			// ignoring everything else for now
 		},
+		Tools: tools,
 	}
 
 	// Ensure Ollama is ready before sending a request
@@ -620,14 +631,24 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 				finishReason = openai.FinishReasonStop
 			}
 
+			toolCalls := make([]openai.ToolCall, 0, len(resp.Message.ToolCalls))
+			for _, t := range resp.Message.ToolCalls {
+				toolCall, err := api2OaiTool(t)
+				if err != nil {
+					return fmt.Errorf("failed getting tool call: %#v", err)
+				}
+				toolCalls = append(toolCalls, *toolCall)
+			}
+
 			// Metrics
 			chatResp := openai.ChatCompletionStreamResponse{
 				Model: resp.Model,
 				Choices: []openai.ChatCompletionStreamChoice{
 					{
 						Delta: openai.ChatCompletionStreamChoiceDelta{
-							Role:    resp.Message.Role,
-							Content: resp.Message.Content,
+							Role:      resp.Message.Role,
+							Content:   resp.Message.Content,
+							ToolCalls: toolCalls,
 						},
 						FinishReason: finishReason,
 					},
@@ -653,14 +674,24 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 				finishReason = openai.FinishReasonLength
 			}
 
+			toolCalls := make([]openai.ToolCall, 0, len(resp.Message.ToolCalls))
+			for _, t := range resp.Message.ToolCalls {
+				toolCall, err := api2OaiTool(t)
+				if err != nil {
+					return fmt.Errorf("failed getting tool call: %#v", err)
+				}
+				toolCalls = append(toolCalls, *toolCall)
+			}
+
 			chatResp := &openai.ChatCompletionResponse{
 				Model:   resp.Model,
 				Created: resp.CreatedAt.Unix(),
 				Choices: []openai.ChatCompletionChoice{
 					{
 						Message: openai.ChatCompletionMessage{
-							Role:    resp.Message.Role,
-							Content: resp.Message.Content,
+							Role:      resp.Message.Role,
+							Content:   resp.Message.Content,
+							ToolCalls: toolCalls,
 						},
 						FinishReason: finishReason,
 					},
@@ -773,4 +804,56 @@ func (i *OllamaInferenceModelInstance) QueueSession(session *types.Session, isIn
 
 func (i *OllamaInferenceModelInstance) IsActive() bool {
 	return i.currentRequest != nil
+}
+
+func oai2ApiTool(tool openai.Tool) (*api.Tool, error) {
+	apiTool := &api.Tool{
+		Type: string(tool.Type),
+		Function: api.ToolFunction{
+			Name:        tool.Function.Name,
+			Description: tool.Function.Description,
+		},
+	}
+
+	params := tool.Function.Parameters
+
+	// NOTE(milosgajdos): we need to do this elaborate dance
+	// because tool.Function.Parameters can either be json.RawMessage
+	// or a struct which serializes to the proper JSON schema
+	// See: https://github.com/sashabaranov/go-openai/blob/56a9acf86fc3ce0e9030feafa346d64bade94027/chat.go#L297-L302
+	if raw, ok := params.(json.RawMessage); ok {
+		if err := json.Unmarshal(raw, &apiTool.Function.Parameters); err != nil {
+			return nil, err
+		}
+		return apiTool, nil
+	}
+
+	// we don't have json.RawMessage we must do this JSON dance
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(raw, &apiTool.Function.Parameters)
+	if err != nil {
+		return nil, err
+	}
+
+	return apiTool, nil
+}
+
+func api2OaiTool(tool api.ToolCall) (*openai.ToolCall, error) {
+	tc := &openai.ToolCall{
+		Index: &tool.Function.Index,
+		Type:  openai.ToolTypeFunction,
+		Function: openai.FunctionCall{
+			Name: tool.Function.Name,
+		},
+	}
+	args, err := json.Marshal(tool.Function.Arguments)
+	if err != nil {
+		return nil, err
+	}
+	tc.Function.Arguments = string(args)
+
+	return tc, nil
 }
