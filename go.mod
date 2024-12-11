@@ -6,6 +6,8 @@ toolchain go1.23.3
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
+replace github.com/gptscript-ai/gptscript => github.com/helixml/gptscript v0.0.0-20241204095353-9c7fd8d5cf45
+
 require (
 	cloud.google.com/go/storage v1.40.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
@@ -34,7 +36,6 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/jinzhu/copier v0.4.0
-	github.com/jmorganca/ollama v0.1.27
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
@@ -43,6 +44,7 @@ require (
 	github.com/nats-io/nats.go v1.32.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
+	github.com/ollama/ollama v0.5.1
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.31.0
 	github.com/sashabaranov/go-openai v1.31.0
@@ -84,7 +86,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oapi-codegen/runtime v1.1.1 // indirect
-	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect
@@ -239,10 +241,10 @@ require (
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/oauth2 v0.21.0
-	golang.org/x/sync v0.8.0 // indirect
+	golang.org/x/sync v0.9.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.24.0
-	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.25.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
@@ -255,5 +257,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.6 // indirect
 )
-
-replace github.com/gptscript-ai/gptscript => github.com/helixml/gptscript v0.0.0-20241204095353-9c7fd8d5cf45
