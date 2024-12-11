@@ -635,7 +635,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 			for _, t := range resp.Message.ToolCalls {
 				toolCall, err := api2OaiTool(t)
 				if err != nil {
-					return fmt.Errorf("failed getting tool call: %#v", err)
+					return fmt.Errorf("failed to get tool call in stream: %w", err)
 				}
 				toolCalls = append(toolCalls, *toolCall)
 			}
@@ -678,7 +678,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 			for _, t := range resp.Message.ToolCalls {
 				toolCall, err := api2OaiTool(t)
 				if err != nil {
-					return fmt.Errorf("failed getting tool call: %#v", err)
+					return fmt.Errorf("failed to get tool call: %w", err)
 				}
 				toolCalls = append(toolCalls, *toolCall)
 			}
