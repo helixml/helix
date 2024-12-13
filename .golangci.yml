@@ -6,7 +6,7 @@ linters:
     - goimports
     - ineffassign
     - gosimple
-    #- govet
+    - govet
     #- unused
     #- misspell
     #- bodyclose

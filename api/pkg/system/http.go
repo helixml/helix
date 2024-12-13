@@ -59,10 +59,10 @@ func NewHTTPError(err error) *HTTPError {
 	}
 }
 
-func NewHTTPError400(tmpl string, format ...interface{}) *HTTPError {
+func NewHTTPError400(message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusBadRequest,
-		Message:    fmt.Sprintf(tmpl, format...),
+		Message:    message,
 	}
 }
 
@@ -87,10 +87,10 @@ func NewHTTPError404(message string) *HTTPError {
 	}
 }
 
-func NewHTTPError500(tmpl string, format ...interface{}) *HTTPError {
+func NewHTTPError500(message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusInternalServerError,
-		Message:    fmt.Sprintf(tmpl, format...),
+		Message:    message,
 	}
 }
 

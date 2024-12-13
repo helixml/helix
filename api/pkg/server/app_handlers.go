@@ -93,11 +93,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	body, err := io.ReadAll(r.Body)
 	// log.Info().Msgf("createApp body: %s", string(body))
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to read request body, error: %s", err)
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to read request body, error: %s", err))
 	}
 	err = json.Unmarshal(body, &app)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body 1, error: %s, body: %s", err, string(body))
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 1, error: %s, body: %s", err, string(body)))
 	}
 
 	user := getRequestUser(r)
@@ -119,7 +119,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	for _, a := range existingApps {
 		if app.Config.Helix.Name != "" && a.Config.Helix.Name == app.Config.Helix.Name {
-			return nil, system.NewHTTPError400("app (%s) with name %s already exists", a.ID, a.Config.Helix.Name)
+			return nil, system.NewHTTPError400(fmt.Sprintf("app (%s) with name %s already exists", a.ID, a.Config.Helix.Name))
 		}
 	}
 
@@ -198,9 +198,9 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	default:
 		return nil, system.NewHTTPError400(
-			"unknown app source, available sources: %s, %s",
-			types.AppSourceHelix,
-			types.AppSourceGithub)
+			fmt.Sprintf("unknown app source, available sources: %s, %s",
+				types.AppSourceHelix,
+				types.AppSourceGithub))
 	}
 
 	err = s.ensureKnowledge(ctx, created)
@@ -379,7 +379,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	var update types.App
 	err := json.NewDecoder(r.Body).Decode(&update)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body 2, error: %s", err)
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 2, error: %s", err))
 	}
 
 	// Getting existing app
@@ -461,7 +461,7 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 	var appUpdate AppUpdatePayload
 	err := json.NewDecoder(r.Body).Decode(&appUpdate)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body 3, error: %s", err)
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 3, error: %s", err))
 	}
 
 	if appUpdate.ActiveTools == nil {
@@ -630,7 +630,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 	var req types.GptScriptRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body 4, error: %s", err)
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 4, error: %s", err))
 	}
 
 	envPairs := []string{}

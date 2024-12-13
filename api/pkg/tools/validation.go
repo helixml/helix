@@ -104,7 +104,7 @@ func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 
 		actions, err := GetActionsFromSchema(tool.Config.API.Schema)
 		if err != nil {
-			return system.NewHTTPError400("failed to get actions from schema, error: %s", err)
+			return system.NewHTTPError400(fmt.Sprintf("failed to get actions from schema, error: %s", err))
 		}
 
 		if len(actions) == 0 {
@@ -115,7 +115,7 @@ func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 
 		_, err = planner.ValidateAndDefault(context.Background(), tool)
 		if err != nil {
-			return system.NewHTTPError400("failed to validate and default tool, error: %s", err)
+			return system.NewHTTPError400(fmt.Sprintf("failed to validate and default tool, error: %s", err))
 		}
 
 	case types.ToolTypeZapier:
@@ -127,7 +127,7 @@ func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 			return system.NewHTTPError400("API key is required for Zapier tools")
 		}
 	default:
-		return system.NewHTTPError400("invalid tool type %s, only API tools are supported at the moment", tool.ToolType)
+		return system.NewHTTPError400(fmt.Sprintf("invalid tool type %s, only API tools are supported at the moment", tool.ToolType))
 	}
 
 	return nil
