@@ -83,20 +83,20 @@ const htmlTemplate = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Helix Test Results</title>
     <style>
-        body, html { 
-            font-family: Arial, sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            height: 100%; 
-            overflow: hidden; 
+        body, html {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
         }
         .main-container {
             display: flex;
             flex-direction: column;
             height: 100vh;
         }
-        .header { 
-            padding: 10px 20px; 
+        .header {
+            padding: 10px 20px;
             background-color: #f8f8f8;
             border-bottom: 1px solid #ddd;
             display: flex;
@@ -122,64 +122,64 @@ const htmlTemplate = `
             align-items: center;
             gap: 10px;
         }
-        .results-container { 
+        .results-container {
             flex: 1;
             overflow-y: auto;
             padding: 0 20px;
         }
-        table { 
-            border-collapse: collapse; 
-            width: 100%; 
+        table {
+            border-collapse: collapse;
+            width: 100%;
         }
-        th, td { 
-            border: 1px solid #ddd; 
-            padding: 8px; 
-            text-align: left; 
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
         }
-        th { 
-            background-color: #f2f2f2; 
+        th {
+            background-color: #f2f2f2;
             position: sticky;
             top: 0;
             z-index: 10;
         }
         tr.pass { background-color: #e6ffe6; }
         tr.fail { background-color: #ffe6e6; }
-        #iframe-container { 
-            display: none; 
-            position: fixed; 
-            bottom: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 70%; 
-            border: none; 
+        #iframe-container {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 70%;
+            border: none;
         }
-        #iframe-container iframe { 
-            width: 100%; 
-            height: calc(100% - 10px); 
-            border: none; 
+        #iframe-container iframe {
+            width: 100%;
+            height: calc(100% - 10px);
+            border: none;
         }
-        #close-iframe { 
-            position: absolute; 
-            top: 10px; 
-            right: 10px; 
-            cursor: pointer; 
+        #close-iframe {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
         }
-        #resize-handle { 
-            width: 100%; 
-            height: 10px; 
-            background: #f0f0f0; 
-            cursor: ns-resize; 
-            border-top: 1px solid #ccc; 
+        #resize-handle {
+            width: 100%;
+            height: 10px;
+            background: #f0f0f0;
+            cursor: ns-resize;
+            border-top: 1px solid #ccc;
         }
-        #view-helix-yaml { 
+        #view-helix-yaml {
             padding: 5px 10px;
             font-size: 0.9em;
         }
-        .truncate { 
-            max-width: 400px; 
-            white-space: nowrap; 
-            overflow: hidden; 
-            text-overflow: ellipsis; 
+        .truncate {
+            max-width: 400px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             position: relative;
             cursor: pointer;
         }
@@ -462,7 +462,6 @@ func getHelixURL() string {
 }
 
 func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluationModel string) ([]TestResult, time.Duration, error) {
-	var results []TestResult
 	totalStartTime := time.Now()
 
 	resultsChan := make(chan TestResult)
@@ -502,6 +501,10 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 		wg.Wait()
 		close(resultsChan)
 	}()
+
+	// nolint:prealloc
+	// NOTE: we don't know the size
+	var results []TestResult
 
 	for result := range resultsChan {
 		results = append(results, result)
@@ -932,7 +935,7 @@ func getAvailableModels(apiKey, helixURL string) ([]string, error) {
 	}
 
 	// Extract model IDs from the response
-	var models []string
+	models := make([]string, 0, len(modelResp.Data))
 	for _, model := range modelResp.Data {
 		models = append(models, model.ID)
 	}

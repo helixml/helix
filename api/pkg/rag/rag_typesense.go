@@ -118,7 +118,7 @@ func (t *Typesense) index(ctx context.Context, indexReqs ...*types.SessionRAGInd
 		BatchSize: pointer.Int(len(indexReqs)),
 	}
 
-	var docs []interface{}
+	docs := make([]interface{}, 0, len(indexReqs))
 	for _, indexReq := range indexReqs {
 		docs = append(docs, indexReq)
 	}
@@ -156,9 +156,8 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 
 	log.Info().Int("num_results", len(*results.Hits)).Msg("typesense results")
 
-	var ragResults []*types.SessionRAGResult
+	ragResults := make([]*types.SessionRAGResult, 0, len(*results.Hits))
 	for _, hit := range *results.Hits {
-
 		ragResult := &types.SessionRAGResult{
 			// DataEntityID:    hit.Document["data_entity_id"].(string),
 			DocumentGroupID: getStrVariable(&hit, "document_group_id"),

@@ -44,11 +44,14 @@ func getChildPids(pid int) ([]int, error) {
 }
 
 func getAllDescendants(pid int) ([]int, error) {
-	var descendants []int
 	children, err := getChildPids(pid)
 	if err != nil {
 		return nil, err
 	}
+
+	// nolint:prealloc
+	// NOTE: we don't know the size
+	var descendants []int
 
 	for _, child := range children {
 		descendants = append(descendants, child)

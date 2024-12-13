@@ -69,7 +69,7 @@ func (f *Firecrawl) Crawl(ctx context.Context) ([]*types.CrawledDocument, error)
 		Int("num_docs", len(docs)).
 		Msg("crawling completed")
 
-	var crawledDocs []*types.CrawledDocument
+	crawledDocs := make([]*types.CrawledDocument, 0, len(docs))
 	for _, doc := range docs {
 		crawledDocs = append(crawledDocs, &types.CrawledDocument{
 			ID:          doc.ID,

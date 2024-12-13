@@ -271,6 +271,8 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 }
 
 func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, error) {
+	// nolint:prealloc
+	// NOTE: we don't know the size
 	var interactions []*types.Interaction
 
 	for _, m := range messages {
