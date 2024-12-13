@@ -257,7 +257,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	model.API_HOST = options.Runner.ApiHost
 	model.API_TOKEN = options.Runner.ApiToken
 
-	useWarmupSessions := []types.Session{}
 	if !options.Runner.MockRunner {
 		// Axolotl runtime warmup
 		if options.Runner.Config.Runtimes.Axolotl.Enabled {
@@ -265,10 +264,8 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 				switch modelName {
 				case model.Model_Axolotl_Mistral7b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
-					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
 				case model.Model_Cog_SDXL:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
-					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
 				default:
 					log.Error().Msgf("Unknown warmup model %s", modelName)
 				}
@@ -281,7 +278,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 				switch modelName {
 				case model.Model_Ollama_Llama3_8b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
-					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Llama3_8b)
 				}
 			}
 		}
