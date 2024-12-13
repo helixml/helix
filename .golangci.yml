@@ -3,7 +3,7 @@ linters:
     - staticcheck
     - unconvert
     - gofmt
-    #- goimports
+    - goimports
     #- ineffassign
     #- govet
     #- unused
