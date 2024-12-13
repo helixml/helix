@@ -812,7 +812,7 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 			continue
 		}
 		history = append(history, &ToolHistoryMessage{
-			Role:    string(message.Role),
+			Role:    message.Role,
 			Content: message.Content,
 		})
 	}

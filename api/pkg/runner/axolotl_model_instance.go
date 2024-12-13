@@ -607,7 +607,7 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 		log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
 
 		req := openai.FineTuningJobRequest{
-			Model:          string(session.ModelName),
+			Model:          session.ModelName,
 			TrainingFile:   combinedFile,
 			ValidationFile: "",
 			Hyperparameters: &openai.Hyperparameters{
@@ -764,7 +764,7 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 				TotalTokens:      resp.Usage.TotalTokens,
 				PromptTokens:     resp.Usage.PromptTokens,
 				CompletionTokens: resp.Usage.CompletionTokens,
-				DurationMs:       int64(time.Since(time.UnixMilli(resp.Created)).Milliseconds()),
+				DurationMs:       time.Since(time.UnixMilli(resp.Created)).Milliseconds(),
 			},
 		})
 	default:

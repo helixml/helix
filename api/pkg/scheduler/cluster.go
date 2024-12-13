@@ -32,7 +32,7 @@ func (c *cluster) UpdateRunner(props *types.RunnerState) {
 	log.Trace().
 		Str("runner_id", props.ID).
 		Int64("total_memory", int64(props.TotalMemory)).
-		Int64("free_memory", int64(props.FreeMemory)).
+		Int64("free_memory", props.FreeMemory).
 		Interface("slots", props.Slots).
 		Msg("updating runner state")
 

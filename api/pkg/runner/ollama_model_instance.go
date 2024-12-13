@@ -487,7 +487,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	case session.Metadata.Stream:
 		// Adding current message
 		req := openai.ChatCompletionRequest{
-			Model:          string(session.ModelName),
+			Model:          session.ModelName,
 			Stream:         true,
 			Messages:       messages,
 			ResponseFormat: responseFormat,
@@ -543,7 +543,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	default:
 		// Non-streaming mode
 		req := openai.ChatCompletionRequest{
-			Model:          string(session.ModelName),
+			Model:          session.ModelName,
 			Messages:       messages,
 			ResponseFormat: responseFormat,
 			Tools:          tools,

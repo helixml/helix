@@ -126,7 +126,7 @@ func (a *allocator) ReconcileSlots(props *types.RunnerState) error {
 	l := log.With().
 		Str("runner_id", props.ID).
 		Int64("total_memory", int64(props.TotalMemory)).
-		Int64("free_memory", int64(props.FreeMemory)).
+		Int64("free_memory", props.FreeMemory).
 		Logger()
 
 	// Mark found slots.

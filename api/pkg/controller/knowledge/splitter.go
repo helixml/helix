@@ -60,7 +60,7 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 				chunks = append(chunks, &text.DataPrepTextSplitterChunk{
 					Filename:        d.Source,
 					Index:           idx,
-					Text:            string(part),
+					Text:            part,
 					DocumentID:      getDocumentID(d.Data),
 					DocumentGroupID: k.ID,
 				})

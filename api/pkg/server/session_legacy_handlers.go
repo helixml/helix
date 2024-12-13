@@ -209,7 +209,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 
 		cfg = &startSessionConfig{
 			sessionID: sessionID,
-			modelName: string(newSession.ModelName),
+			modelName: newSession.ModelName,
 			start: func() error {
 				_, err := s.Controller.StartSession(ctx, user, newSession)
 				if err != nil {
@@ -245,7 +245,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 
 		cfg = &startSessionConfig{
 			sessionID: startReq.SessionID,
-			modelName: string(existingSession.ModelName),
+			modelName: existingSession.ModelName,
 			start: func() error {
 
 				_, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
@@ -365,7 +365,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 			if ok && lastInteraction.Finished {
 				logger.Debug().Msgf("session finished")
 
-				lastChunk := createChatCompletionChunk(startReq.sessionID, string(startReq.modelName), lastInteraction.Message)
+				lastChunk := createChatCompletionChunk(startReq.sessionID, startReq.modelName, lastInteraction.Message)
 				lastChunk.Choices[0].FinishReason = "stop"
 
 				respData, err := json.Marshal(lastChunk)
@@ -395,7 +395,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
 			logger.Debug().Msgf("session finished")
 
-			lastChunk := createChatCompletionChunk(startReq.sessionID, string(startReq.modelName), "")
+			lastChunk := createChatCompletionChunk(startReq.sessionID, startReq.modelName, "")
 			lastChunk.Choices[0].FinishReason = "stop"
 
 			respData, err := json.Marshal(lastChunk)
@@ -426,7 +426,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		}
 
 		// Write chunk
-		chunk, err := json.Marshal(createChatCompletionChunk(startReq.sessionID, string(startReq.modelName), event.WorkerTaskResponse.Message))
+		chunk, err := json.Marshal(createChatCompletionChunk(startReq.sessionID, startReq.modelName, event.WorkerTaskResponse.Message))
 		if err != nil {
 			return fmt.Errorf("error marshalling websocket event '%+v': %w", event, err)
 		}
@@ -452,7 +452,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	// Write first chunk where we present the user with the first message
 	// from the assistant
-	firstChunk := createChatCompletionChunk(startReq.sessionID, string(startReq.modelName), "")
+	firstChunk := createChatCompletionChunk(startReq.sessionID, startReq.modelName, "")
 	firstChunk.Choices[0].Delta.Role = "assistant"
 
 	respData, err := json.Marshal(firstChunk)
@@ -616,7 +616,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 	resp := &types.OpenAIResponse{
 		ID:      startReq.sessionID,
 		Created: int(time.Now().Unix()),
-		Model:   string(startReq.modelName), // we have to return what the user sent here, due to OpenAI spec.
+		Model:   startReq.modelName, // we have to return what the user sent here, due to OpenAI spec.
 		Choices: result,
 		Object:  "chat.completion",
 		Usage: types.OpenAIUsage{
