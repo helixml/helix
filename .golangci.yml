@@ -7,8 +7,8 @@ linters:
     - ineffassign
     - gosimple
     - govet
+    - misspell
     #- unused
-    #- misspell
     #- bodyclose
     #- errcheck
     #- prealloc

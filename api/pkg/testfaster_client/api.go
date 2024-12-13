@@ -694,7 +694,7 @@ type VmState struct {
 	PoolId       string        `json:"pool_id"`
 	VmId         string        `json:"vm_id"` // UUID not api id
 	Ip           string        `json:"ip"`
-	State        string        `json:"state"` // "dicovering", "off", "starting", "running", "deleting", "deleted", "error"
+	State        string        `json:"state"` // "discovering", "off", "starting", "running", "deleting", "deleted", "error"
 	Status       string        `json:"status"`
 	PortMappings *PortMappings `json:"port_mappings"`
 }
