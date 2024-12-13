@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
@@ -125,8 +124,6 @@ func (b *Browser) getBrowser() (*rod.Browser, error) {
 
 	return browser, nil
 }
-
-var pageLoadTimeout = 5 * time.Second
 
 func (b *Browser) GetPage(browser *rod.Browser, opts proto.TargetCreateTarget) (*rod.Page, error) {
 	create := func() (*rod.Page, error) {

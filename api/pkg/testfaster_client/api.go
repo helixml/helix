@@ -364,7 +364,6 @@ type EntityWaiterApi struct {
 	errorChan chan error
 	readyChan chan string
 	stopChan  chan bool
-	url       string
 	isReady   func(string) bool
 	getError  func(string) error
 }

@@ -282,11 +282,12 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	return lease, nil
 }
 
-var keepExistingLease, keepExistingPool bool
-var name string
-var slot string
-var poolSlot string
-var retainSlots int
+var (
+	name        string
+	slot        string
+	poolSlot    string
+	retainSlots int
+)
 
 func containsSlot(metaSlots string, poolSlot string) bool {
 	// The new convention is that the pool.meta["slots"] field contains a
@@ -312,6 +313,7 @@ func addSlotToList(slotList string, newSlot string) string {
 	return strings.Join(slotListSlice, ";")
 }
 
+// nolint:unused
 func removeSlotFromList(slotList string, removeSlot string) string {
 	slotListSlice := strings.Split(slotList, ";")
 	newList := []string{}

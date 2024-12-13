@@ -47,6 +47,7 @@ func getDefaultServeOptionInt(envName string, defaultValue int) int {
 	return defaultValue
 }
 
+// nolint:unused
 func getDefaultServeOptionFloat(envName string, defaultValue float32) float32 {
 	envValue := os.Getenv(envName)
 	if envValue != "" {
@@ -58,6 +59,7 @@ func getDefaultServeOptionFloat(envName string, defaultValue float32) float32 {
 	return defaultValue
 }
 
+// nolint:unused
 // comma separated strings
 func getDefaultServeOptionStringArray(envName string, defaultValue []string) []string {
 	envValue, ok := os.LookupEnv(envName)

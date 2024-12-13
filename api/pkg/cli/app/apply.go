@@ -24,11 +24,6 @@ func NewApplyCmd() *cobra.Command {
 	return applyCmd
 }
 
-type applyOptions struct {
-	filename         string
-	refreshKnowledge bool
-}
-
 // applyCmd represents the apply command
 var applyCmd = &cobra.Command{
 	Use:   "apply",
