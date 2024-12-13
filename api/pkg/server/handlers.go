@@ -338,7 +338,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		SessionMode:     session.Mode,
 	})
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to update session: %s", err)
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update session: %s", err))
 	}
 
 	return sessionData, nil

@@ -750,7 +750,7 @@ func (c *ollamaClient) stream(ctx context.Context, method, path string, data any
 		}
 
 		if errorResponse.Error != "" {
-			return fmt.Errorf(errorResponse.Error)
+			return errors.New(errorResponse.Error)
 		}
 
 		if response.StatusCode >= http.StatusBadRequest {

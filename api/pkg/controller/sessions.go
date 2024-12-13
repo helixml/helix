@@ -946,7 +946,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	c.WriteSession(session)
 
 	if taskResponse.Error != "" {
-		c.Options.Janitor.WriteSessionError(session, fmt.Errorf(taskResponse.Error))
+		c.Options.Janitor.WriteSessionError(session, errors.New(taskResponse.Error))
 	}
 
 	return taskResponse, nil
