@@ -61,6 +61,9 @@ func (socket *WebSocket) getConnection() (*websocket.Conn, error) {
 		log.Printf("[websocket] connecting to %s", urlToPrint)
 	}
 
+	// NOTE(milosgajdos): disabling bodyclose here as there is no need for closing the response
+	// See: https://pkg.go.dev/github.com/gorilla/websocket@v1.5.3#Dialer.DialContext
+	// nolint:bodyclose
 	connection, _, err := websocket.DefaultDialer.Dial(url.String(), nil)
 	if err != nil {
 		return nil, err
