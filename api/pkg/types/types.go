@@ -799,6 +799,8 @@ type ToolHistoryMessage struct {
 }
 
 func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolHistoryMessage {
+	// nolint:prealloc
+	// NOTE: we don't know the size
 	var history []*ToolHistoryMessage
 
 	// Copy the messages from the request into history messages

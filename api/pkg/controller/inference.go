@@ -401,6 +401,8 @@ func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app 
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
 	}
 
+	// nolint:prealloc
+	// NOTE: we don't know the size
 	var filteredSecrets []*types.Secret
 
 	// Filter out secrets that are not for the current app
@@ -493,7 +495,7 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		return nil, fmt.Errorf("error querying RAG: %w", err)
 	}
 
-	var ragContent []*prompts.RagContent
+	ragContent := make([]*prompts.RagContent, 0, len(ragResults))
 	for _, result := range ragResults {
 		ragContent = append(ragContent, &prompts.RagContent{
 			DocumentID: result.DocumentID,

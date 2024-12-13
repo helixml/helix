@@ -11,7 +11,7 @@ linters:
     #- unused
     - bodyclose
     #- errcheck
-    #- prealloc
+    - prealloc
     #- tparallel
     #- revive
 

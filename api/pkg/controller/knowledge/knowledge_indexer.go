@@ -427,7 +427,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 
 func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 
-	var indexChunks []*types.SessionRAGIndexChunk
+	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{

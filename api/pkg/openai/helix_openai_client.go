@@ -31,10 +31,10 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 		return nil, fmt.Errorf("failed to get Ollama models: %w", err)
 	}
 
-	var HelixModels []model.OpenAIModel
+	helixModels := make([]model.OpenAIModel, 0, len(ollamaModels))
 
 	for _, m := range ollamaModels {
-		HelixModels = append(HelixModels, model.OpenAIModel{
+		helixModels = append(helixModels, model.OpenAIModel{
 			ID:          m.ModelName().String(),
 			Object:      "model",
 			OwnedBy:     "helix",
@@ -50,7 +50,7 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 		return nil, fmt.Errorf("failed to get Diffusers models: %w", err)
 	}
 	for _, m := range diffusersModels {
-		HelixModels = append(HelixModels, model.OpenAIModel{
+		helixModels = append(helixModels, model.OpenAIModel{
 			ID:          m.ModelName().String(),
 			Object:      "model",
 			OwnedBy:     "helix",
@@ -61,7 +61,7 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 		})
 	}
 
-	return HelixModels, nil
+	return helixModels, nil
 }
 
 func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
