@@ -5,6 +5,7 @@ linters:
     - gofmt
     - goimports
     - ineffassign
+    - gosimple
     #- govet
     #- unused
     #- misspell

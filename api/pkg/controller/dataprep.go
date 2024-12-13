@@ -70,10 +70,9 @@ func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]stri
 		// }
 
 		// check if we have already got the chunks for this file
-		_, ok := existingFileNames[fmt.Sprintf("%s.txt", filename)]
-		if ok {
+		if _, ok := existingFileNames[fmt.Sprintf("%s.txt", filename)]; ok {
 			// we've already chunked this file into chunks
-			return false
+			return !ok
 		}
 
 		// check if we have already got the chunks for this file
