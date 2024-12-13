@@ -287,9 +287,9 @@ func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessi
 		return "", types.OwnerContext{}, err
 	}
 
-	if strings.HasPrefix(filePath, userPath) {
-		filePath = strings.TrimPrefix(filePath, userPath)
-	}
+	// NOTE(milosgajdos): no need for if check
+	// https://pkg.go.dev/strings#TrimPrefix
+	filePath = strings.TrimPrefix(filePath, userPath)
 
 	return filePath, ownerContext, nil
 }

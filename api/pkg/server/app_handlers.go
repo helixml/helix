@@ -249,9 +249,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 
 	// Get knowledge for all assistants
 	for _, assistant := range app.Config.Helix.Assistants {
-		for _, k := range assistant.Knowledge {
-			knowledge = append(knowledge, k)
-		}
+		knowledge = append(knowledge, assistant.Knowledge...)
 	}
 
 	// Used to track which knowledges are declared in the app config

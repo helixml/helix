@@ -593,7 +593,9 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 		return
 	}
 
-	if updatedSession.Interactions == nil || len(updatedSession.Interactions) == 0 {
+	// NOTE: nil check is unnecessary as len(nil_slice) is defined as 0
+	// https://go.dev/ref/spec#Length_and_capacity
+	if len(updatedSession.Interactions) == 0 {
 		http.Error(res, "session update does not contain any interactions", http.StatusInternalServerError)
 		return
 	}

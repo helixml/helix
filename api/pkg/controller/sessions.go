@@ -583,9 +583,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			if assistant == nil {
 				return nil, system.NewHTTPError404(fmt.Sprintf("we could not find the assistant with the id: %s", assistantID))
 			}
-			for _, tool := range assistant.Tools {
-				activeTools = append(activeTools, tool)
-			}
+			activeTools = append(activeTools, assistant.Tools...)
 		}
 	} else {
 		for _, id := range session.Metadata.ActiveTools {

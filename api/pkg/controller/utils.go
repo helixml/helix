@@ -111,11 +111,7 @@ func injectFileToList(fileList []string, existingFile string, addFile string) []
 }
 
 func copyFileList(fileList []string) []string {
-	ret := []string{}
-	for _, file := range fileList {
-		ret = append(ret, file)
-	}
-	return ret
+	return append([]string{}, fileList...)
 }
 
 func getQAChunk(
