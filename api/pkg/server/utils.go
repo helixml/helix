@@ -87,7 +87,6 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 		return nil, err
 	}
 
-	filePaths := []string{}
 	files, okFiles := req.MultipartForm.File["files"]
 	inputPath := controller.GetDataEntityFolder(ID)
 
@@ -109,7 +108,6 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
 			log.Debug().Msgf("success uploading file: %s", imageItem.Path)
-			filePaths = append(filePaths, imageItem.Path)
 
 			// let's see if there is a single form field named after the filename
 			// this is for labelling images for fine tuning
@@ -124,12 +122,11 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 
 				metadata[fileHeader.Filename] = label
 
-				labelItem, err := apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), labelFilepath, strings.NewReader(label))
+				_, err := apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
 				log.Debug().Msgf("success uploading file: %s", fileHeader.Filename)
-				filePaths = append(filePaths, labelItem.Path)
 			}
 		}
 		log.Debug().Msgf("success uploading files")

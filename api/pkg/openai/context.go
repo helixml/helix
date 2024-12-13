@@ -6,10 +6,16 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-const (
-	contextValuesKey = "contextValues"
-	contextAppIDKey  = "appID"
-	stepKey          = "step"
+type (
+	contextValuesKeyType int
+	contextAppIDKeyType  int
+	stepKeyType          int
+)
+
+var (
+	contextValuesKey contextValuesKeyType
+	contextAppIDKey  contextAppIDKeyType
+	stepKey          stepKeyType
 )
 
 type Step struct {
