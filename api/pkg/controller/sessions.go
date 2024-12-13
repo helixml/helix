@@ -533,10 +533,16 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 				userInteraction.Message = injectedUserPrompt
 				return userInteraction, nil
 			})
+			if err != nil {
+				return nil, err
+			}
 			session, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
 				assistantInteraction.RagResults = ragResults
 				return assistantInteraction, nil
 			})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

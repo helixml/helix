@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -536,7 +537,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					session = c.WriteInteraction(session, assistantInteraction)
 					c.BroadcastProgress(session, 1, initialMessage)
 
-					return session, 0, fmt.Errorf(msg)
+					return session, 0, errors.New(msg)
 				}
 
 				// Get the progress bar to display
@@ -571,7 +572,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					session = c.WriteInteraction(session, assistantInteraction)
 					c.BroadcastProgress(session, 1, initialMessage)
 
-					return session, 0, fmt.Errorf(msg)
+					return session, 0, errors.New(msg)
 				}
 
 				// Get the progress bar to display
