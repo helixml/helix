@@ -96,7 +96,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	fmt.Printf("Got pool (%s)\n", pool.Id)
 	if pool.State == "deleting" || pool.State == "deleted" {
 		poolId := pool.Id
-		// resurrect pool if neccessary
+		// resurrect pool if necessary
 		pool, err = apiHandler.UpdatePool(PoolState{
 			PoolId: poolId,
 			State:  "unknown", // will trigger backend to build it if necc.
