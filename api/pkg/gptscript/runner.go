@@ -156,6 +156,9 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 		d.cfg.RunnerID,                  // Runner ID is a unique identifier for the runner
 	)
 
+	// NOTE(milosgajdos): disabling bodyclose here as there is no need for closing the response
+	// See: https://pkg.go.dev/github.com/gorilla/websocket@v1.5.3#Dialer.DialContext
+	// nolint:bodyclose
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, apiHost, nil)
 	if err != nil {
 		log.Error().Msgf("websocket dial to '%s' failed, error: %s", apiHost, err)
