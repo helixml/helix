@@ -367,6 +367,9 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 	}
 
 	s, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
 	if s.IsDir() {
 		return nil, errors.New("directory access is denied")
 	}
