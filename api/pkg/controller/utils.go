@@ -376,7 +376,7 @@ func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequ
 	// TODO: temperature, etc.
 
 	return &openai.ChatCompletionRequest{
-		Model:          string(session.ModelName),
+		Model:          session.ModelName,
 		Stream:         session.Metadata.Stream,
 		Messages:       messages,
 		ResponseFormat: responseFormat,

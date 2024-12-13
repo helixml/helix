@@ -1,8 +1,8 @@
 linters:
   enable:
     - staticcheck
-    #- unconvert
-    #- gofmt
+    - unconvert
+    - gofmt
     #- goimports
     #- ineffassign
     #- govet

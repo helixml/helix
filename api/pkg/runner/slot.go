@@ -146,13 +146,13 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 		if runnerOptions.MockRunner {
 			if initialSession.Type == types.SessionTypeText {
 				runtimeName = types.InferenceRuntimeAxolotl
-				initialSession.ModelName = string(model.Model_Axolotl_Mistral7b)
+				initialSession.ModelName = model.Model_Axolotl_Mistral7b
 			} else if initialSession.Type == types.SessionTypeImage {
 				// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
 				// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
 				// that does both axolotl and sdxl
 				runtimeName = types.InferenceRuntimeAxolotl
-				initialSession.ModelName = string(model.Model_Cog_SDXL)
+				initialSession.ModelName = model.Model_Cog_SDXL
 			}
 		}
 
