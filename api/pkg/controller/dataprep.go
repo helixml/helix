@@ -21,19 +21,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type convertDocumentsToChunksRequest struct {
-	URL string `json:"url"`
-}
-
-type convertDocumentsToChunksResponse struct {
-	Text string `json:"text"`
-}
-
-type convertTextItem struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
-
 func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]string, error) {
 	userInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {

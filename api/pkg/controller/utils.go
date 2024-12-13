@@ -4,100 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	stdlog "log"
-	"mime/multipart"
-	"net/http"
 	"path"
 	"strings"
-	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
-	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
-
-func containsString(slice []string, target string) bool {
-	for _, value := range slice {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-func isOlderThan24Hours(t time.Time) bool {
-	compareTime := time.Now().Add(-24 * time.Hour)
-	return t.Before(compareTime)
-}
-
-func dumpObject(data interface{}) {
-	bytes, _ := json.MarshalIndent(data, "", "    ")
-	fmt.Printf("%s\n", string(bytes))
-}
-
-func createMultipartRequest(uri string, fieldName string, fileName string, fileReader io.Reader) (*retryablehttp.Request, error) {
-	// Create a buffer to write our multipart form to
-	var requestBody bytes.Buffer
-
-	// Create a multipart writer
-	multipartWriter := multipart.NewWriter(&requestBody)
-
-	// Add the file part to the multipart writer
-	fileWriter, err := multipartWriter.CreateFormFile(fieldName, fileName)
-	if err != nil {
-		return nil, err
-	}
-
-	// Copy the file data to the multipart writer
-	_, err = io.Copy(fileWriter, fileReader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Close the multipart writer to set the terminating boundary
-	err = multipartWriter.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the request
-	request, err := retryablehttp.NewRequest("POST", uri, &requestBody)
-	if err != nil {
-		return nil, err
-	}
-
-	// Set the content type, this must be done after closing the writer
-	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
-
-	return request, nil
-}
-
-func newRetryClient() *retryablehttp.Client {
-	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 10
-	retryClient.Logger = stdlog.New(io.Discard, "", stdlog.LstdFlags)
-	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
-		switch {
-		case req.Method == "POST":
-			log.Debug().
-				Str(req.Method, req.URL.String()).
-				Int("attempt", attempt).
-				Msgf("")
-		default:
-			// GET, PUT, DELETE, etc.
-			log.Trace().
-				Str(req.Method, req.URL.String()).
-				Int("attempt", attempt).
-				Msgf("")
-		}
-	}
-	return retryClient
-}
 
 func injectFileToList(fileList []string, existingFile string, addFile string) []string {
 	ret := []string{}
@@ -294,89 +208,4 @@ func getLastMessage(req openai.ChatCompletionRequest) string {
 	}
 
 	return ""
-}
-
-func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequest, error) {
-	var messages []openai.ChatCompletionMessage
-
-	// Adjust length
-	var interactions []*types.Interaction
-	if len(session.Interactions) > 10 {
-		first, err := data.GetFirstUserInteraction(session.Interactions)
-		if err != nil {
-			log.Err(err).Msg("error getting first user interaction")
-		} else {
-			interactions = append(interactions, first)
-			interactions = append(interactions, data.GetLastInteractions(session, 10)...)
-		}
-	} else {
-		interactions = session.Interactions
-	}
-
-	// Adding the system prompt first
-	if session.Metadata.SystemPrompt != "" {
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: session.Metadata.SystemPrompt,
-		})
-	}
-
-	for _, interaction := range interactions {
-		switch interaction.Creator {
-
-		case types.CreatorTypeUser:
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleUser,
-				Content: interaction.Message,
-			})
-		case types.CreatorTypeSystem:
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: interaction.Message,
-			})
-		case types.CreatorTypeAssistant:
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleAssistant,
-				Content: interaction.Message,
-			})
-		case types.CreatorTypeTool:
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:       openai.ChatMessageRoleUser,
-				Content:    interaction.Message,
-				ToolCalls:  interaction.ToolCalls,
-				ToolCallID: interaction.ToolCallID,
-			})
-		}
-	}
-
-	var (
-		responseFormat *openai.ChatCompletionResponseFormat
-		tools          []openai.Tool
-		toolChoice     any
-	)
-
-	// If the last interaction has response format, use it
-	last, _ := data.GetLastAssistantInteraction(interactions)
-	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
-		responseFormat = &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
-			// Schema: last.ResponseFormat.Schema,
-		}
-	}
-
-	if last != nil && len(last.Tools) > 0 {
-		tools = last.Tools
-		toolChoice = last.ToolChoice
-	}
-
-	// TODO: temperature, etc.
-
-	return &openai.ChatCompletionRequest{
-		Model:          session.ModelName,
-		Stream:         session.Metadata.Stream,
-		Messages:       messages,
-		ResponseFormat: responseFormat,
-		Tools:          tools,
-		ToolChoice:     toolChoice,
-	}, nil
 }

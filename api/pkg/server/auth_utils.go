@@ -112,19 +112,6 @@ func addCorsHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 }
 
-func corsMiddleware(f http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		addCorsHeaders(w)
-
-		// If method is OPTIONS, return just the headers and finish the request
-		if r.Method == "OPTIONS" {
-			return
-		}
-
-		f.ServeHTTP(w, r)
-	}
-}
-
 /*
 -
 Access Control

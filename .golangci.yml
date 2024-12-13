@@ -8,11 +8,11 @@ linters:
     - gosimple
     - govet
     - misspell
-    #- unused
+    - unused
     - bodyclose
     #- errcheck
     - prealloc
-    #- tparallel
+    - tparallel
     #- revive
 
 issues:

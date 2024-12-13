@@ -15,11 +15,9 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
-	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
-	"gorm.io/datatypes"
 
 	"github.com/rs/zerolog/log"
 )
@@ -441,29 +439,6 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model,
 	return resp.Choices[0].Message.Content, nil
 }
 
-func (s *HelixAPIServer) _legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
-	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	go func() {
-		// we log the updated request here because the controller mutates it
-		// when doing e.g. tools calls and RAG
-		s.legacyStreamUpdates(user, session, stream, updatedReq)
-	}()
-
-	sessionDataJSON, err := json.Marshal(session)
-	if err != nil {
-		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write(sessionDataJSON)
-}
-
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
@@ -595,125 +570,4 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	return s.Controller.WriteSession(session)
-}
-
-// legacyStreamUpdates writes the event to pubsub so user's browser can pick them
-// up and update the session in the UI
-func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream, chatCompletionRequest *openai.ChatCompletionRequest) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	interactionID := session.Interactions[len(session.Interactions)-1].ID
-
-	var responseMessage string
-
-	started := time.Now()
-
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Err(err).Msg("error receiving stream")
-			return
-		}
-
-		var messageContent string
-
-		// Accumulate the response
-		if len(response.Choices) > 0 {
-			messageContent = response.Choices[0].Delta.Content
-		}
-
-		responseMessage += messageContent
-
-		bts, err := json.Marshal(&types.WebsocketEvent{
-			Type:      "worker_task_response",
-			SessionID: session.ID,
-			Session: &types.Session{
-				ID: session.ID,
-			},
-			WorkerTaskResponse: &types.RunnerTaskResponse{
-				Owner:         user.ID,
-				Type:          types.WorkerTaskResponseTypeStream,
-				SessionID:     session.ID,
-				InteractionID: interactionID,
-				Message:       messageContent,
-				Done:          false,
-			},
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("failed to marshal message")
-			return
-		}
-
-		err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to publish message")
-		}
-	}
-
-	// Send the final message that it's done
-	bts, err := json.Marshal(&types.WebsocketEvent{
-		Type:      "worker_task_response",
-		SessionID: session.ID,
-		Session: &types.Session{
-			ID: session.ID,
-		},
-		WorkerTaskResponse: &types.RunnerTaskResponse{
-			Owner:         user.ID,
-			SessionID:     session.ID,
-			InteractionID: interactionID,
-			Type:          types.WorkerTaskResponseTypeStream,
-			Message:       "",
-			Done:          true,
-		},
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal message")
-		return
-	}
-
-	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to publish message")
-	}
-
-	// Log the full LLM call after the stream is complete
-	s.logLegacyLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepDefault, chatCompletionRequest, &openai.ChatCompletionResponse{
-		ID:      session.ID,
-		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: responseMessage}}},
-	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
-
-	// Update last interaction
-	session.Interactions[len(session.Interactions)-1].Message = responseMessage
-	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-	session.Interactions[len(session.Interactions)-1].Finished = true
-
-	s.Controller.WriteSession(session)
-}
-
-func (s *HelixAPIServer) logLegacyLLMCall(userID, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64, model string, provider string) {
-	// Convert request and response to JSON strings
-	reqJSON, _ := json.Marshal(req)
-	respJSON, _ := json.Marshal(resp)
-
-	llmCall := &types.LLMCall{
-		UserID:        userID,
-		SessionID:     sessionID,
-		InteractionID: interactionID,
-		Step:          step,
-		Request:       datatypes.JSON(reqJSON),
-		Response:      datatypes.JSON(respJSON),
-		DurationMs:    durationMs,
-		Model:         model,
-		Provider:      provider,
-	}
-
-	_, err := s.Store.CreateLLMCall(context.Background(), llmCall)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to log LLM call")
-	}
 }
