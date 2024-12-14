@@ -207,7 +207,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 		err := collector.Visit(e.Request.AbsoluteURL(link))
 		if err != nil {
-			log.Warn().
+			log.Trace().
 				Err(err).
 				Str("url", e.Request.URL.String()).
 				Str("absolute_url", e.Request.AbsoluteURL(link)).
