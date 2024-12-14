@@ -123,7 +123,7 @@ func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types
 		return nil, fmt.Errorf("failed to crawl: %w", err)
 	}
 
-	var data []*indexerData
+	data := make([]*indexerData, 0, len(result))
 
 	for _, doc := range result {
 		data = append(data, &indexerData{

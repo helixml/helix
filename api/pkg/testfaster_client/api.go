@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -365,7 +364,6 @@ type EntityWaiterApi struct {
 	errorChan chan error
 	readyChan chan string
 	stopChan  chan bool
-	url       string
 	isReady   func(string) bool
 	getError  func(string) error
 }
@@ -511,7 +509,7 @@ func (handler *HttpApiHandler) Request(method string, path string, body interfac
 	}
 	defer resp.Body.Close()
 
-	respBody, err := ioutil.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -695,7 +693,7 @@ type VmState struct {
 	PoolId       string        `json:"pool_id"`
 	VmId         string        `json:"vm_id"` // UUID not api id
 	Ip           string        `json:"ip"`
-	State        string        `json:"state"` // "dicovering", "off", "starting", "running", "deleting", "deleted", "error"
+	State        string        `json:"state"` // "discovering", "off", "starting", "running", "deleting", "deleted", "error"
 	Status       string        `json:"status"`
 	PortMappings *PortMappings `json:"port_mappings"`
 }

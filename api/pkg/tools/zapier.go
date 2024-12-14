@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	helix_langchain "github.com/helixml/helix/api/pkg/openai/langchain"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -14,7 +13,6 @@ import (
 	"github.com/tmc/langchaingo/agents"
 	"github.com/tmc/langchaingo/callbacks"
 	"github.com/tmc/langchaingo/chains"
-	oai "github.com/tmc/langchaingo/llms/openai"
 	"github.com/tmc/langchaingo/tools"
 	"github.com/tmc/langchaingo/tools/zapier"
 )
@@ -136,11 +134,4 @@ func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.T
 	}()
 
 	return downstream, nil
-}
-
-func (c *ChainStrategy) newClient(tool *types.Tool) (*oai.LLM, error) {
-	return oai.New(
-		oai.WithModel(tool.Config.Zapier.Model),
-		oai.WithHTTPClient(http.DefaultClient),
-	)
 }

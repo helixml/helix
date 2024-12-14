@@ -37,6 +37,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// nolint:unused
 func printStackTrace() {
 	// Allocate a buffer large enough to store the stack trace
 	buf := make([]byte, 1024)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,7 +86,6 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 		return nil, err
 	}
 
-	filePaths := []string{}
 	files, okFiles := req.MultipartForm.File["files"]
 	inputPath := controller.GetDataEntityFolder(ID)
 
@@ -109,7 +107,6 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
 			log.Debug().Msgf("success uploading file: %s", imageItem.Path)
-			filePaths = append(filePaths, imageItem.Path)
 
 			// let's see if there is a single form field named after the filename
 			// this is for labelling images for fine tuning
@@ -124,12 +121,11 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 
 				metadata[fileHeader.Filename] = label
 
-				labelItem, err := apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), labelFilepath, strings.NewReader(label))
+				_, err := apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
 				log.Debug().Msgf("success uploading file: %s", fileHeader.Filename)
-				filePaths = append(filePaths, labelItem.Path)
 			}
 		}
 		log.Debug().Msgf("success uploading files")
@@ -290,9 +286,9 @@ func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessi
 		return "", types.OwnerContext{}, err
 	}
 
-	if strings.HasPrefix(filePath, userPath) {
-		filePath = strings.TrimPrefix(filePath, userPath)
-	}
+	// NOTE(milosgajdos): no need for if check
+	// https://pkg.go.dev/strings#TrimPrefix
+	filePath = strings.TrimPrefix(filePath, userPath)
 
 	return filePath, ownerContext, nil
 }
@@ -370,51 +366,12 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 	}
 
 	s, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
 	if s.IsDir() {
 		return nil, errors.New("directory access is denied")
 	}
 
 	return f, nil
-}
-
-// used by the widget server
-// ?apples=red&size.profile=large&top.middle.bottom=hello
-// becomes
-//
-//	{
-//	  apples: "red",
-//	  size: {
-//	    profile: "large"
-//	  },
-//	  top: {
-//	    middle: {
-//	      bottom: "hello"
-//	    }
-//	  }
-//	}
-func convertQueryParamsToNestedObject(queryParams url.Values) map[string]interface{} {
-	result := make(map[string]interface{})
-	for param, values := range queryParams {
-		keys := strings.Split(param, ".")
-		lastKeyIndex := len(keys) - 1
-		currentMap := result
-
-		for i, key := range keys {
-			// If we're at the last key, set the value.
-			if i == lastKeyIndex {
-				currentMap[key] = values[0]
-			} else {
-				// If the key doesn't exist, or isn't a map, create or overwrite it.
-				if nextMap, ok := currentMap[key].(map[string]interface{}); ok {
-					currentMap = nextMap
-				} else {
-					newMap := make(map[string]interface{})
-					currentMap[key] = newMap
-					currentMap = newMap
-				}
-			}
-		}
-	}
-
-	return result
 }

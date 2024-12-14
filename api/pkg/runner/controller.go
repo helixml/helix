@@ -390,6 +390,7 @@ func GiB(bytes int64) float32 {
 // TODO(Phil): This is currently required by the axolotl server. Since I'm updating the axolotl
 // version (and server) in another branch I don't want to convert it to the slots methodology just
 // yet.
+// nolint:unused
 func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*types.Session, error) {
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {

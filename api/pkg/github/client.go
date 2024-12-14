@@ -39,7 +39,7 @@ func (githubClient *GithubClient) LoadRepos() ([]string, error) {
 		Page:    0,
 	}
 	for {
-		result, meta, err := githubClient.client.Repositories.List(githubClient.ctx, "", &github.RepositoryListOptions{
+		result, meta, err := githubClient.client.Repositories.ListByUser(githubClient.ctx, "", &github.RepositoryListByUserOptions{
 			ListOptions: opts,
 		})
 		if err != nil {

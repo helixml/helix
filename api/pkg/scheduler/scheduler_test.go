@@ -30,7 +30,7 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 	cluster := NewCluster(timeoutRunner1Func)
 	scheduler.cluster = cluster
 
-	m, _ := model.GetModel(string(model.Model_Ollama_Llama3_8b))
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner-1",
 		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,
@@ -62,7 +62,7 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 func TestScheduler_ThreeJobsOnSingleRunnerThatCanFitTwo(t *testing.T) {
 	config, _ := config.LoadServerConfig()
 	scheduler := NewScheduler(context.Background(), &config, nil)
-	m, _ := model.GetModel(string(model.Model_Ollama_Llama3_8b))
+	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{
 		ID:          "test-runner",
 		TotalMemory: m.GetMemoryRequirements(types.SessionModeInference) * 2,

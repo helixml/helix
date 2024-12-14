@@ -26,7 +26,6 @@ type ActionTestSuite struct {
 	suite.Suite
 	ctrl         *gomock.Controller
 	executor     *gptscript.MockExecutor
-	apiClient    *openai.MockClient
 	store        *store.MockStore
 	ctx          context.Context
 	strategy     *ChainStrategy

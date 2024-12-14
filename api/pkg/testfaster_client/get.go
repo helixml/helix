@@ -2,7 +2,7 @@ package api
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sort"
 	"strings"
 )
@@ -56,20 +56,21 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		}
 	}
 
+	// TODO(milosgajdos): this whole if block should probably be removed
 	if poolSlot != "" {
 		// search all pools (skip the one we just created though!)
-		pools, err := apiHandler.GetPools()
+		_, err := apiHandler.GetPools()
 		if err != nil {
 			return nil, fmt.Errorf("unable to get full list of pools: %s", err)
 		}
-		for _, p := range pools {
+		/*for _, p := range pools {
 			if s, ok := p.Meta["slot"]; ok {
 				// don't accidemetantally drop the pool we just created (id check)
 				if containsSlot(s, poolSlot) && p.State != "deleting" && p.State != "deleted" && p.Id != pool.Id {
 					// drop any pools that have slot collisions
 					// (only supposed to be max 1, but race conditions
 					// might mean >1 exist, so delete any that match)
-					/*err = dropPool(out, errOut, p.Id, poolSlot)
+					err = dropPool(out, errOut, p.Id, poolSlot)
 					if err != nil {
 						fmt.Printf(
 							"Error dropping pool %s with matching (%s) slot %s: %s, continuing...\n",
@@ -80,10 +81,10 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 							"Dropped prior pool %s because it (%s) matched slot %s\n",
 							pool.Id[:7], s, poolSlot,
 						)
-					}*/
+					}
 				}
 			}
-		}
+		}*/
 	}
 
 	// we subscribe to pool events now we have the pool
@@ -95,7 +96,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	fmt.Printf("Got pool (%s)\n", pool.Id)
 	if pool.State == "deleting" || pool.State == "deleted" {
 		poolId := pool.Id
-		// resurrect pool if neccessary
+		// resurrect pool if necessary
 		pool, err = apiHandler.UpdatePool(PoolState{
 			PoolId: poolId,
 			State:  "unknown", // will trigger backend to build it if necc.
@@ -219,7 +220,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 ##LEASE_ID=` + lease.Id + `
 ##POOL_ID=` + pool.Id + "\n"
 
-	err = ioutil.WriteFile("kubeconfig", []byte(tempKubeconfig), 0644)
+	err = os.WriteFile("kubeconfig", []byte(tempKubeconfig), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("Error: could not write temp kubeconfig: %s\n", err)
 	}
@@ -261,7 +262,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		return nil, fmt.Errorf("Error getting lease state: %s\n", err)
 	}
 
-	err = ioutil.WriteFile("kubeconfig", []byte(lease.Kubeconfig), 0644)
+	err = os.WriteFile("kubeconfig", []byte(lease.Kubeconfig), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("Error: could not write to kubeconfig: %s\n", err)
 	} else {
@@ -281,11 +282,12 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	return lease, nil
 }
 
-var keepExistingLease, keepExistingPool bool
-var name string
-var slot string
-var poolSlot string
-var retainSlots int
+var (
+	name        string
+	slot        string
+	poolSlot    string
+	retainSlots int
+)
 
 func containsSlot(metaSlots string, poolSlot string) bool {
 	// The new convention is that the pool.meta["slots"] field contains a
@@ -311,6 +313,7 @@ func addSlotToList(slotList string, newSlot string) string {
 	return strings.Join(slotListSlice, ";")
 }
 
+// nolint:unused
 func removeSlotFromList(slotList string, removeSlot string) string {
 	slotListSlice := strings.Split(slotList, ";")
 	newList := []string{}

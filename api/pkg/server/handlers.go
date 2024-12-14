@@ -18,8 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/model"
-	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -122,184 +120,6 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.RAGSettings, error) {
-	var err error
-	ragDistanceFunction := req.FormValue("rag_distance_function")
-	if ragDistanceFunction == "" {
-		ragDistanceFunction = rag.DefaultDistanceFunction
-	}
-
-	ragThresholdStr := req.FormValue("rag_threshold")
-	ragThreshold := rag.DefaultThreshold // Default value if ragThreshold is not provided or conversion fails
-	if ragThresholdStr != "" {
-		ragThreshold, err = strconv.ParseFloat(ragThresholdStr, 32)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	ragResultsCountStr := req.FormValue("rag_results_count")
-	ragResultsCount := rag.DefaultMaxResults // Default value if resultsCount is not provided or conversion fails
-	if ragResultsCountStr != "" {
-		ragResultsCount, err = strconv.Atoi(ragResultsCountStr)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	ragChunkSizeStr := req.FormValue("rag_chunk_size")
-	ragChunkSize := rag.DefaultChunkSize // Default value if chunkSize is not provided or conversion fails
-	if ragChunkSizeStr != "" {
-		ragChunkSize, err = strconv.Atoi(ragChunkSizeStr)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	ragChunkOverflowStr := req.FormValue("rag_chunk_overflow")
-	ragChunkOverflow := rag.DefaultChunkOverflow // Default value if chunkOverflow is not provided or conversion fails
-	if ragChunkOverflowStr != "" {
-		ragChunkOverflow, err = strconv.Atoi(ragChunkOverflowStr)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	settings := &types.RAGSettings{
-		DistanceFunction: ragDistanceFunction,
-		Threshold:        ragThreshold,
-		ResultsCount:     ragResultsCount,
-		ChunkSize:        ragChunkSize,
-		ChunkOverflow:    ragChunkOverflow,
-	}
-
-	return settings, nil
-}
-
-// TODO: remove, not used
-func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	// now upload any files that were included
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionMode, err := types.ValidateSessionMode(req.FormValue("mode"), false)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionType, err := types.ValidateSessionType(req.FormValue("type"), false)
-	if err != nil {
-		return nil, err
-	}
-
-	helixModel := req.FormValue("helixModel")
-
-	var modelName string
-	switch sessionType {
-	case types.SessionTypeText:
-		// switch based on user toggle e.g. GPT-3.5 vs GPT-4
-		if sessionMode == types.SessionModeInference {
-			switch helixModel {
-			case "helix-4":
-				modelName = model.Model_Ollama_Llama3_70b
-			case "helix-3.5":
-				modelName = model.Model_Ollama_Llama3_8b
-			case "helix-mixtral":
-				modelName = model.Model_Ollama_Mixtral
-			case "helix-json":
-				modelName = model.Model_Ollama_NousHermes2ThetaLlama3
-			case "helix-small":
-				modelName = model.Model_Ollama_Phi3
-			default:
-				modelName = model.Model_Ollama_Llama3_8b
-			}
-		} else {
-			// fine tuning doesn't work with ollama yet
-			modelName = model.Model_Axolotl_Mistral7b
-		}
-	case types.SessionTypeImage:
-		modelName = model.Model_Diffusers_SDTurbo
-	}
-
-	sessionID := system.GenerateUUID()
-
-	// the user interaction is the request from the user
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode, "")
-	if err != nil {
-		return nil, err
-	}
-	if userInteraction == nil {
-		return nil, fmt.Errorf("no interaction found")
-	}
-
-	status, err := apiServer.Controller.GetStatus(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-
-	ragSettings, err := apiServer.getSessionRagSettings(req)
-	if err != nil {
-		return nil, err
-	}
-
-	activeTools := []string{}
-	for _, tool := range strings.Split(req.FormValue("active_tools"), ",") {
-		if tool != "" {
-			activeTools = append(activeTools, tool)
-		}
-	}
-
-	finetuneEnable := false
-	finetuneString := req.FormValue("text_finetune_enabled")
-
-	ragEnable := false
-	ragString := req.FormValue("rag_enabled")
-
-	if sessionMode == types.SessionModeFinetune {
-		if finetuneString == "yes" || finetuneString == "" {
-			finetuneEnable = true
-		}
-
-		if ragString == "yes" {
-			ragEnable = true
-
-			// Using the same model for RAG as the main model
-			modelName = model.Model_Ollama_Llama3_8b
-		}
-	}
-
-	createRequest := types.InternalSessionRequest{
-		ID:                      sessionID,
-		Mode:                    sessionMode,
-		Stream:                  true,
-		Type:                    sessionType,
-		ModelName:               modelName,
-		Owner:                   user.ID,
-		OwnerType:               user.Type,
-		UserInteractions:        []*types.Interaction{userInteraction},
-		Priority:                status.Config.StripeSubscriptionActive,
-		ParentSession:           req.FormValue("parent_session"),
-		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		RAGEnabled:              ragEnable,
-		TextFinetuneEnabled:     finetuneEnable,
-		RAGSettings:             *ragSettings,
-		ActiveTools:             activeTools,
-	}
-
-	sessionData, err := apiServer.Controller.StartSession(ctx, user, createRequest)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to start session")
-		return nil, err
-	}
-
-	return sessionData, nil
-}
-
 func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *http.Request) (*types.DataEntity, error) {
 	entity, err := apiServer.getDataEntityFromForm(req)
 	if err != nil {
@@ -338,7 +158,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		SessionMode:     session.Mode,
 	})
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to update session: %s", err)
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update session: %s", err))
 	}
 
 	return sessionData, nil
