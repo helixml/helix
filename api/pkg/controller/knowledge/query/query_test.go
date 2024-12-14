@@ -9,10 +9,10 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	helix_langchain "github.com/helixml/helix/api/pkg/openai/langchain"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/tmc/langchaingo/chains"
 
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
@@ -82,8 +82,6 @@ func (suite *QuerySuite) SetupTest() {
 }
 
 func (suite *QuerySuite) TestAnswer() {
-	// TODO:
-	// suite.T().Skip()
 
 	knowledge := &types.Knowledge{
 		Name:    "helix-docs",
@@ -96,16 +94,34 @@ func (suite *QuerySuite) TestAnswer() {
 	suite.store.EXPECT().LookupKnowledge(suite.ctx, gomock.Any()).Return(knowledge, nil)
 
 	answer, err := suite.query.Answer(suite.ctx, "what are the minimum requirements for installing helix?", knowledge.AppID, &types.AssistantConfig{
+		Model: model,
 		Knowledge: []*types.AssistantKnowledge{
 			{
 				Name: knowledge.Name,
 			},
 		},
-	}, chains.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
-		fmt.Println(fmt.Sprintf("chunk: %s", string(chunk)))
-		return nil
-	}))
+	})
 	suite.NoError(err)
+
+	fmt.Println(answer)
+}
+
+func (suite *QuerySuite) Test_combineResults() {
+	prompt := "what are the minimum requirements for installing helix?"
+	results := []string{
+		`## Requirements [Permalink for this section](\#requirements - **Control Plane** is the Helix API, web interface, and postgres database and requires: - Linux, macOS or Windows - [Docker](https://docs.docker.com/get-started/get-docker/) - 4 CPUs, 8GB RAM and 50GB+ free disk space - **Inference Provider** requires **ONE OF**: - An NVIDIA GPU if you want to use private Helix Runners ( [example]`,
+		"Based on the provided context, the essential specifications for installing Helix are:\n\n1. Start an inference session on Helix.\n2. Download the Helix Installer and run the installer script.\n3. Edit the provider configuration in the `values-example.yaml` file to specify a remote provider (e.g. `openai` or `togetherai`) and provide API keys.\n4. Install the control plane helm chart with the latest images.\n5. Ensure all pods start and inspect the logs if they do not.\n6. Configure the Kubernetes deployment by overriding the settings in the `values.yaml` file.\n\nNote that these specifications are based on the provided context and may not be exhaustive.",
+	}
+
+	llm, err := helix_langchain.New(suite.query.apiClient, suite.query.model)
+	suite.NoError(err)
+
+	answer, err := suite.query.combineResults(suite.ctx, llm, prompt, results)
+	suite.NoError(err)
+
+	suite.Assert().Contains(answer, "4")
+	suite.Assert().Contains(answer, "CPUs")
+	suite.Assert().Contains(answer, "8GB RAM")
 
 	fmt.Println(answer)
 }

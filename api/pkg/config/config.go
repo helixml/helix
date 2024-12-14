@@ -196,9 +196,12 @@ type RAG struct {
 
 		// Limits
 		MaxFrequency time.Duration `envconfig:"RAG_CRAWLER_MAX_FREQUENCY" default:"60m" description:"The maximum frequency to crawl."`
-		MaxPages     int           `envconfig:"RAG_CRAWLER_MAX_PAGES" default:"50" description:"The maximum number of pages to crawl."`
-		MaxDepth     int           `envconfig:"RAG_CRAWLER_MAX_DEPTH" default:"3" description:"The maximum depth to crawl."`
+		MaxPages     int           `envconfig:"RAG_CRAWLER_MAX_PAGES" default:"150" description:"The maximum number of pages to crawl."`
+		MaxDepth     int           `envconfig:"RAG_CRAWLER_MAX_DEPTH" default:"10" description:"The maximum depth to crawl."`
 	}
+
+	AnswerEngineEnabled bool   `envconfig:"RAG_ANSWER_ENGINE_ENABLED" default:"true"`
+	AnswerEngineModel   string `envconfig:"RAG_ANSWER_ENGINE_MODEL" default:""` // Override the model coming from the assistant
 }
 
 type Controller struct {
