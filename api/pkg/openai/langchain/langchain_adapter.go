@@ -187,7 +187,7 @@ func (a *LangchainAdapter) generateContentStreaming(ctx context.Context, req ope
 			messageContent := response.Choices[0].Delta.Content
 			responseMessage += messageContent
 
-			err = opts.StreamingFunc(ctx, []byte(responseMessage))
+			err = opts.StreamingFunc(ctx, []byte(messageContent))
 			if err != nil {
 				return nil, fmt.Errorf("streaming function returned error: %w", err)
 			}
