@@ -33,8 +33,6 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		return r.extractDataFromWebWithCrawler(ctx, k)
 	}
 
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var result []*indexerData
 
 	if len(k.Source.Web.URLs) == 0 {
@@ -193,8 +191,6 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 	}
 
 	// Chunking enabled, extracting text
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var extractedData []*indexerData
 
 	for _, d := range data {

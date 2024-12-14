@@ -61,8 +61,6 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	queryType := r.URL.Query().Get("type")
 
 	// Filter apps based on the "type" query parameter
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var filteredApps []*types.App
 	for _, app := range allApps {
 		if queryType != "" && app.AppSource != types.AppSource(queryType) {

@@ -1223,8 +1223,6 @@ func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPre
 		return nil, err
 	}
 
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var conversations []types.DataPrepTextQuestion
 	lines := strings.Split(data, "\n")
 

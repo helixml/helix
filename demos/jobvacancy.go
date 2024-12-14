@@ -46,8 +46,6 @@ var JOB_VACANCY_CANDIDATES = []JobVacancyCandidate{
 }
 
 func filterCandidates(candidates []JobVacancyCandidate, query JobCandidateQuery) []JobVacancyCandidate {
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var filtered []JobVacancyCandidate
 	for _, candidate := range candidates {
 		if !doesQueryMatchString(candidate.JobTitle, query.JobTitle) {

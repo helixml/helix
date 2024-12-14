@@ -10,9 +10,8 @@ linters:
     - misspell
     - unused
     - bodyclose
-    #- errcheck
-    - prealloc
     - tparallel
+    #- errcheck
     #- revive
 
 issues:
