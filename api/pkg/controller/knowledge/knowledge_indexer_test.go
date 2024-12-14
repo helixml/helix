@@ -160,6 +160,105 @@ func (suite *IndexerSuite) TestIndex() {
 	suite.reconciler.wg.Wait()
 }
 
+func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
+	suite.cfg.RAG.Crawler.MaxPages = 50
+	suite.cfg.RAG.Crawler.MaxDepth = 3
+
+	knowledge := &types.Knowledge{
+		ID: "knowledge_id",
+		RAGSettings: types.RAGSettings{
+			TextSplitter: types.TextSplitterTypeText,
+			ChunkSize:    2048,
+		},
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{"https://example.com"},
+				Crawler: &types.WebsiteCrawler{
+					Enabled:  true,
+					MaxDepth: 99999,
+					MaxPages: 99999,
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State)
+			suite.Equal("", k.Message)
+			suite.Equal("", k.Version, "version should be empty when we start indexing")
+
+			suite.Equal(50, k.Source.Web.Crawler.MaxPages, "max pages should be updated")
+			suite.Equal(3, k.Source.Web.Crawler.MaxDepth, "max depth should be updated")
+
+			return knowledge, nil
+		},
+	)
+
+	// It will crawl the web
+	suite.crawler.EXPECT().Crawl(gomock.Any()).Return([]*types.CrawledDocument{
+		{
+			Content:   `Hello world!`,
+			SourceURL: "https://example.com",
+		},
+	}, nil)
+
+	var version string
+
+	// Then it will index it
+	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, chunk *types.SessionRAGIndexChunk) error {
+			// Split data entity id into knowledge id and version
+			dataEntityIDParts := strings.SplitN(chunk.DataEntityID, "-", 2)
+			suite.Equal(2, len(dataEntityIDParts))
+			suite.Equal("knowledge_id", dataEntityIDParts[0])
+
+			version = dataEntityIDParts[1]
+
+			suite.Equal("https://example.com", chunk.Source)
+			suite.Equal("Hello world!", chunk.Content)
+
+			return nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateReady, k.State)
+			suite.Equal("", k.Message)
+
+			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
+
+			return knowledge, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
+			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
+			suite.Equal(types.KnowledgeStateReady, k.State, "knowledge should be ready")
+			suite.Equal("", k.Message, "message should be empty")
+			suite.Equal(knowledge.ID, k.KnowledgeID, "knowledge id should be set")
+
+			return k, nil
+		},
+	)
+
+	suite.store.EXPECT().ListKnowledgeVersions(gomock.Any(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: knowledge.ID,
+	}).Return([]*types.KnowledgeVersion{}, nil)
+
+	// Start indexing
+	suite.reconciler.index(suite.ctx)
+
+	// Wait for the goroutines to finish
+	suite.reconciler.wg.Wait()
+}
+
 func (suite *IndexerSuite) Test_deleteOldVersions_LessThanMaxVersions() {
 	// Setup
 	knowledgeID := "test_knowledge_id"

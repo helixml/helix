@@ -599,6 +599,7 @@ export interface IKnowledgeSource {
   state: string;
   message?: string;
   progress_percent?: number;
+  crawled_sources?: ICrawledSources;
   source: {
     helix_drive?: {
       path: string;
@@ -637,6 +638,17 @@ export interface IKnowledgeSource {
   };
   refresh_enabled?: boolean;
   refresh_schedule?: string;
+}
+
+export interface ICrawledURL {
+  url: string;
+  status_code: number;
+  message: string;
+  duration_ms: number;
+}
+
+export interface ICrawledSources {
+  urls: ICrawledURL[];
 }
 
 export interface IKnowledgeSearchResult {
