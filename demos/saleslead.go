@@ -53,7 +53,6 @@ var SALES_LEADS = []SalesLead{
 }
 
 func filterSalesLeads(salesLeads []SalesLead, query SalesLeadQuery) []SalesLead {
-	// nolint:prealloc
 	// NOTE: we don't know the size
 	var filtered []SalesLead
 	for _, salesLead := range salesLeads {

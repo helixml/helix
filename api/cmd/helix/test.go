@@ -502,10 +502,7 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 		close(resultsChan)
 	}()
 
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var results []TestResult
-
 	for result := range resultsChan {
 		results = append(results, result)
 	}

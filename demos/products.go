@@ -68,8 +68,6 @@ var PRODUCT_DATA = []Product{
 }
 
 func filterProducts(products []Product, query ProductQuery) []Product {
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var filtered []Product
 	for _, product := range products {
 		// THESE ARE ALL FILTERING OUT

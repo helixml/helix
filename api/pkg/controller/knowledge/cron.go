@@ -202,8 +202,6 @@ func (r *Reconciler) listKnowledge(ctx context.Context) ([]*types.Knowledge, err
 		return nil, fmt.Errorf("failed to list knowledges: %w", err)
 	}
 
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var filtered []*types.Knowledge
 
 	for _, knowledge := range knowledges {

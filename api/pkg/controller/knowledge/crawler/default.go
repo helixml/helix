@@ -50,8 +50,6 @@ func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) 
 }
 
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var domains []string
 	for _, u := range d.knowledge.Source.Web.URLs {
 		parsedURL, err := url.Parse(u)

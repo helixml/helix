@@ -130,10 +130,7 @@ func (q *Query) getDocuments(ctx context.Context, prompt string, knowledges []*t
 
 // listKnowledge retrieves all knowledge for an assistant to query documents for
 func (q *Query) listKnowledge(ctx context.Context, appID string, assistant *types.AssistantConfig) ([]*types.Knowledge, error) {
-	// nolint:prealloc
-	// NOTE: we don't know the size
 	var knowledge []*types.Knowledge
-
 	for _, k := range assistant.Knowledge {
 
 		k, err := q.store.LookupKnowledge(ctx, &store.LookupKnowledgeQuery{
