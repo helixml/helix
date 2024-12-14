@@ -121,6 +121,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Float64("elapsed_seconds", elapsed.Seconds()).
+		Int("crawled_sources", len(crawledSources)).
 		Msg("indexing data loaded")
 
 	k.Message = "indexing data"
