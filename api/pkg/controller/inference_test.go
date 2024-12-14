@@ -70,7 +70,7 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
-	scheduler := scheduler.NewScheduler(cfg)
+	scheduler := scheduler.NewScheduler(suite.ctx, cfg, nil)
 
 	c, err := NewController(context.Background(), ControllerOptions{
 		Config:          cfg,
@@ -151,7 +151,7 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(suite.ctx, "app_id").Return(app, nil)
+	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app_id").Return(app, nil)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.user.ID,
 	}).Return([]*types.Secret{}, nil)

@@ -2,3 +2,5 @@
 node_modules
 *.sw*
 venv
+vendor
+**/.venv/*

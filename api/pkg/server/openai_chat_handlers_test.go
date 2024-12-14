@@ -27,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -84,7 +85,8 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
-		Scheduler:       scheduler.NewScheduler(cfg),
+		Scheduler:       scheduler.NewScheduler(context.Background(), cfg, nil),
+		PubSub:          suite.pubsub,
 	})
 	suite.NoError(err)
 
@@ -319,7 +321,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -408,7 +410,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -499,7 +501,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -553,6 +555,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			// Get the app id from the context
+			appID, ok := openai.GetContextAppID(ctx)
+			suite.True(ok)
+			suite.Equal("app123", appID)
+
 			suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", req.Model)
 
 			suite.Require().Equal(2, len(req.Messages))
@@ -618,7 +625,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(2)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -714,7 +721,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -862,4 +869,143 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 	suite.True(startFound, "start chunk not found")
 	suite.True(stopFound, "stop chunk not found")
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
+	// Create test server
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite.Equal("/custom", r.URL.Path)
+
+		// Verify query parameters
+		jobID := r.URL.Query().Get("job_id")
+		suite.Equal("123", jobID)
+
+		// Return successful response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"result": "custom endpoint response",
+		})
+	}))
+	defer testServer.Close()
+
+	tool, err := store.ConvertAPIToTool(types.AssistantAPI{
+		URL: testServer.URL, // Use test server URL instead of hardcoded value
+		Query: map[string]string{
+			"job_id": "1234567890",
+		},
+		Schema: `{
+			"openapi": "3.0.0",
+			"info": {
+				"title": "Custom API",
+				"version": "1.0.0"
+			},
+			"paths": {
+				"/custom": {
+					"get": {
+						"operationId": "custom",
+						"summary": "Custom endpoint that requires job_id",
+						"parameters": [
+							{
+								"name": "job_id",
+								"in": "query",
+								"required": true,
+								"schema": {
+									"type": "string"
+								},
+								"description": "The job ID to query"
+							}
+						],
+						"responses": {
+							"200": {
+								"description": "Successful response",
+								"content": {
+									"application/json": {
+										"schema": {
+											"type": "object",
+											"properties": {
+												"result": {
+													"type": "string"
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}`,
+	})
+	suite.NoError(err)
+	app := &types.App{
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+						Tools: []*types.Tool{
+							tool,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.userID,
+	}).Return([]*types.Secret{}, nil).Times(2)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123&job_id=123", bytes.NewBufferString(`{
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	isActionableResponse := tools.IsActionableResponse{
+		NeedsTool:     tools.NeedsToolYes,
+		Justification: "Test reason",
+		Api:           "custom",
+	}
+	isActionableResponseBts, _ := json.Marshal(isActionableResponse)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(oai.ChatCompletionResponse{
+		Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		Choices: []oai.ChatCompletionChoice{
+			{
+				Message: oai.ChatCompletionMessage{
+					Role:    "assistant",
+					Content: string(isActionableResponseBts),
+				},
+				FinishReason: "stop",
+			},
+		},
+	}, nil).AnyTimes()
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp oai.ChatCompletionResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	suite.NoError(err)
 }

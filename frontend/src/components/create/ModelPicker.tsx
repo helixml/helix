@@ -1,29 +1,24 @@
-import React, { FC, useState, useEffect, useContext } from 'react'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
-import useLightTheme from '../../hooks/useLightTheme'
+import Typography from '@mui/material/Typography'
+import React, { FC, useContext, useEffect, useState } from 'react'
 import { AccountContext } from '../../contexts/account'
+import useLightTheme from '../../hooks/useLightTheme'
 
 const ModelPicker: FC<{
+  type: string,
   model: string,
   onSetModel: (model: string) => void,
 }> = ({
+  type,
   model,
   onSetModel
 }) => {
   const lightTheme = useLightTheme()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
   const { models } = useContext(AccountContext)
-
-  useEffect(() => {
-    // Set the first model as default if current model is not set or not in the list
-    if (models.length > 0 && (!model || model === '' || !models.some(m => m.id === model))) {
-      onSetModel(models[0].id);
-    }
-  }, [models, model, onSetModel])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
@@ -34,6 +29,15 @@ const ModelPicker: FC<{
   }
 
   const modelData = models.find(m => m.id === model) || models[0];
+
+  const filteredModels = models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
+
+  useEffect(() => {
+    // Set the first model as default if current model is not set or not in the list
+    if (filteredModels.length > 0 && (!model || model === '' || !filteredModels.some(m => m.id === model))) {
+      onSetModel(filteredModels[0].id);
+    }
+  }, [filteredModels, model, onSetModel])
   
   return (
     <>
@@ -73,7 +77,7 @@ const ModelPicker: FC<{
           }}
         >
           {
-            models.map(model => (
+            filteredModels.map(model => (
               <MenuItem
                 key={ model.id }
                 sx={{fontSize: "large"}}

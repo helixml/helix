@@ -1,4 +1,3 @@
-
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
 // did). At time of writing, it's unused in the frontend because the frontend
@@ -90,6 +89,7 @@ export interface IUserConfig {
 
 export interface IHelixModel {
   id: string;
+  type: string;
   name: string;
   description: string;
   hide?: boolean;
@@ -344,6 +344,42 @@ export interface IDashboardData {
   session_queue: ISessionSummary[],
   runners: IRunnerState[],
   global_scheduling_decisions: IGlobalSchedulingDecision[],
+  desired_slots: ISlot[],
+}
+
+export interface ISlot {
+  id: string,
+  data: ISlotData[],
+}
+
+export interface ISlotData {
+  id: string,
+  attributes: ISlotAttributes,
+}
+
+export interface ISlotAttributes {
+  model: string,
+  mode: ISessionMode,
+  workload: ISlotAttributesWorkload,
+}
+
+export interface LLMInferenceRequest {
+  RequestID: string,
+  CreatedAt: string,
+  Priority: boolean,
+  OwnerID: string,
+  SessionID: string,
+  InteractionID: string,
+  Request: {
+    model: string,
+    messages: IInteractionMessage[],
+    stream: boolean,
+  }
+}
+
+export interface ISlotAttributesWorkload {
+  Session: ISession,
+  LLMInferenceRequest: LLMInferenceRequest,
 }
 
 export interface ISessionSummary {
@@ -511,13 +547,24 @@ export interface IAssistantApi {
   url: string,
   headers: Record<string, string>,
   query: Record<string, string>,
+  request_prep_template?: string,
+  response_success_template?: string,
+  response_error_template?: string,
 }
 
 export interface IAssistantGPTScript {
   name: string,
   description: string,
-  file: string,
+  file?: string,
   content: string,
+}
+
+export interface IAssistantZapier {
+  name: string,
+  description: string,
+  api_key?: string,
+  model?: string,
+  max_iterations?: number,
 }
 
 export interface IAssistantConfig {
@@ -527,13 +574,14 @@ export interface IAssistantConfig {
   avatar: string;
   image: string;
   model: string;
-  type: ISessionType; // Make sure this is explicitly ISessionType
+  type: ISessionType;
   system_prompt: string;
   rag_source_id: string;
   lora_id: string;
   is_actionable_template: string;
   apis: IAssistantApi[];
   gptscripts: IAssistantGPTScript[];
+  zapier?: IAssistantZapier[];
   tools: ITool[];
   knowledge?: IKnowledgeSource[];
 }
@@ -551,6 +599,7 @@ export interface IKnowledgeSource {
   state: string;
   message?: string;
   progress_percent?: number;
+  crawled_sources?: ICrawledSources;
   source: {
     helix_drive?: {
       path: string;
@@ -589,6 +638,17 @@ export interface IKnowledgeSource {
   };
   refresh_enabled?: boolean;
   refresh_schedule?: string;
+}
+
+export interface ICrawledURL {
+  url: string;
+  status_code: number;
+  message: string;
+  duration_ms: number;
+}
+
+export interface ICrawledSources {
+  urls: ICrawledURL[];
 }
 
 export interface IKnowledgeSearchResult {

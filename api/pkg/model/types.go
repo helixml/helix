@@ -44,6 +44,7 @@ type OpenAIModel struct {
 	Name        string             `json:"name,omitempty"`
 	Description string             `json:"description,omitempty"`
 	Hide        bool               `json:"hide,omitempty"`
+	Type        string             `json:"type,omitempty"`
 }
 
 // ModelsList is a list of models, including those that belong to the user or organization.

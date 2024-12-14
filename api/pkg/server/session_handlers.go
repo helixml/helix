@@ -62,6 +62,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 	}
 
+	ctx = oai.SetContextAppID(ctx, startReq.AppID)
+
 	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
 		startReq.RAGSourceID = ragSourceID
 	}
@@ -74,7 +76,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// the correct model in the UI (and some things may rely on it)
 	if startReq.AppID != "" {
 		// load the app
-		app, err := s.Store.GetApp(req.Context(), startReq.AppID)
+		app, err := s.Store.GetAppWithTools(req.Context(), startReq.AppID)
 		if err != nil {
 			log.Error().Err(err).Str("app_id", startReq.AppID).Msg("Failed to load app")
 			http.Error(rw, "Failed to load app: "+err.Error(), http.StatusInternalServerError)
@@ -110,7 +112,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	// For finetunes, legacy route
 	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
-		s.startChatSessionLegacyHandler(req.Context(), user, &startReq, req, rw)
+		s.startChatSessionLegacyHandler(ctx, user, &startReq, req, rw)
 		return
 	}
 
@@ -237,7 +239,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}()
 	}
 
-	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         user.ID,
 		SessionID:       session.ID,
 		InteractionID:   session.Interactions[0].ID,
@@ -260,6 +262,15 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			AssistantID: startReq.AssistantID,
 			RAGSourceID: startReq.RAGSourceID,
 			Provider:    startReq.Provider,
+			QueryParams: func() map[string]string {
+				params := make(map[string]string)
+				for key, values := range req.URL.Query() {
+					if len(values) > 0 {
+						params[key] = values[0]
+					}
+				}
+				return params
+			}(),
 		}
 	)
 
@@ -341,8 +352,10 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		})
 	}
 
+	ctx = oai.SetContextAppID(ctx, session.ParentApp)
+
 	// Set required context values
-	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:       user.ID,
 		SessionID:     session.ID,
 		InteractionID: session.Interactions[len(session.Interactions)-1].ID,

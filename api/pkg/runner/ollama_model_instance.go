@@ -23,8 +23,8 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/jmorganca/ollama/api"
-	"github.com/jmorganca/ollama/format"
+	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/format"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -767,4 +767,8 @@ func (c *ollamaClient) stream(ctx context.Context, method, path string, data any
 	}
 
 	return nil
+}
+
+func (i *OllamaModelInstance) IsActive() bool {
+	return i.currentSession != nil
 }

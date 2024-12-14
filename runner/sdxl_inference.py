@@ -5,9 +5,11 @@ import time
 import json
 import builtins
 
+
 def print(*args, **kwargs):
-    kwargs['flush'] = True
+    kwargs["flush"] = True
     return builtins.print(*args, **kwargs)
+
 
 def do_inference():
     getJobURL = os.environ.get("HELIX_NEXT_TASK_URL", None)
@@ -20,7 +22,7 @@ def do_inference():
 
     if readSessionURL == "":
         sys.exit("HELIX_INITIAL_SESSION_URL is not set")
-    
+
     lora_dir = ""
     waiting_for_initial_session = True
 
@@ -29,17 +31,19 @@ def do_inference():
         if response.status_code != 200:
             time.sleep(0.1)
             continue
-        
+
         session = json.loads(response.content)
         waiting_for_initial_session = False
         lora_dir = session["lora_dir"]
 
     if lora_dir != "":
-        print("🟡🟡🟡 SDXL Lora dir --------------------------------------------------\n")
+        print(
+            "🟡🟡🟡 SDXL Lora dir --------------------------------------------------\n"
+        )
         print(lora_dir)
 
     session_id = ""
-    
+
     while True:
         currentJobData = ""
 
@@ -62,16 +66,20 @@ def do_inference():
             time.sleep(int(mockDelay))
 
         task = json.loads(currentJobData)
-        instruction: str = task["prompt"]
         session_id = task["session_id"]
         image_path = os.getcwd() + "/runner/fixtures/image.png"
         print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout, flush=True)
 
         for i in range(1, 101):
-          print(f"{i}%|\n")
-          time.sleep(0.1)
-        
-        print(f" [SESSION_END_IMAGES]images=[\"{image_path}\"] ", file=sys.stdout, flush=True)
+            print(f"{i}%|\n")
+            time.sleep(0.1)
+
+        print(
+            f' [SESSION_END_IMAGES]images=["{image_path}"] ',
+            file=sys.stdout,
+            flush=True,
+        )
+
 
 if __name__ == "__main__":
     do_inference()

@@ -41,14 +41,31 @@ func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 			Name:        m.GetHumanReadableName(),
 			Description: m.GetDescription(),
 			Hide:        m.GetHidden(),
+			Type:        "text",
+		})
+	}
+
+	diffusersModels, err := model.GetDefaultDiffusersModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Diffusers models: %w", err)
+	}
+	for _, m := range diffusersModels {
+		HelixModels = append(HelixModels, model.OpenAIModel{
+			ID:          m.ModelName().String(),
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        m.GetHumanReadableName(),
+			Description: m.GetDescription(),
+			Hide:        m.GetHidden(),
+			Type:        "image",
 		})
 	}
 
 	return HelixModels, nil
 }
 
-func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)
+func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	ctx, cancel := context.WithTimeout(requestCtx, chatCompletionTimeout)
 	defer cancel()
 
 	requestID := system.GenerateRequestID()
@@ -97,7 +114,7 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	defer sub.Unsubscribe()
 
 	// Enqueue the request, it will be picked up by the runner
-	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
+	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
 		OwnerID:       vals.OwnerID,
@@ -105,11 +122,22 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 		InteractionID: vals.InteractionID,
 		Request:       &request,
 	})
+	if err != nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("error enqueuing request: %w", err)
+	}
 
 	// Wait for the response or until the context is done (timeout)
 	select {
 	case <-doneCh:
+	case <-requestCtx.Done():
+		// If this happens, the request has been cancelled, release the allocation
+		err := c.scheduler.Release(requestID)
+		if err != nil {
+			log.Error().Err(err).Msg("error releasing allocation")
+		}
+		return openai.ChatCompletionResponse{}, fmt.Errorf("request was cancelled")
 	case <-ctx.Done():
+		// If this happens, we have timed out
 		log.Warn().
 			Str("request_id", requestID).
 			Msg("timeout waiting for runner response, releasing allocation")
@@ -212,7 +240,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}
 
 	// Enqueue the request, it will be picked up by the runner
-	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
+	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
 		OwnerID:       vals.OwnerID,
@@ -220,6 +248,9 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 		InteractionID: vals.InteractionID,
 		Request:       &request,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("error enqueuing request: %w", err)
+	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)

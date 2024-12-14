@@ -79,6 +79,9 @@ type Knowledge struct {
 	Versions []*KnowledgeVersion `json:"versions" `
 
 	NextRun time.Time `json:"next_run" gorm:"-"` // Populated by the cron job controller
+
+	// URLs crawled in the last run (should match last knowledge version)
+	CrawledSources *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
 }
 
 func (k *Knowledge) GetDataEntityID() string {
@@ -86,14 +89,15 @@ func (k *Knowledge) GetDataEntityID() string {
 }
 
 type KnowledgeVersion struct {
-	ID          string         `json:"id" gorm:"primaryKey"`
-	Created     time.Time      `json:"created"`
-	Updated     time.Time      `json:"updated"`
-	KnowledgeID string         `json:"knowledge_id"`
-	Version     string         `json:"version"`
-	Size        int64          `json:"size"`
-	State       KnowledgeState `json:"state"`
-	Message     string         `json:"message"` // Set if something wrong happens
+	ID             string          `json:"id" gorm:"primaryKey"`
+	Created        time.Time       `json:"created"`
+	Updated        time.Time       `json:"updated"`
+	KnowledgeID    string          `json:"knowledge_id"`
+	Version        string          `json:"version"`
+	Size           int64           `json:"size"`
+	State          KnowledgeState  `json:"state"`
+	Message        string          `json:"message"` // Set if something wrong happens
+	CrawledSources *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
 }
 
 func (k *KnowledgeVersion) GetDataEntityID() string {
@@ -205,10 +209,47 @@ type CrawledDocument struct {
 	Description string
 	SourceURL   string
 	Content     string
+	StatusCode  int
+	DurationMs  int64
+	Message     string
 }
 
 type KnowledgeSearchResult struct {
 	Knowledge  *Knowledge          `json:"knowledge"`
 	Results    []*SessionRAGResult `json:"results"`
 	DurationMs int64               `json:"duration_ms"`
+}
+
+type CrawledSources struct {
+	URLs []*CrawledURL `json:"urls"`
+	// TODO: files?
+}
+
+func (m CrawledSources) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *CrawledSources) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result CrawledSources
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (CrawledSources) GormDataType() string {
+	return "json"
+}
+
+type CrawledURL struct {
+	URL        string `json:"url"`
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
+	DurationMs int64  `json:"duration_ms"`
 }

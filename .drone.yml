@@ -8,7 +8,7 @@ workspace:
 
 steps:
 - name: build-backend
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.23.4-alpine3.20
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -25,7 +25,7 @@ steps:
   depends_on: []
 
 - name: unit-test
-  image: golang:1.22.5-alpine3.19
+  image: golang:1.23.4-alpine3.20
   environment:
     OPENAI_API_KEY:
       from_secret: openai_tools
@@ -47,7 +47,7 @@ steps:
   depends_on: []
 
 - name: release-backend
-  image: golang:1.22.5-bullseye
+  image: golang:1.23.4-bullseye
   when:
     event:
     - tag
@@ -72,7 +72,7 @@ steps:
     - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
     - |
       if [ -n "$DRONE_TAG" ]; then
-        RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
+        RELEASE=$(gh release list | grep "^$DRONE_TAG" | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
           echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
           gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
@@ -162,7 +162,7 @@ steps:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-10-16b-empty
+      - TAG=2024-12-07a-empty
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -204,7 +204,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-10-16b-small
+      - TAG=2024-12-07a-small
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -232,7 +232,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-10-16b-small
+      - TAG=2024-12-07a-small
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -277,7 +277,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-10-16b-large
+      - TAG=2024-12-07a-large
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -305,7 +305,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-10-16b-large
+      - TAG=2024-12-07a-large
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:

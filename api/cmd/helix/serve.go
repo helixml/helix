@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -235,7 +236,48 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	// Must use the same allocator for both new LLM requests and old sessions
-	scheduler := scheduler.NewScheduler(cfg)
+	scheduler := scheduler.NewScheduler(ctx, cfg, func(work *scheduler.Workload, err error) {
+		// This function describes what happens when errors occur in jobs.
+		// Each request type (session vs. LLM requests) has a differeht code path handling results,
+		// hence for now we need to separate cases to handle errors.
+		switch work.WorkloadType {
+		case scheduler.WorkloadTypeLLMInferenceRequest:
+			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work, removing from queue")
+			req := work.LLMInferenceRequest()
+			resp := &types.RunnerLLMInferenceResponse{
+				RequestID:     req.RequestID,
+				OwnerID:       req.OwnerID,
+				SessionID:     req.SessionID,
+				InteractionID: req.InteractionID,
+				Error:         err.Error(),
+				Done:          true,
+			}
+			bts, err := json.Marshal(resp)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
+			}
+
+			err = ps.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
+			if err != nil {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
+			}
+		case scheduler.WorkloadTypeSession:
+			// If we can't retry, write an error to the request and continue so it takes it off
+			// the queue
+			errSession := work.Session()
+			errSession.Interactions = append(errSession.Interactions, &types.Interaction{
+				Creator: types.CreatorTypeSystem,
+				Error:   err.Error(),
+				Message: "Error scheduling session",
+			})
+			_, err = store.UpdateSession(ctx, *errSession)
+			if err != nil {
+				log.Error().Err(err).Msg("error updating session")
+			}
+		default:
+			log.Error().Str("workload_type", string(work.WorkloadType)).Msg("unknown workload type")
+		}
+	})
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
 

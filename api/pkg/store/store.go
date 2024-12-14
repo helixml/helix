@@ -100,6 +100,7 @@ type Store interface {
 	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
 	UpdateApp(ctx context.Context, tool *types.App) (*types.App, error)
 	GetApp(ctx context.Context, id string) (*types.App, error)
+	GetAppWithTools(ctx context.Context, id string) (*types.App, error)
 	ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error)
 	DeleteApp(ctx context.Context, id string) error
 
@@ -130,7 +131,7 @@ type Store interface {
 	DeleteScriptRun(ctx context.Context, id string) error
 
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
-	ListLLMCalls(ctx context.Context, page, pageSize int, sessionFilter string) ([]*types.LLMCall, int64, error)
+	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
 }
 
 var ErrNotFound = errors.New("not found")

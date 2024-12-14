@@ -1,24 +1,23 @@
-import React, { FC } from 'react'
-import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
 import ConstructionIcon from '@mui/icons-material/Construction'
 import LoginIcon from '@mui/icons-material/Login'
+import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
+import { FC } from 'react'
 
 import Cell from '../widgets/Cell'
 import Row from '../widgets/Row'
-import SessionModeSwitch from './SessionModeSwitch'
-import SessionModeDropdown from './SessionModeDropdown'
 import ModelPicker from './ModelPicker'
+import SessionModeDropdown from './SessionModeDropdown'
+import SessionModeSwitch from './SessionModeSwitch'
 
-import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useAccount from '../../hooks/useAccount'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
+  IApp,
   ISessionMode,
   ISessionType,
-  IApp,
-  SESSION_MODE_INFERENCE,
-  SESSION_TYPE_TEXT,
+  SESSION_MODE_INFERENCE
 } from '../../types'
 
 const CreateToolbar: FC<{
@@ -45,8 +44,9 @@ const CreateToolbar: FC<{
     <Row>
       <Cell>
         {
-          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && type === SESSION_TYPE_TEXT && (
+          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && (
             <ModelPicker
+              type={type}
               model={model || ''}
               onSetModel={onSetModel}
             />

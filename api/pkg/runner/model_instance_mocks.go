@@ -22,6 +22,7 @@ import (
 type MockModelInstance struct {
 	ctrl     *gomock.Controller
 	recorder *MockModelInstanceMockRecorder
+	isgomock struct{}
 }
 
 // MockModelInstanceMockRecorder is the mock recorder for MockModelInstance.
@@ -96,6 +97,20 @@ func (m *MockModelInstance) ID() string {
 func (mr *MockModelInstanceMockRecorder) ID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ID", reflect.TypeOf((*MockModelInstance)(nil).ID))
+}
+
+// IsActive mocks base method.
+func (m *MockModelInstance) IsActive() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsActive")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsActive indicates an expected call of IsActive.
+func (mr *MockModelInstanceMockRecorder) IsActive() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsActive", reflect.TypeOf((*MockModelInstance)(nil).IsActive))
 }
 
 // Model mocks base method.

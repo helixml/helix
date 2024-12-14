@@ -83,11 +83,23 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		AppID:       r.URL.Query().Get("app_id"),
 		AssistantID: r.URL.Query().Get("assistant_id"),
 		RAGSourceID: r.URL.Query().Get("rag_source_id"),
+		QueryParams: func() map[string]string {
+			params := make(map[string]string)
+			for key, values := range r.URL.Query() {
+				if len(values) > 0 {
+					params[key] = values[0]
+				}
+			}
+			return params
+		}(),
 	}
 
 	if user.AppID != "" {
-		log.Debug().Str("app_id", user.AppID).Msg("using app_id from user (api key)")
 		options.AppID = user.AppID
+
+		ctx = oai.SetContextAppID(ctx, user.AppID)
+
+		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 
 		// Check if the appID contains a LORA
 		assistant, err := s.getAppLoraAssistant(ctx, options.AppID)
@@ -136,6 +148,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			return
 		}
 	}
+
+	ctx = oai.SetContextAppID(ctx, options.AppID)
 
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
@@ -210,7 +224,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 }
 
 func (s *HelixAPIServer) getAppLoraAssistant(ctx context.Context, appID string) (*types.AssistantConfig, error) {
-	app, err := s.Store.GetApp(ctx, appID)
+	app, err := s.Store.GetAppWithTools(ctx, appID)
 	if err != nil {
 		return nil, err
 	}

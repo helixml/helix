@@ -3,21 +3,93 @@ Adapt between the helix.ml runner API and replicate.ai's cog.
 Initially, cog-sdxl in particular.
 """
 
-import os
-import sys
-import requests
-import time
 import json
+import os
 import shutil
+import sys
 import tempfile
-import urllib
+import time
+import zipfile
 from pathlib import Path
+from typing import List, Optional, Union
+
+import requests
+from fastapi import FastAPI, HTTPException
+from predict import Predictor
+from pydantic import BaseModel
 
 # we get copied into the cog-sdxl folder so assume these modules are available
 # TODO: parse dynamically these entrypoints from any cog yaml
 from train import train
-from predict import Predictor
-import zipfile
+
+app = FastAPI()
+
+# Define the input model based on predictor.predict parameters
+class PredictionInput(BaseModel):
+    prompt: str
+    negative_prompt: Optional[str] = ""
+    image: Optional[str] = None
+    mask: Optional[str] = None
+    width: Optional[int] = 1024
+    height: Optional[int] = 1024
+    num_outputs: Optional[int] = 1
+    scheduler: Optional[str] = "K_EULER"
+    num_inference_steps: Optional[int] = 50
+    guidance_scale: Optional[float] = 7.5
+    prompt_strength: Optional[float] = 0.8
+    seed: Optional[int] = 42
+    refine: Optional[str] = "base_image_refiner"
+    high_noise_frac: Optional[float] = 0.8
+    refine_steps: Optional[int] = None
+    apply_watermark: Optional[bool] = False
+    lora_scale: Optional[float] = 0.7
+    replicate_weights: Optional[str] = None
+    disable_safety_checker: Optional[bool] = True
+
+# Modify CogInference to be accessible as a singleton
+class CogInferenceSingleton:
+    _instance = None
+
+    @classmethod
+    def get_instance(cls, getJobURL=None, readSessionURL=None):
+        if cls._instance is None:
+            cls._instance = CogInference(getJobURL, readSessionURL)
+            cls._instance.predictor.setup()
+        return cls._instance
+
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
+# Add API endpoints
+@app.post("/predictions/{session_id}")
+async def create_prediction(session_id: str, input_data: PredictionInput):
+    try:
+        predictor = CogInferenceSingleton.get_instance().predictor
+        
+        # Convert input model to dict and remove None values
+        input_dict = {k: v for k, v in input_data.dict().items()}
+        print(input_dict)
+        
+        # Call predict and get image paths
+        image_paths = predictor.predict(**input_dict)
+        print(image_paths)
+        
+        timestamp = time.time()
+        for i, ip in enumerate(image_paths):
+            image_paths[i] = ip.rename(ip.parent / f"image_{session_id}_{timestamp:.4f}_{i:03d}.png")
+
+        image_paths = [str(path) for path in image_paths]  # Convert paths to strings
+
+        return {
+            "status": "succeeded",
+            "output": image_paths,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 def create_zip_file(directory, output_file):
     with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -181,7 +253,6 @@ class CogInference:
                 # TODO: improve this, by making cog just read the weights from
                 # the filesystem, rather than downloading them
                 apiToken = os.getenv("API_TOKEN")
-                apiTokenEscaped = urllib.parse.quote(apiToken)
                 if apiToken is None:
                     sys.exit("API_TOKEN is not set")
                 if apiToken == "":
@@ -195,7 +266,7 @@ class CogInference:
                 #     /sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30
                 #     /lora/bb9e6395-0df6-4073-8064-0ae759075b2f/trained_model.tar
                 # XXX TODO: maybe we can construct url from session instead, e.g. user etc
-                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar?access_token={apiTokenEscaped}"
+                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar?access_token={apiToken}"
 
         print("🟡 Lora weights URL --------------------------------------------------\n")
         print(self.lora_weights)

@@ -20,7 +20,6 @@ import (
 type RunnerOptions struct {
 	Runner  runner.RunnerOptions
 	Janitor config.Janitor
-	Server  runner.RunnerServerOptions
 }
 
 func NewRunnerOptions() *RunnerOptions {
@@ -47,10 +46,6 @@ func NewRunnerOptions() *RunnerOptions {
 		},
 		Janitor: config.Janitor{
 			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),
-		},
-		Server: runner.RunnerServerOptions{
-			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
 		},
 	}
 }
@@ -157,15 +152,6 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Server.Host, "server-host", allOptions.Server.Host,
-		`The host to bind the runner server to.`,
-	)
-	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Server.Port, "server-port", allOptions.Server.Port,
-		`The port to bind the runner server to.`,
-	)
-
-	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Janitor.SentryDsnAPI, "janitor-sentry-dsn", allOptions.Janitor.SentryDsnAPI,
 		`The sentry DSN.`,
 	)
@@ -266,12 +252,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		log.Error().Err(err).Msgf("failed to initialize models cache")
 	}
 
-	// we will append the instance ID onto these paths
-	// because it's a model_instance that will spawn Python
-	// processes that will then speak back to these routes
-	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d%s", options.Server.Port, system.GetApiPath("/worker/task"))
-	options.Runner.InitialSessionURL = fmt.Sprintf("http://localhost:%d%s", options.Server.Port, system.GetApiPath("/worker/initial_session"))
-
 	// global state - expedient hack (TODO remove this when we switch cog away
 	// from downloading lora weights via http from the filestore)
 	model.API_HOST = options.Runner.ApiHost
@@ -307,7 +287,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		}
 	}
 
-	runnerController, err := runner.NewRunner(ctx, options.Runner, useWarmupSessions)
+	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
 		return err
 	}
@@ -319,20 +299,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	go runnerController.Run()
 
-	server, err := runner.NewRunnerServer(options.Server, runnerController)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Msgf("Helix runner listening on %s:%d", options.Server.Host, options.Server.Port)
-
-	go func() {
-		err := server.ListenAndServe(ctx, cm)
-		if err != nil {
-			panic(err)
-		}
-	}()
-
 	<-ctx.Done()
 	return nil
 }
@@ -340,27 +306,37 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 // inbuiltModelsDirectory directory inside the Docker image that can have
 // a cache of models that are already downloaded during the build process.
 // These files need to be copied into runner cache dir
-const inbuiltModelsDirectory = "/workspace/ollama"
+var bakedModelDirectories = []string{"/workspace/ollama", "/workspace/diffusers"}
 
 func initializeModelsCache(cfg *config.RunnerConfig) error {
-	log.Info().Msgf("Copying baked models from %s into cache dir %s - this may take a while...", inbuiltModelsDirectory, cfg.CacheDir)
-	_, err := os.Stat(inbuiltModelsDirectory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// If the directory doesn't exist, nothing to do
-			return nil
-		}
-		return fmt.Errorf("error checking inbuilt models directory: %w", err)
-	}
+	log.Info().Msgf("Copying baked models from %v into container cache dir %s - this may take a while the first time...", bakedModelDirectories, cfg.CacheDir)
 
-	// Check if the cache dir exists, if not create it
-	if _, err := os.Stat(cfg.CacheDir); os.IsNotExist(err) {
-		err = os.MkdirAll(cfg.CacheDir, 0755)
+	for _, dir := range bakedModelDirectories {
+		// If the directory doesn't exist, nothing to do
+		_, err := os.Stat(dir)
 		if err != nil {
-			return err
+			if os.IsNotExist(err) {
+				log.Debug().Msgf("Baked models directory %s does not exist", dir)
+				continue
+			}
+			return fmt.Errorf("error checking inbuilt models directory: %w", err)
+		}
+
+		// Check if the cache dir exists, if not create it
+		if _, err := os.Stat(cfg.CacheDir); os.IsNotExist(err) {
+			err = os.MkdirAll(cfg.CacheDir, 0755)
+			if err != nil {
+				return fmt.Errorf("error creating cache dir: %w", err)
+			}
+		}
+
+		// Copy the directory from the Docker image into the cache dir
+		log.Debug().Msgf("Copying %s into container dir %s", dir, cfg.CacheDir)
+		err = copydir.CopyDir(cfg.CacheDir, dir)
+		if err != nil {
+			return fmt.Errorf("error copying inbuilt models directory: %w", err)
 		}
 	}
 
-	return copydir.CopyDir(cfg.CacheDir, inbuiltModelsDirectory)
-
+	return nil
 }

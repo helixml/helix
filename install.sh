@@ -35,6 +35,7 @@ OLDER_GPU=false
 HF_TOKEN=""
 PROXY=https://get.helix.ml
 EXTRA_OLLAMA_MODELS=""
+HELIX_VERSION=""
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -44,9 +45,6 @@ case $ARCH in
     aarch64|arm64) ARCH="arm64" ;;
     *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
-
-# Determine latest release
-LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
 
 # Set binary name
 BINARY_NAME="helix-${OS}-${ARCH}"
@@ -78,6 +76,7 @@ Options:
   --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
   --extra-ollama-models    Specify additional Ollama models to download when installing the runner (comma-separated), for example "nemotron-mini:4b,codegemma:2b-code-q8_0"
+  --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
 
 Examples:
 
@@ -198,6 +197,14 @@ while [[ $# -gt 0 ]]; do
             EXTRA_OLLAMA_MODELS="$2"
             shift 2
             ;;
+        --helix-version=*)
+            HELIX_VERSION="${1#*=}"
+            shift
+            ;;
+        --helix-version)
+            HELIX_VERSION="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             display_help
@@ -205,6 +212,16 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Determine version to install
+if [ -n "$HELIX_VERSION" ]; then
+    LATEST_RELEASE="$HELIX_VERSION"
+    echo "Using specified Helix version: $LATEST_RELEASE"
+else
+    LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
+    echo "Using latest Helix version: $LATEST_RELEASE"
+fi
+
 
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
@@ -275,7 +292,7 @@ fi
 # Function to gather planned modifications
 gather_modifications() {
     local modifications=""
-    
+
     if [ "$CLI" = true ]; then
         modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
@@ -292,7 +309,7 @@ gather_modifications() {
         modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
-    
+
     echo -e "$modifications"
 }
 
@@ -301,7 +318,7 @@ ask_for_approval() {
     if [ "$AUTO_APPROVE" = true ]; then
         return 0
     fi
-    
+
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ The following modifications will be made to your system:                  │"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
@@ -314,7 +331,7 @@ ask_for_approval() {
     echo
     read -p "Do you want to proceed? (y/N) " response
     case "$response" in
-        [yY][eE][sS]|[yY]) 
+        [yY][eE][sS]|[yY])
             return 0
             ;;
         *)
@@ -473,7 +490,7 @@ EOF
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
     echo
-    
+
     # Default to localhost if it wasn't passed
     if [ -z "$API_HOST" ]; then
         API_HOST="http://localhost:8080"
@@ -700,7 +717,7 @@ EOF"
     echo "│"
     echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
     echo "│ This will take a minute or so to boot."
-    echo "└───────────────────────────────────────────────────────────────────────────"
+    echo "└───────────────────────���───────────────────────────────────────────────────"
 fi
 
 # Install runner if requested or in AUTO mode with GPU

@@ -9,19 +9,19 @@ import { IAssistantGPTScript, ITool } from '../../types';
 interface GPTScriptsSectionProps {
   app: any;
   onAddGptScript: () => void;
-  setEditingTool: (tool: ITool | null) => void;
-  onDeleteTool: (id: string) => void;
+  onDeleteGptScript: (scriptId: string) => void;
   isReadOnly: boolean;
   isGithubApp: boolean;
+  onEdit: (script: IAssistantGPTScript, index: number) => void;
 }
 
 const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
   app,
   onAddGptScript,
-  setEditingTool,
-  onDeleteTool,
+  onDeleteGptScript,
   isReadOnly,
   isGithubApp,
+  onEdit,
 }) => {
   return (
     <Box sx={{ mt: 2 }}>
@@ -38,55 +38,38 @@ const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
         Add GPTScript
       </Button>
       <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-        {app?.config.helix?.assistants?.flatMap((assistant: { id: string, gptscripts?: IAssistantGPTScript[] }) => 
-          assistant.gptscripts?.map((script: IAssistantGPTScript, index: number) => (
-            <Box
-              key={`${assistant.id}-${script.file}`}
-              sx={{
-                p: 2,
-                border: '1px solid #303047',
-                mb: 2,
-              }}
-            >
-              <Typography variant="subtitle1">{script.name}</Typography>
-              <Typography variant="body2">{script.description}</Typography>
-              <Box sx={{ mt: 1 }}>
-                <Button
-                  variant="outlined"
-                  onClick={() => setEditingTool({
-                    id: script.file,
-                    name: script.name,
-                    description: script.description,
-                    tool_type: 'gptscript',
-                    global: false,
-                    config: {
-                      gptscript: {
-                        script: script.content,
-                      }
-                    },
-                    created: '',
-                    updated: '',
-                    owner: '',
-                    owner_type: 'user',
-                  })}
-                  sx={{ mr: 1 }}
-                  disabled={isReadOnly || isGithubApp}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={() => onDeleteTool(script.file)}
-                  disabled={isReadOnly || isGithubApp}
-                  startIcon={<DeleteIcon />}
-                >
-                  Delete
-                </Button>
-              </Box>
+        {app?.config.helix?.assistants[0]?.gptscripts?.map((script: IAssistantGPTScript, index: number) => (
+          <Box
+            key={script.file}
+            sx={{
+              p: 2,
+              border: '1px solid #303047',
+              mb: 2,
+            }}
+          >
+            <Typography variant="subtitle1">{script.name}</Typography>
+            <Typography variant="body2">{script.description}</Typography>
+            <Box sx={{ mt: 1 }}>
+              <Button
+                variant="outlined"
+                onClick={() => onEdit(script, index)}
+                sx={{ mr: 1 }}
+                disabled={isReadOnly || isGithubApp}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => onDeleteGptScript(script.file || '')}
+                disabled={isReadOnly || isGithubApp}
+                startIcon={<DeleteIcon />}
+              >
+                Delete
+              </Button>
             </Box>
-          )) || []
-        )}
+          </Box>
+        ))}
       </Box>
     </Box>
   );

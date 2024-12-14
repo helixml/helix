@@ -27,6 +27,8 @@ type ModelInstanceConfig struct {
 // RunnerOptions is already defined in controller.go, so we'll remove it from here
 
 // Stub implementation of AxolotlModelInstance
+var _ ModelInstance = &AxolotlModelInstance{}
+
 type AxolotlModelInstance struct{}
 
 func (a *AxolotlModelInstance) ID() string                                   { return "" }
@@ -41,6 +43,7 @@ func (a *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) { r
 func (a *AxolotlModelInstance) QueueSession(*types.Session, bool)            {}
 func (a *AxolotlModelInstance) Start(context.Context) error                  { return nil }
 func (a *AxolotlModelInstance) Stop() error                                  { return nil }
+func (a *AxolotlModelInstance) IsActive() bool                               { return false }
 func (a *AxolotlModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
 	return nil, nil
 }
@@ -69,4 +72,48 @@ func (s *stubFreePortFinder) GetFreePort() (int, error) {
 
 var freePortFinder FreePortFinder = &stubFreePortFinder{}
 
-// Add any other necessary stub functions or types here
+type CogModelInstance struct{}
+
+func (a *CogModelInstance) ID() string                                   { return "" }
+func (a *CogModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
+func (a *CogModelInstance) Stale() bool                                  { return false }
+func (a *CogModelInstance) Model() model.Model                           { return nil }
+func (a *CogModelInstance) NextSession() *types.Session                  { return nil }
+func (a *CogModelInstance) SetNextSession(*types.Session)                {}
+func (a *CogModelInstance) GetQueuedSession() *types.Session             { return nil }
+func (a *CogModelInstance) Done() <-chan bool                            { return nil }
+func (a *CogModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
+func (a *CogModelInstance) QueueSession(*types.Session, bool)            {}
+func (a *CogModelInstance) Start(context.Context) error                  { return nil }
+func (a *CogModelInstance) Stop() error                                  { return nil }
+func (a *CogModelInstance) IsActive() bool                               { return false }
+func (a *CogModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
+	return nil, nil
+}
+func NewCogModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*CogModelInstance, error) {
+	return nil, nil
+}
+
+var _ ModelInstance = &DiffusersModelInstance{}
+
+type DiffusersModelInstance struct{}
+
+func (a *DiffusersModelInstance) ID() string                                   { return "" }
+func (a *DiffusersModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
+func (a *DiffusersModelInstance) Stale() bool                                  { return false }
+func (a *DiffusersModelInstance) Model() model.Model                           { return nil }
+func (a *DiffusersModelInstance) NextSession() *types.Session                  { return nil }
+func (a *DiffusersModelInstance) SetNextSession(*types.Session)                {}
+func (a *DiffusersModelInstance) GetQueuedSession() *types.Session             { return nil }
+func (a *DiffusersModelInstance) Done() <-chan bool                            { return nil }
+func (a *DiffusersModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
+func (a *DiffusersModelInstance) QueueSession(*types.Session, bool)            {}
+func (a *DiffusersModelInstance) Start(context.Context) error                  { return nil }
+func (a *DiffusersModelInstance) Stop() error                                  { return nil }
+func (a *DiffusersModelInstance) IsActive() bool                               { return false }
+func (a *DiffusersModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
+	return nil, nil
+}
+func NewDiffusersModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*DiffusersModelInstance, error) {
+	return nil, nil
+}

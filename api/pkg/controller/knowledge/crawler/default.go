@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,14 +37,17 @@ type Default struct {
 	parser    readability.Parser
 
 	browser *browser.Browser
+
+	pageTimeout time.Duration
 }
 
 func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
 	crawler := &Default{
-		knowledge: k,
-		converter: md.NewConverter("", true, nil),
-		parser:    readability.NewParser(),
-		browser:   browser,
+		knowledge:   k,
+		converter:   md.NewConverter("", true, nil),
+		parser:      readability.NewParser(),
+		browser:     browser,
+		pageTimeout: 5 * time.Second,
 	}
 
 	return crawler, nil
@@ -121,12 +125,19 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		})
 	}
 
-	var crawledDocs []*types.CrawledDocument
+	var (
+		crawledMu   sync.Mutex
+		crawledDocs []*types.CrawledDocument
+	)
 
-	visitedURLs := make(map[string]bool)
+	crawledURLs := make(map[string]bool)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		if visitedURLs[e.Request.URL.String()] {
+		crawledMu.Lock()
+		alreadyCrawled := crawledURLs[e.Request.URL.String()]
+		crawledMu.Unlock()
+
+		if alreadyCrawled {
 			return
 		}
 
@@ -138,8 +149,11 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			Int32("visited_pages", visited).
 			Str("url", e.Request.URL.String()).Msg("visiting link")
 
-		visitedURLs[e.Request.URL.String()] = true
+		crawledMu.Lock()
+		crawledURLs[e.Request.URL.String()] = true
+		crawledMu.Unlock()
 
+		// TODO: get more URLs from the browser too, it can render
 		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
 		if err != nil {
 			log.Warn().
@@ -147,6 +161,19 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 				Str("url", e.Request.URL.String()).
 				Str("app_id", d.knowledge.AppID).
 				Msg("error crawling URL")
+
+			// Errored pages still count as visited
+			crawledMu.Lock()
+			crawledDocs = append(crawledDocs, &types.CrawledDocument{
+				SourceURL:  e.Request.URL.String(),
+				StatusCode: 0,
+				DurationMs: 0,
+				Message:    err.Error(),
+			})
+			crawledMu.Unlock()
+
+			pageCounter.Add(1)
+
 			return
 		}
 
@@ -154,24 +181,39 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			Str("knowledge_id", d.knowledge.ID).
 			Str("url", e.Request.URL.String()).
 			Str("app_id", d.knowledge.AppID).
+			Int64("duration_ms", doc.DurationMs).
+			Int("status_code", doc.StatusCode).
 			Msg("crawled page")
 
+		crawledMu.Lock()
 		crawledDocs = append(crawledDocs, doc)
+		crawledMu.Unlock()
 
 		pageCounter.Add(1)
 	})
 
 	// Add this new OnHTML callback to find and visit links
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+
 		if pageCounter.Load() >= maxPages {
 			log.Warn().
 				Str("knowledge_id", d.knowledge.ID).
+				Str("url", e.Request.URL.String()).
+				Str("absolute_url", e.Request.AbsoluteURL(link)).
 				Msg("Max pages reached")
 			return
 		}
 
-		link := e.Attr("href")
-		collector.Visit(e.Request.AbsoluteURL(link))
+		err := collector.Visit(e.Request.AbsoluteURL(link))
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("url", e.Request.URL.String()).
+				Str("absolute_url", e.Request.AbsoluteURL(link)).
+				Msg("error visiting link")
+		}
+
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
@@ -211,6 +253,8 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 
 	log.Info().Str("url", url).Msg("crawling with browser")
 
+	start := time.Now()
+
 	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
 	if err != nil {
 		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
@@ -225,10 +269,15 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 
 	log.Trace().Str("url", url).Msg("waiting for page to load")
 
-	err = page.Timeout(5 * time.Second).WaitLoad()
+	e := proto.NetworkResponseReceived{}
+	wait := page.WaitEvent(&e)
+
+	err = page.Timeout(d.pageTimeout).WaitLoad()
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for page to load for %s: %w", url, err)
 	}
+
+	wait()
 
 	log.Trace().Str("url", url).Msg("getting page HTML")
 
@@ -236,6 +285,8 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 	if err != nil {
 		return nil, fmt.Errorf("error getting HTML for %s: %w", url, err)
 	}
+
+	duration := time.Since(start).Milliseconds()
 
 	article, err := d.parser.Parse(ctx, html, url)
 	if err != nil {
@@ -247,6 +298,8 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 		Content:     strings.TrimSpace(article.Content),
 		Title:       article.Title,
 		Description: article.Excerpt,
+		StatusCode:  e.Response.Status,
+		DurationMs:  duration,
 	}
 
 	doc, err = d.convertToMarkdown(ctx, doc)
