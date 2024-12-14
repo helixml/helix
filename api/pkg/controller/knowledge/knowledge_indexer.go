@@ -34,6 +34,19 @@ func (r *Reconciler) index(ctx context.Context) error {
 		k.State = types.KnowledgeStateIndexing
 		k.Message = ""
 
+		// Sanity check the limits
+		if k.Source.Web != nil {
+			if r.config.RAG.Crawler.MaxPages > 0 && k.Source.Web.Crawler.MaxPages > r.config.RAG.Crawler.MaxPages {
+				log.Warn().Msg("knowledge 'max pages' limit is above the server config, updating")
+				k.Source.Web.Crawler.MaxPages = r.config.RAG.Crawler.MaxPages
+			}
+
+			if r.config.RAG.Crawler.MaxDepth > 0 && k.Source.Web.Crawler.MaxDepth > r.config.RAG.Crawler.MaxDepth {
+				log.Warn().Msg("knowledge 'max depth' limit is above the server config, updating")
+				k.Source.Web.Crawler.MaxDepth = r.config.RAG.Crawler.MaxDepth
+			}
+		}
+
 		_, _ = r.store.UpdateKnowledge(ctx, k)
 
 		log.
@@ -102,13 +115,28 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		return err
 	}
 
+	crawledSources := getCrawledSources(data)
+
 	elapsed := time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Float64("elapsed_seconds", elapsed.Seconds()).
+		Int("crawled_sources", len(crawledSources)).
 		Msg("indexing data loaded")
 
-	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data", 0)
+	k.Message = "indexing data"
+	k.ProgressPercent = 0
+	k.CrawledSources = &types.CrawledSources{
+		URLs: crawledSources,
+	}
+
+	_, err = r.store.UpdateKnowledge(ctx, k)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("knowledge_id", k.ID).
+			Msg("failed to update knowledge state")
+	}
 
 	start = time.Now()
 
@@ -133,10 +161,11 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	}
 
 	_, err = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
-		KnowledgeID: k.ID,
-		Version:     version,
-		Size:        k.Size,
-		State:       types.KnowledgeStateReady,
+		KnowledgeID:    k.ID,
+		Version:        version,
+		Size:           k.Size,
+		State:          types.KnowledgeStateReady,
+		CrawledSources: k.CrawledSources,
 	})
 	if err != nil {
 		log.Warn().
@@ -410,8 +439,11 @@ func getDocumentID(contents []byte) string {
 // This might be a text/html/pdf but it could also be something else
 // for example an sqlite database.
 type indexerData struct {
-	Source string
-	Data   []byte
+	Source     string
+	Data       []byte
+	StatusCode int
+	DurationMs int64
+	Message    string
 }
 
 func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
@@ -456,4 +488,19 @@ func checkContents(data []*indexerData) error {
 	}
 
 	return fmt.Errorf("couldn't extract any data for indexing, check your data source or configuration")
+}
+
+func getCrawledSources(data []*indexerData) []*types.CrawledURL {
+	var crawledSources []*types.CrawledURL
+
+	for _, d := range data {
+		crawledSources = append(crawledSources, &types.CrawledURL{
+			URL:        d.Source,
+			StatusCode: d.StatusCode,
+			DurationMs: d.DurationMs,
+			Message:    d.Message,
+		})
+	}
+
+	return crawledSources
 }
