@@ -447,6 +447,15 @@ func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, 
 }
 
 func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
+	if c.Options.Config.RAG.AnswerEngineEnabled {
+		err := c.answerFromKnowledge(ctx, user, req, assistant, opts)
+		if err != nil {
+			return fmt.Errorf("failed to answer from knowledge: %w", err)
+		}
+
+		return nil
+	}
+
 	// Check for an extra RAG context
 	ragResults, err := c.evaluateRAG(ctx, user, *req, opts)
 	if err != nil {
@@ -465,6 +474,42 @@ func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.
 			return err
 		}
 	}
+
+	return nil
+}
+
+func (c *Controller) answerFromKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
+	q := query.New(&query.QueryConfig{
+		Store:        c.Options.Store,
+		APIClient:    c.Options.DataprepOpenAIClient,
+		GetRAGClient: c.GetRagClient,
+		Model:        assistant.Model,
+	})
+
+	answer, err := q.Answer(ctx, getLastMessage(*req), opts.AppID, assistant)
+	if err != nil {
+		return fmt.Errorf("failed to answer from knowledge: %w", err)
+	}
+
+	lastMessage := getLastMessage(*req)
+
+	// TODO: move to the query config, get the full resp back that
+	// we can feed into the next call
+	promptRequest := &prompts.KnowledgePromptRequest{
+		UserPrompt: lastMessage,
+		KnowledgeResults: []*prompts.BackgroundKnowledge{
+			{
+				Content: answer,
+			},
+		},
+	}
+
+	extended, err := prompts.KnowledgePrompt(promptRequest)
+	if err != nil {
+		return fmt.Errorf("failed to extend message with knowledge: %w", err)
+	}
+
+	req.Messages[len(req.Messages)-1].Content = extended
 
 	return nil
 }
