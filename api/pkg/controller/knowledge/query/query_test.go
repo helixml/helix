@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/tmc/langchaingo/chains"
 
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
@@ -85,22 +86,25 @@ func (suite *QuerySuite) TestAnswer() {
 	// suite.T().Skip()
 
 	knowledge := &types.Knowledge{
-		Name:    "whr-docs",
-		ID:      "kno_01jb21kpj5kjmngy419agfgbam",
-		AppID:   "app_01jb21k5rgkxahj0wmrn42tyrx",
-		Version: "2024-10-25_14-34-44",
+		Name:    "helix-docs",
+		ID:      "kno_01jejsctgqj5kpxrphshcj80fr",
+		AppID:   "app_01jejsctgm721hfn1mcrsme00k",
+		Version: "2024-12-14_15-12-35",
 		State:   types.KnowledgeStateReady,
 	}
 
 	suite.store.EXPECT().LookupKnowledge(suite.ctx, gomock.Any()).Return(knowledge, nil)
 
-	answer, err := suite.query.Answer(suite.ctx, "How to make HTTP call with a function?", knowledge.AppID, &types.AssistantConfig{
+	answer, err := suite.query.Answer(suite.ctx, "what are the minimum requirements for installing helix?", knowledge.AppID, &types.AssistantConfig{
 		Knowledge: []*types.AssistantKnowledge{
 			{
 				Name: knowledge.Name,
 			},
 		},
-	})
+	}, chains.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+		fmt.Println(fmt.Sprintf("chunk: %s", string(chunk)))
+		return nil
+	}))
 	suite.NoError(err)
 
 	fmt.Println(answer)
