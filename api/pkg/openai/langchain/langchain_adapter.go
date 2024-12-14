@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	openai "github.com/sashabaranov/go-openai"
@@ -157,6 +158,48 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		req.Tools = append(req.Tools, t)
 	}
 
+	if opts.StreamingFunc != nil {
+		return a.generateContentStreaming(ctx, req, &opts)
+	}
+
+	return a.generateContentBlocking(ctx, req, &opts)
+}
+
+func (a *LangchainAdapter) generateContentStreaming(ctx context.Context, req openai.ChatCompletionRequest, opts *llms.CallOptions) (*llms.ContentResponse, error) {
+	stream, err := a.client.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat completion stream: %w", err)
+	}
+
+	var responseMessage string
+
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive stream: %w", err)
+		}
+
+		if len(response.Choices) > 0 {
+			messageContent := response.Choices[0].Delta.Content
+			responseMessage += messageContent
+
+			err = opts.StreamingFunc(ctx, []byte(responseMessage))
+			if err != nil {
+				return nil, fmt.Errorf("streaming function returned error: %w", err)
+			}
+		}
+	}
+
+	response := &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: responseMessage}}}
+
+	return response, nil
+}
+
+func (a *LangchainAdapter) generateContentBlocking(ctx context.Context, req openai.ChatCompletionRequest, opts *llms.CallOptions) (*llms.ContentResponse, error) {
 	result, err := a.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat completion: %w", err)

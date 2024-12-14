@@ -105,7 +105,7 @@ func (q *Query) QueryAndResearch(ctx context.Context, prompt, appID string, assi
 	return results, nil
 }
 
-func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *types.AssistantConfig) (string, error) {
+func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *types.AssistantConfig, opts ...chains.ChainCallOption) (string, error) {
 	llm, err := helix_langchain.New(q.apiClient, q.model)
 	if err != nil {
 		return "", fmt.Errorf("error creating LLM client: %w", err)
@@ -164,7 +164,7 @@ func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *typ
 
 	log.Info().Msg("combining results")
 
-	return q.combineResults(ctx, llm, prompt, results)
+	return q.combineResults(ctx, llm, prompt, results, opts...)
 }
 
 func (q *Query) research(ctx context.Context, llm *helix_langchain.LangchainAdapter, promptVariation string, knowledgeList []*types.Knowledge) (string, error) {
@@ -273,7 +273,7 @@ func (q *Query) listKnowledge(ctx context.Context, appID string, assistant *type
 	return knowledge, nil
 }
 
-func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.LangchainAdapter, prompt string, results []string) (string, error) {
+func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.LangchainAdapter, prompt string, results []string, opts ...chains.ChainCallOption) (string, error) {
 
 	stuffQAChain := chains.LoadStuffQA(llm)
 
@@ -289,7 +289,7 @@ func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.Langcha
 	answer, err := chains.Call(ctx, stuffQAChain, map[string]any{
 		"input_documents": docs,
 		"question":        prompt,
-	})
+	}, opts...)
 	if err != nil {
 		return "", fmt.Errorf("error calling QA chain: %w", err)
 	}
