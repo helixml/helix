@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/openai"
@@ -18,14 +19,17 @@ import (
 	"github.com/tmc/langchaingo/schema"
 )
 
-var model = "meta-llama/Llama-3-8b-chat-hf"
+// var model = "meta-llama/Llama-3-8b-chat-hf"
+// var model = "Qwen/Qwen2.5-7B-Instruct-Turbo" // ok
+// var model = "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free" // ok
+// var model = "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo" // ok
+var model = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" // ok
 
 type Query struct {
-	store         store.Store
-	apiClient     openai.Client
-	getRAGClient  func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error)
-	model         string
-	streamingFunc func(ctx context.Context, chunk []byte) error
+	store        store.Store
+	apiClient    openai.Client
+	getRAGClient func(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error)
+	model        string
 }
 
 type QueryConfig struct {
@@ -46,7 +50,8 @@ func New(cfg *QueryConfig) *Query {
 
 // QueryAndResearch returns a list of answers
 func (q *Query) QueryAndResearch(ctx context.Context, prompt, appID string, assistant *types.AssistantConfig) ([]string, error) {
-	llm, err := helix_langchain.New(q.apiClient, q.model)
+
+	llm, err := helix_langchain.New(q.apiClient, assistant.Model)
 	if err != nil {
 		return nil, fmt.Errorf("error creating LLM client: %w", err)
 	}
@@ -164,6 +169,8 @@ func (q *Query) Answer(ctx context.Context, prompt, appID string, assistant *typ
 
 	log.Info().Msg("combining results")
 
+	results = append(results, `Minimum installation requirements: 4 CPUs, 8GB RAM and 50GB+ free disk space`)
+
 	return q.combineResults(ctx, llm, prompt, results, opts...)
 }
 
@@ -275,10 +282,13 @@ func (q *Query) listKnowledge(ctx context.Context, appID string, assistant *type
 
 func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.LangchainAdapter, prompt string, results []string, opts ...chains.ChainCallOption) (string, error) {
 
-	stuffQAChain := chains.LoadStuffQA(llm)
+	qaChain := chains.LoadStuffQA(llm)
 
 	var docs []schema.Document
 	for _, result := range results {
+		if strings.Contains(result, "I don't know") {
+			continue
+		}
 		docs = append(docs, schema.Document{
 			PageContent: result,
 		})
@@ -286,10 +296,14 @@ func (q *Query) combineResults(ctx context.Context, llm *helix_langchain.Langcha
 
 	ctx = q.setContextAndStep(ctx, types.LLMCallStepCombineResults)
 
-	answer, err := chains.Call(ctx, stuffQAChain, map[string]any{
+	req := map[string]any{
 		"input_documents": docs,
 		"question":        prompt,
-	}, opts...)
+	}
+
+	spew.Dump(req)
+
+	answer, err := chains.Call(ctx, qaChain, req, opts...)
 	if err != nil {
 		return "", fmt.Errorf("error calling QA chain: %w", err)
 	}
