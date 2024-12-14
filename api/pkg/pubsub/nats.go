@@ -98,7 +98,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 			if info.State.Consumers == 0 {
 				log.Debug().
 					Int("messages", int(info.State.Msgs)).
-					Int("consumers", int(info.State.Consumers)).
+					Int("consumers", info.State.Consumers).
 					Time("oldest_message", info.State.FirstTime).
 					Time("newest_message", info.State.LastTime).
 					Msg("Stream info")

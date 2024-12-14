@@ -117,7 +117,7 @@ func ExpandTarBuffer(buf *bytes.Buffer, localPath string) error {
 			if err := os.Mkdir(target, os.FileMode(header.Mode)); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			// Open the file
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 			if err != nil {

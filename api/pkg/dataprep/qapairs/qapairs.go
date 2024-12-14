@@ -64,7 +64,7 @@ func AllPrompts() ([]string, error) {
 		return nil, err
 	}
 
-	var result []string
+	result := make([]string, 0, len(config.Prompts))
 	for _, prompt := range config.Prompts {
 		result = append(result, prompt.Name)
 	}

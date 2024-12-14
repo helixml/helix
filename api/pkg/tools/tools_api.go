@@ -233,42 +233,6 @@ func (c *ChainStrategy) getApiSystemPrompt(tool *types.Tool, action string) (ope
 	}, nil
 }
 
-func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, action string) (openai.ChatCompletionMessage, error) {
-	// Render template
-	apiUserPromptTemplate := apiUserPrompt
-
-	if tool.Config.API.RequestPrepTemplate != "" {
-		apiUserPromptTemplate = tool.Config.API.RequestPrepTemplate
-	}
-
-	tmpl, err := template.New("api_params").Parse(apiUserPromptTemplate)
-	if err != nil {
-		return openai.ChatCompletionMessage{}, err
-	}
-
-	jsonSpec, err := filterOpenAPISchema(tool, action)
-	if err != nil {
-		return openai.ChatCompletionMessage{}, err
-	}
-
-	// Render template
-	var sb strings.Builder
-	err = tmpl.Execute(&sb, struct {
-		Schema string
-	}{
-		Schema: jsonSpec,
-	})
-
-	if err != nil {
-		return openai.ChatCompletionMessage{}, err
-	}
-
-	return openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: sb.String(),
-	}, nil
-}
-
 const apiSystemPrompt = `You are an intelligent machine learning model that can produce REST API's params / query params in json format, given the json schema, user input, data from previous api calls, and current application state.`
 
 const apiUserPrompt = `
@@ -308,7 +272,7 @@ Examples:
 ` + "```" + `
 
 **User Input:** List all users with status "active"
-**OpenAPI schema path:** /users/findByStatus 
+**OpenAPI schema path:** /users/findByStatus
 **OpenAPI schema parameters:** [
 	{
 		"name": "status",
@@ -320,7 +284,7 @@ Examples:
 			"type": "string",
 			"enum": ["active", "pending", "sold"],
 			"default": "active"
-		}		
+		}
 	}
 ]
 **Verdict:** response should be:
@@ -336,7 +300,7 @@ Examples:
 {
   "parameterName": "parameterValue",
   "parameterName2": "parameterValue2"
-} 
+}
 ` + "```" + `
 
 ===END EXAMPLES===

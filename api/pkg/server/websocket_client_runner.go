@@ -62,6 +62,9 @@ func ConnectRunnerWebSocketClient(
 	for {
 		var err error
 		log.Debug().Msgf("WebSocket connection connecting: %s", url)
+		// NOTE(milosgajdos): disabling bodyclose here as there is no need for closing the response
+		// See: https://pkg.go.dev/github.com/gorilla/websocket@v1.5.3#Dialer.Dial
+		// nolint:bodyclose
 		conn, _, err = websocket.DefaultDialer.Dial(url, nil)
 		if err != nil {
 			log.Error().Msgf("WebSocket connection failed: %s\nReconnecting in 2 seconds...", err)

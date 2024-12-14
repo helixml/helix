@@ -1,0 +1,20 @@
+linters:
+  enable:
+    - staticcheck
+    - unconvert
+    - gofmt
+    - goimports
+    - ineffassign
+    - gosimple
+    - govet
+    - misspell
+    - unused
+    - bodyclose
+    - tparallel
+    #- errcheck
+    #- revive
+
+issues:
+  deadline: 2m
+  exlude-dirs:
+    - vendor
