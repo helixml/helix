@@ -533,10 +533,16 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 				userInteraction.Message = injectedUserPrompt
 				return userInteraction, nil
 			})
+			if err != nil {
+				return nil, err
+			}
 			session, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
 				assistantInteraction.RagResults = ragResults
 				return assistantInteraction, nil
 			})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -577,9 +583,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			if assistant == nil {
 				return nil, system.NewHTTPError404(fmt.Sprintf("we could not find the assistant with the id: %s", assistantID))
 			}
-			for _, tool := range assistant.Tools {
-				activeTools = append(activeTools, tool)
-			}
+			activeTools = append(activeTools, assistant.Tools...)
 		}
 	} else {
 		for _, id := range session.Metadata.ActiveTools {
@@ -942,7 +946,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	c.WriteSession(session)
 
 	if taskResponse.Error != "" {
-		c.Options.Janitor.WriteSessionError(session, fmt.Errorf(taskResponse.Error))
+		c.Options.Janitor.WriteSessionError(session, errors.New(taskResponse.Error))
 	}
 
 	return taskResponse, nil

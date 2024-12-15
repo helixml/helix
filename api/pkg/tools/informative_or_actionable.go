@@ -100,7 +100,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		for i, msg := range history {
 			log.Info().
 				Int("message_number", i+1).
-				Str("role", string(msg.Role)).
+				Str("role", msg.Role).
 				Str("content", msg.Content).
 				Msg("Historical message")
 		}

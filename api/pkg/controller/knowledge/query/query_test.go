@@ -8,7 +8,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
-	oai "github.com/helixml/helix/api/pkg/openai"
 	helix_langchain "github.com/helixml/helix/api/pkg/openai/langchain"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -21,12 +20,11 @@ import (
 
 type QuerySuite struct {
 	suite.Suite
-	ctrl         *gomock.Controller
-	ctx          context.Context
-	store        *store.MockStore
-	rag          rag.RAG
-	openAiClient *oai.MockClient
-	query        *Query
+	ctrl  *gomock.Controller
+	ctx   context.Context
+	store *store.MockStore
+	rag   rag.RAG
+	query *Query
 }
 
 func TestQuerySuite(t *testing.T) {

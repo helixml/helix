@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
-	"github.com/shirou/gopsutil/process"
 )
 
 func getChildPids(pid int) ([]int, error) {
@@ -44,11 +43,12 @@ func getChildPids(pid int) ([]int, error) {
 }
 
 func getAllDescendants(pid int) ([]int, error) {
-	var descendants []int
 	children, err := getChildPids(pid)
 	if err != nil {
 		return nil, err
 	}
+
+	var descendants []int
 
 	for _, child := range children {
 		descendants = append(descendants, child)
@@ -102,20 +102,6 @@ func killProcessTree(pid int) error {
 			}
 		}
 	}
-}
-
-func getPidStatus(pid int) (string, error) {
-	p, err := process.NewProcess(int32(pid))
-	if err != nil {
-		return "", err
-	}
-
-	stat, err := p.Status()
-	if err != nil {
-		return "", err
-	}
-
-	return stat, nil
 }
 
 //go:generate mockgen -source $GOFILE -destination utils_mocks.go -package $GOPACKAGE

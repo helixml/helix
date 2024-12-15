@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net/http"
-	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -21,16 +20,9 @@ var userWebsocketUpgrader = websocket.Upgrader{
 
 type GetUserIDFromRequest func(r *http.Request) (string, error)
 
-type UserConnectionWrapper struct {
-	conn    *websocket.Conn
-	mu      sync.Mutex
-	user    string
-	session string
-}
-
 // startUserWebSocketServer starts a WebSocket server
 func (apiServer *HelixAPIServer) startUserWebSocketServer(
-	ctx context.Context,
+	_ context.Context,
 	r *mux.Router,
 	path string,
 ) {

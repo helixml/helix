@@ -27,10 +27,8 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 			return nil, fmt.Errorf("failed to create data prep splitter, error %w", err)
 		}
 
-		documentGroupID := k.ID
-
 		for _, d := range data {
-			_, err := splitter.AddDocument(d.Source, string(d.Data), documentGroupID)
+			_, err := splitter.AddDocument(d.Source, string(d.Data), d.DocumentGroupID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split %s, error %w", d.Source, err)
 			}
@@ -60,9 +58,9 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 				chunks = append(chunks, &text.DataPrepTextSplitterChunk{
 					Filename:        d.Source,
 					Index:           idx,
-					Text:            string(part),
+					Text:            part,
 					DocumentID:      getDocumentID(d.Data),
-					DocumentGroupID: k.ID,
+					DocumentGroupID: d.DocumentGroupID,
 				})
 			}
 		}

@@ -147,15 +147,6 @@ func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Ax
 	}
 	id := system.GenerateUUID()
 
-	// if this is empty string then we need to hoist it to be types.LORA_DIR_NONE
-	// because then we are always specifically asking for a session that has no finetune file
-	// if we left this blank we are saying "we don't care if it has one or not"
-	useLoraDir := cfg.InitialSession.LoraDir
-
-	if useLoraDir == "" {
-		useLoraDir = types.LORA_DIR_NONE
-	}
-
 	httpClientOptions := system.ClientOptions{
 		Host:  cfg.RunnerOptions.ApiHost,
 		Token: cfg.RunnerOptions.ApiToken,
@@ -607,7 +598,7 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 		log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
 
 		req := openai.FineTuningJobRequest{
-			Model:          string(session.ModelName),
+			Model:          session.ModelName,
 			TrainingFile:   combinedFile,
 			ValidationFile: "",
 			Hyperparameters: &openai.Hyperparameters{
@@ -764,7 +755,7 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 				TotalTokens:      resp.Usage.TotalTokens,
 				PromptTokens:     resp.Usage.PromptTokens,
 				CompletionTokens: resp.Usage.CompletionTokens,
-				DurationMs:       int64(time.Since(time.UnixMilli(resp.Created)).Milliseconds()),
+				DurationMs:       time.Since(time.UnixMilli(resp.Created)).Milliseconds(),
 			},
 		})
 	default:

@@ -52,7 +52,8 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		// If we are not downloading the file, we just send the URL
 		if k.RAGSettings.DisableDownloading {
 			result = append(result, &indexerData{
-				Source: u,
+				Source:          u,
+				DocumentGroupID: getDocumentGroupID(u),
 			})
 			continue
 		}
@@ -66,8 +67,9 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 			}
 
 			result = append(result, &indexerData{
-				Data:   []byte(extracted),
-				Source: u,
+				Data:            []byte(extracted),
+				Source:          u,
+				DocumentGroupID: getDocumentGroupID(u),
 			})
 
 			continue
@@ -80,8 +82,9 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		}
 
 		result = append(result, &indexerData{
-			Data:   bts,
-			Source: u,
+			Data:            bts,
+			Source:          u,
+			DocumentGroupID: getDocumentGroupID(u),
 		})
 	}
 
@@ -123,15 +126,16 @@ func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types
 		return nil, fmt.Errorf("failed to crawl: %w", err)
 	}
 
-	var data []*indexerData
+	data := make([]*indexerData, 0, len(result))
 
 	for _, doc := range result {
 		data = append(data, &indexerData{
-			Data:       []byte(doc.Content),
-			Source:     doc.SourceURL,
-			StatusCode: doc.StatusCode,
-			DurationMs: doc.DurationMs,
-			Message:    doc.Message,
+			Data:            []byte(doc.Content),
+			Source:          doc.SourceURL,
+			DocumentGroupID: getDocumentGroupID(doc.SourceURL),
+			StatusCode:      doc.StatusCode,
+			DurationMs:      doc.DurationMs,
+			Message:         doc.Message,
 		})
 	}
 
@@ -205,8 +209,9 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 		}
 
 		extractedData = append(extractedData, &indexerData{
-			Data:   []byte(extractedText),
-			Source: d.Source,
+			Data:            []byte(extractedText),
+			Source:          d.Source,
+			DocumentGroupID: getDocumentGroupID(d.Source),
 		})
 	}
 
@@ -242,8 +247,9 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 				}
 
 				result = append(result, &indexerData{
-					Data:   bts,
-					Source: item.Path,
+					Data:            bts,
+					Source:          item.Path,
+					DocumentGroupID: getDocumentGroupID(item.Path),
 				})
 			}
 		}

@@ -118,7 +118,7 @@ func (t *Typesense) index(ctx context.Context, indexReqs ...*types.SessionRAGInd
 		BatchSize: pointer.Int(len(indexReqs)),
 	}
 
-	var docs []interface{}
+	docs := make([]interface{}, 0, len(indexReqs))
 	for _, indexReq := range indexReqs {
 		docs = append(docs, indexReq)
 	}
@@ -136,12 +136,22 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 		return nil, err
 	}
 
-	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
-		Q:             pointer.String(q.Prompt),
-		QueryBy:       pointer.String("embedding,content"),
-		FilterBy:      pointer.String("data_entity_id:" + q.DataEntityID),
-		SortBy:        pointer.String("_text_match:desc,_vector_distance:asc"),
+		Q:       pointer.String(q.Prompt),
+		QueryBy: pointer.String("content,embedding"),
+		// Gives more weight to content matches
+		QueryByWeights: pointer.String("2,1"),
+		FilterBy:       pointer.String("data_entity_id:" + q.DataEntityID),
+		SortBy:         pointer.String("_text_match:desc,_vector_distance:asc"),
+		// Setting this to true will make Typesense consider all variations of prefixes and
+		// typo corrections of the words in the query exhaustively, without stopping early
+		// when enough results are found (drop_tokens_threshold and typo_tokens_threshold
+		// configurations are ignored).
+		// Docs: https://typesense.org/docs/0.23.0/api/search.html#results-parameters
+		ExhaustiveSearch: pointer.True(),
+		// Turn off prefix search for content and embedding.
+		// Docs: https://typesense.org/docs/0.23.0/api/search.html#query-parameters
+		Prefix:        pointer.String("false,false"),
 		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
 	}
 
@@ -156,9 +166,8 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 
 	log.Info().Int("num_results", len(*results.Hits)).Msg("typesense results")
 
-	var ragResults []*types.SessionRAGResult
+	ragResults := make([]*types.SessionRAGResult, 0, len(*results.Hits))
 	for _, hit := range *results.Hits {
-
 		ragResult := &types.SessionRAGResult{
 			// DataEntityID:    hit.Document["data_entity_id"].(string),
 			DocumentGroupID: getStrVariable(&hit, "document_group_id"),

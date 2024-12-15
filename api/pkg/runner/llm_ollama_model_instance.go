@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -769,21 +768,6 @@ func (i *OllamaInferenceModelInstance) responseProcessor(req *types.RunnerLLMInf
 
 func (i *OllamaInferenceModelInstance) Done() <-chan bool {
 	return i.finishCh
-}
-
-func (i *OllamaInferenceModelInstance) addJobToHistory(session *types.Session) error {
-	summary, err := data.GetSessionSummary(session)
-	if err != nil {
-		return err
-	}
-
-	// put the job at the start of the array
-	i.jobHistory = append([]*types.SessionSummary{summary}, i.jobHistory...)
-	if len(i.jobHistory) > i.runnerOptions.JobHistoryBufferSize {
-		i.jobHistory = i.jobHistory[:len(i.jobHistory)-1]
-	}
-
-	return nil
 }
 
 func (i *OllamaInferenceModelInstance) errorResponse(req *types.RunnerLLMInferenceRequest, err error) {

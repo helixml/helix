@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -19,19 +20,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 )
-
-type convertDocumentsToChunksRequest struct {
-	URL string `json:"url"`
-}
-
-type convertDocumentsToChunksResponse struct {
-	Text string `json:"text"`
-}
-
-type convertTextItem struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
 
 func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]string, error) {
 	userInteraction, err := data.GetUserInteraction(session.Interactions)
@@ -69,10 +57,9 @@ func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]stri
 		// }
 
 		// check if we have already got the chunks for this file
-		_, ok := existingFileNames[fmt.Sprintf("%s.txt", filename)]
-		if ok {
+		if _, ok := existingFileNames[fmt.Sprintf("%s.txt", filename)]; ok {
 			// we've already chunked this file into chunks
-			return false
+			return !ok
 		}
 
 		// check if we have already got the chunks for this file
@@ -536,7 +523,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					session = c.WriteInteraction(session, assistantInteraction)
 					c.BroadcastProgress(session, 1, initialMessage)
 
-					return session, 0, fmt.Errorf(msg)
+					return session, 0, errors.New(msg)
 				}
 
 				// Get the progress bar to display
@@ -571,7 +558,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					session = c.WriteInteraction(session, assistantInteraction)
 					c.BroadcastProgress(session, 1, initialMessage)
 
-					return session, 0, fmt.Errorf(msg)
+					return session, 0, errors.New(msg)
 				}
 
 				// Get the progress bar to display

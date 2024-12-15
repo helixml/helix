@@ -154,6 +154,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	k.State = types.KnowledgeStateReady
 	k.Size = getSize(data)
 	k.Version = version // Set latest version
+	k.Message = ""
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
@@ -281,8 +282,6 @@ func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, version 
 }
 
 func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
-	documentGroupID := k.ID
-
 	ragClient := r.getRagClient(k)
 
 	log.Info().
@@ -334,7 +333,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 				Filename:        d.Source,
 				Source:          d.Source,
 				DocumentID:      getDocumentID(d.Data),
-				DocumentGroupID: documentGroupID,
+				DocumentGroupID: getDocumentGroupID(d.Source),
 				ContentOffset:   0,
 				Content:         string(d.Data),
 			})
@@ -435,15 +434,23 @@ func getDocumentID(contents []byte) string {
 	return hashString[:10]
 }
 
+func getDocumentGroupID(sourceURL string) string {
+	hash := sha256.Sum256([]byte(sourceURL))
+	hashString := hex.EncodeToString(hash[:])
+
+	return hashString[:10]
+}
+
 // indexerData contains the raw contents of a website, file, etc.
 // This might be a text/html/pdf but it could also be something else
 // for example an sqlite database.
 type indexerData struct {
-	Source     string
-	Data       []byte
-	StatusCode int
-	DurationMs int64
-	Message    string
+	Source          string
+	DocumentGroupID string
+	Data            []byte
+	StatusCode      int
+	DurationMs      int64
+	Message         string
 }
 
 func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
@@ -459,7 +466,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 
 func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 
-	var indexChunks []*types.SessionRAGIndexChunk
+	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{

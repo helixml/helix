@@ -125,14 +125,6 @@ func (s *Stripe) GetPortalSessionURL(
 	return ps.URL, nil
 }
 
-func (s *Stripe) getCustomerEmail(id string) (string, error) {
-	data, err := customer.Get(id, nil)
-	if err != nil {
-		return "", err
-	}
-	return data.Email, nil
-}
-
 var eventMap = map[stripe.EventType]types.SubscriptionEventType{
 	"customer.subscription.deleted": types.SubscriptionEventTypeDeleted,
 	"customer.subscription.updated": types.SubscriptionEventTypeUpdated,

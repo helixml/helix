@@ -48,7 +48,7 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 	if err != nil {
 		return "", err
 	}
-	return string(buf.Bytes()), nil
+	return buf.String(), nil
 }
 
 // this prompt is applied before the user prompt is forwarded to the LLM
@@ -67,7 +67,7 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(buf.Bytes()), nil
+	return buf.String(), nil
 }
 
 type KnowledgePromptRequest struct {
@@ -101,5 +101,5 @@ func KnowledgePrompt(req *KnowledgePromptRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(buf.Bytes()), nil
+	return buf.String(), nil
 }

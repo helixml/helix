@@ -10,11 +10,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-type userPathTemplateData struct {
-	Owner     string
-	OwnerType types.OwnerType
-}
-
 //go:embed filestore_folders.json
 var jsonFile embed.FS
 
