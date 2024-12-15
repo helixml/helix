@@ -106,6 +106,17 @@ func (suite *IndexerSuite) TestIndex() {
 		},
 	}, nil)
 
+	// Second call to update knowledge with info on URLs
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State) // Still indexing
+			suite.Equal(1, len(k.CrawledSources.URLs), "should have 1 crawled source")
+			suite.Equal("https://example.com", k.CrawledSources.URLs[0].URL, "should have the correct URL")
+
+			return knowledge, nil
+		},
+	)
+
 	var version string
 
 	// Then it will index it
@@ -201,9 +212,20 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	suite.crawler.EXPECT().Crawl(gomock.Any()).Return([]*types.CrawledDocument{
 		{
 			Content:   `Hello world!`,
-			SourceURL: "https://example.com",
+			SourceURL: "https://example.com/foo",
 		},
 	}, nil)
+
+	// Second call to update knowledge with info on URLs
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State) // Still indexing
+			suite.Equal(1, len(k.CrawledSources.URLs), "should have 1 crawled source")
+			suite.Equal("https://example.com/foo", k.CrawledSources.URLs[0].URL, "should have the correct URL")
+
+			return knowledge, nil
+		},
+	)
 
 	var version string
 
@@ -217,7 +239,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 
 			version = dataEntityIDParts[1]
 
-			suite.Equal("https://example.com", chunk.Source)
+			suite.Equal("https://example.com/foo", chunk.Source)
 			suite.Equal("Hello world!", chunk.Content)
 
 			return nil
