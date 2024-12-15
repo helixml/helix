@@ -280,7 +280,10 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		return nil, err
 	}
 
-	c.WriteSession(session)
+	if err := c.WriteSession(session); err != nil {
+		// NOTE: we dont return here as this "only" emits WS events
+		log.Error().Err(err).Msg("failed writing session")
+	}
 
 	// this will re-run the data prep preparation
 	// but that is idempotent so we should be able to
@@ -314,7 +317,11 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	session.Updated = time.Now()
 	session.Interactions = append(session.Interactions, userInteraction, assistantInteraction)
 
-	c.WriteSession(session)
+	if err := c.WriteSession(session); err != nil {
+		// NOTE: we dont return here as this "only" emits WS events
+		log.Err(err).Msg("failed writing session")
+	}
+
 	go c.SessionRunner(session)
 
 	return session, nil
@@ -354,7 +361,11 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 
 	session.Mode = types.SessionModeFinetune
 
-	c.WriteSession(session)
+	if err := c.WriteSession(session); err != nil {
+		// NOTE: we dont return here as this "only" emits WS events
+		log.Err(err).Msg("failed writing session")
+	}
+
 	go c.SessionRunner(session)
 
 	return session, nil
@@ -469,7 +480,9 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 					return nil, err
 				}
 
-				c.WriteSession(session)
+				if err := c.WriteSession(session); err != nil {
+					log.Error().Err(err).Msg("failed writing session")
+				}
 				c.BroadcastProgress(session, 0, "")
 			}
 		}
@@ -503,7 +516,9 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			}
 
 			// otherwise lets kick off the fine tune
-			c.BeginFineTune(session)
+			if err := c.BeginFineTune(session); err != nil {
+				return nil, err
+			}
 		}
 
 		return nil, nil
@@ -688,7 +703,11 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 		return err
 	}
 
-	c.WriteSession(session)
+	err = c.WriteSession(session)
+	if err != nil {
+		return err
+	}
+
 	err = c.AddSessionToQueue(session)
 	if err != nil {
 		return err
@@ -759,7 +778,9 @@ func (c *Controller) WriteInteraction(session *types.Session, newInteraction *ty
 		}
 	}
 	session.Interactions = newInteractions
-	c.WriteSession(session)
+	if err := c.WriteSession(session); err != nil {
+		log.Printf("failed to write interaction session: %v", err)
+	}
 	return session
 }
 
@@ -812,18 +833,23 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	if err != nil {
 		return
 	}
-	session, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
-		assistantInteraction.State = types.InteractionStateError
-		assistantInteraction.Completed = time.Now()
-		assistantInteraction.Error = sessionErr.Error()
-		assistantInteraction.Finished = true
-		return assistantInteraction, nil
-	})
+	session, err = data.UpdateAssistantInteraction(session,
+		func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+			assistantInteraction.State = types.InteractionStateError
+			assistantInteraction.Completed = time.Now()
+			assistantInteraction.Error = sessionErr.Error()
+			assistantInteraction.Finished = true
+			return assistantInteraction, nil
+		})
 	if err != nil {
 		return
 	}
-	c.WriteSession(session)
-	c.Options.Janitor.WriteSessionError(session, sessionErr)
+	if err := c.WriteSession(session); err != nil {
+		log.Error().Err(err).Msg("failed to write error session")
+	}
+	if err := c.Options.Janitor.WriteSessionError(session, sessionErr); err != nil {
+		log.Error().Err(err).Msg("failed to write janitor session error")
+	}
 }
 
 // add the given session onto the end of the queue
@@ -943,10 +969,16 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	if err != nil {
 		return nil, err
 	}
-	c.WriteSession(session)
+
+	if err := c.WriteSession(session); err != nil {
+		return nil, err
+	}
 
 	if taskResponse.Error != "" {
-		c.Options.Janitor.WriteSessionError(session, errors.New(taskResponse.Error))
+		// NOTE: we don't return here as
+		if err := c.Options.Janitor.WriteSessionError(session, errors.New(taskResponse.Error)); err != nil {
+			return nil, fmt.Errorf("failed writing session error: %s : %v", taskResponse.Error, err)
+		}
 	}
 
 	return taskResponse, nil

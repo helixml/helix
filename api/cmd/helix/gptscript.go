@@ -73,7 +73,10 @@ func gptscriptServer(_ *cobra.Command) error {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+			log.Error().Err(err).Msg("failed to write response")
+			return
+		}
 		w.WriteHeader(statusCode)
 	}
 
@@ -108,7 +111,10 @@ func gptscriptServer(_ *cobra.Command) error {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+			log.Error().Err(err).Msg("failed to write response")
+			return
+		}
 		w.WriteHeader(statusCode)
 	}
 
@@ -171,7 +177,10 @@ func gptscriptServer(_ *cobra.Command) error {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+			log.Error().Err(err).Msg("failed to write response")
+			return
+		}
 		w.WriteHeader(statusCode)
 	}
 

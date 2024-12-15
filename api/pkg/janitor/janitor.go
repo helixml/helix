@@ -101,9 +101,8 @@ func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) er
 		j.seenErrorSessionMap[session.ID] = true
 		message := fmt.Sprintf("❌ there was a session error %s %s", j.getSessionURL(session), sessionErr.Error())
 		return sendSlackNotification(j.cfg.SlackWebhookURL, message)
-	} else {
-		return nil
 	}
+	return nil
 }
 
 func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, user *types.User, session *types.Session) error {

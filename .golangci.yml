@@ -11,7 +11,7 @@ linters:
     - unused
     - bodyclose
     - tparallel
-    #- errcheck
+    - errcheck
     #- revive
 
 issues:

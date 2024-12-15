@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -76,18 +77,26 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			})
 			if err != nil {
 				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
-				msg.Nak()
+				if nakErr := msg.Nak(); nakErr != nil {
+					return fmt.Errorf("Error writing to GPTScript runner websocket: %v, failed to Nak the message: %v", err, nakErr)
+				}
 				return err
 			}
 
-			msg.Ack()
+			if err := msg.Ack(); err != nil {
+				return fmt.Errorf("failed to ack the message: %v", err)
+			}
 			return nil
 		})
 		if err != nil {
 			log.Error().Msgf("Error subscribing to GPTScript app queue: %s", err.Error())
 			return
 		}
-		defer appSub.Unsubscribe()
+		defer func() {
+			if err := appSub.Unsubscribe(); err != nil {
+				log.Err(err).Msg("failed to unsubscribe")
+			}
+		}()
 
 		// Block reads in order to detect disconnects
 		for {

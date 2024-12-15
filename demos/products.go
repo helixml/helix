@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/rs/zerolog/log"
 )
 
 // Product struct defines the structure of a product object
@@ -101,7 +102,9 @@ func listProducts(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("listProducts --------------------------------------\n")
 	spew.Dump(query)
 	spew.Dump(filteredProducts)
-	json.NewEncoder(w).Encode(filteredProducts)
+	if err := json.NewEncoder(w).Encode(filteredProducts); err != nil {
+		log.Error().Msgf("failed streaming filtered products: %v", err)
+	}
 }
 
 func bookProduct(w http.ResponseWriter, r *http.Request) {
@@ -113,8 +116,10 @@ func bookProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("purchaseProduct --------------------------------------\n")
 	spew.Dump(query)
-	json.NewEncoder(w).Encode(PurchaseQuery{
+	if err := json.NewEncoder(w).Encode(PurchaseQuery{
 		ProductID:     query.ProductID,
 		CustomerEmail: query.CustomerEmail,
-	})
+	}); err != nil {
+		log.Error().Msgf("failed streaming purchased products: %v", err)
+	}
 }

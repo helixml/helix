@@ -119,10 +119,14 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	for _, domain := range domains {
-		collector.Limit(&colly.LimitRule{
+		if err := collector.Limit(&colly.LimitRule{
 			DomainGlob:  fmt.Sprintf("*%s*", domain),
 			Parallelism: defaultParallelism,
-		})
+		}); err != nil {
+			log.Warn().
+				Str("domain_glob", fmt.Sprintf("*%s*", domain)).
+				Msg("failed setting collector limit")
+		}
 	}
 
 	var (
@@ -257,9 +261,11 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 	defer d.browser.PutPage(page)
 
 	if d.knowledge.Source.Web.Crawler.UserAgent != "" {
-		page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
+		if err := page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
 			UserAgent: d.knowledge.Source.Web.Crawler.UserAgent,
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("failed setting user agent %v: %v", d.knowledge.Source.Web.Crawler.UserAgent, err)
+		}
 	}
 
 	log.Trace().Str("url", url).Msg("waiting for page to load")

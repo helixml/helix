@@ -188,7 +188,9 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 		newApp, err := githubApp.Create()
 		if err != nil {
-			s.Store.DeleteApp(r.Context(), created.ID)
+			if delErr := s.Store.DeleteApp(r.Context(), created.ID); delErr != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("%v: %v", delErr, err))
+			}
 			return nil, system.NewHTTPError500(err.Error())
 		}
 

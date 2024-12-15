@@ -445,7 +445,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		return nil
 	})
 	if err != nil {
-		system.NewHTTPError500(fmt.Sprintf("failed to subscribe to session updates: %s", err))
+		log.Error().Msgf("failed to subscribe to session updates: %v", err)
 		return
 	}
 
@@ -456,13 +456,13 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	respData, err := json.Marshal(firstChunk)
 	if err != nil {
-		system.NewHTTPError500(fmt.Sprintf("error marshalling websocket event '%+v': %s", firstChunk, err))
+		log.Error().Err(err).Msgf("error marshalling chunk: %+v", firstChunk)
 		return
 	}
 
 	err = writeChunk(res, respData)
 	if err != nil {
-		system.NewHTTPError500(fmt.Sprintf("error writing chunk '%s': %s", string(respData), err))
+		log.Error().Err(err).Msg("error writing chunk")
 		return
 	}
 
@@ -477,9 +477,8 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 	// we can have race-conditions on very fast responses
 	// from the runner
 	err = startReq.start()
-
 	if err != nil {
-		system.NewHTTPError500(fmt.Sprintf("failed to start session: %s", err))
+		log.Error().Err(err).Msgf("failed to start session")
 		return
 	}
 

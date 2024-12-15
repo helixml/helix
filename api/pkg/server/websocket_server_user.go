@@ -69,7 +69,11 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			return
 		}
 
-		defer sub.Unsubscribe()
+		defer func() {
+			if err := sub.Unsubscribe(); err != nil {
+				log.Error().Msgf("failed to unsubscribe: %v", err)
+			}
+		}()
 
 		log.Trace().
 			Str("action", "⚪ user ws CONNECT").

@@ -19,9 +19,11 @@ func TestRetry(t *testing.T) {
 
 		if called > 2 {
 			// On the third call return a valid response
-			json.NewEncoder(w).Encode(&openai.ChatCompletionResponse{
+			if err := json.NewEncoder(w).Encode(&openai.ChatCompletionResponse{
 				Model: "test-model",
-			})
+			}); err != nil {
+				t.Logf("failed encoding request: %v", err)
+			}
 			return
 		}
 

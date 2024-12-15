@@ -144,7 +144,11 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, h
 	if err != nil {
 		return nil, err
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Error().Err(err).Msg("failed to unsubscribe")
+		}
+	}()
 
 	hdr := nats.Header{}
 
@@ -210,7 +214,11 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	if err != nil {
 		return nil, err
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Error().Err(err).Msg("failed to unsubscribe")
+		}
+	}()
 
 	hdr := nats.Header{}
 

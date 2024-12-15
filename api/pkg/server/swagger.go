@@ -23,6 +23,8 @@ var swagger []byte
 
 func (s *HelixAPIServer) swaggerHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(swagger)
+		if _, err := w.Write(swagger); err != nil {
+			http.Error(w, "Internal Server Error: "+err.Error(), http.StatusInternalServerError)
+		}
 	})
 }
