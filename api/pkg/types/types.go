@@ -159,6 +159,7 @@ type SessionRAGQuery struct {
 	DistanceThreshold float64 `json:"distance_threshold"`
 	DistanceFunction  string  `json:"distance_function"`
 	MaxResults        int     `json:"max_results"`
+	ExhaustiveSearch  bool    `json:"exhaustive_search"`
 }
 
 type DeleteIndexRequest struct {
