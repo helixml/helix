@@ -122,7 +122,7 @@ func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.T
 			}
 		}
 
-		transport.WriteChatCompletionStream(downstreamWriter, &openai.ChatCompletionStreamResponse{
+		if err := transport.WriteChatCompletionStream(downstreamWriter, &openai.ChatCompletionStreamResponse{
 			Choices: []openai.ChatCompletionStreamChoice{
 				{
 					Delta: openai.ChatCompletionStreamChoiceDelta{
@@ -130,7 +130,9 @@ func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.T
 					},
 				},
 			},
-		})
+		}); err != nil {
+			log.Error().Msgf("failed streaming Zapier action: %v", err)
+		}
 	}()
 
 	return downstream, nil

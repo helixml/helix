@@ -102,7 +102,9 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	start := time.Now()
 
-	r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing", 0)
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing", 0); err != nil {
+		return fmt.Errorf("failed to update progress when retrieving data: %v", err)
+	}
 
 	data, err := r.getIndexingData(ctx, k)
 	if err != nil {
@@ -315,7 +317,10 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 				// If we have progress, update the progress
 				if percentage != lastProgress {
-					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d", current, totalItems), percentage)
+					msg := fmt.Sprintf("indexing data %d/%d", current, totalItems)
+					if err := r.updateProgress(k, types.KnowledgeStateIndexing, msg, percentage); err != nil {
+						log.Error().Err(err).Msg("failed updating data indexing progress")
+					}
 					lastProgress = percentage
 				}
 			}
@@ -351,7 +356,9 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 	}
 
 	// Ensure we update to 100% when done
-	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100)
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100); err != nil {
+		return fmt.Errorf("failed to update progress when completed data retrieval: %v", err)
+	}
 
 	// All good, nothing else to do
 	return nil
@@ -395,7 +402,10 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 				// If we have progress, update the progress
 				if percentage != lastProgress {
-					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d chunks", current, totalItems), percentage)
+					msg := fmt.Sprintf("indexing data %d/%d chunks", current, totalItems)
+					if err := r.updateProgress(k, types.KnowledgeStateIndexing, msg, percentage); err != nil {
+						log.Error().Err(err).Msg("failed to update data chunk indexing progress")
+					}
 					lastProgress = percentage
 				}
 			}
@@ -418,7 +428,9 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 	}
 
 	// Ensure we update to 100% when done
-	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100)
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100); err != nil {
+		return fmt.Errorf("failed to update progress when completed data indexing: %v", err)
+	}
 
 	return nil
 }

@@ -504,7 +504,10 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		return err
 	}
 
-	writeChunk(rw, bts)
+	if err := writeChunk(rw, bts); err != nil {
+		log.Error().Err(err).Msg("failed to write chunk")
+	}
+
 	// Flush the stream to ensure the client receives the data immediately
 	if flusher, ok := rw.(http.Flusher); ok {
 		flusher.Flush()
@@ -520,7 +523,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
 		session.Interactions[len(session.Interactions)-1].Finished = true
-		s.Controller.WriteSession(session)
+		if sessErr := s.Controller.WriteSession(session); sessErr != nil {
+			log.Error().Err(err).Msg("failed to write session")
+		}
 
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return nil
@@ -554,7 +559,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			return err
 		}
 
-		writeChunk(rw, bts)
+		if err := writeChunk(rw, bts); err != nil {
+			log.Error().Err(err).Msg("failed to write chunk")
+		}
 		// Flush the stream to ensure the client receives the data immediately
 		if flusher, ok := rw.(http.Flusher); ok {
 			flusher.Flush()

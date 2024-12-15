@@ -71,7 +71,11 @@ func (d *Discord) Start(ctx context.Context) error {
 
 	// Start the app sync loop, this will load the apps and keep them in sync
 	// and make sure we know which apps are configured for which guilds (discord servers)
-	go d.syncApps(ctx)
+	go func() {
+		if err := d.syncApps(ctx); err != nil {
+			logger.Error().Msgf("app sync fool exited with error: %v", err)
+		}
+	}()
 
 	err = s.Open()
 	if err != nil {
@@ -91,9 +95,11 @@ func (d *Discord) syncApps(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		case <-ticker.C:
-			d.syncAppsOnce(ctx)
+			if err := d.syncAppsOnce(ctx); err != nil {
+				return fmt.Errorf("failed syncing app: %v", err)
+			}
 		}
 	}
 }

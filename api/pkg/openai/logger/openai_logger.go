@@ -115,7 +115,10 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 			// Add the message to the response
 			appendChunk(&resp, &msg)
 
-			transport.WriteChatCompletionStream(downstreamWriter, &msg)
+			if err := transport.WriteChatCompletionStream(downstreamWriter, &msg); err != nil {
+				// TODO: should we return here? For now we just log and continue
+				log.Error().Err(err).Msg("failed to  write completion")
+			}
 		}
 
 		// Once the stream is done, close the downstream writer

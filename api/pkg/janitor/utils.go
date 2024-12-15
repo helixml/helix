@@ -32,7 +32,10 @@ func sendSlackNotification(webhookUrl string, message string) error {
 	defer resp.Body.Close()
 
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
+	_, err = buf.ReadFrom(resp.Body)
+	if err != nil {
+		return err
+	}
 	if buf.String() != "ok" {
 		return err
 	}

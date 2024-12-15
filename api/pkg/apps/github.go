@@ -208,7 +208,9 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 		// the only reason we want to update the app right now is to let
 		// the user know that there was an error processing their latest config
 		// (I need someone who knows how to handle errors better than me to help me here)
-		githubApp.UpdateApp(app)
+		if _, ghAppErr := githubApp.UpdateApp(app); ghAppErr != nil {
+			return nil, fmt.Errorf("failed processing config: %v, additionally failed updating GH app: %v", err, ghAppErr)
+		}
 
 		return nil, err
 	}

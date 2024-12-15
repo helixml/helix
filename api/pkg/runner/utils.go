@@ -5,6 +5,7 @@ package runner
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -73,7 +74,9 @@ func killProcessTree(pid int) error {
 
 	// First, try to terminate gracefully
 	for _, p := range allPids {
-		syscall.Kill(p, syscall.SIGTERM)
+		if err := syscall.Kill(p, syscall.SIGTERM); err != nil {
+			log.Printf("failed sending SIGTERM to process with pid: %d", p)
+		}
 	}
 
 	// Wait for processes to exit, or force kill after timeout
@@ -86,7 +89,9 @@ func killProcessTree(pid int) error {
 		case <-timeout:
 			// Force kill any remaining processes
 			for _, p := range allPids {
-				syscall.Kill(p, syscall.SIGKILL)
+				if err := syscall.Kill(p, syscall.SIGKILL); err != nil {
+					log.Printf("failed sending SIGKILL to process with pid: %d", p)
+				}
 			}
 			return nil
 		case <-ticker.C:
