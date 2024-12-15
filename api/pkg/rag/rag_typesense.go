@@ -138,11 +138,22 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 
 	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
-		Q:             pointer.String(q.Prompt),
-		QueryBy:       pointer.String("embedding,content"),
-		FilterBy:      pointer.String("data_entity_id:" + q.DataEntityID),
-		SortBy:        pointer.String("_text_match:desc,_vector_distance:asc"),
-		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
+		Q:        pointer.String(q.Prompt),
+		QueryBy:  pointer.String("content"),
+		FilterBy: pointer.String("data_entity_id:" + q.DataEntityID),
+		SortBy:   pointer.String("_text_match:desc"),
+		// Setting this to true will make Typesense consider all variations of prefixes and
+		// typo corrections of the words in the query exhaustively, without stopping early
+		// when enough results are found (drop_tokens_threshold and typo_tokens_threshold
+		// configurations are ignored).
+		// Docs: https://typesense.org/docs/0.23.0/api/search.html#results-parameters
+		ExhaustiveSearch: pointer.True(),
+		ExcludeFields:    pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
+		// Add hybrid search weights:
+		// QueryByWeights: pointer.String("1,2"), // Give more weight to content matches
+		// VectorQuery:    pointer.String("embedding:(" + q.Prompt + ")"), // Explicit vector query
+
+		// NumTypos: pointer.String("0"),
 	}
 
 	if q.MaxResults > 0 {
