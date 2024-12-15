@@ -139,9 +139,9 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
 		Q:        pointer.String(q.Prompt),
-		QueryBy:  pointer.String("content"),
+		QueryBy:  pointer.String("embedding,content"),
 		FilterBy: pointer.String("data_entity_id:" + q.DataEntityID),
-		SortBy:   pointer.String("_text_match:desc"),
+		SortBy:   pointer.String("_text_match:desc,_vector_distance:asc"),
 		// Setting this to true will make Typesense consider all variations of prefixes and
 		// typo corrections of the words in the query exhaustively, without stopping early
 		// when enough results are found (drop_tokens_threshold and typo_tokens_threshold
