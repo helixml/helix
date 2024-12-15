@@ -5,7 +5,6 @@ import Markdown from 'react-markdown'
 import {Prism as SyntaxHighlighterTS} from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
-import rehypeSanitize from 'rehype-sanitize'
 // you can change the theme by picking one from here
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
 import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -19,6 +18,13 @@ export const InteractionMarkdown: FC<{
 }) => {
   const theme = useTheme()
   if(!text) return null
+
+  // Fix markdown rendering for code blocks that have bad indentation
+  const sanitizeCodeBlocks = (text: string) => {
+    return text.replace(/^\s*```/gm, '```');
+  };
+
+  const processedContent = sanitizeCodeBlocks(text);
 
   return (
     <Box
@@ -44,7 +50,7 @@ export const InteractionMarkdown: FC<{
       }}
     >
       <Markdown
-        children={text}
+        children={processedContent}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         className="interactionMessage"
