@@ -154,6 +154,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	k.State = types.KnowledgeStateReady
 	k.Size = getSize(data)
 	k.Version = version // Set latest version
+	k.Message = ""
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
