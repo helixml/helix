@@ -602,7 +602,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	var writeUpdatesMutex sync.Mutex
 
 	runningFileList := copyFileList(userInteraction.Files)
-	outerError = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
+	outerError = system.ForEachConcurrently(
 		chunksToProcess,
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
@@ -705,7 +705,9 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 	session.Metadata.SystemPrompt = systemPrompt
-	c.WriteSession(session)
+	if err := c.WriteSession(session); err != nil {
+		return nil, 0, err
+	}
 
 	return session, len(chunksToProcess), nil
 }

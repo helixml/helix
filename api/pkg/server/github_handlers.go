@@ -141,7 +141,10 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 		}
 
 		if app != nil {
-			apiServer.Store.UpdateApp(r.Context(), app)
+			if _, err := apiServer.Store.UpdateApp(r.Context(), app); err != nil {
+				log.Error().Msgf("error storing github app update: %v", err)
+				http.Error(w, fmt.Sprintf("error storing github app update: %v", err), http.StatusInternalServerError)
+			}
 		}
 	}
 }

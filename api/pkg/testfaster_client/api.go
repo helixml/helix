@@ -95,7 +95,7 @@ func streamEntityLogs(socket SocketImplementation, channel, messageType string) 
 					logMessage := &LogMessage{}
 					err := json.Unmarshal([]byte(envelope.Body), &logMessage)
 					if err != nil {
-						fmt.Printf("error decoding log JSON: %s\n\n%s\n", err, envelope.Body)
+						fmt.Fprintf(os.Stderr, "error decoding log JSON: %s\n\n%s\n", err, envelope.Body)
 					} else {
 						if logMessage.Stream == "stdout" {
 							fmt.Fprintf(os.Stdout, "%s\n", logMessage.Text)
@@ -105,7 +105,9 @@ func streamEntityLogs(socket SocketImplementation, channel, messageType string) 
 					}
 				}
 			case <-stopChan:
-				socket.Unsubscribe(channel)
+				if err := socket.Unsubscribe(channel); err != nil {
+					fmt.Fprintf(os.Stderr, "error unsubscribing from channel %v: %v", channel, err)
+				}
 				return
 			}
 		}

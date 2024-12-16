@@ -91,14 +91,22 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	// Create a multipart writer for the buffer
 	writer := multipart.NewWriter(&buffer)
 
-	writer.WriteField("input", options.Prompt)
+	if err := writer.WriteField("input", options.Prompt); err != nil {
+		return err
+	}
 
 	// can't update these on an existing session
 	if options.SessionId == "" {
-		writer.WriteField("mode", "inference")
-		writer.WriteField("type", options.Type)
+		if err := writer.WriteField("mode", "inference"); err != nil {
+			return err
+		}
+		if err := writer.WriteField("type", options.Type); err != nil {
+			return err
+		}
 	}
-	writer.WriteField("active_tools", options.ActiveTools)
+	if err := writer.WriteField("active_tools", options.ActiveTools); err != nil {
+		return err
+	}
 
 	writer.Close()
 
@@ -156,7 +164,9 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		fmt.Printf("failed to make spinner from config struct: %v\n", err)
 		os.Exit(1)
 	}
-	spinner.Start()
+	if err := spinner.Start(); err != nil {
+		return fmt.Errorf("failed to start spinner: %v", err)
+	}
 
 	var latestSession *types.Interaction
 	for {
@@ -183,7 +193,9 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		time.Sleep(1 * time.Second)
 	}
 
-	spinner.Stop()
+	if err := spinner.Stop(); err != nil {
+		return fmt.Errorf("failed to stop spinner: %v", err)
+	}
 	fmt.Println("")
 	fmt.Println(latestSession.Message)
 

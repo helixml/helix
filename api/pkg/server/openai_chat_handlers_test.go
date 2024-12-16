@@ -228,7 +228,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			bts, err := json.Marshal(chunk)
 			suite.NoError(err)
 
-			writeChunk(writer, bts)
+			err = writeChunk(writer, bts)
+			suite.NoError(err)
 
 			// _, err = writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(bts))))
 			// suite.NoError(err)
@@ -415,7 +416,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
 
-	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{		
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
 		"stream": false,
 		"messages": [
 			{
@@ -726,7 +727,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
 
-	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{	
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
 		"stream": true,
 		"messages": [
 			{
@@ -793,7 +794,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 			bts, err := json.Marshal(chunk)
 			suite.NoError(err)
 
-			writeChunk(writer, bts)
+			err = writeChunk(writer, bts)
+			suite.NoError(err)
 
 			// _, err = writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(bts))))
 			// suite.NoError(err)
@@ -883,9 +885,10 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 		// Return successful response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"result": "custom endpoint response",
 		})
+		suite.NoError(err)
 	}))
 	defer testServer.Close()
 

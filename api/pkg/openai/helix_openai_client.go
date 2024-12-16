@@ -111,7 +111,11 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to subscribe to runner responses: %w", err)
 	}
 
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Error().Err(err).Msgf("failed to unsubscribe")
+		}
+	}()
 
 	// Enqueue the request, it will be picked up by the runner
 	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{

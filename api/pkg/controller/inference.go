@@ -191,28 +191,34 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	c.emitStepInfo(ctx, &types.StepInfo{
+	if err := c.emitStepInfo(ctx, &types.StepInfo{
 		Name:    selectedTool.Name,
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Running action",
-	})
+	}); err != nil {
+		return nil, false, fmt.Errorf("failed to emit run action step info: %w", err)
+	}
 
 	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
-		c.emitStepInfo(ctx, &types.StepInfo{
+		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
 			Name:    selectedTool.Name,
 			Type:    types.StepInfoTypeToolUse,
 			Message: fmt.Sprintf("Action failed: %s", err),
-		})
+		}); emitErr != nil {
+			return nil, false, fmt.Errorf("failed to perform action: %w: additionally emit step failed: %v", emitErr, err)
+		}
 
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
 
-	c.emitStepInfo(ctx, &types.StepInfo{
+	if err := c.emitStepInfo(ctx, &types.StepInfo{
 		Name:    selectedTool.Name,
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Action completed",
-	})
+	}); err != nil {
+		return nil, false, fmt.Errorf("failed to emit action completed step info: %w", err)
+	}
 
 	return &openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
@@ -242,11 +248,13 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	c.emitStepInfo(ctx, &types.StepInfo{
+	if err := c.emitStepInfo(ctx, &types.StepInfo{
 		Name:    selectedTool.Name,
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Running action",
-	})
+	}); err != nil {
+		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
+	}
 
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
@@ -256,20 +264,24 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 			Str("action", isActionable.Api).
 			Msg("failed to perform action")
 
-		c.emitStepInfo(ctx, &types.StepInfo{
+		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
 			Name:    selectedTool.Name,
 			Type:    types.StepInfoTypeToolUse,
 			Message: fmt.Sprintf("Action failed: %s", err),
-		})
+		}); emitErr != nil {
+			return nil, false, fmt.Errorf("failed to perform action: %w: additionally emit step failed: %v", emitErr, err)
+		}
 
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
 
-	c.emitStepInfo(ctx, &types.StepInfo{
+	if err := c.emitStepInfo(ctx, &types.StepInfo{
 		Name:    selectedTool.Name,
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Action completed",
-	})
+	}); err != nil {
+		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
+	}
 
 	return stream, true, nil
 }
@@ -308,11 +320,13 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		vals = &oai.ContextValues{}
 	}
 
-	c.emitStepInfo(ctx, &types.StepInfo{
+	if err := c.emitStepInfo(ctx, &types.StepInfo{
 		Name:    "is_actionable",
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Checking if we should use tools",
-	})
+	}); err != nil {
+		return nil, nil, false, fmt.Errorf("failed to emit step info: %w", err)
+	}
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
 	if err != nil {
@@ -321,11 +335,13 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	}
 
 	if !isActionable.Actionable() {
-		c.emitStepInfo(ctx, &types.StepInfo{
+		if err := c.emitStepInfo(ctx, &types.StepInfo{
 			Name:    "is_actionable",
 			Type:    types.StepInfoTypeToolUse,
 			Message: "Message is not actionable",
-		})
+		}); err != nil {
+			return nil, nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		}
 
 		return nil, nil, false, nil
 	}
@@ -536,11 +552,13 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				return nil, nil, fmt.Errorf("error getting RAG client: %w", err)
 			}
 
-			c.emitStepInfo(ctx, &types.StepInfo{
+			if err := c.emitStepInfo(ctx, &types.StepInfo{
 				Name:    knowledge.Name,
 				Type:    types.StepInfoTypeRAG,
 				Message: "Searching for knowledge",
-			})
+			}); err != nil {
+				return nil, nil, fmt.Errorf("failed to emit step info: %w", err)
+			}
 
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
@@ -553,11 +571,13 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
 			}
 
-			c.emitStepInfo(ctx, &types.StepInfo{
+			if err := c.emitStepInfo(ctx, &types.StepInfo{
 				Name:    knowledge.Name,
 				Type:    types.StepInfoTypeRAG,
 				Message: fmt.Sprintf("Found %d results", len(ragResults)),
-			})
+			}); err != nil {
+				return nil, nil, fmt.Errorf("failed to emit step info: %w", err)
+			}
 
 			for _, result := range ragResults {
 				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{

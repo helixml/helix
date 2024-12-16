@@ -156,7 +156,9 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 		SubscriptionID:  subscription.ID,
 		SubscriptionURL: s.getSubscriptionURL(subscription.ID),
 	}
-	s.eventHandler(eventType, user)
+	if err := s.eventHandler(eventType, user); err != nil {
+		return fmt.Errorf("error handling event: %v", err)
+	}
 	return nil
 }
 

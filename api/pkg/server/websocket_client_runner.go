@@ -41,7 +41,9 @@ func ConnectRunnerWebSocketClient(
 				func() {
 					mu.Lock()
 					defer mu.Unlock()
-					conn.WriteMessage(websocket.PingMessage, []byte{})
+					if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+						log.Error().Err(err).Msg("failed writing websocket message")
+					}
 				}()
 			case <-finished:
 				return
@@ -52,7 +54,9 @@ func ConnectRunnerWebSocketClient(
 				func() {
 					mu.Lock()
 					defer mu.Unlock()
-					conn.WriteJSON(ev)
+					if err := conn.WriteJSON(ev); err != nil {
+						log.Err(err).Msg("failed writing websocket event")
+					}
 				}()
 			}
 		}

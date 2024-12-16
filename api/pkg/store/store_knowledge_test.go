@@ -25,7 +25,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateKnowledge() {
 	suite.NotZero(createdKnowledge.Updated)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetKnowledge() {
@@ -47,7 +48,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetKnowledge() {
 	suite.Equal(knowledge.Name, retrievedKnowledge.Name)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_LookupKnowledge() {
@@ -78,7 +80,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_LookupKnowledge() {
 	suite.Equal(knowledge.AppID, retrievedKnowledge.AppID)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledge() {
@@ -101,7 +104,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledge() {
 	suite.Equal("Updated Knowledge", updatedKnowledge.Name)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
@@ -129,7 +133,8 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
 	suite.Equal(99, updatedKnowledge.ProgressPercent)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListKnowledge() {
@@ -158,8 +163,11 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListKnowledge() {
 	suite.Contains(ids, knowledge2.ID)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge1.ID)
-	suite.db.DeleteKnowledge(context.Background(), knowledge2.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge1.ID)
+	suite.NoError(err)
+
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge2.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteKnowledge() {
@@ -220,8 +228,10 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateKnowledgeVersion() 
 	suite.NotZero(createdVersion.Updated)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
-	suite.db.DeleteKnowledgeVersion(context.Background(), createdVersion.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
+	err = suite.db.DeleteKnowledgeVersion(context.Background(), createdVersion.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetKnowledgeVersion() {
@@ -251,8 +261,10 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetKnowledgeVersion() {
 	suite.Equal(createdVersion.State, retrievedVersion.State)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
-	suite.db.DeleteKnowledgeVersion(context.Background(), createdVersion.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
+	err = suite.db.DeleteKnowledgeVersion(context.Background(), createdVersion.ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListKnowledgeVersions() {
@@ -288,9 +300,12 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListKnowledgeVersions() {
 	suite.Contains(states, types.KnowledgeStateReady)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
-	suite.db.DeleteKnowledgeVersion(context.Background(), versionList[0].ID)
-	suite.db.DeleteKnowledgeVersion(context.Background(), versionList[1].ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
+	err = suite.db.DeleteKnowledgeVersion(context.Background(), versionList[0].ID)
+	suite.NoError(err)
+	err = suite.db.DeleteKnowledgeVersion(context.Background(), versionList[1].ID)
+	suite.NoError(err)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteKnowledgeVersion() {
@@ -320,5 +335,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteKnowledgeVersion() 
 	suite.Equal(ErrNotFound, err)
 
 	// Cleanup
-	suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
+	suite.NoError(err)
 }

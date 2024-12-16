@@ -93,7 +93,9 @@ func TestScheduler_TestWarmSlot(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
+
 	// Simulate the runner finishing the work
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
@@ -125,8 +127,10 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
 	// Simulate the runner finishing the work
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
@@ -138,7 +142,8 @@ func TestScheduler_TestRemoveStaleSlots(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate the runner starting the work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Phi3)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Phi3)
+	assert.NoError(t, err)
 
 	// Simulate runner updating control plane with removed models
 	scheduler.UpdateRunner(&types.RunnerState{
@@ -172,7 +177,9 @@ func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate runner doing work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
+
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
 
@@ -235,11 +242,13 @@ func TestScheduler_TestSessionScheduler(t *testing.T) {
 	assert.ErrorContains(t, err, "full")
 
 	// Simulate runner taking and finishing work
-	scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
 
-	scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
+	_, err = scheduler.WorkForRunner("test-runner", WorkloadTypeSession, false, model.Model_Ollama_Llama3_8b)
+	assert.NoError(t, err)
 	err = scheduler.Release("test-request-2")
 	assert.NoError(t, err)
 
@@ -262,7 +271,8 @@ func TestScheduler_LoraDirSession(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Simulate runner taking and finishing work
-	scheduler.WorkForRunner("test-runner-1", WorkloadTypeSession, false, model.Model_Axolotl_Mistral7b)
+	_, err = scheduler.WorkForRunner("test-runner-1", WorkloadTypeSession, false, model.Model_Axolotl_Mistral7b)
+	assert.NoError(t, err)
 	err = scheduler.Release("test-request-1")
 	assert.NoError(t, err)
 

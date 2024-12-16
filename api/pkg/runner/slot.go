@@ -80,7 +80,12 @@ func (r *Slot) IsScheduled() bool {
 func (r *Slot) ErrorWorkload(workload *scheduler.Workload, err error) {
 	switch workload.WorkloadType {
 	case scheduler.WorkloadTypeSession:
-		ErrorSession(r.sessionResponseHandler, workload.Session(), err)
+		if err := ErrorSession(r.sessionResponseHandler, workload.Session(), err); err != nil {
+			log.Error().
+				Err(err).
+				Str("session_id", workload.Session().ID).
+				Msg("failed writing error session")
+		}
 	default:
 		log.Error().Msgf("unknown workload type: %s", workload.WorkloadType)
 	}

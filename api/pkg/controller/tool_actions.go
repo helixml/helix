@@ -61,7 +61,12 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 			// If the request query params match something in the tool query params, override it
 			if queryName == paramName {
 				tool.Config.API.Query[queryName] = paramValue
-				log.Debug().Msgf("Overriding default tool query param: %s=%s with %s=%s", queryName, queryValue, paramName, tool.Config.API.Query[queryName])
+				log.Debug().
+					Str("query_name", queryName).
+					Str("query_value", queryValue).
+					Str("new_query_name", paramName).
+					Str("new_query_value", tool.Config.API.Query[queryName]).
+					Msgf("Overriding default tool query params")
 			}
 		}
 	}
@@ -72,7 +77,12 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 
 	messageHistory := types.HistoryFromInteractions(history)
 
-	log.Info().Str("tool", tool.Name).Str("action", action).Str("history", fmt.Sprintf("%+v", messageHistory)).Msg("Running tool action")
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("history", fmt.Sprintf("%+v", messageHistory)).
+		Msg("Running tool action")
+
 	resp, err := c.ToolsPlanner.RunAction(ctx, session.ID, assistantInteraction.ID, tool, messageHistory, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
@@ -94,7 +104,10 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		return nil, fmt.Errorf("failed to update assistant interaction: %w", err)
 	}
 
-	c.WriteSession(updated)
+	if err := c.WriteSession(updated); err != nil {
+		// NOTE: we dont return here as this "only" emits WS events
+		log.Err(err).Msg("failed writing session")
+	}
 
 	return updated, nil
 }

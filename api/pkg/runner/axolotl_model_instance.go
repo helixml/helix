@@ -652,14 +652,16 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 
 			switch status.Status {
 			case "running":
-				i.responseHandler(&types.RunnerTaskResponse{
+				if err := i.responseHandler(&types.RunnerTaskResponse{
 					Type:      types.WorkerTaskResponseTypeProgress,
 					SessionID: session.ID,
 					Owner:     session.Owner,
 					Done:      false,
 					Progress:  report.Progress,
 					Status:    status.Status,
-				})
+				}); err != nil {
+					return fmt.Errorf("failed writing runner task response: %v", err)
+				}
 			case "succeeded":
 				if len(status.ResultFiles) < 1 {
 					return fmt.Errorf("fine-tuning succeeded but no result files")
@@ -677,9 +679,8 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 			case string(openai.RunStatusFailed):
 				if len(events.Data) > 0 {
 					return fmt.Errorf("fine-tuning failed: %s", events.Data[len(events.Data)-1].Message)
-				} else {
-					return fmt.Errorf("fine-tuning failed with no events")
 				}
+				return fmt.Errorf("fine-tuning failed with no events")
 			default:
 				return fmt.Errorf("unknown fine-tuning status: %s", status.Status)
 			}

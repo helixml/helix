@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/rs/zerolog/log"
 )
 
 type JobVacancyCandidate struct {
@@ -70,5 +71,7 @@ func listCandidates(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("filteredCandidates --------------------------------------\n")
 	spew.Dump(query)
 	spew.Dump(filteredCandidates)
-	json.NewEncoder(w).Encode(filteredCandidates)
+	if err := json.NewEncoder(w).Encode(filteredCandidates); err != nil {
+		log.Error().Msgf("failed streaming candidates: %v", err)
+	}
 }

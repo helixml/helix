@@ -232,7 +232,9 @@ window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 		config.RudderStackWriteKey,
 		config.RudderStackDataPlaneURL,
 	)
-	res.Write([]byte(content))
+	if _, err := res.Write([]byte(content)); err != nil {
+		log.Error().Msgf("Failed to write response: %v", err)
+	}
 }
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
@@ -483,7 +485,9 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 		return nil, err
 	}
 	go func() {
-		apiServer.Controller.PrepareSession(session)
+		if _, err := apiServer.Controller.PrepareSession(session); err != nil {
+			log.Error().Err(err).Msg("failed to prepare session")
+		}
 	}()
 	return session, nil
 }

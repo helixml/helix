@@ -119,7 +119,9 @@ func (socket *WebSocket) listen() error {
 
 			// reply to ping messages right away
 			if envelope.Handler == "ping" {
-				socket.SendText("pong", "", "", "")
+				if err := socket.SendText("pong", "", "", ""); err != nil {
+					log.Printf("failed sending pong message: %v", err)
+				}
 			} else {
 				if envelope.Channel != "" {
 					socket.subscriptionsMutex.Lock()
@@ -196,8 +198,7 @@ func (socket *WebSocket) SendJSON(handler, channel, messageType string, body int
 	if err != nil {
 		return err
 	}
-	socket.SendText(handler, channel, messageType, string(bytes))
-	return nil
+	return socket.SendText(handler, channel, messageType, string(bytes))
 }
 
 // subscribe to a channel
