@@ -34,7 +34,9 @@ func TestPlacement_MaxSpread_Simple(t *testing.T) {
 	runnerID, err := MaxSpreadStrategy(c, a, req)
 	assert.NoError(t, err)
 	assert.Equal(t, "test-runner-1", runnerID)
-	a.AllocateNewSlot(runnerID, req)
+
+	_, err = a.AllocateNewSlot(runnerID, req)
+	assert.NoError(t, err)
 
 	runnerID, err = MaxSpreadStrategy(c, a, req)
 	assert.NoError(t, err)
@@ -49,7 +51,9 @@ func TestPlacement_MaxSpread_MultiMachine(t *testing.T) {
 	})
 	a := NewWorkloadAllocator(dummyTimeout, dummyTimeout)
 	req := createPlacementWork("test", model.NewModel(testModelStr))
-	a.AllocateNewSlot("test-runner-1", req)
+
+	_, err := a.AllocateNewSlot("test-runner-1", req)
+	assert.NoError(t, err)
 
 	// Add a second runner
 	c.UpdateRunner(&types.RunnerState{
