@@ -35,7 +35,9 @@ func (m *mockRuntimeFactory) NewSlot(ctx context.Context,
 func TestController_GetSlots(t *testing.T) {
 	// Create a httptest server to test the getSlots method
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"slots": 10}`))
+		if _, err := w.Write([]byte(`{"slots": 10}`)); err != nil {
+			t.Fatalf("error writing slots: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -67,7 +69,9 @@ func TestController_SlotLifecycle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, err := json.Marshal(apiSlots)
 		assert.NoError(t, err)
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			t.Fatalf("error writing api slots: %v", err)
+		}
 	}))
 	defer server.Close()
 

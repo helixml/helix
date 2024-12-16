@@ -22,6 +22,10 @@ func TestLimitedBufferPanic(t *testing.T) {
 	data2 := bytes.Repeat([]byte("b"), 20) // More than the limit
 
 	// This should cause a panic in the old code
-	buf.Write(data1)
-	buf.Write(data2)
+	if _, err := buf.Write(data1); err != nil {
+		t.Errorf("failed to write %#v to buffer: %v", data1, err)
+	}
+	if _, err := buf.Write(data2); err != nil {
+		t.Errorf("failed to write %#v to buffer: %v", data1, err)
+	}
 }
