@@ -32,7 +32,29 @@ import (
 )
 
 func TestOpenAIChatSuite(t *testing.T) {
-	suite.Run(t, new(OpenAIChatSuite))
+	// NOTE: we want to make sure that both the users and
+	// the runners can successfully trigger chat completions.
+	suitCfgs := []struct {
+		userID  string
+		authCtx context.Context
+	}{
+		{"user_id", setRequestUser(context.Background(), types.User{
+			ID:       "user_id",
+			Email:    "foo@email.com",
+			FullName: "Foo Bar",
+		})},
+		{"", setRequestUser(context.Background(), types.User{
+			Token:     "runner_token",
+			TokenType: types.TokenTypeRunner,
+		})},
+	}
+	for _, cfg := range suitCfgs {
+		testSuite := &OpenAIChatSuite{
+			userID:  cfg.userID,
+			authCtx: cfg.authCtx,
+		}
+		suite.Run(t, testSuite)
+	}
 }
 
 type OpenAIChatSuite struct {
