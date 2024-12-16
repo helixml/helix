@@ -21,7 +21,6 @@ import (
 // @Router /api/v1/sessions/learn [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *http.Request) {
-
 	var startReq types.SessionLearnRequest
 	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
 	if err != nil {
@@ -119,5 +118,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 	}
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
-	rw.Write(sessionDataJSON)
+	if _, err := rw.Write(sessionDataJSON); err != nil {
+		log.Error().Msgf("failed to write session data: %v", err)
+	}
 }

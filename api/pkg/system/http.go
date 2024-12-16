@@ -168,7 +168,7 @@ func DefaultController[T any](result T, err error) (T, *HTTPError) {
 }
 
 func DefaultWrapper[T any](handler defaultWrapper[T]) func(res http.ResponseWriter, req *http.Request) {
-	return DefaultWrapperWithConfig[T](handler, WrapperConfig{})
+	return DefaultWrapperWithConfig(handler, WrapperConfig{})
 }
 
 func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperConfig) func(res http.ResponseWriter, req *http.Request) {
@@ -268,7 +268,10 @@ func GetRequestBufferWithQuery(
 	log.Trace().
 		Str(req.Method, req.URL.String()).
 		Msgf("")
-	AddAuthHeadersRetryable(req, options.Token)
+	err = AddAuthHeadersRetryable(req, options.Token)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

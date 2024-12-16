@@ -165,7 +165,8 @@ func (suite *IndexerSuite) TestIndex() {
 	}).Return([]*types.KnowledgeVersion{}, nil)
 
 	// Start indexing
-	suite.reconciler.index(suite.ctx)
+	err := suite.reconciler.index(suite.ctx)
+	suite.NoError(err)
 
 	// Wait for the goroutines to finish
 	suite.reconciler.wg.Wait()
@@ -275,7 +276,8 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	}).Return([]*types.KnowledgeVersion{}, nil)
 
 	// Start indexing
-	suite.reconciler.index(suite.ctx)
+	err := suite.reconciler.index(suite.ctx)
+	suite.NoError(err)
 
 	// Wait for the goroutines to finish
 	suite.reconciler.wg.Wait()

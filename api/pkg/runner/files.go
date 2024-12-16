@@ -115,7 +115,9 @@ func (handler *FileHandler) downloadFile(sessionID string, remotePath string, lo
 	if err != nil {
 		return err
 	}
-	system.AddAutheaders(req, handler.httpClientOptions.Token)
+	if err := system.AddAutheaders(req, handler.httpClientOptions.Token); err != nil {
+		return err
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -166,7 +168,9 @@ func (handler *FileHandler) downloadFolder(sessionID string, remotePath string, 
 	if err != nil {
 		return err
 	}
-	system.AddAutheaders(req, handler.httpClientOptions.Token)
+	if err := system.AddAutheaders(req, handler.httpClientOptions.Token); err != nil {
+		return err
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -248,7 +252,9 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 		return nil, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	system.AddAutheaders(req, handler.httpClientOptions.Token)
+	if err := system.AddAutheaders(req, handler.httpClientOptions.Token); err != nil {
+		return nil, err
+	}
 
 	// send the request
 	client := &http.Client{}
@@ -373,7 +379,9 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 	if err != nil {
 		return "", err
 	}
-	system.AddAutheaders(req, handler.httpClientOptions.Token)
+	if err := system.AddAutheaders(req, handler.httpClientOptions.Token); err != nil {
+		return "", err
+	}
 
 	// send the request
 	client := &http.Client{}

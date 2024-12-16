@@ -75,5 +75,6 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	browserManager.PutPage(page2)
 
 	// Destroy the browser
-	browserManager.PutBrowser(browser)
+	err = browserManager.PutBrowser(browser)
+	require.NoError(t, err)
 }

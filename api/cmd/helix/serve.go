@@ -365,7 +365,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	go knowledgeReconciler.Start(ctx)
+	go func() {
+		if err := knowledgeReconciler.Start(ctx); err != nil {
+			log.Error().Err(err).Msg("failed to start knowledge reconciler")
+		}
+	}()
 
 	trigger := trigger.NewTriggerManager(cfg, store, appController)
 	// Start integrations

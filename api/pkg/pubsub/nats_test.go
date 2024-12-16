@@ -143,26 +143,39 @@ func TestQueueMultipleSubs(t *testing.T) {
 	sub1, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
-		msg.Ack()
+
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		worker1++
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub1.Unsubscribe()
+	defer func() {
+		if err := sub1.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
-		msg.Ack()
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		worker2++
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub2.Unsubscribe()
+	defer func() {
+		if err := sub2.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	for i := 0; i < 100; i++ {
 		data, err := pubsub.Request(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
@@ -219,7 +232,11 @@ func TestNatsStreaming(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer sub.Unsubscribe()
+		defer func() {
+			if err := sub.Unsubscribe(); err != nil {
+				t.Logf("failed to unsubscribe: %v", err)
+			}
+		}()
 
 		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -230,7 +247,11 @@ func TestNatsStreaming(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer sub2.Unsubscribe()
+		defer func() {
+			if err := sub2.Unsubscribe(); err != nil {
+				t.Logf("failed to unsubscribe: %v", err)
+			}
+		}()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -297,12 +318,18 @@ func TestStreamRetries(t *testing.T) {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 
-		msg.Ack()
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -349,26 +376,40 @@ func TestStreamMultipleSubs(t *testing.T) {
 	sub1, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
-		msg.Ack()
+
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		worker1++
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub1.Unsubscribe()
+	defer func() {
+		if err := sub1.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
-		msg.Ack()
+
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		worker2++
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub2.Unsubscribe()
+	defer func() {
+		if err := sub2.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	for i := 0; i < 100; i++ {
 		data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
@@ -443,12 +484,18 @@ func TestStreamAfterDelay(t *testing.T) {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 
-		msg.Ack()
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -515,12 +562,19 @@ func TestStreamFailOne(t *testing.T) {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 
-		msg.Ack()
+		if ackErr := msg.Ack(); ackErr != nil {
+			t.Logf("failed to ack message: %v", ackErr)
+		}
 
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Logf("failed to unsubscribe: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

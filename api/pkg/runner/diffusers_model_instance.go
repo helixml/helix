@@ -361,7 +361,12 @@ func (i *DiffusersModelInstance) Start(ctx context.Context) error {
 
 			errstr := string(stderrBuf.Bytes())
 			if i.currentSession != nil {
-				ErrorSession(i.responseHandler, i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
+				if err := ErrorSession(i.responseHandler, i.currentSession, fmt.Errorf("%v from cmd - %s", err, errstr)); err != nil {
+					log.Error().
+						Err(err).
+						Str("session_id", i.currentSession.ID).
+						Msgf("failed writing error session")
+				}
 			}
 
 			if strings.Contains(errstr, "(core dumped)") {
@@ -444,7 +449,12 @@ WAIT:
 						Str("session_id", session.ID).
 						Err(err).
 						Msg("error processing interaction")
-					ErrorSession(i.responseHandler, i.currentSession, err)
+					if err := ErrorSession(i.responseHandler, i.currentSession, err); err != nil {
+						log.Error().
+							Err(err).
+							Str("session_id", session.ID).
+							Msgf("failed writing error session")
+					}
 					if strings.Contains(err.Error(), "connection refused") {
 						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
 						os.Exit(1)

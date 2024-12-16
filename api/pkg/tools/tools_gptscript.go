@@ -7,6 +7,8 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
+
+	"github.com/rs/zerolog/log"
 )
 
 func getScriptFromTool(tool *types.Tool, prompt string) *types.GptScript {
@@ -21,7 +23,12 @@ func getScriptFromTool(tool *types.Tool, prompt string) *types.GptScript {
 	return script
 }
 
-func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunGPTScriptAction(
+	ctx context.Context,
+	tool *types.Tool,
+	history []*types.ToolHistoryMessage,
+	action string,
+) (*RunActionResponse, error) {
 	// TODO: maybe we should pass the whole history to the script executor, like we do for api tools
 	currentMessage := history[len(history)-1].Content
 	script := getScriptFromTool(tool, currentMessage)
@@ -38,7 +45,12 @@ func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool
 	}, nil
 }
 
-func (c *ChainStrategy) RunGPTScriptActionStream(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) RunGPTScriptActionStream(
+	ctx context.Context,
+	tool *types.Tool,
+	history []*types.ToolHistoryMessage,
+	faction string,
+) (*openai.ChatCompletionStream, error) {
 	currentMessage := history[len(history)-1].Content
 	script := getScriptFromTool(tool, currentMessage)
 	result, err := c.gptScriptExecutor.ExecuteScript(ctx, script)
@@ -54,7 +66,7 @@ func (c *ChainStrategy) RunGPTScriptActionStream(ctx context.Context, tool *type
 	go func() {
 		defer downstreamWriter.Close()
 
-		transport.WriteChatCompletionStream(downstreamWriter, &openai.ChatCompletionStreamResponse{
+		if err := transport.WriteChatCompletionStream(downstreamWriter, &openai.ChatCompletionStreamResponse{
 			Choices: []openai.ChatCompletionStreamChoice{
 				{
 					Delta: openai.ChatCompletionStreamChoiceDelta{
@@ -62,7 +74,9 @@ func (c *ChainStrategy) RunGPTScriptActionStream(ctx context.Context, tool *type
 					},
 				},
 			},
-		})
+		}); err != nil {
+			log.Error().Msgf("failed streaming GPTScript action: %v", err)
+		}
 	}()
 
 	return downstream, nil

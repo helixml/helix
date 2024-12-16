@@ -68,7 +68,8 @@ func TestTika_Extract(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		os.WriteFile("out.md", []byte(text), 0o644)
+		err = os.WriteFile("out.md", []byte(text), 0o644)
+		require.NoError(t, err)
 
 		assert.Contains(t,
 			text,

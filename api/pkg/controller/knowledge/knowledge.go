@@ -77,7 +77,9 @@ func (r *Reconciler) Start(ctx context.Context) error {
 
 	wg.Add(1)
 	go func() {
-		r.startCron(ctx)
+		if err := r.startCron(ctx); err != nil {
+			log.Error().Err(err).Msg("failed to start reconciling cron")
+		}
 	}()
 
 	wg.Add(1)

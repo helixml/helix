@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/rs/zerolog/log"
 )
 
 type SalesLead struct {
@@ -74,5 +75,7 @@ func listSalesLeads(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("filteredSalesLeads --------------------------------------\n")
 	spew.Dump(query)
 	spew.Dump(filteredSalesLeads)
-	json.NewEncoder(w).Encode(filteredSalesLeads)
+	if err := json.NewEncoder(w).Encode(filteredSalesLeads); err != nil {
+		log.Error().Msgf("failed streaming filtered sales leads: %v", err)
+	}
 }
