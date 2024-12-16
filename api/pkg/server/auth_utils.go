@@ -131,6 +131,10 @@ func hasUser(user *types.User) bool {
 	return user.ID != ""
 }
 
+func hasUserOrRunner(user *types.User) bool {
+	return hasUser(user) || isRunner(user)
+}
+
 func isAdmin(user *types.User) bool {
 	return hasUser(user) && user.Admin
 }
