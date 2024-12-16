@@ -36,13 +36,13 @@ const (
 // @externalDocs.url https://platform.openai.com/docs/api-reference/chat/create
 func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
 	addCorsHeaders(rw)
-	if r.Method == "OPTIONS" {
+	if r.Method == http.MethodOptions {
 		return
 	}
 
 	user := getRequestUser(r)
 
-	if !hasUser(user) {
+	if !hasUserOrRunner(user) {
 		http.Error(rw, "unauthorized", http.StatusUnauthorized)
 		log.Error().Msg("unauthorized")
 		return
@@ -63,7 +63,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
-	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), chatCompletionRequest.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(
+		string(s.Cfg.Inference.Provider),
+		chatCompletionRequest.Model,
+		types.SessionModeInference,
+		types.SessionTypeText,
+		false,
+		false,
+	)
 	if err != nil {
 		log.Error().Err(err).Msg("error processing model name")
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
