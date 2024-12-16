@@ -2,6 +2,11 @@
 # https://docs.helix.ml/helix/private-deployment/manual-install/kubernetes/ and
 # https://docs.helix.ml/helix/private-deployment/environment-variables/
 
+global:
+  # Set this AND envVariables.APP_URL to the public URL of your hostname, e.g.
+  # https://helix.mydomain.com if you have set up TLS termination.
+  serverUrl: http://localhost:8080
+
 image:
   # It's good practice to pin the version of the software you're running!
   # Get this from https://get.helix.ml/latest.txt or check https://github.com/helixml/helix/releases
