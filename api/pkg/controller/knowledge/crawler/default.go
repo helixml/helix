@@ -47,7 +47,7 @@ func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) 
 		converter:   md.NewConverter("", true, nil),
 		parser:      readability.NewParser(),
 		browser:     browser,
-		pageTimeout: 5 * time.Second,
+		pageTimeout: 15 * time.Second,
 	}
 
 	return crawler, nil
