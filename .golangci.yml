@@ -18,3 +18,4 @@ issues:
   deadline: 2m
   exlude-dirs:
     - vendor
+
