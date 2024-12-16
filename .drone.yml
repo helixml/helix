@@ -35,6 +35,10 @@ steps:
       from_secret: openai_base_url
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
     TYPESENSE_URL: http://typesense:8108
     TYPESENSE_API_KEY: typesense
     TEXT_EXTRACTION_TIKA_URL: http://tika:9998

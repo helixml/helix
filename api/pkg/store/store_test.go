@@ -2,10 +2,10 @@ package store
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -22,20 +22,12 @@ type PostgresStoreTestSuite struct {
 func (suite *PostgresStoreTestSuite) SetupTest() {
 	suite.ctx = context.Background()
 
-	// TODO: move server options to envconfig
-	host := os.Getenv("POSTGRES_HOST")
-	if host == "" {
-		host = "localhost"
-	}
+	var storeCfg config.Store
 
-	store, err := NewPostgresStore(config.Store{
-		Host:        host,
-		Port:        5432,
-		Username:    "postgres",
-		Password:    "postgres",
-		Database:    "postgres",
-		AutoMigrate: true,
-	})
+	err := envconfig.Process("", &storeCfg)
+	suite.NoError(err)
+
+	store, err := NewPostgresStore(storeCfg)
 	suite.NoError(err)
 
 	suite.db = store
