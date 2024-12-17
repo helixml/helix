@@ -155,7 +155,7 @@ function update_openapi() {
 }
 
 function lint() {
-        golangci-lint run .
+        golangci-lint run
 }
 
 function test() {
