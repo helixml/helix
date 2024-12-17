@@ -202,13 +202,23 @@ If you're familiar with [tmux](https://github.com/tmux/tmux/wiki) you will find 
 
 Both the frontend and the api have hot-reloads when in development mode. Rebuilds should only be required when adding libraries.
 
-### 5. Running tests
+### 5. Running linter
+
+> [!IMPORTANT]
+> You must install [golangci-lint](https://golangci-lint.run/)
+> See [here](https://golangci-lint.run/welcome/install/) for installation options.
+
+```
+./stack lint
+```
+
+### 6. Running tests
 
 ```
 ./stack test
 ```
 
-### 6. Tear down the Helix stack
+### 7. Tear down the Helix stack
 
 Bring down the stack
 
@@ -238,6 +248,7 @@ Bring down the stack
 
    - Format all code with standard language formatters.
    - Follow the project's coding guidelines for the frontend.
+   - Run [Go linter](https://golangci-lint.run/)
 
 3. **Commit Messages**
 

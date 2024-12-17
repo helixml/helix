@@ -154,6 +154,10 @@ function update_openapi() {
 	-o api/pkg/server
 }
 
+function lint() {
+        golangci-lint run .
+}
+
 function test() {
   # Ingest env variables from .env file
   set -a
