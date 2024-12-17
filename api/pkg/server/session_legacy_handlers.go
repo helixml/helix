@@ -377,13 +377,6 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 					return err
 				}
 
-				// Flush the stream to ensure the client receives the data immediately
-				if flusher, ok := res.(http.Flusher); ok {
-					flusher.Flush()
-				} else {
-					log.Warn().Msg("ResponseWriter does not support Flusher interface")
-				}
-
 				// Close connection
 				close(doneCh)
 				return nil
@@ -405,13 +398,6 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 			err = writeChunk(res, respData)
 			if err != nil {
 				return err
-			}
-
-			// Flush the stream to ensure the client receives the data immediately
-			if flusher, ok := res.(http.Flusher); ok {
-				flusher.Flush()
-			} else {
-				log.Warn().Msg("ResponseWriter does not support Flusher interface")
 			}
 
 			// Close connection
@@ -523,6 +509,8 @@ func writeChunk(w io.Writer, chunk []byte) error {
 	// Flush the ResponseWriter buffer to send the chunk immediately
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
+	} else {
+		log.Warn().Msg("ResponseWriter does not support Flusher interface")
 	}
 
 	return nil
