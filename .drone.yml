@@ -8,7 +8,7 @@ workspace:
 
 steps:
 - name: build-backend
-  image: golang:1.23.4-alpine3.20
+  image: golang:1.23.4-alpine3.21
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -24,8 +24,17 @@ steps:
     - yarn build
   depends_on: []
 
+- name: run-linter
+  image: golangci/golangci-lint:v1.62-alpine
+  commands:
+    - golangci-lint run
+  when:
+    event:
+    - push
+  depends_on: []
+
 - name: unit-test
-  image: golang:1.23.4-alpine3.20
+  image: golang:1.23.4-alpine3.21
   environment:
     OPENAI_API_KEY:
       from_secret: openai_tools
