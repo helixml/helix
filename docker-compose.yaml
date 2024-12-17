@@ -112,7 +112,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - API_HOST=http://api:80
       - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - GPTSCRIPT_PROVIDER_API_API_KEY=${HELIX_API_KEY:-}
+      - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
       - CONCURRENCY=20 # number of tasks to run concurrently
       - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
     depends_on:
