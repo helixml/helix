@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -19,6 +20,11 @@ var (
 		"/v1/chat/completions":  true,
 		"/api/v1/sessions/chat": true,
 	}
+)
+
+var (
+	ErrNoAPIKeyFound = errors.New("no API key found")
+	ErrNoUserIDFound = errors.New("no user ID found")
 )
 
 type authMiddlewareConfig struct {
@@ -73,14 +79,16 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			Token:     token,
 			TokenType: types.TokenTypeRunner,
 		}, nil
-	} else if strings.HasPrefix(token, types.API_KEY_PREIX) {
+	}
+
+	if strings.HasPrefix(token, types.API_KEY_PREIX) {
 		// we have an API key - we should load it from the database and construct our user that way
 		apiKey, err := auth.store.GetAPIKey(ctx, token)
 		if err != nil {
 			return nil, fmt.Errorf("error getting API key: %s", err.Error())
 		}
 		if apiKey == nil {
-			return nil, fmt.Errorf("error getting API key: no key found")
+			return nil, fmt.Errorf("error getting API key: %w", ErrNoAPIKeyFound)
 		}
 
 		user, err := auth.authenticator.GetUserByID(ctx, apiKey.Owner)
@@ -98,32 +106,32 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		}
 
 		return user, nil
-	} else {
-		// otherwise we try to decode the token with keycloak
-		keycloakJWT, err := auth.authenticator.ValidateUserToken(ctx, token)
-		if err != nil {
-			return nil, fmt.Errorf("error validating keycloak token: %s", err.Error())
-		}
-		mc := keycloakJWT.Claims.(jwt.MapClaims)
-		keycloakUserID := mc["sub"].(string)
-
-		if keycloakUserID == "" {
-			return nil, fmt.Errorf("no keycloak user ID found")
-		}
-
-		user, err := auth.authenticator.GetUserByID(ctx, keycloakUserID)
-		if err != nil {
-			return user, fmt.Errorf("error loading user from keycloak: %s", err.Error())
-		}
-
-		user.Token = token
-		user.TokenType = types.TokenTypeKeycloak
-		user.ID = keycloakUserID
-		user.Type = types.OwnerTypeUser
-		user.Admin = auth.isUserAdmin(user.ID)
-
-		return user, nil
 	}
+
+	// otherwise we try to decode the token with keycloak
+	keycloakJWT, err := auth.authenticator.ValidateUserToken(ctx, token)
+	if err != nil {
+		return nil, fmt.Errorf("error validating keycloak token: %s", err.Error())
+	}
+	mc := keycloakJWT.Claims.(jwt.MapClaims)
+	keycloakUserID := mc["sub"].(string)
+
+	if keycloakUserID == "" {
+		return nil, fmt.Errorf("error getting keycloak user ID: %w", ErrNoUserIDFound)
+	}
+
+	user, err := auth.authenticator.GetUserByID(ctx, keycloakUserID)
+	if err != nil {
+		return user, fmt.Errorf("error loading user from keycloak: %s", err.Error())
+	}
+
+	user.Token = token
+	user.TokenType = types.TokenTypeKeycloak
+	user.ID = keycloakUserID
+	user.Type = types.OwnerTypeUser
+	user.Admin = auth.isUserAdmin(user.ID)
+
+	return user, nil
 }
 
 // this will extract the token from the request and then load the correct

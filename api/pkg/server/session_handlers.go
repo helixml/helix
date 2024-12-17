@@ -237,8 +237,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}()
 	}
 
+	ownerID := user.ID
+	if user.TokenType == types.TokenTypeRunner {
+		ownerID = oai.RunnerID
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:         user.ID,
+		OwnerID:         ownerID,
 		SessionID:       session.ID,
 		InteractionID:   session.Interactions[0].ID,
 		OriginalRequest: body,
@@ -352,9 +357,14 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 
 	ctx = oai.SetContextAppID(ctx, session.ParentApp)
 
+	ownerID := user.ID
+	if user.TokenType == types.TokenTypeRunner {
+		ownerID = oai.RunnerID
+	}
+
 	// Set required context values
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       user.ID,
+		OwnerID:       ownerID,
 		SessionID:     session.ID,
 		InteractionID: session.Interactions[len(session.Interactions)-1].ID,
 	})
@@ -397,8 +407,13 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model,
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	ownerID := user.ID
+	if user.TokenType == types.TokenTypeRunner {
+		ownerID = oai.RunnerID
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       user.ID,
+		OwnerID:       ownerID,
 		SessionID:     sessionID,
 		InteractionID: "n/a",
 	})
