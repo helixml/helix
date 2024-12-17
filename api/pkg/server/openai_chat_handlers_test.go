@@ -32,7 +32,29 @@ import (
 )
 
 func TestOpenAIChatSuite(t *testing.T) {
-	suite.Run(t, new(OpenAIChatSuite))
+	// NOTE: we want to make sure that both the users and
+	// the runners can successfully trigger chat completions.
+	suitCfgs := []struct {
+		userID  string
+		authCtx context.Context
+	}{
+		{"user_id", setRequestUser(context.Background(), types.User{
+			ID:       "user_id",
+			Email:    "foo@email.com",
+			FullName: "Foo Bar",
+		})},
+		{"", setRequestUser(context.Background(), types.User{
+			Token:     "runner_token",
+			TokenType: types.TokenTypeRunner,
+		})},
+	}
+	for _, cfg := range suitCfgs {
+		testSuite := &OpenAIChatSuite{
+			userID:  cfg.userID,
+			authCtx: cfg.authCtx,
+		}
+		suite.Run(t, testSuite)
+	}
 }
 
 type OpenAIChatSuite struct {
@@ -63,13 +85,6 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	extractorMock := extract.NewMockExtractor(ctrl)
 	suite.rag = rag.NewMockRAG(ctrl)
 
-	suite.userID = "user_id"
-	suite.authCtx = setRequestUser(context.Background(), types.User{
-		ID:       suite.userID,
-		Email:    "foo@email.com",
-		FullName: "Foo Bar",
-	})
-
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
@@ -98,6 +113,20 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	}
 }
 
+func getTestOwnerID(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	user, ok := ctx.Value(userKey).(types.User)
+	if !ok {
+		return "", !ok
+	}
+	if user.TokenType == types.TokenTypeRunner {
+		return openai.RunnerID, ok
+	}
+	return user.ID, ok
+}
+
 func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 
 	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
@@ -116,6 +145,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 	}`))
 	suite.NoError(err)
 
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
@@ -131,7 +163,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
@@ -183,6 +215,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	}`))
 	suite.NoError(err)
 
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
@@ -194,7 +229,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
@@ -343,6 +378,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 	}`))
 	suite.NoError(err)
 
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
@@ -360,7 +398,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
@@ -431,6 +469,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 	}`))
 	suite.NoError(err)
 
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
@@ -448,7 +489,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
@@ -550,6 +591,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 	}`))
 	suite.NoError(err)
 
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
@@ -572,7 +616,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
@@ -632,27 +676,29 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 	}).Return([]*types.Secret{}, nil)
 
 	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
-		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-		"stream": false,
-		"messages": [
-			{
-				"role": "system",
-				"content": "You are a helpful assistant."
-			},
-			{
-				"role": "user",
-				"content": "tell me about oceans!"
-			}
-		]
-	}`))
+ 		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+ 		"stream": false,
+ 		"messages": [
+ 			{
+ 				"role": "system",
+ 				"content": "You are a helpful assistant."
+ 			},
+ 			{
+ 				"role": "user",
+ 				"content": "tell me about oceans!"
+ 			}
+ 		]
+ 	}`))
 	suite.NoError(err)
 
-	authCtx := setRequestUser(context.Background(), types.User{
-		ID:       suite.userID,
-		Email:    "foo@email.com",
-		FullName: "Foo Bar",
-		AppID:    "app123",
-	})
+	// Let's pack AppID into the auth context
+	user := suite.authCtx.Value(userKey).(types.User)
+	user.AppID = "app123"
+
+	authCtx := setRequestUser(context.Background(), user)
+
+	ownerID, ok := getTestOwnerID(authCtx)
+	suite.Require().True(ok)
 
 	req = req.WithContext(authCtx)
 
@@ -671,7 +717,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
@@ -742,6 +788,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 	}`))
 	suite.NoError(err)
 
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
@@ -755,7 +804,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
-			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal(ownerID, vals.OwnerID)
 			suite.Equal("n/a", vals.SessionID)
 			suite.Equal("n/a", vals.InteractionID)
 
