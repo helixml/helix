@@ -18,6 +18,14 @@ var (
 	stepKey          stepKeyType
 )
 
+const (
+	// TODO: this needs to be removed and replaced
+	// with actual RunnerID that needs to be passed
+	// to the request handlers.
+	RunnerID = "runner"
+	SystemID = "system"
+)
+
 type Step struct {
 	Step types.LLMCallStep
 }

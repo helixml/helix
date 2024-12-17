@@ -135,7 +135,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	// Required for the correct openai context to be set
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       "system",
+		OwnerID:       oai.SystemID,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 	})

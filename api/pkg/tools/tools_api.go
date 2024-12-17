@@ -147,7 +147,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       "system",
+		OwnerID:       oai.SystemID,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 	})

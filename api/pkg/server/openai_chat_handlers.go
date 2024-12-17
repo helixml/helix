@@ -78,9 +78,13 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	chatCompletionRequest.Model = modelName
+	ownerID := user.ID
+	if user.TokenType == types.TokenTypeRunner {
+		ownerID = oai.RunnerID
+	}
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:         user.ID,
+		OwnerID:         ownerID,
 		SessionID:       "n/a",
 		InteractionID:   "n/a",
 		OriginalRequest: body,
@@ -230,7 +234,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			log.Warn().Msg("ResponseWriter does not support Flusher interface")
 		}
 	}
-
 }
 
 func (s *HelixAPIServer) getAppLoraAssistant(ctx context.Context, appID string) (*types.AssistantConfig, error) {

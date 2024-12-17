@@ -17,3 +17,4 @@ instructions.txt
 build-errors.log
 .DS_Store
 vendor
+*/**/out.md

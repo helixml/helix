@@ -105,6 +105,7 @@ type OwnerType string
 
 const (
 	OwnerTypeUser   OwnerType = "user"
+	OwnerTypeRunner OwnerType = "runner"
 	OwnerTypeSystem OwnerType = "system"
 )
 

@@ -93,7 +93,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       "system",
+		OwnerID:       oai.SystemID,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 	})
@@ -180,7 +180,7 @@ func (c *ChainStrategy) prepareChatCompletionRequest(messages []openai.ChatCompl
 
 func (c *ChainStrategy) setContextAndStep(ctx context.Context, sessionID, interactionID string, step types.LLMCallStep) context.Context {
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       "system",
+		OwnerID:       oai.SystemID,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 	})
@@ -209,5 +209,5 @@ Include relevant details, references, and links if present. Format the summary i
 Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
-When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words. 
+When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words.
 You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://docs.helix.ml/helix/develop/helix-tools/ (format as markdown)`
