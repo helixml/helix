@@ -150,7 +150,7 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 
 	apiHost = fmt.Sprintf("%s%s?access_token=%s&concurrency=%d&runnerid=%s",
 		apiHost,
-		system.GetApiPath("/ws/gptscript-runner"),
+		system.GetAPIPath("/ws/gptscript-runner"),
 		url.QueryEscape(d.cfg.APIToken), // Runner auth token to connect to the control plane
 		d.cfg.Concurrency,               // Concurrency is the number of tasks the runner can handle concurrently
 		d.cfg.RunnerID,                  // Runner ID is a unique identifier for the runner

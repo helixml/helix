@@ -173,7 +173,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
-		githubApp, err := apps.NewGithubApp(apps.GithubAppOptions{
+		githubApp, err := apps.NewGithubApp(apps.AppOptions{
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          created,
@@ -508,7 +508,7 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
-		githubApp, err := apps.NewGithubApp(apps.GithubAppOptions{
+		githubApp, err := apps.NewGithubApp(apps.AppOptions{
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          existing,

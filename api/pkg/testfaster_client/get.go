@@ -12,7 +12,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 
 	socket, err := apiHandler.GetWebsocket()
 	if err != nil {
-		return nil, fmt.Errorf("Error initialising websocket: %s\n", err)
+		return nil, fmt.Errorf("Error initialising websocket: %s", err)
 	}
 
 	poolMeta := request.Meta
@@ -29,7 +29,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	fmt.Printf("Getting pool...\n")
 	pool, err := apiHandler.CreatePool(request)
 	if err != nil {
-		return nil, fmt.Errorf("Error posting pools: %s\n", err)
+		return nil, fmt.Errorf("Error posting pools: %s", err)
 	}
 	fmt.Printf("Got pool (%+v)\n", pool.Meta)
 
@@ -90,19 +90,18 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	// we subscribe to pool events now we have the pool
 	poolSubscription, err := socket.Subscribe(pool.GetSubscriptionChannel())
 	if err != nil {
-		return nil, fmt.Errorf("Error subscribing to pool events: %s\n", err)
+		return nil, fmt.Errorf("Error subscribing to pool events: %s", err)
 	}
 
 	fmt.Printf("Got pool (%s)\n", pool.Id)
 	if pool.State == "deleting" || pool.State == "deleted" {
-		poolId := pool.Id
 		// resurrect pool if necessary
 		pool, err = apiHandler.UpdatePool(PoolState{
-			PoolId: poolId,
+			PoolId: pool.Id,
 			State:  "unknown", // will trigger backend to build it if necc.
 		})
 		if err != nil {
-			return nil, fmt.Errorf("Error resurrecting pool %s: %s", poolId, err)
+			return nil, fmt.Errorf("Error resurrecting pool %s: %s", pool.Id, err)
 		}
 	}
 
@@ -110,27 +109,26 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		fmt.Printf("Waiting for pool to be ready...\n")
 		stopLogsChan, err := streamPoolLogs(socket, pool.Id)
 		if err != nil {
-			return nil, fmt.Errorf("Error getting logs channel for pool: %s\n", err)
+			return nil, fmt.Errorf("Error getting logs channel for pool: %s", err)
 		}
 		_, err = waitForPool(*apiHandler, poolSubscription, pool.Id)
 		stopLogsChan <- true
 		if err != nil {
 			pool, _ = apiHandler.GetPool(pool.Id)
-			return nil, fmt.Errorf("Error waiting for pool %s, check logs and retry at https://testfaster.ci/pools: %s\n", pool.Id, err)
+			return nil, fmt.Errorf("Error waiting for pool %s, check logs and retry at https://testfaster.ci/pools: %s", pool.Id, err)
 		}
 		fmt.Printf("Pool is now ready\n")
 	}
 
-	var lease *Lease = nil
+	var lease *Lease
 
 	meta := map[string]string{}
 
 	// Get pool so that we have leases filled in (response from
 	// create pool may not have this)
-	poolId := pool.Id
-	pool, err = apiHandler.GetPool(poolId)
+	pool, err = apiHandler.GetPool(pool.Id)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get full filled in result for pool %s: %s", poolId, err)
+		return nil, fmt.Errorf("unable to get full filled in result for pool %s: %s", pool.Id, err)
 	}
 
 	if name != "" {
@@ -161,26 +159,26 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 			return candidateDropLeases[i].CreatedAt.Before(candidateDropLeases[j].CreatedAt)
 		})
 		// drop all but last two (leave two behind)
-		for i := 0; i < len(candidateDropLeases)-retainSlots; i++ {
-			//l := candidateDropLeases[i]
-			// drop any leases that have slot collisions
-			// (only supposed to be max n, but race conditions
-			// might mean >n exist, so delete any that match)
-			/*
-				err = dropLease(out, errOut, pool.Id, l.Id)
-				if err != nil {
-					fmt.Printf(
-						"Error dropping lease %s with matching slot %s: %s, continuing...\n",
-						l.Id[:7], slot, err,
-					)
-				} else {
-					fmt.Printf(
-						"Dropped prior lease %s because it matched slot %s\n",
-						l.Id[:7], slot,
-					)
-				}
-			*/
-		}
+		// for i := 0; i < len(candidateDropLeases)-retainSlots; i++ {
+		//l := candidateDropLeases[i]
+		// drop any leases that have slot collisions
+		// (only supposed to be max n, but race conditions
+		// might mean >n exist, so delete any that match)
+		/*
+			err = dropLease(out, errOut, pool.Id, l.Id)
+			if err != nil {
+				fmt.Printf(
+					"Error dropping lease %s with matching slot %s: %s, continuing...\n",
+					l.Id[:7], slot, err,
+				)
+			} else {
+				fmt.Printf(
+					"Dropped prior lease %s because it matched slot %s\n",
+					l.Id[:7], slot,
+				)
+			}
+		*/
+		// }
 	}
 
 	if lease == nil {
@@ -265,9 +263,8 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	err = os.WriteFile("kubeconfig", []byte(lease.Kubeconfig), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("Error: could not write to kubeconfig: %s\n", err)
-	} else {
-		fmt.Printf("Cluster acquired, now run:\n\n    export KUBECONFIG=$(pwd)/kubeconfig\n    kubectl get pods --all-namespaces\n\nConsider adding kubeconfig to .gitignore\n")
 	}
+	fmt.Printf("Cluster acquired, now run:\n\n    export KUBECONFIG=$(pwd)/kubeconfig\n    kubectl get pods --all-namespaces\n\nConsider adding kubeconfig to .gitignore\n")
 
 	/*
 		--------------------------------------------------
@@ -283,10 +280,9 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 }
 
 var (
-	name        string
-	slot        string
-	poolSlot    string
-	retainSlots int
+	name     string
+	slot     string
+	poolSlot string
 )
 
 func containsSlot(metaSlots string, poolSlot string) bool {

@@ -26,9 +26,8 @@ type Mistral7bInstruct01 struct {
 func (l *Mistral7bInstruct01) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	if mode == types.SessionModeFinetune {
 		return GB * 24
-	} else {
-		return GB * 2
 	}
+	return GB * 2
 }
 
 func (l *Mistral7bInstruct01) GetType() types.SessionType {

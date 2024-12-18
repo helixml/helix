@@ -16,7 +16,7 @@ import (
 )
 
 // the sub path any API's are served over
-const API_SUB_PATH = "/api/v1"
+const APISubPath = "/api/v1"
 
 type ClientOptions struct {
 	Host  string
@@ -27,8 +27,8 @@ func URL(options ClientOptions, path string) string {
 	return fmt.Sprintf("%s%s", options.Host, path)
 }
 
-func GetApiPath(path string) string {
-	return fmt.Sprintf("%s%s", API_SUB_PATH, path)
+func GetAPIPath(path string) string {
+	return fmt.Sprintf("%s%s", APISubPath, path)
 }
 
 func WSURL(options ClientOptions, path string) string {
@@ -37,9 +37,8 @@ func WSURL(options ClientOptions, path string) string {
 	// and https:// with wss://
 	if strings.HasPrefix(url, "http://") {
 		return "ws" + url[4:]
-	} else {
-		return "wss" + url[5:]
 	}
+	return "wss" + url[5:]
 }
 
 type HTTPError struct {
@@ -141,14 +140,13 @@ func WrapperWithConfig[T any](handler httpWrapper[T], config WrapperConfig) func
 			}
 			http.Error(res, err.Error(), statusCode)
 			return
-		} else {
-			res.Header().Set("Content-Type", "application/json")
-			jsonError := json.NewEncoder(res).Encode(data)
-			if jsonError != nil {
-				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", err.Error())
-				http.Error(res, jsonError.Error(), http.StatusInternalServerError)
-				return
-			}
+		}
+		res.Header().Set("Content-Type", "application/json")
+		jsonError := json.NewEncoder(res).Encode(data)
+		if jsonError != nil {
+			log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", err.Error())
+			http.Error(res, jsonError.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 	return ret
@@ -183,14 +181,13 @@ func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperCo
 			}
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
-		} else {
-			res.Header().Set("Content-Type", "application/json")
-			jsonError := json.NewEncoder(res).Encode(data)
-			if jsonError != nil {
-				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", jsonError.Error())
-				http.Error(res, jsonError.Error(), http.StatusInternalServerError)
-				return
-			}
+		}
+		res.Header().Set("Content-Type", "application/json")
+		jsonError := json.NewEncoder(res).Encode(data)
+		if jsonError != nil {
+			log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", jsonError.Error())
+			http.Error(res, jsonError.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 	return ret

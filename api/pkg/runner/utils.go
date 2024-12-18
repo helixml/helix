@@ -25,12 +25,10 @@ func getChildPids(pid int) ([]int, error) {
 			if exitCode == 1 {
 				// this CAN mean pgrep just found no matches, this just means no children
 				return []int{}, nil
-			} else {
-				return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
 			}
-		} else {
 			return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
 		}
+		return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
 	}
 
 	var pids []int

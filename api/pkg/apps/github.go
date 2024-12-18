@@ -15,30 +15,32 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type GithubAppOptions struct {
+var (
+	HelixYamlFilenames = []string{"helix.yaml", "helix.yml"}
+	HelixDeployKeyName = "helix-deploy-key"
+)
+
+type AppOptions struct {
 	GithubConfig config.GitHub
-	Client       *github.GithubClient
+	Client       *github.Client
 	App          *types.App
 	ToolsPlanner tools.Planner
 	UpdateApp    func(app *types.App) (*types.App, error)
 }
 
-type GithubApp struct {
+type App struct {
 	Name         string
 	Owner        string
 	Repo         string
 	GithubConfig config.GitHub
 	helixConfig  *types.AppHelixConfig
-	Client       *github.GithubClient
+	Client       *github.Client
 	ToolsPlanner tools.Planner
 	App          *types.App
 	UpdateApp    func(app *types.App) (*types.App, error)
 }
 
-var HELIX_YAML_FILENAMES = []string{"helix.yaml", "helix.yml"}
-var HELIX_DEPLOY_KEY_NAME = "helix-deploy-key"
-
-func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
+func NewGithubApp(options AppOptions) (*App, error) {
 	parts := strings.Split(options.App.Config.Github.Repo, "/")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid repo name")
@@ -55,7 +57,7 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 	if options.UpdateApp == nil {
 		return nil, fmt.Errorf("UpdateApp function is required")
 	}
-	return &GithubApp{
+	return &App{
 		Name:         options.App.Config.Github.Repo,
 		Owner:        parts[0],
 		Repo:         parts[1],
@@ -74,9 +76,9 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 //   - checking for the location of a helix.yaml file
 //   - checking the validity of the helix.yaml file
 //   - assign the content of the helix.yaml file to the app config
-func (githubApp *GithubApp) Create() (*types.App, error) {
+func (g *App) Create() (*types.App, error) {
 	// check the repo exists
-	_, err := githubApp.Client.GetRepo(githubApp.Owner, githubApp.Repo)
+	_, err := g.Client.GetRepo(g.Owner, g.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -87,24 +89,24 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 		return nil, err
 	}
 
-	app := githubApp.App
+	app := g.App
 
 	// assign the keypair to the config
 	app.Config.Github.KeyPair = *keyPair
 
 	// assign the public key to the repo
-	err = githubApp.Client.AddPublicKeyToRepo(githubApp.Owner, githubApp.Repo, keyPair.PublicKey, HELIX_DEPLOY_KEY_NAME)
+	err = g.Client.AddPublicKeyToRepo(g.Owner, g.Repo, keyPair.PublicKey, HelixDeployKeyName)
 	if err != nil {
 		return nil, err
 	}
 
 	// clone the repo locally
-	err = githubApp.Clone()
+	err = g.Clone()
 	if err != nil {
 		return nil, err
 	}
 
-	config, err := githubApp.GetConfig()
+	config, err := g.GetConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +115,14 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 		return nil, fmt.Errorf("helix.yaml not found in repo")
 	}
 
-	config, err = githubApp.processConfig(config)
+	config, err = g.processConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
 	app.Config.Helix = *config
 
-	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
+	commitHash, err := github.GetRepoHash(g.Filepath(""))
 	if err != nil {
 		return nil, err
 	}
@@ -140,17 +142,17 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 
 	// we need to save the app at this point so when github tests the webhook
 	// we have saved the signing secret into the database
-	app, err = githubApp.UpdateApp(app)
+	app, err = g.UpdateApp(app)
 	if err != nil {
 		return nil, err
 	}
 
 	// add the webhook to the repo
-	err = githubApp.Client.AddWebhookToRepo(
-		githubApp.Owner,
-		githubApp.Repo,
+	err = g.Client.AddWebhookToRepo(
+		g.Owner,
+		g.Repo,
 		"helixwebhook",
-		fmt.Sprintf("%s?app_id=%s", githubApp.GithubConfig.WebhookURL, githubApp.App.ID),
+		fmt.Sprintf("%s?app_id=%s", g.GithubConfig.WebhookURL, g.App.ID),
 		[]string{"push", "pull_request"},
 		webhookSigningSecret,
 	)
@@ -162,16 +164,16 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 }
 
 // this is called when github is pushed
-func (githubApp *GithubApp) Update() (*types.App, error) {
-	app := githubApp.App
+func (g *App) Update() (*types.App, error) {
+	app := g.App
 
 	// update the code locally
-	err := githubApp.Clone()
+	err := g.Clone()
 	if err != nil {
 		return nil, err
 	}
 
-	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
+	commitHash, err := github.GetRepoHash(g.Filepath(""))
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +187,7 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 		Hash:    commitHash,
 	}
 
-	config, err := githubApp.GetConfig()
+	config, err := g.GetConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +196,7 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 		return nil, fmt.Errorf("helix.yaml not found in repo")
 	}
 
-	config, err = githubApp.processConfig(config)
+	config, err = g.processConfig(config)
 	if err != nil {
 		// if there is an error here it means there is a problem with the config
 		// we have loaded from github - let's mark the latest update as an error
@@ -208,7 +210,7 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 		// the only reason we want to update the app right now is to let
 		// the user know that there was an error processing their latest config
 		// (I need someone who knows how to handle errors better than me to help me here)
-		if _, ghAppErr := githubApp.UpdateApp(app); ghAppErr != nil {
+		if _, ghAppErr := g.UpdateApp(app); ghAppErr != nil {
 			return nil, fmt.Errorf("failed processing config: %v, additionally failed updating GH app: %v", err, ghAppErr)
 		}
 
@@ -221,7 +223,7 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 	app.Config.Github.Hash = commitHash
 	app.Config.Helix = *config
 
-	app, err = githubApp.UpdateApp(app)
+	app, err = g.UpdateApp(app)
 	if err != nil {
 		return nil, err
 	}
@@ -229,61 +231,59 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 	return app, nil
 }
 
-func (githubApp *GithubApp) Clone() error {
+func (g *App) Clone() error {
 	return github.CloneOrUpdateRepo(
 		// the name of the repo
-		fmt.Sprintf("%s/%s", githubApp.Owner, githubApp.Repo),
+		fmt.Sprintf("%s/%s", g.Owner, g.Repo),
 		// the keypair for this app repo
-		githubApp.App.Config.Github.KeyPair,
+		g.App.Config.Github.KeyPair,
 		// return the folder in which we should clone the repo
-		githubApp.Filepath(""),
+		g.Filepath(""),
 	)
 }
 
-func (githubApp *GithubApp) Filepath(subpath string) string {
-	return path.Join(githubApp.GithubConfig.RepoFolder, githubApp.Name, subpath)
+func (g *App) Filepath(subpath string) string {
+	return path.Join(g.GithubConfig.RepoFolder, g.Name, subpath)
 }
 
-func (githubApp *GithubApp) RelativePath(fullpath string) string {
-	return strings.TrimPrefix(fullpath, githubApp.Filepath(""))
+func (g *App) RelativePath(fullpath string) string {
+	return strings.TrimPrefix(fullpath, g.Filepath(""))
 }
 
-func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
-	if githubApp.helixConfig != nil {
-		return githubApp.helixConfig, nil
+func (g *App) GetConfig() (*types.AppHelixConfig, error) {
+	if g.helixConfig != nil {
+		return g.helixConfig, nil
 	}
-	err := githubApp.Clone()
+	err := g.Clone()
 	if err != nil {
 		return nil, err
 	}
-	for _, filename := range HELIX_YAML_FILENAMES {
-		filepath := githubApp.Filepath(filename)
+	for _, filename := range HelixYamlFilenames {
+		filepath := g.Filepath(filename)
 		if _, err := os.Stat(filepath); err != nil {
 			if os.IsNotExist(err) {
 				continue
-			} else {
-				return nil, err
 			}
-		} else {
-			content, err := os.ReadFile(filepath)
-			if err != nil {
-				return nil, err
-			}
-			config := &types.AppHelixConfig{}
-			err = yaml.Unmarshal(content, config)
-			if err != nil {
-				return nil, err
-			}
-			githubApp.helixConfig = config
-			return config, nil
+			return nil, err
 		}
+		content, err := os.ReadFile(filepath)
+		if err != nil {
+			return nil, err
+		}
+		config := &types.AppHelixConfig{}
+		err = yaml.Unmarshal(content, config)
+		if err != nil {
+			return nil, err
+		}
+		g.helixConfig = config
+		return config, nil
 	}
 	return nil, fmt.Errorf("helix.yaml not found in repo")
 }
 
-func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
+func (g *App) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
 	// Process any file references relative to the repo root
-	err := processLocalFiles(config, githubApp.Filepath(""))
+	err := processLocalFiles(config, g.Filepath(""))
 	if err != nil {
 		return nil, fmt.Errorf("error processing repo files: %w", err)
 	}
@@ -292,6 +292,6 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 }
 
 // Add this method to implement FilePathResolver
-func (g *GithubApp) ResolvePath(path string) string {
+func (g *App) ResolvePath(path string) string {
 	return g.Filepath(path)
 }
