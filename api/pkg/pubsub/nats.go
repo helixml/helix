@@ -3,7 +3,6 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -24,13 +23,12 @@ type Nats struct {
 }
 
 func NewInMemoryNats(storeDir string) (*Nats, error) {
-	tmpDir, _ := os.MkdirTemp(os.TempDir(), "helix-nats")
 	opts := &server.Options{
 		Host:      "127.0.0.1",
 		Port:      server.RANDOM_PORT,
 		NoSigs:    true,
 		JetStream: true,
-		StoreDir:  tmpDir,
+		StoreDir:  storeDir,
 		// Setting payload to 32 MB
 		MaxPayload: 32 * 1024 * 1024,
 	}
@@ -116,7 +114,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 	}, nil
 }
 
-func (n *Nats) Subscribe(ctx context.Context, topic string, handler func(payload []byte) error) (Subscription, error) {
+func (n *Nats) Subscribe(_ context.Context, topic string, handler func(payload []byte) error) (Subscription, error) {
 	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
 		err := handler(msg.Data)
 		if err != nil {
@@ -130,7 +128,7 @@ func (n *Nats) Subscribe(ctx context.Context, topic string, handler func(payload
 	return sub, nil
 }
 
-func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error {
+func (n *Nats) Publish(_ context.Context, topic string, payload []byte) error {
 	return n.conn.Publish(topic, payload)
 }
 
@@ -172,12 +170,14 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, h
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("request timed out after %v", timeout)
 	case data := <-dataCh:
 		return data, nil
 	}
 }
 
-func (n *Nats) QueueSubscribe(ctx context.Context, queue, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
+func (n *Nats) QueueSubscribe(_ context.Context, queue, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
 	sub, err := n.conn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
 		err := handler(&Message{
 			Reply:  msg.Header.Get(helixNatsReplyHeader),
@@ -258,6 +258,8 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		}
 
 		return nil, ctx.Err()
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("request timed out after %v", timeout)
 	case data := <-dataCh:
 		return data, nil
 	}
