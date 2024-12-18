@@ -523,13 +523,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		log.Error().Err(err).Msg("failed to write chunk")
 	}
 
-	// Flush the stream to ensure the client receives the data immediately
-	if flusher, ok := rw.(http.Flusher); ok {
-		flusher.Flush()
-	} else {
-		log.Warn().Msg("ResponseWriter does not support Flusher interface")
-	}
-
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
