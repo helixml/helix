@@ -488,7 +488,7 @@ func TestScheduler_ProcessQueue(t *testing.T) {
 
 	// Manually start a scheduler so that the goroutine doesn't start
 	config, _ := config.LoadServerConfig()
-	scheduler := newSchedulerWithoutQueue(&config, errorFunc)
+	scheduler := newSchedulerWithoutGoroutines(&config, errorFunc)
 
 	// Without a runner, adding to the queue and processing should result in an error on the work
 	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
@@ -531,12 +531,14 @@ func TestScheduler_ProcessQueue(t *testing.T) {
 	assert.Len(t, scheduler.queue, 1)
 }
 
+// We had a bug where if a runner changed its name, the new scheduler code did not run the
+// dead runner cleanup code. This test ensures that that bug is fixed.
 func TestScheduler_ChangingRunnerName(t *testing.T) {
-	// We had a bug where if a runner changed its name, the new scheduler code did not run the
-	// dead runner cleanup code. This test ensures that that bug is fixed.
+	// Manually start a scheduler so that the goroutines dont't start
 	config, _ := config.LoadServerConfig()
-	config.Providers.Helix.RunnerTTL = 50 * time.Millisecond // Needs to be long enough to wait for the async runner cleanup goroutine to run
-	scheduler := NewScheduler(context.Background(), &config, nil)
+	// Has to be long enough to allow initial scheduling, but short enough to allow the runner to die
+	config.Providers.Helix.RunnerTTL = 10 * time.Millisecond
+	scheduler := newSchedulerWithoutGoroutines(&config, func(*Workload, error) {})
 
 	// Add a runner
 	m, _ := model.GetModel(model.Model_Ollama_Llama3_8b)
@@ -549,8 +551,14 @@ func TestScheduler_ChangingRunnerName(t *testing.T) {
 	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
 
+	// Manually process the queue
+	scheduler.processQueueOnce()
+
 	// Allow the runner to die
 	WaitFor(t, func() bool {
+		// Manually check that the runner is dead
+		scheduler.checkForDeadRunnersOnce()
+
 		data := scheduler.DashboardSlotsData()
 		return len(data) == 0
 	}, 2*time.Second)
@@ -558,6 +566,7 @@ func TestScheduler_ChangingRunnerName(t *testing.T) {
 	assert.Len(t, data, 0)
 
 	// Make sure that the work has gone from the old slot
+	time.Sleep(10 * time.Millisecond)
 	_, ok := scheduler.find("request-1")
 	assert.False(t, ok)
 }
