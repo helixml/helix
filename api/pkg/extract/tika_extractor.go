@@ -90,7 +90,7 @@ func (e *TikaExtractor) extract(ctx context.Context, extractReq *ExtractRequest)
 	client := tika.NewClient(e.httpClient, e.extractorURL)
 
 	hdr := http.Header{}
-	hdr.Set("Accept", "text/plain")
+	hdr.Set("Accept", "*/*")
 
 	parsed, err := client.ParseWithHeader(ctx, bytes.NewReader(extractReq.Content), hdr)
 	if err != nil {
