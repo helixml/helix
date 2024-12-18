@@ -128,9 +128,8 @@ func getLeaseLoader(apiHandler HttpApiHandler, poolId, leaseId string) func() (s
 		}
 		if lease.State == "error" {
 			return "", lease.Status, fmt.Errorf("wait failed, state was error\n")
-		} else {
-			return lease.State, lease.Status, nil
 		}
+		return lease.State, lease.Status, nil
 	}
 }
 
@@ -143,9 +142,8 @@ func getLeaseProcessor() func(envelope WebsocketEnvelope) (string, error) {
 		}
 		if lease.State == "error" {
 			return "", fmt.Errorf("wait failed, state was error\n")
-		} else {
-			return lease.State, nil
 		}
+		return lease.State, nil
 	}
 }
 
@@ -154,9 +152,8 @@ func waitForLease(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscrip
 	getError := func(state string) error {
 		if state == "error" || state == "complete" || state == "timeout" {
 			return fmt.Errorf("wait failed, state was %s", state)
-		} else {
-			return nil
 		}
+		return nil
 	}
 
 	waiter := NewEntityWaiter(
@@ -314,9 +311,8 @@ func getPoolLoader(apiHandler HttpApiHandler, id string) func() (string, string,
 		}
 		if pool.State == "error" {
 			return "", pool.Status, fmt.Errorf("wait failed, state was error\n")
-		} else {
-			return pool.State, pool.Status, nil
 		}
+		return pool.State, pool.Status, nil
 	}
 }
 
@@ -329,9 +325,8 @@ func getPoolProcessor() func(envelope WebsocketEnvelope) (string, error) {
 		}
 		if pool.State == "error" {
 			return "", fmt.Errorf("wait failed, state was error\n")
-		} else {
-			return pool.State, nil
 		}
+		return pool.State, nil
 	}
 }
 
@@ -521,9 +516,8 @@ func (handler *HttpApiHandler) Request(method string, path string, body interfac
 		err = json.Unmarshal(respBody, &errorBody)
 		if err == nil {
 			return fmt.Errorf("%d %s", resp.StatusCode, errorBody.Error)
-		} else {
-			return fmt.Errorf("bad status code %d", resp.StatusCode)
 		}
+		return fmt.Errorf("bad status code %d", resp.StatusCode)
 	}
 
 	if os.Getenv("DEBUG_HTTP_ALL") != "" || (hasBody && os.Getenv("DEBUG_HTTP") != "") {

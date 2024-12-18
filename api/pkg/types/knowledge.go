@@ -128,21 +128,21 @@ type KnowledgeSource struct {
 	Content   *string                        `json:"text"`
 }
 
-func (m KnowledgeSource) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (k KnowledgeSource) Value() (driver.Value, error) {
+	j, err := json.Marshal(k)
 	return j, err
 }
 
-func (t *KnowledgeSource) Scan(src interface{}) error {
+func (k *KnowledgeSource) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result KnowledgeSource
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*k = result
 	return nil
 }
 
@@ -225,21 +225,21 @@ type CrawledSources struct {
 	// TODO: files?
 }
 
-func (m CrawledSources) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (c CrawledSources) Value() (driver.Value, error) {
+	j, err := json.Marshal(c)
 	return j, err
 }
 
-func (t *CrawledSources) Scan(src interface{}) error {
+func (c *CrawledSources) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result CrawledSources
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*c = result
 	return nil
 }
 

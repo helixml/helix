@@ -102,7 +102,7 @@ func (handler *FileHandler) downloadFile(sessionID string, remotePath string, lo
 		return nil
 	}
 
-	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/download/file", handler.runnerID, sessionID)))
+	url := system.URL(handler.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/session/%s/download/file", handler.runnerID, sessionID)))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", remotePath)
 
@@ -156,7 +156,7 @@ func (handler *FileHandler) downloadFolder(sessionID string, remotePath string, 
 	if err := os.MkdirAll(localPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create folder: %w", err)
 	}
-	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/download/folder", handler.runnerID, sessionID)))
+	url := system.URL(handler.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/session/%s/download/folder", handler.runnerID, sessionID)))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", remotePath)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
@@ -239,7 +239,7 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 		return nil, err
 	}
 
-	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/upload/files", handler.runnerID, sessionID)))
+	url := system.URL(handler.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/session/%s/upload/files", handler.runnerID, sessionID)))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", remoteFolder)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
@@ -368,7 +368,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		},
 	}
 
-	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/upload/folder", handler.runnerID, sessionID)))
+	url := system.URL(handler.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/session/%s/upload/folder", handler.runnerID, sessionID)))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", remoteFolder)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())

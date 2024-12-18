@@ -7,17 +7,17 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type GithubClientOptions struct {
+type ClientOptions struct {
 	Ctx   context.Context
 	Token string
 }
 
-type GithubClient struct {
+type Client struct {
 	ctx    context.Context
 	client *github.Client
 }
 
-func NewGithubClient(options GithubClientOptions) (*GithubClient, error) {
+func NewGithubClient(options ClientOptions) (*Client, error) {
 	client := github.NewClient(oauth2.NewClient(
 		options.Ctx,
 		oauth2.StaticTokenSource(
@@ -26,20 +26,20 @@ func NewGithubClient(options GithubClientOptions) (*GithubClient, error) {
 			},
 		),
 	))
-	return &GithubClient{
+	return &Client{
 		ctx:    options.Ctx,
 		client: client,
 	}, nil
 }
 
-func (githubClient *GithubClient) LoadRepos() ([]string, error) {
+func (c *Client) LoadRepos() ([]string, error) {
 	repos := []*github.Repository{}
 	opts := github.ListOptions{
 		PerPage: 100,
 		Page:    0,
 	}
 	for {
-		result, meta, err := githubClient.client.Repositories.ListByUser(githubClient.ctx, "", &github.RepositoryListByUserOptions{
+		result, meta, err := c.client.Repositories.ListByUser(c.ctx, "", &github.RepositoryListByUserOptions{
 			ListOptions: opts,
 		})
 		if err != nil {
@@ -62,25 +62,25 @@ func (githubClient *GithubClient) LoadRepos() ([]string, error) {
 	return results, nil
 }
 
-func (githubClient *GithubClient) GetRepo(owner string, repo string) (*github.Repository, error) {
-	result, _, err := githubClient.client.Repositories.Get(githubClient.ctx, owner, repo)
+func (c *Client) GetRepo(owner string, repo string) (*github.Repository, error) {
+	result, _, err := c.client.Repositories.Get(c.ctx, owner, repo)
 	return result, err
 }
 
-func (githubClient *GithubClient) AddPublicKeyToRepo(
+func (c *Client) AddPublicKeyToRepo(
 	owner string,
 	repo string,
 	publicKey string,
 	keyTitle string,
 ) error {
-	_, _, err := githubClient.client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
+	_, _, err := c.client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
 		Key:   &publicKey,
 		Title: &keyTitle,
 	})
 	return err
 }
 
-func (githubClient *GithubClient) AddWebhookToRepo(
+func (c *Client) AddWebhookToRepo(
 	owner string,
 	repo string,
 	name string,
@@ -91,7 +91,7 @@ func (githubClient *GithubClient) AddWebhookToRepo(
 	active := true
 	json := "application/json"
 
-	hooks, _, err := githubClient.client.Repositories.ListHooks(githubClient.ctx, owner, repo, nil)
+	hooks, _, err := c.client.Repositories.ListHooks(c.ctx, owner, repo, nil)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (githubClient *GithubClient) AddWebhookToRepo(
 	}
 
 	// Add the new hook
-	_, _, err = githubClient.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
+	_, _, err = c.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
 		Active: &active,
 		Name:   &name,
 		URL:    &url,
