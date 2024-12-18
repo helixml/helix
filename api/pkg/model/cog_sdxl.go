@@ -18,8 +18,10 @@ import (
 
 // get hackily written to at process startup
 // TODO: remove this when we rip out cog downloading its weights over http
-var API_HOST string
-var API_TOKEN string
+var (
+	APIHost  string
+	APIToken string
+)
 
 /*
 
@@ -35,9 +37,8 @@ type CogSDXL struct {
 func (l *CogSDXL) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	if mode == types.SessionModeFinetune {
 		return GB * 24
-	} else {
-		return MB * 19334
 	}
+	return MB * 19334
 }
 
 func (l *CogSDXL) GetType() types.SessionType {
@@ -199,9 +200,9 @@ func (l *CogSDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFil
 		// Set the log level, which is a name, but must be uppercased
 		fmt.Sprintf("LOG_LEVEL=%s", strings.ToUpper(os.Getenv("LOG_LEVEL"))),
 		// cog likes to download LoRA from a URL, so we construct one for it
-		fmt.Sprintf("API_HOST=%s", API_HOST),
+		fmt.Sprintf("API_HOST=%s", APIHost),
 		// one day it will need to auth to the API server to download LoRAs
-		fmt.Sprintf("API_TOKEN=%s", API_TOKEN),
+		fmt.Sprintf("API_TOKEN=%s", APIToken),
 	)
 
 	return cmd, nil

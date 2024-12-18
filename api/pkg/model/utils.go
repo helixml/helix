@@ -27,12 +27,14 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 	if lastInteraction == nil {
 		return nil, fmt.Errorf("session has no user messages")
 	}
-	if session.Mode == types.SessionModeInference {
+
+	switch session.Mode {
+	case types.SessionModeInference:
 		return &types.RunnerTask{
 			Prompt:  lastInteraction.Message,
 			LoraDir: session.LoraDir,
 		}, nil
-	} else if session.Mode == types.SessionModeFinetune {
+	case types.SessionModeFinetune:
 		if len(lastInteraction.Files) == 0 {
 			return nil, fmt.Errorf("session has no files")
 		}
@@ -43,7 +45,7 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 		return &types.RunnerTask{
 			DatasetDir: path.Dir(lastInteraction.Files[0]),
 		}, nil
-	} else {
+	default:
 		return nil, fmt.Errorf("invalid session mode")
 	}
 }

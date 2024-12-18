@@ -151,12 +151,12 @@ func NewRunner(
 func (r *Runner) Initialize(ctx context.Context) error {
 	// connect to the runner websocket server on the api
 	// when we write events down the channel - write them to the websocket
-	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
+	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, system.GetAPIPath("/ws/runner")))
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Connecting to controlplane", system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
+	fmt.Println("Connecting to controlplane", system.WSURL(r.httpClientOptions, system.GetAPIPath("/ws/runner")))
 
 	queryParams := url.Values{}
 	queryParams.Add("runnerid", r.Options.ID)
@@ -309,7 +309,7 @@ func (r *Runner) pollSlots(_ context.Context) error {
 }
 
 func (r *Runner) getSlots() (*types.GetDesiredRunnerSlotsResponse, error) {
-	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/slots", r.Options.ID))))
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/slots", r.Options.ID))))
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +374,7 @@ func (r *Runner) reportStateLoop(_ context.Context) error {
 	log.Trace().Msgf("🟠 Sending runner state %s %+v", r.Options.ID, state)
 	_, err = system.PostRequest[*types.RunnerState, *types.RunnerState](
 		r.httpClientOptions,
-		system.GetApiPath(fmt.Sprintf("/runner/%s/state", r.Options.ID)),
+		system.GetAPIPath(fmt.Sprintf("/runner/%s/state", r.Options.ID)),
 		state,
 	)
 	if err != nil {
@@ -392,7 +392,7 @@ func GiB(bytes int64) float32 {
 // yet.
 // nolint:unused
 func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*types.Session, error) {
-	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +500,7 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 	// and the api server is just appending to the session
 	_, err := system.PostRequest[*types.RunnerTaskResponse, *types.RunnerTaskResponse](
 		r.httpClientOptions,
-		system.GetApiPath(fmt.Sprintf("/runner/%s/response", r.Options.ID)),
+		system.GetAPIPath(fmt.Sprintf("/runner/%s/response", r.Options.ID)),
 		res,
 	)
 	if err != nil {

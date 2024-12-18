@@ -15,6 +15,6 @@ linters:
     #- revive
 
 issues:
-  deadline: 2m
+  deadline: 5m
   exlude-dirs:
     - vendor

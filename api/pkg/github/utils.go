@@ -19,46 +19,46 @@ func CloneOrUpdateRepo(
 	keypair types.KeyPair,
 	repoPath string,
 ) error {
-	if _, err := os.Stat(repoPath); err == nil {
-		// Directory exists, pull the latest commits.
-		repository, err := git.PlainOpen(repoPath)
-		if err != nil {
-			return fmt.Errorf("failed to open existing repo: %v", err)
+	if _, err := os.Stat(repoPath); err != nil {
+		if os.IsNotExist(err) {
+			// Directory does not exist, clone the repo.
+			parentDir := filepath.Dir(repoPath)
+			err := os.MkdirAll(parentDir, os.ModePerm)
+			if err != nil {
+				return fmt.Errorf("failed to create directory: %v", err)
+			}
+			_, err = git.PlainClone(repoPath, false, &git.CloneOptions{
+				URL:      fmt.Sprintf("git@github.com:%s.git", repo),
+				Progress: os.Stdout,
+				Auth:     makeAuth(keypair),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to clone repo: %v", err)
+			}
+			return nil
 		}
-
-		worktree, err := repository.Worktree()
-		if err != nil {
-			return fmt.Errorf("failed to get worktree: %v", err)
-		}
-
-		err = worktree.Pull(&git.PullOptions{
-			RemoteName: "origin",
-			Auth:       makeAuth(keypair),
-		})
-
-		if err != nil && err != git.NoErrAlreadyUpToDate {
-			return fmt.Errorf("failed to pull repo: %v", err)
-		}
-		return nil
-	} else if os.IsNotExist(err) {
-		// Directory does not exist, clone the repo.
-		parentDir := filepath.Dir(repoPath)
-		err := os.MkdirAll(parentDir, os.ModePerm)
-		if err != nil {
-			return fmt.Errorf("failed to create directory: %v", err)
-		}
-		_, err = git.PlainClone(repoPath, false, &git.CloneOptions{
-			URL:      fmt.Sprintf("git@github.com:%s.git", repo),
-			Progress: os.Stdout,
-			Auth:     makeAuth(keypair),
-		})
-		if err != nil {
-			return fmt.Errorf("failed to clone repo: %v", err)
-		}
-		return nil
-	} else {
 		return fmt.Errorf("failed to check if repo exists: %v", err)
 	}
+	// Directory exists, pull the latest commits.
+	repository, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to open existing repo: %v", err)
+	}
+
+	worktree, err := repository.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %v", err)
+	}
+
+	err = worktree.Pull(&git.PullOptions{
+		RemoteName: "origin",
+		Auth:       makeAuth(keypair),
+	})
+
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to pull repo: %v", err)
+	}
+	return nil
 }
 
 func CheckoutRepo(repoPath string, commitHash string) error {
