@@ -254,8 +254,8 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	// global state - expedient hack (TODO remove this when we switch cog away
 	// from downloading lora weights via http from the filestore)
-	model.API_HOST = options.Runner.ApiHost
-	model.API_TOKEN = options.Runner.ApiToken
+	model.APIHost = options.Runner.ApiHost
+	model.APIToken = options.Runner.ApiToken
 
 	if !options.Runner.MockRunner {
 		// Axolotl runtime warmup

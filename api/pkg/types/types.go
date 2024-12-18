@@ -118,21 +118,21 @@ type RAGSettings struct {
 	} `json:"typesense" yaml:"typesense"`
 }
 
-func (m RAGSettings) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (r RAGSettings) Value() (driver.Value, error) {
+	j, err := json.Marshal(r)
 	return j, err
 }
 
-func (t *RAGSettings) Scan(src interface{}) error {
+func (r *RAGSettings) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result RAGSettings
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*r = result
 	return nil
 }
 
@@ -196,7 +196,7 @@ type SessionMetadata struct {
 	Stream                  bool              `json:"stream"`
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
-	EvalRunId               string   `json:"eval_run_id"`
+	EvalRunID               string   `json:"eval_run_id"`
 	EvalUserScore           string   `json:"eval_user_score"`
 	EvalUserReason          string   `json:"eval_user_reason"`
 	EvalManualScore         string   `json:"eval_manual_score"`
@@ -397,16 +397,16 @@ func (m Interactions) Value() (driver.Value, error) {
 	return j, err
 }
 
-func (t *Interactions) Scan(src interface{}) error {
+func (m *Interactions) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result Interactions
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*m = result
 	return nil
 }
 
@@ -419,16 +419,16 @@ func (m SessionMetadata) Value() (driver.Value, error) {
 	return j, err
 }
 
-func (t *SessionMetadata) Scan(src interface{}) error {
+func (m *SessionMetadata) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result SessionMetadata
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*m = result
 	return nil
 }
 
@@ -891,15 +891,15 @@ type ToolConfig struct {
 	Zapier    *ToolZapierConfig    `json:"zapier"`
 }
 
-func (m ToolConfig) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (t ToolConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(t)
 	return j, err
 }
 
 func (t *ToolConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result ToolConfig
 	if err := json.Unmarshal(source, &result); err != nil {
@@ -1072,21 +1072,21 @@ type AppConfig struct {
 	Github         *AppGithubConfig  `json:"github"`
 }
 
-func (m AppConfig) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (c AppConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(c)
 	return j, err
 }
 
-func (t *AppConfig) Scan(src interface{}) error {
+func (c *AppConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result AppConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*c = result
 	return nil
 }
 
@@ -1108,8 +1108,8 @@ type Trigger struct {
 	Cron    *CronTrigger    `json:"cron,omitempty"`
 }
 
-func (m Trigger) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (t Trigger) Value() (driver.Value, error) {
+	j, err := json.Marshal(t)
 	return j, err
 }
 
@@ -1132,15 +1132,15 @@ func (Trigger) GormDataType() string {
 
 type Triggers []Trigger
 
-func (m Triggers) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (t Triggers) Value() (driver.Value, error) {
+	j, err := json.Marshal(t)
 	return j, err
 }
 
 func (t *Triggers) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result []Trigger
 	if err := json.Unmarshal(source, &result); err != nil {
@@ -1212,21 +1212,21 @@ type GptScriptResponse struct {
 	Retries int    `json:"retries"`
 }
 
-func (m GptScriptResponse) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (g GptScriptResponse) Value() (driver.Value, error) {
+	j, err := json.Marshal(g)
 	return j, err
 }
 
-func (t *GptScriptResponse) Scan(src interface{}) error {
+func (g *GptScriptResponse) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result GptScriptResponse
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*g = result
 	return nil
 }
 
@@ -1239,21 +1239,21 @@ type DataEntityConfig struct {
 	RAGSettings   RAGSettings `json:"rag_settings"`
 }
 
-func (m DataEntityConfig) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (d DataEntityConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(d)
 	return j, err
 }
 
-func (t *DataEntityConfig) Scan(src interface{}) error {
+func (d *DataEntityConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result DataEntityConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*d = result
 	return nil
 }
 
@@ -1317,21 +1317,21 @@ type GptScriptRunnerRequest struct {
 	GithubApp *GptScriptGithubApp `json:"github_app"`
 }
 
-func (m GptScriptRunnerRequest) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
+func (r GptScriptRunnerRequest) Value() (driver.Value, error) {
+	j, err := json.Marshal(r)
 	return j, err
 }
 
-func (t *GptScriptRunnerRequest) Scan(src interface{}) error {
+func (r *GptScriptRunnerRequest) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
-		return errors.New("type assertion .([]byte) failed.")
+		return errors.New("type assertion .([]byte) failed")
 	}
 	var result GptScriptRunnerRequest
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
-	*t = result
+	*r = result
 	return nil
 }
 
