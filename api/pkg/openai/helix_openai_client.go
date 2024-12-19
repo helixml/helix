@@ -25,7 +25,7 @@ var _ HelixClient = &InternalHelixServer{}
 
 var chatCompletionTimeout = 180 * time.Second
 
-func ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+func ListModels(_ context.Context) ([]model.OpenAIModel, error) {
 	ollamaModels, err := model.GetDefaultOllamaModels()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Ollama models: %w", err)

@@ -14,7 +14,7 @@ import (
 )
 
 // TODO: remove
-func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
+func (c *Controller) ShiftSessionQueue(_ context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
 	// Default to requesting warm work
 	newWorkOnly := false
 

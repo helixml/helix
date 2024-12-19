@@ -23,10 +23,10 @@ func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, intera
 		return c.handleErrorResponse(ctx, sessionID, interactionID, tool, resp.StatusCode, bts)
 	}
 
-	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, history, resp.StatusCode, bts)
+	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, history, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) (*RunActionResponse, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
 	req := c.prepareChatCompletionRequest(messages, false, tool.Config.API.Model)
 
@@ -47,7 +47,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 	}, nil
 }
 
-func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, statusCode int, body []byte) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) (*openai.ChatCompletionStream, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
 	req := c.prepareChatCompletionRequest(messages, true, tool.Config.API.Model)
 
@@ -124,10 +124,10 @@ func (c *ChainStrategy) interpretResponseStream(ctx context.Context, sessionID, 
 	}
 
 	if resp.StatusCode >= 400 {
-		return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, resp.StatusCode, bts)
+		return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, bts)
 	}
 
-	return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, resp.StatusCode, bts)
+	return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, bts)
 }
 
 func (c *ChainStrategy) prepareSuccessMessages(tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) []openai.ChatCompletionMessage {

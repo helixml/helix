@@ -67,7 +67,7 @@ func (c *Controller) GetFilestoreInteractionInputsPath(ctx types.OwnerContext, s
 	return c.GetFilestoreUserPath(ctx, GetInteractionInputsFolder(sessionID, interactionID))
 }
 
-func (c *Controller) GetFilestoreResultsPath(ctx types.OwnerContext, sessionID string, interactionID string) (string, error) {
+func (c *Controller) GetFilestoreResultsPath(ctx types.OwnerContext, sessionID string, _ string) (string, error) {
 	return c.GetFilestoreUserPath(ctx, GetSessionResultsFolder(sessionID))
 }
 

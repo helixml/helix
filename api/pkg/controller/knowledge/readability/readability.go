@@ -29,7 +29,7 @@ type DefaultParser struct {
 	parser *readability.Parser
 }
 
-func (p *DefaultParser) Parse(ctx context.Context, content, u string) (*Article, error) {
+func (p *DefaultParser) Parse(_ context.Context, content, u string) (*Article, error) {
 	parsedURL, err := url.Parse(u)
 	if err != nil {
 		return nil, err

@@ -23,7 +23,7 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new secret",
 	Long:  `Create a new secret with a name and value.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		value, _ := cmd.Flags().GetString("value")
 		appID, _ := cmd.Flags().GetString("app-id")
