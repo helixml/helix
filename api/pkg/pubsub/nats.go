@@ -177,7 +177,7 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, h
 	}
 }
 
-func (n *Nats) QueueSubscribe(_ context.Context, queue, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
+func (n *Nats) QueueSubscribe(_ context.Context, queue, subject string, handler func(msg *Message) error) (Subscription, error) {
 	sub, err := n.conn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
 		err := handler(&Message{
 			Reply:  msg.Header.Get(helixNatsReplyHeader),
@@ -267,7 +267,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
-func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
+func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handler func(msg *Message) error) (Subscription, error) {
 	n.consumerMu.Lock()
 	defer n.consumerMu.Unlock()
 
