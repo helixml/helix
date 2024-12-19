@@ -24,7 +24,7 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 	scheduler := NewScheduler(context.Background(), &config, nil)
 
 	// Monkeypatch the scheduler's cluster
-	timeoutRunner1Func := func(id string, t time.Time) bool {
+	timeoutRunner1Func := func(id string, _ time.Time) bool {
 		return id == "test-runner-1"
 	}
 	cluster := NewCluster(timeoutRunner1Func)

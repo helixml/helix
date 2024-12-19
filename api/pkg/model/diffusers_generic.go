@@ -18,7 +18,7 @@ type DiffusersGenericImage struct {
 	Hide        bool
 }
 
-func (i *DiffusersGenericImage) GetMemoryRequirements(mode types.SessionMode) uint64 {
+func (i *DiffusersGenericImage) GetMemoryRequirements(_ types.SessionMode) uint64 {
 	return i.Memory
 }
 
@@ -34,7 +34,7 @@ func (i *DiffusersGenericImage) ModelName() ModelName {
 	return NewModel(i.Id)
 }
 
-func (i *DiffusersGenericImage) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
+func (i *DiffusersGenericImage) GetTask(session *types.Session, _ ModelSessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
@@ -43,15 +43,15 @@ func (i *DiffusersGenericImage) GetTask(session *types.Session, fileManager Mode
 	return task, nil
 }
 
-func (i *DiffusersGenericImage) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+func (i *DiffusersGenericImage) GetCommand(_ context.Context, _ types.SessionFilter, _ types.RunnerProcessConfig) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("not implemented 1")
 }
 
-func (i *DiffusersGenericImage) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
+func (i *DiffusersGenericImage) GetTextStreams(_ types.SessionMode, _ WorkerEventHandler) (*TextStream, *TextStream, error) {
 	return nil, nil, fmt.Errorf("not implemented 2")
 }
 
-func (i *DiffusersGenericImage) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
+func (i *DiffusersGenericImage) PrepareFiles(_ *types.Session, _ bool, _ ModelSessionFileManager) (*types.Session, error) {
 	return nil, fmt.Errorf("not implemented 3")
 }
 
