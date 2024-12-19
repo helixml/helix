@@ -31,6 +31,7 @@ import { IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
 import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
 import CrawledUrlsDialog from './CrawledUrlsDialog';
+import AddKnowledgeDialog from './AddKnowledgeDialog';
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
@@ -38,14 +39,16 @@ interface KnowledgeEditorProps {
   onRefresh: (id: string) => void;
   disabled: boolean;
   knowledgeList: IKnowledgeSource[];
+  appId: string;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, disabled, knowledgeList }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, disabled, knowledgeList, appId }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
 
   const default_max_depth = 1;
   const default_max_pages = 5;
@@ -89,25 +92,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     onUpdate(newSources);
   };
 
-  const addNewSource = () => {
-    const newSource: IKnowledgeSource = {
-        id: '',
-        source: { web: { urls: [], crawler: { 
-          enabled: true,
-          max_depth: default_max_depth,
-          max_pages: default_max_pages,
-          readability: default_readability
-        } } },
-        refresh_schedule: '',
-        name: '',
-        version: '',
-        state: '',
-        rag_settings: {
-            results_count: 0,
-            chunk_size: 0,
-            chunk_overflow: 0,
-        },
-    };
+  const handleAddSource = (newSource: IKnowledgeSource) => {
     onUpdate([...knowledgeSources, newSource]);
     setExpanded(`panel${knowledgeSources.length}`);
   };
@@ -504,12 +489,18 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
-        onClick={addNewSource}
+        onClick={() => setAddDialogOpen(true)}
         disabled={disabled}
         sx={{ mt: 2 }}
       >
         Add Knowledge Source
       </Button>
+      <AddKnowledgeDialog
+        open={addDialogOpen}
+        onClose={() => setAddDialogOpen(false)}
+        onAdd={handleAddSource}
+        appId={appId}
+      />
       {Object.keys(errors).length > 0 && (
         <Alert severity="error" sx={{ mt: 2 }}>
           Please specify at least one URL for each knowledge source.
