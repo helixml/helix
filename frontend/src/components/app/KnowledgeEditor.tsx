@@ -26,12 +26,17 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 import { IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
 import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
 import CrawledUrlsDialog from './CrawledUrlsDialog';
 import AddKnowledgeDialog from './AddKnowledgeDialog';
+import FileUpload from '../widgets/FileUpload';
+import Progress from '../widgets/Progress';
+import useFilestore from '../../hooks/useFilestore';
+import { prettyBytes } from '../../utils/format';
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
@@ -50,10 +55,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [directoryFiles, setDirectoryFiles] = useState<{[key: string]: any[]}>({});
 
   const default_max_depth = 1;
   const default_max_pages = 5;
   const default_readability = true;
+
+  const filestore = useFilestore();
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
@@ -130,6 +138,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     validateSources();
   }, [knowledgeSources]);
 
+  useEffect(() => {
+    knowledgeSources.forEach((source, index) => {
+      if (source.source.filestore?.path) {
+        loadDirectoryContents(source.source.filestore.path, index);
+      }
+    });
+  }, [knowledgeSources]);
+
   const getSourcePreview = (source: IKnowledgeSource): string => {
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
       try {
@@ -175,6 +191,41 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
+  };
+
+  const handleFileUpload = async (index: number, files: File[]) => {
+    const source = knowledgeSources[index];
+    if (!source.source.filestore?.path) {
+      snackbar.error('No filestore path specified');
+      return;
+    }
+
+    console.log("xxx", source.source.filestore.path);
+
+    const result = await filestore.upload(source.source.filestore.path, files);
+    if (!result) return;
+    
+    console.log("xxx", result);
+
+    // Refresh the knowledge source after upload
+    const knowledge = getKnowledge(source);
+    if (knowledge) {
+      onRefresh(knowledge.id);
+      snackbar.success('Files uploaded and knowledge refresh initiated');
+    }
+  };
+
+  const loadDirectoryContents = async (path: string, index: number) => {
+    if (!path) return;
+    try {
+      const files = await filestore.loadFiles(path);
+      setDirectoryFiles(prev => ({
+        ...prev,
+        [index]: files
+      }));
+    } catch (error) {
+      console.error('Error loading directory contents:', error);
+    }
   };
 
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
@@ -403,6 +454,104 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             sx={{ mb: 2 }}
             helperText="Enter a valid cron expression (default: daily at midnight)"
           />
+        )}
+
+        {sourceType === 'filestore' && (
+          <Box sx={{ mt: 2, mb: 2 }}>
+            {filestore.uploadProgress ? (
+              <Box sx={{ width: '100%', mb: 2 }}>
+                <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+                  Uploaded {prettyBytes(filestore.uploadProgress.uploadedBytes)} of {prettyBytes(filestore.uploadProgress.totalBytes)}
+                </Typography>
+                <Progress progress={filestore.uploadProgress.percent} />
+              </Box>
+            ) : (
+              <>
+                <FileUpload onUpload={(files) => handleFileUpload(index, files)}>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    component="span"
+                    startIcon={<CloudUploadIcon />}
+                    disabled={disabled || !source.source.filestore?.path}
+                    fullWidth
+                  >
+                    Upload Files
+                  </Button>
+                  <Box
+                    sx={{
+                      border: '1px dashed #ccc',
+                      borderRadius: 1,
+                      p: 2,
+                      mt: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                      minHeight: '100px',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      opacity: disabled ? 0.5 : 1,
+                    }}
+                  >
+                    {directoryFiles[index]?.length > 0 ? (
+                      <>
+                        <Typography variant="caption" sx={{ color: '#666', mb: 1 }}>
+                          Current files in {source.source.filestore?.path}:
+                        </Typography>
+                        <Box sx={{ 
+                          maxHeight: '200px', 
+                          overflowY: 'auto',
+                          border: '1px solid #303047',
+                          borderRadius: 1,
+                          p: 1
+                        }}>
+                          {directoryFiles[index].map((file: any, fileIndex: number) => (
+                            <Box 
+                              key={fileIndex}
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                p: 0.5,
+                                '&:hover': {
+                                  bgcolor: 'rgba(255, 255, 255, 0.05)'
+                                }
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ color: '#999', flexGrow: 1 }}>
+                                {file.name}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#666', ml: 2 }}>
+                                {prettyBytes(file.size || 0)}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                        <Typography variant="caption" sx={{ color: '#999', mt: 1, textAlign: 'center' }}>
+                          Drop files here to upload more
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" sx={{ color: '#999', textAlign: 'center' }}>
+                        {source.source.filestore?.path 
+                          ? 'No files yet - drop files here to upload them'
+                          : 'Specify a filestore path first'
+                        }
+                      </Typography>
+                    )}
+                  </Box>
+                </FileUpload>
+                {source.source.filestore?.path && (
+                  <Button
+                    sx={{ mt: 1 }}
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                    onClick={() => loadDirectoryContents(source.source.filestore?.path || '', index)}
+                  >
+                    Refresh File List
+                  </Button>
+                )}
+              </>
+            )}
+          </Box>
         )}
       </>
     );
