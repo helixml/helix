@@ -881,6 +881,7 @@ const App: FC = () => {
                       onRefresh={handleRefreshKnowledge}
                       disabled={isReadOnly}
                       knowledgeList={knowledgeList}
+                      appId={app.id}
                     />
                     {knowledgeErrors && showErrors && (
                       <Alert severity="error" sx={{ mt: 2 }}>
