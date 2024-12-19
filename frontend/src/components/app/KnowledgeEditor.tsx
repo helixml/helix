@@ -36,13 +36,14 @@ import AddKnowledgeDialog from './AddKnowledgeDialog';
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;
+  onSave: (quiet: boolean) => void;
   onRefresh: (id: string) => void;
   disabled: boolean;
   knowledgeList: IKnowledgeSource[];
   appId: string;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, disabled, knowledgeList, appId }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onSave, disabled, knowledgeList, appId }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
@@ -94,7 +95,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const handleAddSource = (newSource: IKnowledgeSource) => {
     onUpdate([...knowledgeSources, newSource]);
+    // Save    
     setExpanded(`panel${knowledgeSources.length}`);
+    // onSave(true);
   };
 
   const deleteSource = (index: number) => {
@@ -179,7 +182,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
     return (
       <>
-        <FormControl component="fieldset" sx={{ mb: 2 }}>
+        {/* <FormControl component="fieldset" sx={{ mb: 2 }}>
           <RadioGroup
             row
             value={sourceType}
@@ -201,7 +204,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             <FormControlLabel value="filestore" control={<Radio />} label="Helix Filestore" />
             <FormControlLabel value="web" control={<Radio />} label="Web" />
           </RadioGroup>
-        </FormControl>
+        </FormControl> */}
 
         {sourceType === 'filestore' ? (
           <TextField

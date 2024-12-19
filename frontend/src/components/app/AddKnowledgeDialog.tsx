@@ -37,11 +37,13 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       return;
     }
 
+    const knowledgePath = `apps/${appId}/${name}`;
+
     const newSource: IKnowledgeSource = {
       id: '',
-      name: sourceType === 'filestore' ? `apps/${appId}/${name}` : name,
+      name: name,
       source: sourceType === 'filestore'
-        ? { filestore: { path: '' } }
+        ? { filestore: { path: knowledgePath } }
         : {
             web: {
               urls: [],
@@ -62,6 +64,8 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
         chunk_overflow: 0,
       },
     };
+
+    console.log(newSource);
 
     onAdd(newSource);
     handleClose();
@@ -85,20 +89,20 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
             onChange={(e) => setSourceType(e.target.value as 'web' | 'filestore')}
           >
             <FormControlLabel value="web" control={<Radio />} label="Web" />
-            <FormControlLabel value="filestore" control={<Radio />} label="Helix Filestore" />
+            <FormControlLabel value="filestore" control={<Radio />} label="Files" />
           </RadioGroup>
         </FormControl>
         
         <TextField
           fullWidth
-          label="Knowledge Name"
+          label="Knowledge name"
           value={name}
           onChange={(e) => {
             setName(e.target.value);
             setError('');
           }}
           error={!!error}
-          helperText={error || (sourceType === 'filestore' ? `Will be created as: apps/${appId}/${name}` : '')}
+          helperText={error || (sourceType === 'filestore' ? `Files will be uploaded to: apps/${appId}/${name}` : '')}
           sx={{ mb: 2 }}
         />
       </DialogContent>
