@@ -282,7 +282,7 @@ func (s *PostgresStore) GetUserMeta(
 	if userID == "" {
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
-	row := s.pgDb.QueryRow(fmt.Sprintf(`
+	row := s.pgDb.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT %s
 		FROM usermeta WHERE id = $1
 	`, UsermetaFieldsString), userID)
@@ -298,7 +298,7 @@ func (s *PostgresStore) CreateUserMeta(
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.pgDb.Exec(fmt.Sprintf(`
+	_, err = s.pgDb.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO usermeta (
 			%s
 		) VALUES (
@@ -323,7 +323,7 @@ func (s *PostgresStore) UpdateUserMeta(
 	// prepend the ID to the values
 	values = append([]interface{}{user.ID}, values...)
 
-	_, err = s.pgDb.Exec(fmt.Sprintf(`
+	_, err = s.pgDb.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE usermeta SET
 			%s
 		WHERE id = $1
@@ -336,23 +336,23 @@ func (s *PostgresStore) UpdateUserMeta(
 	return &user, nil
 }
 
-func (d *PostgresStore) EnsureUserMeta(
+func (s *PostgresStore) EnsureUserMeta(
 	ctx context.Context,
 	user types.UserMeta,
 ) (*types.UserMeta, error) {
-	existing, err := d.GetUserMeta(ctx, user.ID)
+	existing, err := s.GetUserMeta(ctx, user.ID)
 	if err != nil || existing == nil {
-		return d.CreateUserMeta(ctx, user)
+		return s.CreateUserMeta(ctx, user)
 	}
-	return d.UpdateUserMeta(ctx, user)
+	return s.UpdateUserMeta(ctx, user)
 }
 
-func (d *PostgresStore) UpdateSessionMeta(
+func (s *PostgresStore) UpdateSessionMeta(
 	ctx context.Context,
 	data types.SessionMetaUpdate,
 ) (*types.Session, error) {
 	if data.Owner != "" {
-		_, err := d.pgDb.Exec(`
+		_, err := s.pgDb.Exec(`
 		UPDATE session SET
 			name = $2,
 			owner = $3,
@@ -363,7 +363,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 			return nil, err
 		}
 	} else {
-		_, err := d.pgDb.Exec(`
+		_, err := s.pgDb.Exec(`
 		UPDATE session SET
 			name = $2
 		WHERE id = $1
@@ -373,7 +373,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 		}
 	}
 
-	return d.GetSession(ctx, data.ID)
+	return s.GetSession(ctx, data.ID)
 }
 
 // Compile-time interface check:

@@ -121,7 +121,7 @@ func newSchedulerWithoutGoroutines(cfg *config.ServerConfig, onSchedulingErr fun
 
 // NewTimeoutFunc returns a function to check if a runner has been idle for a specified timeout duration.
 func NewTimeoutFunc(timeout time.Duration) TimeoutFunc {
-	return func(runnerID string, lastActivity time.Time) bool {
+	return func(_ string, lastActivity time.Time) bool {
 		// Check if the model has been unused for more than the specified timeout duration.
 		return time.Since(lastActivity) > timeout
 	}
