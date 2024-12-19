@@ -879,6 +879,7 @@ const App: FC = () => {
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
                       onRefresh={handleRefreshKnowledge}
+                      onSave={onSave}
                       disabled={isReadOnly}
                       knowledgeList={knowledgeList}
                       appId={app.id}
