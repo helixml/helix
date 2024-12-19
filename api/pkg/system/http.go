@@ -314,7 +314,7 @@ func PostRequestBuffer[ResultType any](
 ) (ResultType, error) {
 	var result ResultType
 	client := NewRetryClient(3)
-	req, err := retryablehttp.NewRequest("POST", URL(options, path), data)
+	req, err := retryablehttp.NewRequest(http.MethodPost, URL(options, path), data)
 	if err != nil {
 		return result, err
 	}
@@ -352,11 +352,11 @@ func PostRequestBuffer[ResultType any](
 
 func NewRetryClient(retryMax int) *retryablehttp.Client {
 	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 5
+	retryClient.RetryMax = retryMax
 	retryClient.Logger = stdlog.New(io.Discard, "", stdlog.LstdFlags)
 	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
 		switch {
-		case req.Method == "POST":
+		case req.Method == http.MethodPost:
 			log.Trace().
 				Str(req.Method, req.URL.String()).
 				Int("attempt", attempt).
@@ -369,7 +369,7 @@ func NewRetryClient(retryMax int) *retryablehttp.Client {
 				Msgf("")
 		}
 	}
-	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	retryClient.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
 		if resp == nil {
 			return true, err
 		}

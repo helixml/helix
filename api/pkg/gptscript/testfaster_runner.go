@@ -198,7 +198,13 @@ func (e *TestFasterExecutor) runGPTScriptTestfaster(ctx context.Context, script 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	resp, err := http.Post(fmt.Sprintf("%s/api/v1/run/script", cluster.URL), "application/json", bytes.NewBuffer(reqBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/v1/run/script", cluster.URL), bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
 	}
@@ -242,7 +248,13 @@ func (e *TestFasterExecutor) runGPTAppTestfaster(ctx context.Context, app *types
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	resp, err := http.Post(fmt.Sprintf("%s/api/v1/run/app", cluster.URL), "application/json", bytes.NewBuffer(reqBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/v1/run/app", cluster.URL), bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
 	}

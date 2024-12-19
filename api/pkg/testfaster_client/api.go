@@ -127,7 +127,7 @@ func getLeaseLoader(apiHandler HttpApiHandler, poolId, leaseId string) func() (s
 			return "", "", err
 		}
 		if lease.State == "error" {
-			return "", lease.Status, fmt.Errorf("wait failed, state was error\n")
+			return "", lease.Status, fmt.Errorf("wait failed, state was error")
 		}
 		return lease.State, lease.Status, nil
 	}
@@ -138,10 +138,10 @@ func getLeaseProcessor() func(envelope WebsocketEnvelope) (string, error) {
 		lease := &Lease{}
 		err := json.Unmarshal([]byte(envelope.Body), lease)
 		if err != nil {
-			return "", fmt.Errorf("Error decoding JSON body %s\n\n%s\n", err.Error(), envelope.Body)
+			return "", fmt.Errorf("Error decoding JSON body %s\n\n%s", err.Error(), envelope.Body)
 		}
 		if lease.State == "error" {
-			return "", fmt.Errorf("wait failed, state was error\n")
+			return "", fmt.Errorf("wait failed, state: %s", lease.State)
 		}
 		return lease.State, nil
 	}
@@ -310,7 +310,7 @@ func getPoolLoader(apiHandler HttpApiHandler, id string) func() (string, string,
 			return "", "", err
 		}
 		if pool.State == "error" {
-			return "", pool.Status, fmt.Errorf("wait failed, state was error\n")
+			return "", pool.Status, fmt.Errorf("wait failed, state was error")
 		}
 		return pool.State, pool.Status, nil
 	}
@@ -321,10 +321,10 @@ func getPoolProcessor() func(envelope WebsocketEnvelope) (string, error) {
 		pool := &Pool{}
 		err := json.Unmarshal([]byte(envelope.Body), pool)
 		if err != nil {
-			return "", fmt.Errorf("Error decoding JSON body %s\n\n%s\n", err.Error(), envelope.Body)
+			return "", fmt.Errorf("Error decoding JSON body %s\n\n%s", err.Error(), envelope.Body)
 		}
 		if pool.State == "error" {
-			return "", fmt.Errorf("wait failed, state was error\n")
+			return "", fmt.Errorf("wait failed, state was error")
 		}
 		return pool.State, nil
 	}
@@ -340,7 +340,7 @@ func waitForPool(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscript
 		if state != "error" {
 			return nil
 		}
-		return fmt.Errorf("wait failed, state was: %s\n", state)
+		return fmt.Errorf("wait failed, state was: %s", state)
 	}
 
 	waiter := NewEntityWaiter(
@@ -468,7 +468,7 @@ func (handler *HttpApiHandler) Request(method string, path string, body interfac
 	var err error
 	var resp *http.Response
 
-	hasBody := body != nil && (method == "POST" || method == "PUT")
+	hasBody := body != nil && (method == http.MethodPost || method == http.MethodPut)
 
 	var reader io.Reader
 
@@ -538,7 +538,7 @@ func (handler *HttpApiHandler) Request(method string, path string, body interfac
 
 func (handler *HttpApiHandler) PingBackend() (*Backend, error) {
 	backend := &Backend{}
-	err := handler.Request("PUT", "/api/v1/backend/ping", nil, &backend)
+	err := handler.Request(http.MethodPut, "/api/v1/backend/ping", nil, &backend)
 	if err != nil {
 		log.Printf("Error checking access token: %s\n", err)
 		return nil, err
@@ -548,7 +548,7 @@ func (handler *HttpApiHandler) PingBackend() (*Backend, error) {
 
 func (handler *HttpApiHandler) GetPools() ([]*Pool, error) {
 	poolArray := []*Pool{}
-	err := handler.Request("GET", "/api/v1/pools", nil, &poolArray)
+	err := handler.Request(http.MethodGet, "/api/v1/pools", nil, &poolArray)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +557,7 @@ func (handler *HttpApiHandler) GetPools() ([]*Pool, error) {
 
 func (handler *HttpApiHandler) CreatePool(request *PoolRequest) (*Pool, error) {
 	pool := &Pool{}
-	err := handler.Request("POST", "/api/v1/pools", request, pool)
+	err := handler.Request(http.MethodPost, "/api/v1/pools", request, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +566,7 @@ func (handler *HttpApiHandler) CreatePool(request *PoolRequest) (*Pool, error) {
 
 func (handler *HttpApiHandler) GetPool(id string) (*Pool, error) {
 	pool := Pool{}
-	err := handler.Request("GET", fmt.Sprintf("/api/v1/pools/%s", id), nil, &pool)
+	err := handler.Request(http.MethodGet, fmt.Sprintf("/api/v1/pools/%s", id), nil, &pool)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +575,7 @@ func (handler *HttpApiHandler) GetPool(id string) (*Pool, error) {
 
 func (handler *HttpApiHandler) UpdatePool(update PoolState) (*Pool, error) {
 	updatedPool := &Pool{}
-	err := handler.Request("PUT", fmt.Sprintf("/api/v1/pools/%s/state", update.PoolId), update, &updatedPool)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/state", update.PoolId), update, &updatedPool)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +584,7 @@ func (handler *HttpApiHandler) UpdatePool(update PoolState) (*Pool, error) {
 
 func (handler *HttpApiHandler) UpdatePoolMeta(update PoolState) (*Pool, error) {
 	updatedPool := &Pool{}
-	err := handler.Request("PUT", fmt.Sprintf("/api/v1/pools/%s/meta", update.PoolId), update, &updatedPool)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/meta", update.PoolId), update, &updatedPool)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +593,7 @@ func (handler *HttpApiHandler) UpdatePoolMeta(update PoolState) (*Pool, error) {
 
 func (handler *HttpApiHandler) CreateVm(vm *Vm) (*Vm, error) {
 	createdVm := &Vm{}
-	err := handler.Request("POST", fmt.Sprintf("/api/v1/pools/%s/vms", vm.Pool), vm, &createdVm)
+	err := handler.Request(http.MethodPost, fmt.Sprintf("/api/v1/pools/%s/vms", vm.Pool), vm, &createdVm)
 	if err != nil {
 		return nil, err
 	}
@@ -603,7 +603,7 @@ func (handler *HttpApiHandler) CreateVm(vm *Vm) (*Vm, error) {
 func (handler *HttpApiHandler) UpdateVm(update VmState) (*Vm, error) {
 	log.Printf("[UpdateVm] updating with %+v", update)
 	updatedVm := &Vm{}
-	err := handler.Request("PUT", fmt.Sprintf("/api/v1/pools/%s/vms/%s/state", update.PoolId, update.VmId), update, &updatedVm)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/vms/%s/state", update.PoolId, update.VmId), update, &updatedVm)
 	if err != nil {
 		return nil, err
 	}
@@ -611,12 +611,12 @@ func (handler *HttpApiHandler) UpdateVm(update VmState) (*Vm, error) {
 }
 
 func (handler *HttpApiHandler) DeleteVm(poolId, vmId string) error {
-	return handler.Request("DELETE", fmt.Sprintf("/api/v1/pools/%s/vms/%s", poolId, vmId), nil, nil)
+	return handler.Request(http.MethodDelete, fmt.Sprintf("/api/v1/pools/%s/vms/%s", poolId, vmId), nil, nil)
 }
 
 func (handler *HttpApiHandler) GetLease(poolId, leaseId string) (*Lease, error) {
 	lease := Lease{}
-	err := handler.Request("GET", fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolId, leaseId), nil, &lease)
+	err := handler.Request(http.MethodGet, fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolId, leaseId), nil, &lease)
 	if err != nil {
 		return nil, err
 	}
@@ -625,7 +625,7 @@ func (handler *HttpApiHandler) GetLease(poolId, leaseId string) (*Lease, error) 
 
 func (handler *HttpApiHandler) CreateLease(lease *Lease) (*Lease, error) {
 	createdLease := &Lease{}
-	err := handler.Request("POST", fmt.Sprintf("/api/v1/pools/%s/leases", lease.Pool), lease, &createdLease)
+	err := handler.Request(http.MethodPost, fmt.Sprintf("/api/v1/pools/%s/leases", lease.Pool), lease, &createdLease)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +634,7 @@ func (handler *HttpApiHandler) CreateLease(lease *Lease) (*Lease, error) {
 
 func (handler *HttpApiHandler) UpdateLease(update LeaseState) (*Lease, error) {
 	updatedLease := &Lease{}
-	err := handler.Request("PUT", fmt.Sprintf("/api/v1/pools/%s/leases/%s/state", update.PoolId, update.LeaseId), update, &updatedLease)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/leases/%s/state", update.PoolId, update.LeaseId), update, &updatedLease)
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +642,7 @@ func (handler *HttpApiHandler) UpdateLease(update LeaseState) (*Lease, error) {
 }
 
 func (handler *HttpApiHandler) DeleteLease(poolID string, leaseID string) error {
-	err := handler.Request("DELETE", fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolID, leaseID), "", "")
+	err := handler.Request(http.MethodDelete, fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolID, leaseID), "", "")
 	if err != nil {
 		return err
 	}
@@ -651,7 +651,7 @@ func (handler *HttpApiHandler) DeleteLease(poolID string, leaseID string) error 
 
 func (handler *HttpApiHandler) PostData(url string, data interface{}) error {
 	return handler.Request(
-		"POST",
+		http.MethodPost,
 		url,
 		data,
 		nil,

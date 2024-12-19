@@ -23,7 +23,7 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update a secret value",
 	Long:  `Update an existing secret by providing its name and updating its value.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		value, _ := cmd.Flags().GetString("value")
 
