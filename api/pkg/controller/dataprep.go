@@ -119,10 +119,10 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 	// converting to text is quite fast but we don't have a scaling strategy for llamaindex right now
 	// so let's just have some control over large numbers of files in one session
-	err = system.ForEachConcurrently[string](
+	err = system.ForEachConcurrently(
 		filesToConvert,
 		5,
-		func(file string, i int) error {
+		func(file string, _ int) error {
 			fileURL := ""
 			filenameParts := strings.Split(file, ".")
 			originalFile := file

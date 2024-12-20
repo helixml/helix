@@ -42,7 +42,7 @@ func (j *Janitor) Initialize() error {
 			TracesSampleRate: 1.0,
 		})
 		if err != nil {
-			return fmt.Errorf("Sentry initialization failed: %v\n", err)
+			return fmt.Errorf("Sentry initialization failed: %v", err)
 		}
 		system.SetHTTPErrorHandler(func(err *system.HTTPError, req *http.Request) {
 			reportErrorWithRequest(err, req, map[string]interface{}{})
@@ -117,7 +117,8 @@ func (j *Janitor) WriteSubscriptionEvent(eventType types.SubscriptionEventType, 
 	message := func() string {
 		j.recentlyCreatedSubscriptionMutex.Lock()
 		defer j.recentlyCreatedSubscriptionMutex.Unlock()
-		if eventType == types.SubscriptionEventTypeCreated {
+		switch eventType {
+		case types.SubscriptionEventTypeCreated:
 			j.recentlyCreatedSubscriptionMap[user.Email] = true
 			go func() {
 				time.Sleep(10 * time.Second)
@@ -126,15 +127,15 @@ func (j *Janitor) WriteSubscriptionEvent(eventType types.SubscriptionEventType, 
 				delete(j.recentlyCreatedSubscriptionMap, user.Email)
 			}()
 			return fmt.Sprintf("💰 %s created a NEW subscription %s", user.Email, user.SubscriptionURL)
-		} else if eventType == types.SubscriptionEventTypeUpdated {
+		case types.SubscriptionEventTypeUpdated:
 			_, ok := j.recentlyCreatedSubscriptionMap[user.Email]
 			if ok {
 				return ""
 			}
 			return fmt.Sprintf("🎉 %s UPDATED their subscription %s", user.Email, user.SubscriptionURL)
-		} else if eventType == types.SubscriptionEventTypeDeleted {
+		case types.SubscriptionEventTypeDeleted:
 			return fmt.Sprintf("🛑 %s CANCELLED their subscription %s", user.Email, user.SubscriptionURL)
-		} else {
+		default:
 			return ""
 		}
 	}()

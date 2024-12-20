@@ -73,18 +73,18 @@ func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types
 }
 
 func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey string) error {
-	fetchedApiKey, err := c.Options.Store.GetAPIKey(ctx, apiKey)
+	fetchedAPIKey, err := c.Options.Store.GetAPIKey(ctx, apiKey)
 	if err != nil {
 		return err
 	}
-	if fetchedApiKey == nil {
+	if fetchedAPIKey == nil {
 		return errors.New("no such key")
 	}
 	// only the owner of an api key can delete it
-	if fetchedApiKey.Owner != user.ID || fetchedApiKey.OwnerType != user.Type {
+	if fetchedAPIKey.Owner != user.ID || fetchedAPIKey.OwnerType != user.Type {
 		return errors.New("unauthorized")
 	}
-	err = c.Options.Store.DeleteAPIKey(ctx, fetchedApiKey.Key)
+	err = c.Options.Store.DeleteAPIKey(ctx, fetchedAPIKey.Key)
 	if err != nil {
 		return err
 	}
@@ -118,14 +118,14 @@ func (c *Controller) cleanOldRunnerMetrics(_ context.Context) error {
 	return nil
 }
 
-func (c *Controller) AddRunnerMetrics(ctx context.Context, metrics *types.RunnerState) (*types.RunnerState, error) {
+func (c *Controller) AddRunnerMetrics(_ context.Context, metrics *types.RunnerState) (*types.RunnerState, error) {
 	c.activeRunners.Store(metrics.ID, metrics)
 	return metrics, nil
 }
 
-func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData, error) {
+func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, error) {
 	runners := []*types.RunnerState{}
-	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
+	c.activeRunners.Range(func(_ string, metrics *types.RunnerState) bool {
 		runners = append(runners, metrics)
 		return true
 	})

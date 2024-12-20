@@ -15,7 +15,7 @@ const (
 )
 
 var (
-	dummyTimeout = func(runnerID string, lastActivityTime time.Time) bool {
+	dummyTimeout = func(_ string, _ time.Time) bool {
 		return false
 	}
 	testModel, _ = model.GetModel(testModelStr)

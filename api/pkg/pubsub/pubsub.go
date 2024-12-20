@@ -20,10 +20,10 @@ type PubSub interface {
 	Request(ctx context.Context, stream, sub string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error)
 	// QueueSubscribe subscribes to a topic with a queue group. Should be used for fast workloads, failed
 	// messages will not be redelivered. Slow consumers will block the queue group.
-	QueueSubscribe(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
+	QueueSubscribe(ctx context.Context, stream, sub string, handler func(msg *Message) error) (Subscription, error)
 
 	StreamRequest(ctx context.Context, stream, sub string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error)
-	StreamConsume(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
+	StreamConsume(ctx context.Context, stream, sub string, handler func(msg *Message) error) (Subscription, error)
 }
 
 type Message struct {

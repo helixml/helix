@@ -24,6 +24,7 @@ func NewDynamicDataPrep(client openai.Client, model string, prompts ...string) *
 	if err != nil {
 		panic(err)
 	}
+	allPrompts = append(allPrompts, prompts...)
 
 	// use sensible defaults
 	return &DynamicDataPrep{
@@ -48,7 +49,7 @@ func (d *DynamicDataPrep) ExpandChunks(chunks []*DataPrepTextSplitterChunk) (
 }
 
 func (d *DynamicDataPrep) ConvertChunk(
-	ownerID, sessionID, chunk string, index int, documentID, documentGroupID, promptName string,
+	ownerID, sessionID, chunk string, _ int, documentID, documentGroupID, promptName string,
 ) ([]types.DataPrepTextQuestion, error) {
 	prompt, err := qapairs.FindPrompt(promptName)
 	if err != nil {

@@ -234,12 +234,14 @@ func getKeyValueIndexes(fields []string, offset int) string {
 	return strings.Join(parts, ", ")
 }
 
-var USERMETA_FIELDS = []string{
-	"id",
-	"config",
-}
+var (
+	UsermetaFields = []string{
+		"id",
+		"config",
+	}
 
-var USERMETA_FIELDS_STRING = strings.Join(USERMETA_FIELDS, ", ")
+	UsermetaFieldsString = strings.Join(UsermetaFields, ", ")
+)
 
 func scanUserMetaRow(row Scanner) (*types.UserMeta, error) {
 	user := &types.UserMeta{}
@@ -273,22 +275,22 @@ func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
 	}, nil
 }
 
-func (d *PostgresStore) GetUserMeta(
+func (s *PostgresStore) GetUserMeta(
 	ctx context.Context,
 	userID string,
 ) (*types.UserMeta, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
-	row := d.pgDb.QueryRow(fmt.Sprintf(`
+	row := s.pgDb.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT %s
 		FROM usermeta WHERE id = $1
-	`, USERMETA_FIELDS_STRING), userID)
+	`, UsermetaFieldsString), userID)
 
 	return scanUserMetaRow(row)
 }
 
-func (d *PostgresStore) CreateUserMeta(
+func (s *PostgresStore) CreateUserMeta(
 	ctx context.Context,
 	user types.UserMeta,
 ) (*types.UserMeta, error) {
@@ -296,13 +298,13 @@ func (d *PostgresStore) CreateUserMeta(
 	if err != nil {
 		return nil, err
 	}
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
+	_, err = s.pgDb.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO usermeta (
 			%s
 		) VALUES (
 			%s
 		)
-	`, USERMETA_FIELDS_STRING, getValueIndexes(USERMETA_FIELDS)), values...)
+	`, UsermetaFieldsString, getValueIndexes(UsermetaFields)), values...)
 
 	if err != nil {
 		return nil, err
@@ -310,7 +312,7 @@ func (d *PostgresStore) CreateUserMeta(
 	return &user, nil
 }
 
-func (d *PostgresStore) UpdateUserMeta(
+func (s *PostgresStore) UpdateUserMeta(
 	ctx context.Context,
 	user types.UserMeta,
 ) (*types.UserMeta, error) {
@@ -321,11 +323,11 @@ func (d *PostgresStore) UpdateUserMeta(
 	// prepend the ID to the values
 	values = append([]interface{}{user.ID}, values...)
 
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
+	_, err = s.pgDb.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE usermeta SET
 			%s
 		WHERE id = $1
-	`, getKeyValueIndexes(USERMETA_FIELDS, 1)), values...)
+	`, getKeyValueIndexes(UsermetaFields, 1)), values...)
 
 	if err != nil {
 		return nil, err
@@ -334,24 +336,23 @@ func (d *PostgresStore) UpdateUserMeta(
 	return &user, nil
 }
 
-func (d *PostgresStore) EnsureUserMeta(
+func (s *PostgresStore) EnsureUserMeta(
 	ctx context.Context,
 	user types.UserMeta,
 ) (*types.UserMeta, error) {
-	existing, err := d.GetUserMeta(ctx, user.ID)
+	existing, err := s.GetUserMeta(ctx, user.ID)
 	if err != nil || existing == nil {
-		return d.CreateUserMeta(ctx, user)
-	} else {
-		return d.UpdateUserMeta(ctx, user)
+		return s.CreateUserMeta(ctx, user)
 	}
+	return s.UpdateUserMeta(ctx, user)
 }
 
-func (d *PostgresStore) UpdateSessionMeta(
+func (s *PostgresStore) UpdateSessionMeta(
 	ctx context.Context,
 	data types.SessionMetaUpdate,
 ) (*types.Session, error) {
 	if data.Owner != "" {
-		_, err := d.pgDb.Exec(`
+		_, err := s.pgDb.Exec(`
 		UPDATE session SET
 			name = $2,
 			owner = $3,
@@ -362,7 +363,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 			return nil, err
 		}
 	} else {
-		_, err := d.pgDb.Exec(`
+		_, err := s.pgDb.Exec(`
 		UPDATE session SET
 			name = $2
 		WHERE id = $1
@@ -372,14 +373,14 @@ func (d *PostgresStore) UpdateSessionMeta(
 		}
 	}
 
-	return d.GetSession(ctx, data.ID)
+	return s.GetSession(ctx, data.ID)
 }
 
 // Compile-time interface check:
 var _ Store = (*PostgresStore)(nil)
 
-func (d *PostgresStore) MigrateUp() error {
-	migrations, err := d.GetMigrations()
+func (s *PostgresStore) MigrateUp() error {
+	migrations, err := s.GetMigrations()
 	if err != nil {
 		return err
 	}
@@ -390,8 +391,8 @@ func (d *PostgresStore) MigrateUp() error {
 	return nil
 }
 
-func (d *PostgresStore) MigrateDown() error {
-	migrations, err := d.GetMigrations()
+func (s *PostgresStore) MigrateDown() error {
+	migrations, err := s.GetMigrations()
 	if err != nil {
 		return err
 	}
@@ -405,7 +406,7 @@ func (d *PostgresStore) MigrateDown() error {
 //go:embed migrations/*.sql
 var fs embed.FS
 
-func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
+func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	files, err := iofs.New(fs, "migrations")
 	if err != nil {
 		return nil, err
@@ -413,7 +414,7 @@ func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	migrations, err := migrate.NewWithSourceInstance(
 		"iofs",
 		files,
-		fmt.Sprintf("%s&&x-migrations-table=helix_schema_migrations", d.connectionString),
+		fmt.Sprintf("%s&&x-migrations-table=helix_schema_migrations", s.connectionString),
 	)
 	if err != nil {
 		return nil, err
