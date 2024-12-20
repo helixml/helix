@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,46 +16,46 @@ import (
 type AppFilter struct {
 }
 
-func (c *HelixClient) ListApps(f *AppFilter) ([]*types.App, error) {
+func (c *HelixClient) ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error) {
 	var apps []*types.App
-	err := c.makeRequest(http.MethodGet, "/apps", nil, &apps)
+	err := c.makeRequest(ctx, http.MethodGet, "/apps", nil, &apps)
 	if err != nil {
 		return nil, err
 	}
 	return apps, nil
 }
 
-func (c *HelixClient) GetApp(appID string) (*types.App, error) {
+func (c *HelixClient) GetApp(ctx context.Context, appID string) (*types.App, error) {
 	var app types.App
-	err := c.makeRequest(http.MethodGet, "/apps/"+appID, nil, &app)
+	err := c.makeRequest(ctx, http.MethodGet, "/apps/"+appID, nil, &app)
 	if err != nil {
 		return nil, err
 	}
 	return &app, nil
 }
 
-func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
+func (c *HelixClient) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
 		return nil, err
 	}
 
 	var createdApp types.App
-	err = c.makeRequest(http.MethodPost, "/apps", bytes.NewBuffer(bts), &createdApp)
+	err = c.makeRequest(ctx, http.MethodPost, "/apps", bytes.NewBuffer(bts), &createdApp)
 	if err != nil {
 		return nil, err
 	}
 	return &createdApp, nil
 }
 
-func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
+func (c *HelixClient) UpdateApp(ctx context.Context, app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
 		return nil, err
 	}
 
 	var updatedApp types.App
-	err = c.makeRequest(http.MethodPut, "/apps/"+app.ID, bytes.NewBuffer(bts), &updatedApp)
+	err = c.makeRequest(ctx, http.MethodPut, "/apps/"+app.ID, bytes.NewBuffer(bts), &updatedApp)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +63,13 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 	return &updatedApp, nil
 }
 
-func (c *HelixClient) DeleteApp(appID string, deleteKnowledge bool) error {
+func (c *HelixClient) DeleteApp(ctx context.Context, appID string, deleteKnowledge bool) error {
 	query := url.Values{}
 	query.Add("knowledge", strconv.FormatBool(deleteKnowledge))
 
 	url := "/apps/" + appID + "?" + query.Encode()
 
-	err := c.makeRequest(http.MethodDelete, url, nil, nil)
+	err := c.makeRequest(ctx, http.MethodDelete, url, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -77,10 +78,10 @@ func (c *HelixClient) DeleteApp(appID string, deleteKnowledge bool) error {
 }
 
 // TODO: optimize this to not list all apps and instead use a server side filter
-func (c *HelixClient) GetAppByName(name string) (*types.App, error) {
+func (c *HelixClient) GetAppByName(ctx context.Context, name string) (*types.App, error) {
 	log.Debug().Str("name", name).Msg("getting app by name")
 
-	apps, err := c.ListApps(nil)
+	apps, err := c.ListApps(ctx, nil)
 	if err != nil {
 		log.Error().Err(err).Str("name", name).Msg("failed to list apps")
 		return nil, err

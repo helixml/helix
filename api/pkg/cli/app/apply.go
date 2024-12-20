@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/apps"
@@ -66,7 +67,7 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
-		existingApps, err := apiClient.ListApps(&client.AppFilter{})
+		existingApps, err := apiClient.ListApps(cmd.Context(), &client.AppFilter{})
 		if err != nil {
 			return err
 		}
@@ -74,7 +75,7 @@ var applyCmd = &cobra.Command{
 		for _, existingApp := range existingApps {
 			if existingApp.Config.Helix.Name == appConfig.Name {
 				log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.Name)
-				err = updateApp(apiClient, existingApp, appConfig, shared, global)
+				err = updateApp(cmd.Context(), apiClient, existingApp, appConfig, shared, global)
 				if err != nil {
 					return err
 				}
@@ -84,13 +85,13 @@ var applyCmd = &cobra.Command{
 						AppID: existingApp.ID,
 					}
 
-					knowledge, err := apiClient.ListKnowledge(knowledgeFilter)
+					knowledge, err := apiClient.ListKnowledge(cmd.Context(), knowledgeFilter)
 					if err != nil {
 						return err
 					}
 
 					for _, knowledge := range knowledge {
-						err = apiClient.RefreshKnowledge(knowledge.ID)
+						err = apiClient.RefreshKnowledge(cmd.Context(), knowledge.ID)
 						if err != nil {
 							return fmt.Errorf("failed to refresh knowledge %s (%s): %w", knowledge.ID, knowledge.Name, err)
 						}
@@ -101,16 +102,16 @@ var applyCmd = &cobra.Command{
 			}
 		}
 
-		return createApp(apiClient, appConfig, shared, global)
+		return createApp(cmd.Context(), apiClient, appConfig, shared, global)
 	},
 }
 
-func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig, shared, global bool) error {
+func updateApp(ctx context.Context, apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig, shared, global bool) error {
 	app.Config.Helix = *appConfig
 	app.Shared = shared
 	app.Global = global
 
-	app, err := apiClient.UpdateApp(app)
+	app, err := apiClient.UpdateApp(ctx, app)
 	if err != nil {
 		return err
 	}
@@ -120,7 +121,7 @@ func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHeli
 	return nil
 }
 
-func createApp(apiClient client.Client, appConfig *types.AppHelixConfig, shared, global bool) error {
+func createApp(ctx context.Context, apiClient client.Client, appConfig *types.AppHelixConfig, shared, global bool) error {
 	app := &types.App{
 		AppSource: types.AppSourceHelix,
 		Global:    global,
@@ -131,7 +132,7 @@ func createApp(apiClient client.Client, appConfig *types.AppHelixConfig, shared,
 		},
 	}
 
-	app, err := apiClient.CreateApp(app)
+	app, err := apiClient.CreateApp(ctx, app)
 	if err != nil {
 		return err
 	}

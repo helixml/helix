@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/client"
@@ -22,8 +23,8 @@ func New() *cobra.Command {
 	return rootCmd
 }
 
-func lookupApp(apiClient *client.HelixClient, ref string) (*types.App, error) {
-	apps, err := apiClient.ListApps(&client.AppFilter{})
+func lookupApp(ctx context.Context, apiClient *client.HelixClient, ref string) (*types.App, error) {
+	apps, err := apiClient.ListApps(ctx, &client.AppFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list apps: %w", err)
 	}

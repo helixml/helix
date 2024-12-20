@@ -49,7 +49,7 @@ var createCmd = &cobra.Command{
 			AppID: appID,
 		}
 
-		_, err = apiClient.CreateSecret(secret)
+		_, err = apiClient.CreateSecret(cmd.Context(), secret)
 		if err != nil {
 			return fmt.Errorf("failed to create secret: %w", err)
 		}
