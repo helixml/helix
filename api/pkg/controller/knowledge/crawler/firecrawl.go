@@ -37,7 +37,7 @@ type Firecrawl struct {
 	knowledge *types.Knowledge
 }
 
-func (f *Firecrawl) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
+func (f *Firecrawl) Crawl(_ context.Context) ([]*types.CrawledDocument, error) {
 	crawlParams := map[string]any{
 		"crawlerOptions": map[string]any{
 			"excludes": f.knowledge.Source.Web.Excludes,

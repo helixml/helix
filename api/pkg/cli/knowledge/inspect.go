@@ -17,7 +17,7 @@ var inspectCmd = &cobra.Command{
 	Short: "Inspect a knowledge entry",
 	Long:  ``,
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err

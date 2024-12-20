@@ -112,7 +112,7 @@ func makeAuth(keypair types.KeyPair) transport.AuthMethod {
 		return nil
 	}
 	signer.HostKeyCallbackHelper = ssh.HostKeyCallbackHelper{
-		HostKeyCallback: func(hostname string, remote net.Addr, key crypto_ssh.PublicKey) error {
+		HostKeyCallback: func(_ string, _ net.Addr, _ crypto_ssh.PublicKey) error {
 			return nil
 		},
 	}

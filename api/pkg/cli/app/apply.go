@@ -30,7 +30,7 @@ var applyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Create or update an application",
 	Long:  `Create or update an application.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		filename, err := cmd.Flags().GetString("filename")
 		if err != nil {
 			return err
