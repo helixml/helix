@@ -27,7 +27,7 @@ var inspectCmd = &cobra.Command{
 			return err
 		}
 
-		app, err := lookupApp(apiClient, args[0])
+		app, err := lookupApp(cmd.Context(), apiClient, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to lookup app: %w", err)
 		}

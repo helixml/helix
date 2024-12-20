@@ -33,13 +33,13 @@ var removeCmd = &cobra.Command{
 			return err
 		}
 
-		app, err := lookupApp(apiClient, args[0])
+		app, err := lookupApp(cmd.Context(), apiClient, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
 		// Delete the app
-		if err := apiClient.DeleteApp(app.ID, knowledge); err != nil {
+		if err := apiClient.DeleteApp(cmd.Context(), app.ID, knowledge); err != nil {
 			return fmt.Errorf("failed to delete app: %w", err)
 		}
 

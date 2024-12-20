@@ -17,23 +17,23 @@ import (
 )
 
 type Client interface {
-	CreateApp(app *types.App) (*types.App, error)
-	GetApp(appID string) (*types.App, error)
-	UpdateApp(app *types.App) (*types.App, error)
-	DeleteApp(appID string, deleteKnowledge bool) error
-	ListApps(f *AppFilter) ([]*types.App, error)
+	CreateApp(ctx context.Context, app *types.App) (*types.App, error)
+	GetApp(ctx context.Context, appID string) (*types.App, error)
+	UpdateApp(ctx context.Context, app *types.App) (*types.App, error)
+	DeleteApp(ctx context.Context, appID string, deleteKnowledge bool) error
+	ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error)
 
-	ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error)
-	GetKnowledge(id string) (*types.Knowledge, error)
-	DeleteKnowledge(id string) error
-	RefreshKnowledge(id string) error
+	ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error)
+	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
+	DeleteKnowledge(ctx context.Context, id string) error
+	RefreshKnowledge(ctx context.Context, id string) error
 
-	ListSecrets() ([]*types.Secret, error)
-	CreateSecret(secret *types.CreateSecretRequest) (*types.Secret, error)
-	UpdateSecret(id string, secret *types.Secret) (*types.Secret, error)
-	DeleteSecret(id string) error
+	ListSecrets(ctx context.Context) ([]*types.Secret, error)
+	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
+	UpdateSecret(ctx context.Context, id string, secret *types.Secret) (*types.Secret, error)
+	DeleteSecret(ctx context.Context, id string) error
 
-	ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
+	ListKnowledgeVersions(ctx context.Context, f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
 	FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error)
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
@@ -81,8 +81,8 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 	}, nil
 }
 
-func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	fullURL := c.url + path
@@ -102,7 +102,7 @@ func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interfa
 		body = strings.NewReader(string(bodyBytes))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
+	req, err := http.NewRequestWithContext(reqCtx, method, fullURL, body)
 	if err != nil {
 		return err
 	}

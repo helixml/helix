@@ -36,7 +36,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		apps, err := apiClient.ListApps(&client.AppFilter{})
+		apps, err := apiClient.ListApps(cmd.Context(), &client.AppFilter{})
 		if err != nil {
 			return fmt.Errorf("failed to list apps: %w", err)
 		}

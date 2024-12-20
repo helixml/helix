@@ -27,7 +27,7 @@ var removeCmd = &cobra.Command{
 			return err
 		}
 
-		knowledges, err := apiClient.ListKnowledge(&client.KnowledgeFilter{})
+		knowledges, err := apiClient.ListKnowledge(cmd.Context(), &client.KnowledgeFilter{})
 		if err != nil {
 			return fmt.Errorf("failed to list knowledge: %w", err)
 		}
@@ -46,7 +46,7 @@ var removeCmd = &cobra.Command{
 		}
 
 		// Delete the knowledge
-		if err := apiClient.DeleteKnowledge(knowledge.ID); err != nil {
+		if err := apiClient.DeleteKnowledge(cmd.Context(), knowledge.ID); err != nil {
 			return fmt.Errorf("failed to delete knowledge: %w", err)
 		}
 

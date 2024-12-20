@@ -28,7 +28,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		knowledge, err := apiClient.ListKnowledge(&client.KnowledgeFilter{})
+		knowledge, err := apiClient.ListKnowledge(cmd.Context(), &client.KnowledgeFilter{})
 		if err != nil {
 			return fmt.Errorf("failed to list knowledge: %w", err)
 		}

@@ -39,7 +39,7 @@ var deleteCmd = &cobra.Command{
 		}
 
 		// Fetch the list of secrets
-		secrets, err := apiClient.ListSecrets()
+		secrets, err := apiClient.ListSecrets(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("failed to fetch secrets: %w", err)
 		}
@@ -58,7 +58,7 @@ var deleteCmd = &cobra.Command{
 		}
 
 		// Delete the secret
-		err = apiClient.DeleteSecret(secretID)
+		err = apiClient.DeleteSecret(cmd.Context(), secretID)
 		if err != nil {
 			return fmt.Errorf("failed to delete secret: %w", err)
 		}
