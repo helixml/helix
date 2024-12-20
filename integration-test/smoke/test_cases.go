@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/devices"
 )
 
 // TestCase defines the structure for a single integration test
@@ -20,6 +22,7 @@ var TestSuite = []TestCase{
 	HomepageLoadTest(),
 	LoginFlowTest(),
 	StartNewSessionTest(),
+	UploadPDFFileTest(),
 }
 
 // HomepageLoadTest verifies that the homepage loads successfully
@@ -120,6 +123,82 @@ func sendMessage(page *rod.Page) error {
 	chatMessage := page.MustElement("div.interactionMessage")
 	if chatMessage == nil {
 		return fmt.Errorf("chat message not found")
+	}
+
+	return nil
+}
+
+const (
+	folderName = "smoke"
+)
+
+func UploadPDFFileTest() TestCase {
+	return TestCase{
+		Name:        "Upload PDF File",
+		Description: "Tests uploading a PDF file",
+		Timeout:     30 * time.Second,
+		Run:         uploadPDFFile,
+	}
+}
+
+func uploadPDFFile(browser *rod.Browser) error {
+	if err := performLogin(browser); err != nil {
+		return err
+	}
+
+	// Navigate to the files page
+	page := browser.
+		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
+		MustPage(getServerURL() + "/files")
+	page.MustWaitStable()
+
+	// Create test folder
+	xpath := fmt.Sprintf(`//button[contains(text(), '%s')]`, "Create Folder")
+	elements := page.MustElementsX(xpath)
+	if len(elements) != 1 {
+		return fmt.Errorf("create folder button not found")
+	}
+
+	logStep("Clicking Create Folder button")
+	elements[0].MustClick()
+
+	logStep("Looking for chat input textarea")
+	textarea := page.MustElement("input[type='text']")
+
+	logStep("Typing folder name")
+	textarea.MustInput(folderName)
+
+	logStep("Clicking Submit button")
+	sendButton := page.MustElement("#submitButton")
+	sendButton.MustClick()
+
+	logStep(fmt.Sprintf("clicking on the %s folder", folderName))
+	folder := page.MustElementX(fmt.Sprintf(`//a[contains(text(), '%s')]`, folderName))
+	folder.MustClick()
+
+	logStep("waiting for page to stabilize")
+	page.MustWaitStable()
+
+	logStep("clicking on the upload file button")
+	upload := page.MustElement("input[type='file']")
+	upload.MustSetFiles("/Users/phil/code/helixml/helix/integration-test/data/smoke/hr-guide.pdf")
+	page.Reload()
+
+	logStep("waiting for file to exist, then clicking on it")
+	file := page.MustElementX(fmt.Sprintf(`//a[contains(text(), '%s')]`, "hr-guide.pdf"))
+	file.MustClick()
+
+	logStep("checking the download works")
+	var found bool
+	for _, p := range browser.MustPages() {
+		title := p.MustInfo().Title
+		if strings.Contains(title, "hr-guide.pdf") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("tab not found")
 	}
 
 	return nil
