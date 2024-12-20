@@ -12,6 +12,9 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 )
 
+// Compile-time interface check:
+var _ FileStore = (*FileSystemStorage)(nil)
+
 type FileSystemStorage struct {
 	basePath string
 	baseURL  string
@@ -26,7 +29,7 @@ func NewFileSystemStorage(basePath string, baseURL, secret string) *FileSystemSt
 	}
 }
 
-func (s *FileSystemStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, error) {
+func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]FileStoreItem, error) {
 	fullPath := filepath.Join(s.basePath, prefix)
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
@@ -53,7 +56,7 @@ func (s *FileSystemStorage) List(ctx context.Context, prefix string) ([]FileStor
 	return items, nil
 }
 
-func (s *FileSystemStorage) Get(ctx context.Context, path string) (FileStoreItem, error) {
+func (s *FileSystemStorage) Get(_ context.Context, path string) (FileStoreItem, error) {
 	fullPath := filepath.Join(s.basePath, path)
 	info, err := os.Stat(fullPath)
 	if err != nil {
@@ -69,7 +72,7 @@ func (s *FileSystemStorage) Get(ctx context.Context, path string) (FileStoreItem
 	}, nil
 }
 
-func (s *FileSystemStorage) SignedURL(ctx context.Context, path string) (string, error) {
+func (s *FileSystemStorage) SignedURL(_ context.Context, path string) (string, error) {
 	return PresignURL(s.baseURL, "/"+path, s.secret, 20*time.Minute), nil
 }
 
@@ -94,7 +97,7 @@ func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Rea
 	return s.Get(ctx, path)
 }
 
-func (s *FileSystemStorage) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
+func (s *FileSystemStorage) OpenFile(_ context.Context, path string) (io.ReadCloser, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	file, err := os.Open(fullPath)
@@ -105,13 +108,13 @@ func (s *FileSystemStorage) OpenFile(ctx context.Context, path string) (io.ReadC
 	return file, nil
 }
 
-func (s *FileSystemStorage) DownloadFolder(ctx context.Context, path string) (io.Reader, error) {
+func (s *FileSystemStorage) DownloadFolder(_ context.Context, path string) (io.Reader, error) {
 	fullPath := filepath.Join(s.basePath, path)
 	return system.GetTarStream(fullPath)
 }
 
 // UploadFolder uploads a folder from a tarball in the io.Reader to the specified path.
-func (s *FileSystemStorage) UploadFolder(ctx context.Context, path string, r io.Reader) error {
+func (s *FileSystemStorage) UploadFolder(_ context.Context, path string, r io.Reader) error {
 	// Determine the full path to the destination folder
 	fullPath := filepath.Join(s.basePath, path)
 
@@ -171,7 +174,7 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 	return s.Get(ctx, newPath)
 }
 
-func (s *FileSystemStorage) Delete(ctx context.Context, path string) error {
+func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 	fullPath := filepath.Join(s.basePath, path)
 
 	if err := os.RemoveAll(fullPath); err != nil {
@@ -191,7 +194,7 @@ func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (File
 	return s.Get(ctx, path)
 }
 
-func (s *FileSystemStorage) CopyFile(ctx context.Context, fromPath string, toPath string) error {
+func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath string) error {
 	fullFromPath := filepath.Join(s.basePath, fromPath)
 	fullToPath := filepath.Join(s.basePath, toPath)
 
@@ -220,6 +223,3 @@ func (s *FileSystemStorage) CopyFile(ctx context.Context, fromPath string, toPat
 
 	return nil
 }
-
-// Compile-time interface check:
-var _ FileStore = (*FileSystemStorage)(nil)

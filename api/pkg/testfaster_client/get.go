@@ -189,7 +189,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 			Meta:  meta,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("Error posting lease: %s\n", err)
+			return nil, fmt.Errorf("Error posting lease: %s", err)
 		}
 		fmt.Printf("Lease created (%s)\n", lease.Id)
 	} else {
@@ -204,12 +204,12 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 
 	leaseSubscription, err := socket.Subscribe(lease.GetSubscriptionChannel())
 	if err != nil {
-		return nil, fmt.Errorf("Error subscribing for lease updates: %s\n", err)
+		return nil, fmt.Errorf("Error subscribing for lease updates: %s", err)
 	}
 
 	leaseState, err := waitForLeaseAssigned(*apiHandler, leaseSubscription, pool.Id, lease.Id)
 	if err != nil {
-		return nil, fmt.Errorf("Error waiting for lease to be assigned: %s\n", err)
+		return nil, fmt.Errorf("Error waiting for lease to be assigned: %s", err)
 	}
 
 	tempKubeconfig := `# Testfaster intermediate kubeconfig (recording lease info before VM is
@@ -220,7 +220,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 
 	err = os.WriteFile("kubeconfig", []byte(tempKubeconfig), 0644)
 	if err != nil {
-		return nil, fmt.Errorf("Error: could not write temp kubeconfig: %s\n", err)
+		return nil, fmt.Errorf("Error: could not write temp kubeconfig: %s", err)
 	}
 
 	fmt.Printf("\nNote: If you want to abort building the VM, you can now safely press ^C\n")
@@ -232,17 +232,17 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		fmt.Printf("Waiting for lease to be ready...\n")
 		lease, err = apiHandler.GetLease(pool.Id, lease.Id)
 		if err != nil {
-			return nil, fmt.Errorf("Error getting lease state: %s\n", err)
+			return nil, fmt.Errorf("Error getting lease state: %s", err)
 		}
 		stopLogsChan, err := streamVmLogs(socket, pool.Id, lease.Vm)
 		if err != nil {
-			return nil, fmt.Errorf("Error getting logs channel for lease: %s\n", err)
+			return nil, fmt.Errorf("Error getting logs channel for lease: %s", err)
 		}
 		_, err = waitForLeaseReady(*apiHandler, leaseSubscription, pool.Id, lease.Id)
 		stopLogsChan <- true
 		if err != nil {
 			lease, _ = apiHandler.GetLease(pool.Id, lease.Id)
-			return nil, fmt.Errorf("Error waiting for lease: %s\n%+v\n", err, lease)
+			return nil, fmt.Errorf("Error waiting for lease: %s\n%+v", err, lease)
 		}
 	}
 
@@ -251,18 +251,18 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	err = socket.Unsubscribe(pool.GetSubscriptionChannel())
 
 	if err != nil {
-		return nil, fmt.Errorf("Error unsubscribing to pool events: %s\n", err)
+		return nil, fmt.Errorf("Error unsubscribing to pool events: %s", err)
 	}
 
 	lease, err = apiHandler.GetLease(pool.Id, lease.Id)
 
 	if err != nil {
-		return nil, fmt.Errorf("Error getting lease state: %s\n", err)
+		return nil, fmt.Errorf("Error getting lease state: %s", err)
 	}
 
 	err = os.WriteFile("kubeconfig", []byte(lease.Kubeconfig), 0644)
 	if err != nil {
-		return nil, fmt.Errorf("Error: could not write to kubeconfig: %s\n", err)
+		return nil, fmt.Errorf("Error: could not write to kubeconfig: %s", err)
 	}
 	fmt.Printf("Cluster acquired, now run:\n\n    export KUBECONFIG=$(pwd)/kubeconfig\n    kubectl get pods --all-namespaces\n\nConsider adding kubeconfig to .gitignore\n")
 

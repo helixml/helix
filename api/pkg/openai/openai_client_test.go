@@ -14,7 +14,7 @@ import (
 func TestRetry(t *testing.T) {
 	called := 0
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called++
 
 		if called > 2 {
@@ -51,7 +51,7 @@ func TestDoNotRetryOnAuthFailures(t *testing.T) {
 func TestDoNotRetryOnAuthFailures_TestServer(t *testing.T) {
 	called := 0
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called++
 
 		w.WriteHeader(http.StatusUnauthorized)

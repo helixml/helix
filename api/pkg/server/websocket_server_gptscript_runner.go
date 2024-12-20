@@ -59,7 +59,7 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			Int("concurrency", concurrency).
 			Msgf("connected runner websocket: %s\n", runnerID)
 
-		appSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, concurrency, func(msg *pubsub.Message) error {
+		appSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, func(msg *pubsub.Message) error {
 			var messageType types.RunnerEventRequestType
 
 			switch msg.Header.Get("kind") {

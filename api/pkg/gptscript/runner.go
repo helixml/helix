@@ -37,17 +37,17 @@ func NewRunner(cfg *config.GPTScriptRunnerConfig) *Runner {
 	}
 }
 
-func (d *Runner) Run(ctx context.Context) error {
+func (r *Runner) Run(ctx context.Context) error {
 	// TODO: retry loop?
-	return d.run(ctx)
+	return r.run(ctx)
 }
 
-func (d *Runner) run(ctx context.Context) error {
+func (r *Runner) run(ctx context.Context) error {
 	var conn *websocket.Conn
 
 	err := retry.Do(func() error {
 		var err error
-		conn, err = d.dial(ctx)
+		conn, err = r.dial(ctx)
 		if err != nil {
 			return err
 		}
@@ -71,14 +71,14 @@ func (d *Runner) run(ctx context.Context) error {
 
 	done := make(chan struct{})
 
-	pool := pool.New().WithMaxGoroutines(d.cfg.Concurrency)
+	pool := pool.New().WithMaxGoroutines(r.cfg.Concurrency)
 	var ops atomic.Uint64
 
 	ctx, cancel := context.WithCancel(ctx)
 
 	log.Info().
-		Int("concurrency", d.cfg.Concurrency).
-		Int("max_tasks", d.cfg.MaxTasks).
+		Int("concurrency", r.cfg.Concurrency).
+		Int("max_tasks", r.cfg.MaxTasks).
 		Msg("🟢 starting task processing")
 
 	go func() {
@@ -100,14 +100,14 @@ func (d *Runner) run(ctx context.Context) error {
 			// process message in a goroutine, if max goroutines are reached
 			// the call will block until a goroutine is available
 			pool.Go(func() {
-				if err := d.processMessage(ctx, conn, message); err != nil {
+				if err := r.processMessage(ctx, conn, message); err != nil {
 					log.Err(err).Msg("failed to process message")
 					return
 				}
 				ops.Add(1)
 
 				// cancel context if max tasks are reached
-				if d.cfg.MaxTasks > 0 && ops.Load() >= uint64(d.cfg.MaxTasks) {
+				if r.cfg.MaxTasks > 0 && ops.Load() >= uint64(r.cfg.MaxTasks) {
 					log.Info().Msg("max tasks reached, cancelling context")
 					cancel()
 				}
@@ -138,22 +138,22 @@ func (d *Runner) run(ctx context.Context) error {
 	}
 }
 
-func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
+func (r *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 	var apiHost string
 
-	if strings.HasPrefix(d.cfg.APIHost, "https://") {
-		apiHost = strings.Replace(d.cfg.APIHost, "https", "wss", 1)
+	if strings.HasPrefix(r.cfg.APIHost, "https://") {
+		apiHost = strings.Replace(r.cfg.APIHost, "https", "wss", 1)
 	}
-	if strings.HasPrefix(d.cfg.APIHost, "http://") {
-		apiHost = strings.Replace(d.cfg.APIHost, "http", "ws", 1)
+	if strings.HasPrefix(r.cfg.APIHost, "http://") {
+		apiHost = strings.Replace(r.cfg.APIHost, "http", "ws", 1)
 	}
 
 	apiHost = fmt.Sprintf("%s%s?access_token=%s&concurrency=%d&runnerid=%s",
 		apiHost,
 		system.GetAPIPath("/ws/gptscript-runner"),
-		url.QueryEscape(d.cfg.APIToken), // Runner auth token to connect to the control plane
-		d.cfg.Concurrency,               // Concurrency is the number of tasks the runner can handle concurrently
-		d.cfg.RunnerID,                  // Runner ID is a unique identifier for the runner
+		url.QueryEscape(r.cfg.APIToken), // Runner auth token to connect to the control plane
+		r.cfg.Concurrency,               // Concurrency is the number of tasks the runner can handle concurrently
+		r.cfg.RunnerID,                  // Runner ID is a unique identifier for the runner
 	)
 
 	// NOTE(milosgajdos): disabling bodyclose here as there is no need for closing the response
@@ -170,7 +170,7 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 	return conn, nil
 }
 
-func (d *Runner) processMessage(ctx context.Context, conn *websocket.Conn, message []byte) error {
+func (r *Runner) processMessage(ctx context.Context, conn *websocket.Conn, message []byte) error {
 	var envelope types.RunnerEventRequestEnvelope
 	if err := json.Unmarshal(message, &envelope); err != nil {
 		return fmt.Errorf("failed to unmarshal message: %w", err)
@@ -178,15 +178,15 @@ func (d *Runner) processMessage(ctx context.Context, conn *websocket.Conn, messa
 
 	switch envelope.Type {
 	case types.RunnerEventRequestApp:
-		return d.processAppRequest(ctx, conn, &envelope)
+		return r.processAppRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestTool:
-		return d.processToolRequest(ctx, conn, &envelope)
+		return r.processToolRequest(ctx, conn, &envelope)
 	default:
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
 	}
 }
 
-func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+func (r *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
 	logger := log.With().Str("request_id", req.RequestID).Logger()
 
 	var app types.GptScriptGithubApp
@@ -209,10 +209,10 @@ func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, re
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 
-	return d.respond(conn, req.RequestID, req.Reply, resp)
+	return r.respond(conn, req.RequestID, req.Reply, resp)
 }
 
-func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+func (r *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
 	logger := log.With().Str("request_id", req.RequestID).Logger()
 
 	var script types.GptScript
@@ -235,7 +235,7 @@ func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, r
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 
-	return d.respond(conn, req.RequestID, req.Reply, resp)
+	return r.respond(conn, req.RequestID, req.Reply, resp)
 }
 
 func (r *Runner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {

@@ -56,11 +56,11 @@ func (suite *CronSuite) SetupTest() {
 	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b)
 	suite.Require().NoError(err)
 
-	suite.reconciler.newRagClient = func(settings *types.RAGSettings) rag.RAG {
+	suite.reconciler.newRagClient = func(_ *types.RAGSettings) rag.RAG {
 		return suite.rag
 	}
 
-	suite.reconciler.newCrawler = func(k *types.Knowledge) (crawler.Crawler, error) {
+	suite.reconciler.newCrawler = func(_ *types.Knowledge) (crawler.Crawler, error) {
 		return suite.crawler, nil
 	}
 }

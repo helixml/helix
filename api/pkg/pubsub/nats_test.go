@@ -140,7 +140,7 @@ func TestQueueMultipleSubs(t *testing.T) {
 		worker2 int
 	)
 
-	sub1, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub1, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 
@@ -159,7 +159,7 @@ func TestQueueMultipleSubs(t *testing.T) {
 		}
 	}()
 
-	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 		if ackErr := msg.Ack(); ackErr != nil {
@@ -223,7 +223,7 @@ func TestNatsStreaming(t *testing.T) {
 		// Wait a bit before starting the work
 		time.Sleep(1 * time.Second)
 
-		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
 
@@ -238,7 +238,7 @@ func TestNatsStreaming(t *testing.T) {
 			}
 		}()
 
-		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
 
@@ -303,7 +303,7 @@ func TestStreamRetries(t *testing.T) {
 
 	var nacks int
 
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		t.Log("consume", string(msg.Data))
 		// Nack 5 messages and don't reply anything, they should be retried
 		if nacks < 5 {
@@ -373,7 +373,7 @@ func TestStreamMultipleSubs(t *testing.T) {
 		worker2 int
 	)
 
-	sub1, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub1, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 
@@ -392,7 +392,7 @@ func TestStreamMultipleSubs(t *testing.T) {
 		}
 	}()
 
-	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
 
@@ -468,7 +468,7 @@ func TestStreamAfterDelay(t *testing.T) {
 		nacksMu sync.Mutex
 	)
 
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		nacksMu.Lock()
 		defer nacksMu.Unlock()
 
@@ -552,7 +552,7 @@ func TestStreamFailOne(t *testing.T) {
 		wg.Wait()
 	}()
 
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		if string(msg.Data) == "work-0" {
 			// Don't ack or nack
 			t.Log("will not process this message")

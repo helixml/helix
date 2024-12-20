@@ -468,7 +468,7 @@ func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.
 		return fmt.Errorf("failed to load RAG: %w", err)
 	}
 
-	knowledgeResults, knowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
+	knowledgeResults, knowledge, err := c.evaluateKnowledge(ctx, *req, assistant, opts)
 	if err != nil {
 		return fmt.Errorf("failed to load knowledge: %w", err)
 	}
@@ -520,7 +520,11 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	return ragContent, nil
 }
 
-func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, *types.Knowledge, error) {
+func (c *Controller) evaluateKnowledge(
+	ctx context.Context,
+	req openai.ChatCompletionRequest,
+	assistant *types.AssistantConfig,
+	opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, *types.Knowledge, error) {
 	var (
 		backgroundKnowledge []*prompts.BackgroundKnowledge
 		usedKnowledge       *types.Knowledge
@@ -684,7 +688,7 @@ func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) ope
 	return *req
 }
 
-func (c *Controller) GetRagClient(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
+func (c *Controller) GetRagClient(_ context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
 	if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
 		return rag.NewLlamaindex(&knowledge.RAGSettings), nil
 	}
