@@ -17,7 +17,7 @@ var removeCmd = &cobra.Command{
 	Aliases: []string{"rm"},
 	Short:   "Delete helix knowledge",
 	Long:    ``,
-	RunE: func(_ *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("knowledge name or ID is required")
 		}

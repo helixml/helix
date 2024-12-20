@@ -81,7 +81,7 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 // TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
 func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 	url := c.baseURL + "/models"
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
 	}

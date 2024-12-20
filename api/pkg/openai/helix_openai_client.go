@@ -308,7 +308,7 @@ type helixTransport struct {
 	writer *io.PipeWriter
 }
 
-func (t *helixTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+func (t *helixTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	readCloser := io.NopCloser(t.reader)
 
 	return &http.Response{
