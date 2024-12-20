@@ -27,7 +27,7 @@ func (c *ChainStrategy) RunGPTScriptAction(
 	ctx context.Context,
 	tool *types.Tool,
 	history []*types.ToolHistoryMessage,
-	action string,
+	_ string,
 ) (*RunActionResponse, error) {
 	// TODO: maybe we should pass the whole history to the script executor, like we do for api tools
 	currentMessage := history[len(history)-1].Content
@@ -49,7 +49,7 @@ func (c *ChainStrategy) RunGPTScriptActionStream(
 	ctx context.Context,
 	tool *types.Tool,
 	history []*types.ToolHistoryMessage,
-	faction string,
+	_ string,
 ) (*openai.ChatCompletionStream, error) {
 	currentMessage := history[len(history)-1].Content
 	script := getScriptFromTool(tool, currentMessage)

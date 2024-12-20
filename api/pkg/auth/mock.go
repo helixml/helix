@@ -18,10 +18,10 @@ func NewMockAuthenticator(user *types.User) *MockAuthenticator {
 	}
 }
 
-func (m *MockAuthenticator) GetUserByID(ctx context.Context, userID string) (*types.User, error) {
+func (m *MockAuthenticator) GetUserByID(_ context.Context, _ string) (*types.User, error) {
 	return m.user, nil
 }
 
-func (m *MockAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {
+func (m *MockAuthenticator) ValidateUserToken(_ context.Context, _ string) (*jwt.Token, error) {
 	return nil, nil
 }

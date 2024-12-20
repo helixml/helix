@@ -15,7 +15,7 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 	instance, err := NewOllamaInferenceModelInstance(
 		r.Ctx,
 		&InferenceModelInstanceConfig{
-			ResponseHandler: func(res *types.RunnerLLMInferenceResponse) error {
+			ResponseHandler: func(_ *types.RunnerLLMInferenceResponse) error {
 				// No-op
 				return nil
 			},
