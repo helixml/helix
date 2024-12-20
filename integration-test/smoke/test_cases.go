@@ -23,6 +23,7 @@ var TestSuite = []TestCase{
 	LoginFlowTest(),
 	StartNewSessionTest(),
 	UploadPDFFileTest(),
+	CreateRagAppTest(),
 }
 
 // HomepageLoadTest verifies that the homepage loads successfully
@@ -200,6 +201,64 @@ func uploadPDFFile(browser *rod.Browser) error {
 	if !found {
 		return fmt.Errorf("tab not found")
 	}
+
+	return nil
+}
+
+func CreateRagAppTest() TestCase {
+	return TestCase{
+		Name:        "Create RAG App",
+		Description: "Tests creating a RAG app",
+		Timeout:     60 * time.Second,
+		Run:         createRagApp,
+	}
+}
+
+func createRagApp(browser *rod.Browser) error {
+	if err := performLogin(browser); err != nil {
+		return err
+	}
+
+	// Navigate to the files page
+	page := browser.
+		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
+		MustPage(getServerURL())
+	page.MustWaitStable()
+
+	logStep("Browsing to the apps page")
+	page.MustElement("button[aria-controls='menu-appbar']").MustClick()
+	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustClick()
+
+	logStep("Creating a new app")
+	page.MustElement("#new-app-button").MustClick()
+	page.MustWaitStable()
+
+	logStep("Save initial app")
+	page.MustElement("#app-name").MustInput(fmt.Sprintf("smoke-%d", time.Now().Unix()))
+	page.MustElementX(`//button[contains(text(), 'Save')]`).MustClick()
+	page.MustWaitStable()
+
+	logStep("Adding knowledge")
+	page.MustElementX(`//button[contains(text(), 'Knowledge')]`).MustClick()
+
+	logStep("Adding knowledge source")
+	page.MustElementX(`//button[contains(text(), 'Add Knowledge Source')]`).MustClick()
+	page.MustElement(`input[value=filestore]`).MustClick()
+	page.MustElement(`input[type=text]`).MustInput(folderName)
+	page.MustElementX(`//button[contains(text(), 'Save')]`).MustClick()
+
+	logStep("Waiting for knowledge source to be ready")
+	page.MustElementX(`//span[contains(text(), 'ready')]`)
+
+	logStep("Testing the app")
+	page.MustElement("#textEntry").MustInput("do you have a shoe policy")
+	page.MustElement("#sendButton").MustClick()
+
+	message := page.MustElement(".interactionMessage")
+	if !strings.Contains(message.MustText(), "shoe policy") {
+		return fmt.Errorf("app did not respond with the correct answer")
+	}
+	logStep("App responded with the correct answer")
 
 	return nil
 }
