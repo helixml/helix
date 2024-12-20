@@ -24,7 +24,7 @@ func (c *HelixClient) FilestoreList(ctx context.Context, path string) ([]filesto
 	query.Add("path", path)
 	url.RawQuery = query.Encode()
 
-	err := c.makeRequest(http.MethodGet, url.String(), nil, &resp)
+	err := c.makeRequest(ctx, http.MethodGet, url.String(), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func (c *HelixClient) FilestoreDelete(ctx context.Context, path string) error {
 		return fmt.Errorf("path is required")
 	}
 
-	err := c.makeRequest(http.MethodDelete, "/filestore/delete?path="+path, nil, nil)
+	err := c.makeRequest(ctx, http.MethodDelete, "/filestore/delete?path="+path, nil, nil)
 	if err != nil {
 		return err
 	}

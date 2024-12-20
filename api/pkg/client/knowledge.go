@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -11,7 +12,7 @@ type KnowledgeFilter struct {
 	AppID string
 }
 
-func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error) {
+func (c *HelixClient) ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error) {
 	path := "/knowledge"
 	if f.AppID != "" {
 		path += "?app_id=" + f.AppID
@@ -19,7 +20,7 @@ func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, err
 
 	var knowledge []*types.Knowledge
 
-	err := c.makeRequest(http.MethodGet, path, nil, &knowledge)
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}
@@ -27,11 +28,11 @@ func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, err
 	return knowledge, nil
 }
 
-func (c *HelixClient) GetKnowledge(id string) (*types.Knowledge, error) {
+func (c *HelixClient) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
 	path := "/knowledge/" + id
 
 	var knowledge *types.Knowledge
-	err := c.makeRequest(http.MethodGet, path, nil, &knowledge)
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}
@@ -39,16 +40,16 @@ func (c *HelixClient) GetKnowledge(id string) (*types.Knowledge, error) {
 	return knowledge, nil
 }
 
-func (c *HelixClient) DeleteKnowledge(id string) error {
-	err := c.makeRequest(http.MethodDelete, "/knowledge/"+id, nil, nil)
+func (c *HelixClient) DeleteKnowledge(ctx context.Context, id string) error {
+	err := c.makeRequest(ctx, http.MethodDelete, "/knowledge/"+id, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to delete knowledge, %w", err)
 	}
 	return nil
 }
 
-func (c *HelixClient) RefreshKnowledge(id string) error {
-	err := c.makeRequest(http.MethodPost, "/knowledge/"+id+"/refresh", nil, nil)
+func (c *HelixClient) RefreshKnowledge(ctx context.Context, id string) error {
+	err := c.makeRequest(ctx, http.MethodPost, "/knowledge/"+id+"/refresh", nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to refresh knowledge, %w", err)
 	}
@@ -60,9 +61,9 @@ type KnowledgeVersionsFilter struct {
 	KnowledgeID string
 }
 
-func (c *HelixClient) ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error) {
+func (c *HelixClient) ListKnowledgeVersions(ctx context.Context, f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error) {
 	var knowledge []*types.KnowledgeVersion
-	err := c.makeRequest(http.MethodGet, fmt.Sprintf("/knowledge/%s/versions", f.KnowledgeID), nil, &knowledge)
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/knowledge/%s/versions", f.KnowledgeID), nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}

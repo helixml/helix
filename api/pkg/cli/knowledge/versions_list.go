@@ -27,12 +27,12 @@ var versionsListCmd = &cobra.Command{
 			return err
 		}
 
-		knowledge, err := lookupKnowledge(apiClient, args[0])
+		knowledge, err := lookupKnowledge(cmd.Context(), apiClient, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to lookup knowledge: %w", err)
 		}
 
-		versions, err := apiClient.ListKnowledgeVersions(&client.KnowledgeVersionsFilter{
+		versions, err := apiClient.ListKnowledgeVersions(cmd.Context(), &client.KnowledgeVersionsFilter{
 			KnowledgeID: knowledge.ID,
 		})
 		if err != nil {
