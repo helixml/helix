@@ -25,7 +25,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		secrets, err := apiClient.ListSecrets()
+		secrets, err := apiClient.ListSecrets(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}

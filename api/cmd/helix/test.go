@@ -820,7 +820,7 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 		},
 	}
 
-	createdApp, err := apiClient.CreateApp(app)
+	createdApp, err := apiClient.CreateApp(context.Background(), app)
 	if err != nil {
 		return "", fmt.Errorf("failed to create app: %w", err)
 	}
@@ -834,8 +834,10 @@ func deleteApp(namespacedAppName string) error {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
 
+	ctx := context.Background()
+
 	// First, we need to look up the app by name
-	existingApps, err := apiClient.ListApps(&client.AppFilter{})
+	existingApps, err := apiClient.ListApps(ctx, &client.AppFilter{})
 	if err != nil {
 		return fmt.Errorf("failed to list apps: %w", err)
 	}
@@ -853,7 +855,7 @@ func deleteApp(namespacedAppName string) error {
 	}
 
 	// Delete the app
-	if err := apiClient.DeleteApp(appID, true); err != nil {
+	if err := apiClient.DeleteApp(ctx, appID, true); err != nil {
 		return fmt.Errorf("failed to delete app: %w", err)
 	}
 

@@ -23,7 +23,7 @@ var inspectCmd = &cobra.Command{
 			return err
 		}
 
-		knowledge, err := apiClient.GetKnowledge(args[0])
+		knowledge, err := apiClient.GetKnowledge(cmd.Context(), args[0])
 		if err != nil {
 			return fmt.Errorf("failed to get knowledge: %w", err)
 		}

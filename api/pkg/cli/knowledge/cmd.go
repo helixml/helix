@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/client"
@@ -22,8 +23,8 @@ func New() *cobra.Command {
 	return rootCmd
 }
 
-func lookupKnowledge(apiClient *client.HelixClient, ref string) (*types.Knowledge, error) {
-	knowledge, err := apiClient.ListKnowledge(&client.KnowledgeFilter{})
+func lookupKnowledge(ctx context.Context, apiClient *client.HelixClient, ref string) (*types.Knowledge, error) {
+	knowledge, err := apiClient.ListKnowledge(ctx, &client.KnowledgeFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list apps: %w", err)
 	}
