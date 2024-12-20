@@ -80,6 +80,7 @@ func (cs *CookieStore) Load(page *rod.Page, serverURL string) error {
 		return fmt.Errorf("cookies are for different URL")
 	}
 
+	logStep("Setting cookies")
 	return cs.setCookies(page, stored.Cookies)
 }
 

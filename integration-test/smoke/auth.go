@@ -10,10 +10,12 @@ import (
 func performLogin(browser *rod.Browser) error {
 	page := browser.MustPage(getServerURL())
 	page.MustWaitLoad()
-
 	cookieStore := NewCookieStore("")
 	if err := cookieStore.Load(page, getServerURL()); err != nil {
 		return loginWithCredentials(page)
+	} else {
+		logStep("Cookies loaded, reloading page")
+		page.MustReload()
 	}
 
 	return verifyLogin(page)
@@ -42,13 +44,11 @@ func loginWithCredentials(page *rod.Page) error {
 }
 
 func verifyLogin(page *rod.Page) error {
-	logStep("Waiting for page to stabilize")
-	page.MustWaitStable()
-
 	logStep("Verifying login")
 	username := os.Getenv("HELIX_USER")
 	xpath := fmt.Sprintf(`//span[contains(text(), '%s')]`, username)
-	if len(page.MustElementsX(xpath)) == 0 {
+	el := page.MustElementX(xpath)
+	if el == nil {
 		return fmt.Errorf("login failed - username not found")
 	}
 	return nil
