@@ -16,7 +16,7 @@ import (
 type AppFilter struct {
 }
 
-func (c *HelixClient) ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error) {
+func (c *HelixClient) ListApps(ctx context.Context, _ *AppFilter) ([]*types.App, error) {
 	var apps []*types.App
 	err := c.makeRequest(ctx, http.MethodGet, "/apps", nil, &apps)
 	if err != nil {

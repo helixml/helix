@@ -232,7 +232,7 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 func (c *Controller) RestartSession(ctx context.Context, session *types.Session) (*types.Session, error) {
 	// let's see if this session is currently active as far as runners are aware
 	activeSessions := map[string]bool{}
-	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
+	c.activeRunners.Range(func(_ string, metrics *types.RunnerState) bool {
 		for _, modelInstance := range metrics.ModelInstances {
 			if modelInstance.CurrentSession == nil {
 				continue

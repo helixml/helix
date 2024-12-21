@@ -215,7 +215,7 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(user *types.User, pageURL 
 	}
 }
 
-func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http.Request) (*GithubStatus, error) {
+func (apiServer *HelixAPIServer) githubStatus(_ http.ResponseWriter, req *http.Request) (*GithubStatus, error) {
 	if !apiServer.Cfg.GitHub.Enabled || apiServer.Cfg.GitHub.ClientID == "" || apiServer.Cfg.GitHub.ClientSecret == "" {
 		return nil, fmt.Errorf("github integration is not enabled")
 	}
@@ -236,13 +236,12 @@ func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http
 		return &GithubStatus{
 			HasToken: true,
 		}, nil
-	} else {
-		conf := apiServer.getGithubOauthConfig(user, pageURL)
-		return &GithubStatus{
-			HasToken:    false,
-			RedirectURL: conf.AuthCodeURL(user.Email, oauth2.AccessTypeOffline),
-		}, nil
 	}
+	conf := apiServer.getGithubOauthConfig(user, pageURL)
+	return &GithubStatus{
+		HasToken:    false,
+		RedirectURL: conf.AuthCodeURL(user.Email, oauth2.AccessTypeOffline),
+	}, nil
 }
 
 func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http.Request) {

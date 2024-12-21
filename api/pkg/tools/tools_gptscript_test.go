@@ -16,7 +16,7 @@ echo "${input}"`
 
 func (suite *ActionTestSuite) TestAction_runGPTScriptAction_helloWorld() {
 	suite.executor.EXPECT().ExecuteScript(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+		func(_ context.Context, _ *types.GptScript) (*types.GptScriptResponse, error) {
 			return &types.GptScriptResponse{
 				Output: `Hello World!`,
 			}, nil
@@ -62,7 +62,7 @@ When asked about trucks, respond with "Thanks for asking "${question}", I'm am l
 func (suite *ActionTestSuite) TestAction_runGPTScriptAction_ReceiveInput() {
 
 	suite.executor.EXPECT().ExecuteScript(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+		func(_ context.Context, _ *types.GptScript) (*types.GptScriptResponse, error) {
 			return &types.GptScriptResponse{
 				Output: `Thanks for asking "can I get info about the volvo truck?", I'm am looking into it and will send you an email once I am done!`,
 			}, nil

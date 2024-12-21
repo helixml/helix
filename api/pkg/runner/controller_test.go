@@ -22,6 +22,7 @@ type mockRuntimeFactory struct {
 	getRuntimeFunc func() *Slot
 }
 
+// nolint:revive
 func (m *mockRuntimeFactory) NewSlot(ctx context.Context,
 	slotID uuid.UUID,
 	work *scheduler.Workload,
@@ -34,7 +35,7 @@ func (m *mockRuntimeFactory) NewSlot(ctx context.Context,
 
 func TestController_GetSlots(t *testing.T) {
 	// Create a httptest server to test the getSlots method
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte(`{"slots": 10}`)); err != nil {
 			t.Fatalf("error writing slots: %v", err)
 		}
@@ -66,7 +67,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 		Data: []types.DesiredRunnerSlot{},
 	}
 	// Create a httptest server to test the getSlots method
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		data, err := json.Marshal(apiSlots)
 		assert.NoError(t, err)
 		if _, err := w.Write(data); err != nil {

@@ -56,7 +56,7 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIMod
 
 // TODO: move logic from controller and other places. This method would be called directly from the runner
 // handler to get the next session. Pubsub is handled internally within this package
-func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, filter types.InferenceRequestFilter, runnerID string) (*types.RunnerLLMInferenceRequest, error) {
+func (c *InternalHelixServer) GetNextLLMInferenceRequest(_ context.Context, filter types.InferenceRequestFilter, runnerID string) (*types.RunnerLLMInferenceRequest, error) {
 	// Track beginning of request
 	runnerReqID := system.GenerateID()
 
