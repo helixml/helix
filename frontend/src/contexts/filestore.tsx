@@ -156,7 +156,6 @@ export const useFilestoreContext = (): IFilestoreContext => {
         formData.append("files", file)
       })
       try {
-        console.log("xxx POST", path, files);
         await api.post('/api/v1/filestore/upload', formData, {
           params: {
             path,
