@@ -28,7 +28,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
-import { IKnowledgeSource } from '../../types';
+import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
 import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
 import CrawledUrlsDialog from './CrawledUrlsDialog';
@@ -42,8 +42,8 @@ interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;  
   onRefresh: (id: string) => void;
-  onUpload: (path: string, files: File[]) => Promise<boolean>;
-  loadFiles: (path: string) => Promise<void>;
+  onUpload: (path: string, files: File[]) => Promise<void>;
+  loadFiles: (path: string) => Promise<IFileStoreItem[]>;
   uploadProgress?: IFilestoreUploadProgress;
   disabled: boolean;
   knowledgeList: IKnowledgeSource[];
@@ -193,28 +193,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
-  const handleFileUpload = async (index: number, files: File[]) => {
-    console.log("xxx handleFileUpload", files);
+  const handleFileUpload = async (index: number, files: File[]) => {    
     const source = knowledgeSources[index];
     if (!source.source.filestore?.path) {
       snackbar.error('No filestore path specified');
       return;
-    }
+    }    
 
-    console.log("xxx", source.source.filestore.path);
-
-    const result = await onUpload(source.source.filestore.path, files);
-
-    console.log("xxx result", result);
-
-    if (!result) return;
-
-    // Refresh the knowledge source after upload
-    // const knowledge = getKnowledge(source);
-    // if (knowledge) {
-    //   onRefresh(knowledge.id);
-    //   snackbar.success('Files uploaded and knowledge refresh initiated');
-    // }
+    await onUpload(source.source.filestore.path, files);    
   };
 
   const loadDirectoryContents = async (path: string, index: number) => {
