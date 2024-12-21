@@ -47,7 +47,7 @@ func TestScheduler_TimeoutRunner(t *testing.T) {
 
 	// Allow the background goroutine to run
 	var work *Workload
-	WaitFor(t, func() bool {
+	waitFor(t, func() bool {
 		work, err = scheduler.WorkForRunner("test-runner-2", WorkloadTypeLLMInferenceRequest, false, model.Model_Ollama_Llama3_8b)
 		return work != nil
 	}, 2*time.Second)
@@ -389,7 +389,7 @@ func TestScheduler_EnqueueLLMRequest(t *testing.T) {
 	// Start some work on the runner, so that subsequent requests must queue
 	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
-	WaitFor(t, emptyQueueFunc, time.Second) // This waits for the queue to be processed
+	waitFor(t, emptyQueueFunc, time.Second) // This waits for the queue to be processed
 	err = scheduler.Begin("request-1")      // This marks the slot as started
 	assert.NoError(t, err)
 
@@ -406,7 +406,7 @@ func TestScheduler_EnqueueLLMRequest(t *testing.T) {
 	// Finish original work, queue should now run (in the goroutine, might need to wait a minute)
 	err = scheduler.Release("request-1")
 	assert.NoError(t, err)
-	WaitFor(t, emptyQueueFunc, time.Second)
+	waitFor(t, emptyQueueFunc, time.Second)
 	assert.Len(t, scheduler.queue, 0)
 
 	// Now add too many things to the queue
@@ -435,7 +435,7 @@ func TestScheduler_EnqueueSessionRequest(t *testing.T) {
 	// Start some work on the runner, so that subsequent requests must queue
 	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
-	WaitFor(t, emptyQueueFunc, time.Second) // This waits for the queue to be processed
+	waitFor(t, emptyQueueFunc, time.Second) // This waits for the queue to be processed
 	err = scheduler.Begin("request-1")      // This marks the slot as started
 	assert.NoError(t, err)
 
@@ -473,7 +473,7 @@ func TestScheduler_RunnerLifecycle(t *testing.T) {
 	// Enqueue and schedule some work
 	err := enqueueTestLLMWorkload(scheduler, "request-1", model.Model_Ollama_Llama3_8b)
 	assert.NoError(t, err)
-	WaitFor(t, emptyQueueFunc, time.Second) // This waits for the queue to be processed
+	waitFor(t, emptyQueueFunc, time.Second) // This waits for the queue to be processed
 
 	// Runner asks for slots, now there is work
 	slots = scheduler.SlotsForRunner("test-runner")
@@ -555,7 +555,7 @@ func TestScheduler_ChangingRunnerName(t *testing.T) {
 	scheduler.processQueueOnce()
 
 	// Allow the runner to die
-	WaitFor(t, func() bool {
+	waitFor(t, func() bool {
 		// Manually check that the runner is dead
 		scheduler.checkForDeadRunnersOnce()
 
@@ -630,7 +630,7 @@ func createTestSession(scheduler Scheduler, name string, model string, loraDir s
 	return scheduler.Schedule(work)
 }
 
-func WaitFor(t *testing.T, successFunc func() bool, d time.Duration) {
+func waitFor(_ *testing.T, successFunc func() bool, d time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
 	for {

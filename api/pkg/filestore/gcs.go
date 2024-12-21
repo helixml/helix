@@ -76,7 +76,7 @@ func (s *GCSStorage) Get(ctx context.Context, path string) (FileStoreItem, error
 	}, nil
 }
 
-func (s *GCSStorage) SignedURL(ctx context.Context, path string) (string, error) {
+func (s *GCSStorage) SignedURL(_ context.Context, path string) (string, error) {
 	return s.bucket.SignedURL(path, &storage.SignedURLOptions{
 		Expires: time.Now().Add(20 * time.Minute),
 		Method:  http.MethodGet,

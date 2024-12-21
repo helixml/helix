@@ -57,11 +57,11 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 	return apiServer.sessionLoaderWithID(req, mux.Vars(req)["id"], writeMode)
 }
 
-func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	return apiServer.sessionLoader(req, false)
 }
 
-func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req *http.Request) (*types.SessionSummary, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSessionSummary(_ http.ResponseWriter, req *http.Request) (*types.SessionSummary, *system.HTTPError) {
 	session, err := apiServer.sessionLoader(req, false)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req 
 	return system.DefaultController(data.GetSessionSummary(session))
 }
 
-func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
+func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 
@@ -129,7 +129,7 @@ func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *ht
 	return apiServer.Store.CreateDataEntity(req.Context(), entity)
 }
 
-func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -164,7 +164,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	return sessionData, nil
 }
 
-func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, req *http.Request) (*types.SessionMetadata, *system.HTTPError) {
+func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req *http.Request) (*types.SessionMetadata, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -208,13 +208,13 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
+func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, _ *http.Request) (types.ServerConfigForFrontend, error) {
 	return apiServer.getConfig()
 }
 
 // prints the config values as JavaScript values so we can block the rest of the frontend on
 // initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
-func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Request) {
+func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, _ *http.Request) {
 	config, err := apiServer.getConfig()
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
@@ -237,41 +237,41 @@ window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 	}
 }
 
-func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
+func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
 	return apiServer.Controller.GetStatus(ctx, user)
 }
 
-func (apiServer *HelixAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
+func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
 	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
-func (apiServer *HelixAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreGet(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreCreateFolder(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreDelete(res http.ResponseWriter, req *http.Request) (string, error) {
+func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
 	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
 
 // TODO version of this which is session specific
-func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (bool, error) {
+func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -374,7 +374,7 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFolder(res http.ResponseWr
 }
 
 // TODO: this need auth because right now it's an open filestore
-func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
@@ -417,7 +417,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWriter, req *http.Request) (*filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter, req *http.Request) (*filestore.FileStoreItem, error) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
@@ -479,7 +479,7 @@ func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *ht
 	return system.DefaultController(apiServer.Controller.RestartSession(req.Context(), session))
 }
 
-func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) retryTextFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, err := apiServer.sessionLoader(req, true)
 	if err != nil {
 		return nil, err
@@ -492,7 +492,7 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 	return session, nil
 }
 
-func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) cloneFinetuneInteraction(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	vars := mux.Vars(req)
 
 	user := getRequestUser(req)
@@ -538,7 +538,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	}))
 }
 
-func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) finetuneAddDocuments(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -565,12 +565,11 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 	// rather than appending new interactions
 	if interactionID != "" {
 		return system.DefaultController(apiServer.Controller.AddDocumentsToInteraction(req.Context(), session, newUserInteraction.Files))
-	} else {
-		return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, newUserInteraction))
 	}
+	return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, newUserInteraction))
 }
 
-func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSessionFinetuneConversation(_ http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
 	vars := mux.Vars(req)
 	session, httpError := apiServer.sessionLoader(req, false)
 	if httpError != nil {
@@ -586,7 +585,7 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 	return system.DefaultController(apiServer.Controller.ReadTextFineTuneQuestions(foundFile))
 }
 
-func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
+func (apiServer *HelixAPIServer) setSessionFinetuneConversation(_ http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
 	vars := mux.Vars(req)
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
@@ -614,7 +613,7 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 	return data, nil
 }
 
-func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) startSessionFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -629,7 +628,7 @@ func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, r
 	return session, nil
 }
 
-func (apiServer *HelixAPIServer) updateSessionMeta(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	_, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -662,11 +661,11 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 }
 
 // admin is required by the auth middleware
-func (apiServer *HelixAPIServer) dashboard(res http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
+func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
 	return apiServer.Controller.GetDashboardData(req.Context())
 }
 
-func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -675,7 +674,7 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
-func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	newAPIKey := &types.APIKey{}
 	name := req.URL.Query().Get("name")
 
@@ -738,7 +737,7 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
-func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
+func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
@@ -769,7 +768,7 @@ func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.R
 	return apiKeys, nil
 }
 
-func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
@@ -782,7 +781,7 @@ func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http
 }
 
 // TODO: verify if this is actually used
-func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
+func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
 	ctx := req.Context()
 
 	apiKey := req.URL.Query().Get("key")
@@ -793,13 +792,13 @@ func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.
 	return key, nil
 }
 
-func (apiServer *HelixAPIServer) subscriptionCreate(res http.ResponseWriter, req *http.Request) (string, error) {
+func (apiServer *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 
 	return apiServer.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
 }
 
-func (apiServer *HelixAPIServer) subscriptionManage(res http.ResponseWriter, req *http.Request) (string, error) {
+func (apiServer *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
