@@ -104,7 +104,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		return nil, fmt.Errorf("failed to update assistant interaction: %w", err)
 	}
 
-	if err := c.WriteSession(updated); err != nil {
+	if err := c.WriteSession(ctx, updated); err != nil {
 		// NOTE: we dont return here as this "only" emits WS events
 		log.Err(err).Msg("failed writing session")
 	}

@@ -214,7 +214,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	// Write the initial session that has the user prompt and also the placeholder interaction
 	// for the system response which will be updated later once the response is received
-	err = s.Controller.WriteSession(session)
+	err = s.Controller.WriteSession(req.Context(), session)
 	if err != nil {
 		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -230,7 +230,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			session.Name = name
 
-			err = s.Controller.UpdateSessionName(user.ID, session.ID, name)
+			err = s.Controller.UpdateSessionName(req.Context(), user.ID, session.ID, name)
 			if err != nil {
 				log.Error().Err(err).Msg("error updating session name")
 			}
@@ -329,7 +329,7 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 	}
 
 	// Update the session
-	err = s.Controller.WriteSession(session)
+	err = s.Controller.WriteSession(req.Context(), session)
 	if err != nil {
 		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -454,7 +454,13 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model,
 	return resp.Choices[0].Message.Content, nil
 }
 
-func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+func (s *HelixAPIServer) handleBlockingSession(
+	ctx context.Context,
+	user *types.User,
+	session *types.Session,
+	chatCompletionRequest openai.ChatCompletionRequest,
+	options *controller.ChatCompletionOptions, rw http.ResponseWriter,
+) error {
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
 
@@ -464,7 +470,7 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-		writeErr := s.Controller.WriteSession(session)
+		writeErr := s.Controller.WriteSession(ctx, session)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
 		}
@@ -483,7 +489,7 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
-	err = s.Controller.WriteSession(session)
+	err = s.Controller.WriteSession(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -531,7 +537,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
 		session.Interactions[len(session.Interactions)-1].Finished = true
-		if sessErr := s.Controller.WriteSession(session); sessErr != nil {
+		if sessErr := s.Controller.WriteSession(ctx, session); sessErr != nil {
 			log.Error().Err(err).Msg("failed to write session")
 		}
 
@@ -584,5 +590,5 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
-	return s.Controller.WriteSession(session)
+	return s.Controller.WriteSession(ctx, session)
 }

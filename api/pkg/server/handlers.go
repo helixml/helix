@@ -476,7 +476,7 @@ func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *ht
 		apiServer.restartChatSessionHandler(res, req)
 		return session, nil
 	}
-	return system.DefaultController(apiServer.Controller.RestartSession(session))
+	return system.DefaultController(apiServer.Controller.RestartSession(req.Context(), session))
 }
 
 func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
@@ -485,7 +485,7 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 		return nil, err
 	}
 	go func() {
-		if _, err := apiServer.Controller.PrepareSession(session); err != nil {
+		if _, err := apiServer.Controller.PrepareSession(req.Context(), session); err != nil {
 			log.Error().Err(err).Msg("failed to prepare session")
 		}
 	}()
@@ -620,7 +620,7 @@ func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, r
 		return nil, httpError
 	}
 
-	err := apiServer.Controller.BeginFineTune(session)
+	err := apiServer.Controller.BeginFineTune(req.Context(), session)
 
 	if err != nil {
 		return nil, system.NewHTTPError(err)
