@@ -180,7 +180,7 @@ const App: FC = () => {
     };
   }, [app?.id, fetchKnowledge]);
 
-  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
+  const handleKnowledgeUpdate = useCallback(async (updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
     setApp(prevApp => {
       if (!prevApp) return prevApp;
@@ -199,20 +199,7 @@ const App: FC = () => {
         },
       };
     });
-  }, []);
-
-  // Upload the files to the filestore
-  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
-    const formData = new FormData()
-    files.forEach((file) => {
-      formData.append("files", file)
-    })
-    await api.post('/api/v1/filestore/upload', formData, {
-      params: {
-        path,
-      },
-    })
-  }, [api]);
+  }, [app?.id]);
 
   const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
@@ -226,6 +213,19 @@ const App: FC = () => {
       }
     } catch(e) {}
     return []
+  }, [api]);
+
+  // Upload the files to the filestore
+  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
+    await api.post('/api/v1/filestore/upload', formData, {
+      params: {
+        path,
+      },
+    })
   }, [api]);
 
   const handleRefreshKnowledge = useCallback((id: string) => {
