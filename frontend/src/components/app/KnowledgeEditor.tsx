@@ -104,8 +104,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const handleAddSource = (newSource: IKnowledgeSource) => {
     onUpdate([...knowledgeSources, newSource]);
     // Save    
-    setExpanded(`panel${knowledgeSources.length}`);
-    // onSave(true);
+    setExpanded(`panel${knowledgeSources.length}`);     
   };
 
   const deleteSource = (index: number) => {
@@ -203,7 +202,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       return;
     }    
 
-    await onUpload(source.source.filestore.path, files);    
+    await onUpload(source.source.filestore.path, files);
+
+    const dirFiles = await loadFiles(source.source.filestore.path);
+    setDirectoryFiles(prev => ({
+      ...prev,
+      [index]: dirFiles
+    }));
   };
 
   const loadDirectoryContents = async (path: string, index: number) => {
@@ -224,30 +229,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
     return (
       <>
-        {/* <FormControl component="fieldset" sx={{ mb: 2 }}>
-          <RadioGroup
-            row
-            value={sourceType}
-            onChange={(e) => {
-              const newSourceType = e.target.value;
-              let newSource: Partial<IKnowledgeSource> = {
-                source: newSourceType === 'filestore'
-                  ? { filestore: { path: '' } }
-                  : { web: { urls: [], crawler: { 
-                    enabled: true,
-                    max_depth: 0,
-                    max_pages: 0,
-                    readability: false
-                  } } }
-              };
-              handleSourceUpdate(index, newSource);
-            }}
-          >
-            <FormControlLabel value="filestore" control={<Radio />} label="Helix Filestore" />
-            <FormControlLabel value="web" control={<Radio />} label="Web" />
-          </RadioGroup>
-        </FormControl> */}
-
         {sourceType === 'filestore' ? (
           <TextField
             fullWidth
@@ -585,19 +566,21 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   Version: {knowledge?.version || 'N/A'}
                 </Typography>
               </Box>
-              <Tooltip title="View crawled URLs">
-                <IconButton
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedKnowledge(knowledge);
-                    setUrlDialogOpen(true);
-                  }}
-                  disabled={disabled || !knowledge}
-                  sx={{ mr: 1 }}
-                >
-                  <LinkIcon />
-                </IconButton>
-              </Tooltip>
+              {source.source.web && (
+                <Tooltip title="View crawled URLs">
+                  <IconButton
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedKnowledge(knowledge);
+                      setUrlDialogOpen(true);
+                    }}
+                    disabled={disabled || !knowledge}
+                    sx={{ mr: 1 }}
+                  >
+                    <LinkIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip title="Refresh knowledge and reindex data">
                 <IconButton
                   onClick={(e) => {
