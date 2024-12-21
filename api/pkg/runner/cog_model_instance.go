@@ -203,7 +203,7 @@ func (i *CogModelInstance) AssignSessionTask(ctx context.Context, session *types
 	return task, nil
 }
 
-func (i *CogModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+func (i *CogModelInstance) QueueSession(*types.Session, bool) {}
 
 /*
 
