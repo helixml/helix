@@ -44,6 +44,7 @@ import {
   IAssistantApi,
   IAssistantGPTScript,
   IAssistantZapier,
+  IFileStoreItem,
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
@@ -200,17 +201,32 @@ const App: FC = () => {
     });
   }, []);
 
+  // Upload the files to the filestore
   const handleFileUpload = useCallback(async (path: string, files: File[]) => {
-    console.log("xxx handleFileUpload yyy", path, files);
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
+    await api.post('/api/v1/filestore/upload', formData, {
+      params: {
+        path,
+      },
+    })
+  }, [api]);
+
+  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
-      const result = await filestore.upload(path, files);
-      return result;
-    } catch (error) {
-      console.error('Failed to upload files:', error);
-      snackbar.error('Failed to upload files');
-      return false;
-    }
-  }, [filestore, snackbar]);
+      const filesResult = await api.get('/api/v1/filestore/list', {
+        params: {
+          path,
+        }
+      })
+      if(filesResult) {
+        return filesResult
+      }
+    } catch(e) {}
+    return []
+  }, [api]);
 
   const handleRefreshKnowledge = useCallback((id: string) => {
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
@@ -894,7 +910,7 @@ const App: FC = () => {
                       onUpdate={handleKnowledgeUpdate}
                       onRefresh={handleRefreshKnowledge}
                       onUpload={handleFileUpload}
-                      loadFiles={filestore.loadFiles}
+                      loadFiles={handleLoadFiles}
                       uploadProgress={filestore.uploadProgress}
                       disabled={isReadOnly}
                       knowledgeList={knowledgeList}
