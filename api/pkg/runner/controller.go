@@ -437,7 +437,7 @@ func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*
 
 func (r *Runner) getUsedMemory() uint64 {
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
+	r.activeModelInstances.Range(func(_ string, modelInstance ModelInstance) bool {
 		memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
 		return true
 	})
@@ -511,7 +511,7 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 
 func (r *Runner) getState() (*types.RunnerState, error) {
 	modelInstances := []*types.ModelInstanceState{}
-	r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
+	r.activeModelInstances.Range(func(_ string, modelInstance ModelInstance) bool {
 		state, err := modelInstance.GetState()
 		if err != nil {
 			log.Error().Msgf("error getting state for model instance %s (%s): %s", modelInstance.ID(), modelInstance.Filter().ModelName, err.Error())

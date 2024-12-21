@@ -89,7 +89,7 @@ func (suite *IndexerSuite) TestIndex() {
 	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
 
 	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateIndexing, k.State)
 			suite.Equal("", k.Message)
 			suite.Equal("", k.Version, "version should be empty when we start indexing")
@@ -108,7 +108,7 @@ func (suite *IndexerSuite) TestIndex() {
 
 	// Second call to update knowledge with info on URLs
 	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateIndexing, k.State) // Still indexing
 			suite.Equal(1, len(k.CrawledSources.URLs), "should have 1 crawled source")
 			suite.Equal("https://example.com", k.CrawledSources.URLs[0].URL, "should have the correct URL")
@@ -121,7 +121,7 @@ func (suite *IndexerSuite) TestIndex() {
 
 	// Then it will index it
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, chunk *types.SessionRAGIndexChunk) error {
+		func(_ context.Context, chunk *types.SessionRAGIndexChunk) error {
 			// Split data entity id into knowledge id and version
 			dataEntityIDParts := strings.SplitN(chunk.DataEntityID, "-", 2)
 			suite.Equal(2, len(dataEntityIDParts))
@@ -137,7 +137,7 @@ func (suite *IndexerSuite) TestIndex() {
 	)
 
 	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateReady, k.State)
 			suite.Equal("", k.Message)
 
@@ -150,7 +150,7 @@ func (suite *IndexerSuite) TestIndex() {
 	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
+		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
 			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
 			suite.Equal(types.KnowledgeStateReady, k.State, "knowledge should be ready")
 			suite.Equal("", k.Message, "message should be empty")
@@ -197,7 +197,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
 
 	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateIndexing, k.State)
 			suite.Equal("", k.Message)
 			suite.Equal("", k.Version, "version should be empty when we start indexing")
@@ -219,7 +219,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 
 	// Second call to update knowledge with info on URLs
 	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateIndexing, k.State) // Still indexing
 			suite.Equal(1, len(k.CrawledSources.URLs), "should have 1 crawled source")
 			suite.Equal("https://example.com/foo", k.CrawledSources.URLs[0].URL, "should have the correct URL")
@@ -232,7 +232,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 
 	// Then it will index it
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, chunk *types.SessionRAGIndexChunk) error {
+		func(_ context.Context, chunk *types.SessionRAGIndexChunk) error {
 			// Split data entity id into knowledge id and version
 			dataEntityIDParts := strings.SplitN(chunk.DataEntityID, "-", 2)
 			suite.Equal(2, len(dataEntityIDParts))
@@ -248,7 +248,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	)
 
 	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateReady, k.State)
 			suite.Equal("", k.Message)
 
@@ -261,7 +261,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
+		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
 			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
 			suite.Equal(types.KnowledgeStateReady, k.State, "knowledge should be ready")
 			suite.Equal("", k.Message, "message should be empty")
