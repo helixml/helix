@@ -37,18 +37,20 @@ import FileUpload from '../widgets/FileUpload';
 import Progress from '../widgets/Progress';
 import useFilestore from '../../hooks/useFilestore';
 import { prettyBytes } from '../../utils/format';
-
+import { IFilestoreUploadProgress } from '../../contexts/filestore';
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
-  onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;
-  onSave: (quiet: boolean) => void;
+  onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;  
   onRefresh: (id: string) => void;
+  onUpload: (path: string, files: File[]) => Promise<boolean>;
+  loadFiles: (path: string) => Promise<void>;
+  uploadProgress?: IFilestoreUploadProgress;
   disabled: boolean;
   knowledgeList: IKnowledgeSource[];
   appId: string;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onSave, disabled, knowledgeList, appId }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
@@ -60,8 +62,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const default_max_depth = 1;
   const default_max_pages = 5;
   const default_readability = true;
-
-  const filestore = useFilestore();
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
@@ -194,6 +194,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const handleFileUpload = async (index: number, files: File[]) => {
+    console.log("xxx handleFileUpload", files);
     const source = knowledgeSources[index];
     if (!source.source.filestore?.path) {
       snackbar.error('No filestore path specified');
@@ -202,23 +203,24 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
     console.log("xxx", source.source.filestore.path);
 
-    const result = await filestore.upload(source.source.filestore.path, files);
+    const result = await onUpload(source.source.filestore.path, files);
+
+    console.log("xxx result", result);
+
     if (!result) return;
-    
-    console.log("xxx", result);
 
     // Refresh the knowledge source after upload
-    const knowledge = getKnowledge(source);
-    if (knowledge) {
-      onRefresh(knowledge.id);
-      snackbar.success('Files uploaded and knowledge refresh initiated');
-    }
+    // const knowledge = getKnowledge(source);
+    // if (knowledge) {
+    //   onRefresh(knowledge.id);
+    //   snackbar.success('Files uploaded and knowledge refresh initiated');
+    // }
   };
 
   const loadDirectoryContents = async (path: string, index: number) => {
     if (!path) return;
     try {
-      const files = await filestore.loadFiles(path);
+      const files = await loadFiles(path);
       setDirectoryFiles(prev => ({
         ...prev,
         [index]: files
@@ -458,17 +460,17 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
         {sourceType === 'filestore' && (
           <Box sx={{ mt: 2, mb: 2 }}>
-            {filestore.uploadProgress ? (
+            {uploadProgress ? (
               <Box sx={{ width: '100%', mb: 2 }}>
                 <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
-                  Uploaded {prettyBytes(filestore.uploadProgress.uploadedBytes)} of {prettyBytes(filestore.uploadProgress.totalBytes)}
+                  Uploaded {prettyBytes(uploadProgress.uploadedBytes)} of {prettyBytes(uploadProgress.totalBytes)}
                 </Typography>
-                <Progress progress={filestore.uploadProgress.percent} />
+                <Progress progress={uploadProgress.percent} />
               </Box>
             ) : (
               <>
                 <FileUpload onUpload={(files) => handleFileUpload(index, files)}>
-                  <Button
+                  {/* <Button
                     variant="contained"
                     color="secondary"
                     component="span"
@@ -477,7 +479,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     fullWidth
                   >
                     Upload Files
-                  </Button>
+                  </Button> */}
                   <Box
                     sx={{
                       border: '1px dashed #ccc',

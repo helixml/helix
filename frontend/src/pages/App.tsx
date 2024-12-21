@@ -33,6 +33,7 @@ import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
+import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
 
 import {
@@ -73,6 +74,7 @@ const App: FC = () => {
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
+  const filestore = useFilestore();
   const {
     params,
     navigate,
@@ -197,6 +199,18 @@ const App: FC = () => {
       };
     });
   }, []);
+
+  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
+    console.log("xxx handleFileUpload yyy", path, files);
+    try {
+      const result = await filestore.upload(path, files);
+      return result;
+    } catch (error) {
+      console.error('Failed to upload files:', error);
+      snackbar.error('Failed to upload files');
+      return false;
+    }
+  }, [filestore, snackbar]);
 
   const handleRefreshKnowledge = useCallback((id: string) => {
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
@@ -879,7 +893,9 @@ const App: FC = () => {
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
                       onRefresh={handleRefreshKnowledge}
-                      onSave={onSave}
+                      onUpload={handleFileUpload}
+                      loadFiles={filestore.loadFiles}
+                      uploadProgress={filestore.uploadProgress}
                       disabled={isReadOnly}
                       knowledgeList={knowledgeList}
                       appId={app.id}
