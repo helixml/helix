@@ -154,7 +154,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		return nil, err
 	}
 
-	go c.SessionRunner(sessionData)
+	go c.SessionRunner(ctx, sessionData)
 
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, user, sessionData)
 	if err != nil {
@@ -219,7 +219,7 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 		return nil, err
 	}
 
-	go c.SessionRunner(sessionData)
+	go c.SessionRunner(ctx, sessionData)
 
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeUpdated, user, sessionData)
 	if err != nil {
@@ -229,7 +229,7 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 	return sessionData, nil
 }
 
-func (c *Controller) RestartSession(session *types.Session) (*types.Session, error) {
+func (c *Controller) RestartSession(ctx context.Context, session *types.Session) (*types.Session, error) {
 	// let's see if this session is currently active as far as runners are aware
 	activeSessions := map[string]bool{}
 	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
@@ -264,7 +264,8 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		}
 
 		if session.Mode == types.SessionModeFinetune {
-			if assistantInteraction.DataPrepStage == types.TextDataPrepStageExtractText || assistantInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
+			if assistantInteraction.DataPrepStage == types.TextDataPrepStageExtractText ||
+				assistantInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
 				// in this case we are restarting the data prep
 				assistantInteraction.Status = ""
 			} else if assistantInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
@@ -280,7 +281,7 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		return nil, err
 	}
 
-	if err := c.WriteSession(session); err != nil {
+	if err := c.WriteSession(ctx, session); err != nil {
 		// NOTE: we dont return here as this "only" emits WS events
 		log.Error().Err(err).Msg("failed writing session")
 	}
@@ -290,7 +291,7 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	// not care and just say "start again"
 	// if there is more data prep to do, it will carry on
 	// if we go staight into the queue then it's a fine tune restart
-	go c.SessionRunner(session)
+	go c.SessionRunner(ctx, session)
 
 	return session, nil
 }
@@ -317,12 +318,12 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	session.Updated = time.Now()
 	session.Interactions = append(session.Interactions, userInteraction, assistantInteraction)
 
-	if err := c.WriteSession(session); err != nil {
+	if err := c.WriteSession(ctx, session); err != nil {
 		// NOTE: we dont return here as this "only" emits WS events
 		log.Err(err).Msg("failed writing session")
 	}
 
-	go c.SessionRunner(session)
+	go c.SessionRunner(ctx, session)
 
 	return session, nil
 }
@@ -361,27 +362,27 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 
 	session.Mode = types.SessionModeFinetune
 
-	if err := c.WriteSession(session); err != nil {
+	if err := c.WriteSession(ctx, session); err != nil {
 		// NOTE: we dont return here as this "only" emits WS events
 		log.Err(err).Msg("failed writing session")
 	}
 
-	go c.SessionRunner(session)
+	go c.SessionRunner(ctx, session)
 
 	return session, nil
 }
 
 // the idempotent function to "run" the session
 // it should work out what this means - i.e. have we prepared the data yet?
-func (c *Controller) SessionRunner(sessionData *types.Session) {
+func (c *Controller) SessionRunner(ctx context.Context, sessionData *types.Session) {
 	// Wait for that to complete before adding to the queue
 	// the model can be adding subsequent child sessions to the queue
 	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
 	// text into q&a pairs and we want to use our own mistral inference
-	preparedSession, err := c.PrepareSession(sessionData)
+	preparedSession, err := c.PrepareSession(ctx, sessionData)
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
-		c.ErrorSession(sessionData, err)
+		c.ErrorSession(ctx, sessionData, err)
 		return
 	}
 
@@ -392,7 +393,7 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 		_, err := c.runActionInteraction(context.Background(), sessionData, lastInteraction)
 		if err != nil {
 			log.Error().Msgf("error running action interaction: %s", err.Error())
-			c.ErrorSession(sessionData, err)
+			c.ErrorSession(ctx, sessionData, err)
 		}
 		return
 	}
@@ -404,7 +405,7 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 		err = c.AddSessionToQueue(preparedSession)
 		if err != nil {
 			log.Error().Msgf("error adding session to queue: %s", err.Error())
-			c.ErrorSession(sessionData, err)
+			c.ErrorSession(ctx, sessionData, err)
 		}
 	}
 }
@@ -427,7 +428,7 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // so now we are in a state where the session is still preparing but we are waiting
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
-func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+func (c *Controller) PrepareSession(ctx context.Context, session *types.Session) (*types.Session, error) {
 	var convertedTextDocuments int
 	var err error
 
@@ -447,7 +448,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 
 		// if either rag or finetuning is enabled then we need to convert the files to text
 		if session.Metadata.TextFinetuneEnabled || session.Metadata.RagEnabled {
-			session, convertedTextDocuments, err = c.convertDocumentsToText(session)
+			session, convertedTextDocuments, err = c.convertDocumentsToText(ctx, session)
 			if err != nil {
 				return nil, err
 			}
@@ -455,7 +456,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 
 		// we put this behind a feature flag because then we can have fine-tune only sessions
 		if session.Metadata.RagEnabled {
-			session, _, err = c.indexChunksForRag(session)
+			session, _, err = c.indexChunksForRag(ctx, session)
 			if err != nil {
 				return nil, err
 			}
@@ -480,16 +481,16 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 					return nil, err
 				}
 
-				if err := c.WriteSession(session); err != nil {
+				if err := c.WriteSession(ctx, session); err != nil {
 					log.Error().Err(err).Msg("failed writing session")
 				}
-				c.BroadcastProgress(session, 0, "")
+				c.BroadcastProgress(ctx, session, 0, "")
 			}
 		}
 
 		// we put this behind a feature flag because then we can have RAG only sessions
 		if session.Metadata.TextFinetuneEnabled {
-			session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
+			session, questionChunksGenerated, err := c.convertChunksToQuestions(ctx, session)
 			if err != nil {
 				return nil, err
 			}
@@ -516,7 +517,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			}
 
 			// otherwise lets kick off the fine tune
-			if err := c.BeginFineTune(session); err != nil {
+			if err := c.BeginFineTune(ctx, session); err != nil {
 				return nil, err
 			}
 		}
@@ -687,7 +688,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	return session, nil
 }
 
-func (c *Controller) BeginFineTune(session *types.Session) error {
+func (c *Controller) BeginFineTune(ctx context.Context, session *types.Session) error {
 	session, err := data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
 		assistantInteraction.Finished = false
 		assistantInteraction.Progress = 1
@@ -703,7 +704,7 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 		return err
 	}
 
-	err = c.WriteSession(session)
+	err = c.WriteSession(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -712,7 +713,7 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 	if err != nil {
 		return err
 	}
-	c.BroadcastProgress(session, 1, "fine tuning on data...")
+	c.BroadcastProgress(ctx, session, 1, "fine tuning on data...")
 
 	return nil
 }
@@ -720,11 +721,11 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 // generic "update this session handler"
 // this will emit a UserWebsocketEvent with a type of
 // WebsocketEventSessionUpdate
-func (c *Controller) WriteSession(session *types.Session) error {
+func (c *Controller) WriteSession(ctx context.Context, session *types.Session) error {
 	log.Trace().
 		Msgf("🔵 update session: %s %+v", session.ID, session)
 
-	_, err := c.Options.Store.UpdateSession(context.Background(), *session)
+	_, err := c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
 		return err
@@ -742,7 +743,7 @@ func (c *Controller) WriteSession(session *types.Session) error {
 	return nil
 }
 
-func (c *Controller) UpdateSessionName(owner string, sessionID, name string) error {
+func (c *Controller) UpdateSessionName(ctx context.Context, owner string, sessionID, name string) error {
 	log.Trace().
 		Msgf("🔵 update session name: %s %+v", sessionID, name)
 
@@ -751,7 +752,7 @@ func (c *Controller) UpdateSessionName(owner string, sessionID, name string) err
 		log.Printf("Error adding message: %s", err)
 		return err
 	}
-	session, err := c.Options.Store.GetSession(context.Background(), sessionID)
+	session, err := c.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return err
 	}
@@ -768,7 +769,7 @@ func (c *Controller) UpdateSessionName(owner string, sessionID, name string) err
 	return nil
 }
 
-func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
+func (c *Controller) WriteInteraction(ctx context.Context, session *types.Session, newInteraction *types.Interaction) *types.Session {
 	newInteractions := []*types.Interaction{}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == newInteraction.ID {
@@ -778,13 +779,14 @@ func (c *Controller) WriteInteraction(session *types.Session, newInteraction *ty
 		}
 	}
 	session.Interactions = newInteractions
-	if err := c.WriteSession(session); err != nil {
+	if err := c.WriteSession(ctx, session); err != nil {
 		log.Printf("failed to write interaction session: %v", err)
 	}
 	return session
 }
 
 func (c *Controller) BroadcastProgress(
+	ctx context.Context,
 	session *types.Session,
 	progress int,
 	status string,
@@ -806,7 +808,7 @@ func (c *Controller) BroadcastProgress(
 		},
 	}
 
-	_ = c.publishEvent(context.Background(), event)
+	_ = c.publishEvent(ctx, event)
 }
 
 func (c *Controller) publishEvent(ctx context.Context, event *types.WebsocketEvent) error {
@@ -824,7 +826,7 @@ func (c *Controller) publishEvent(ctx context.Context, event *types.WebsocketEve
 	return err
 }
 
-func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
+func (c *Controller) ErrorSession(ctx context.Context, session *types.Session, sessionErr error) {
 	session, err := data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
 		userInteraction.Finished = true
 		userInteraction.State = types.InteractionStateComplete
@@ -844,7 +846,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	if err != nil {
 		return
 	}
-	if err := c.WriteSession(session); err != nil {
+	if err := c.WriteSession(ctx, session); err != nil {
 		log.Error().Err(err).Msg("failed to write error session")
 	}
 	if err := c.Options.Janitor.WriteSessionError(session, sessionErr); err != nil {
@@ -970,7 +972,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		return nil, err
 	}
 
-	if err := c.WriteSession(session); err != nil {
+	if err := c.WriteSession(ctx, session); err != nil {
 		return nil, err
 	}
 
