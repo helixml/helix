@@ -147,6 +147,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   }, [knowledgeSources]);
 
   const getSourcePreview = (source: IKnowledgeSource): string => {
+    if (source.name) {
+      return source.name;
+    }
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
       try {
         const url = new URL(source.source.web.urls[0]);
