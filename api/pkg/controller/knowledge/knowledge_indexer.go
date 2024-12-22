@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -66,6 +67,13 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Err(err).
 					Str("knowledge_id", knowledge.ID).
 					Msg("failed to index knowledge")
+
+				if errors.Is(err, ErrNoFilesFound) {
+					k.State = types.KnowledgeStatePending
+					k.Message = "waiting for files to be uploaded"
+					_, _ = r.store.UpdateKnowledge(ctx, k)
+					return
+				}
 
 				k.State = types.KnowledgeStateError
 				k.Message = err.Error()

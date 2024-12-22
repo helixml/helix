@@ -141,31 +141,41 @@ export const useFilestoreContext = (): IFilestoreContext => {
 
   const upload = useCallback(async (path: string, files: File[]) => {
     let result = false
+    
+    console.log("xxx upload called", path, files);
+    
     setUploadProgress({
       percent: 0,
       totalBytes: 0,
       uploadedBytes: 0,
     })
+    
     try {
       const formData = new FormData()
       files.forEach((file) => {
         formData.append("files", file)
       })
-      await api.post('/api/v1/filestore/upload', formData, {
-        params: {
-          path,
-        },
-        onUploadProgress: (progressEvent) => {
-          const percent = progressEvent.total && progressEvent.total > 0 ?
-            Math.round((progressEvent.loaded * 100) / progressEvent.total) :
-            0
-          setUploadProgress({
-            percent,
-            totalBytes: progressEvent.total || 0,
-            uploadedBytes: progressEvent.loaded || 0,
-          })
-        }
-      })
+      try {
+        await api.post('/api/v1/filestore/upload', formData, {
+          params: {
+            path,
+          },
+          onUploadProgress: (progressEvent) => {
+            const percent = progressEvent.total && progressEvent.total > 0 ?
+              Math.round((progressEvent.loaded * 100) / progressEvent.total) :
+              0
+            setUploadProgress({
+              percent,
+              totalBytes: progressEvent.total || 0,
+              uploadedBytes: progressEvent.loaded || 0,
+            })
+          }
+        })
+      } catch (error: any) {
+        const errorMessage = error.response?.data?.error || 'Failed to upload files';
+        console.error(errorMessage);
+        throw error;
+      }
       result = true
     } catch(e) {}
     setUploadProgress(undefined)

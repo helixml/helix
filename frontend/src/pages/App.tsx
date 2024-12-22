@@ -33,6 +33,7 @@ import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
+import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
 
 import {
@@ -43,6 +44,7 @@ import {
   IAssistantApi,
   IAssistantGPTScript,
   IAssistantZapier,
+  IFileStoreItem,
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
@@ -73,6 +75,7 @@ const App: FC = () => {
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
+  const filestore = useFilestore();
   const {
     params,
     navigate,
@@ -196,7 +199,34 @@ const App: FC = () => {
         },
       };
     });
-  }, []);
+  }, [app?.id]);
+
+  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
+    try {
+      const filesResult = await api.get('/api/v1/filestore/list', {
+        params: {
+          path,
+        }
+      })
+      if(filesResult) {
+        return filesResult
+      }
+    } catch(e) {}
+    return []
+  }, [api]);
+
+  // Upload the files to the filestore
+  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
+    await api.post('/api/v1/filestore/upload', formData, {
+      params: {
+        path,
+      },
+    })
+  }, [api]);
 
   const handleRefreshKnowledge = useCallback((id: string) => {
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
@@ -879,8 +909,12 @@ const App: FC = () => {
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
                       onRefresh={handleRefreshKnowledge}
+                      onUpload={handleFileUpload}
+                      loadFiles={handleLoadFiles}
+                      uploadProgress={filestore.uploadProgress}
                       disabled={isReadOnly}
                       knowledgeList={knowledgeList}
+                      appId={app.id}
                     />
                     {knowledgeErrors && showErrors && (
                       <Alert severity="error" sx={{ mt: 2 }}>
