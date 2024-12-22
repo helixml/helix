@@ -148,8 +148,8 @@ func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Ax
 	id := system.GenerateUUID()
 
 	httpClientOptions := system.ClientOptions{
-		Host:  cfg.RunnerOptions.ApiHost,
-		Token: cfg.RunnerOptions.ApiToken,
+		Host:  cfg.RunnerOptions.APIHost,
+		Token: cfg.RunnerOptions.APIToken,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -568,7 +568,7 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 		jsonLFiles := []string{}
 		for _, interaction := range finetuneInteractions {
 			for _, file := range interaction.Files {
-				if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+				if path.Base(file) == types.TextDataPrepQuestionsFile {
 					localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
 					localPath := path.Join(fileManager.GetFolder(), localFilename)
 					err := fileManager.DownloadFile(file, localPath)
@@ -580,7 +580,7 @@ func (i *AxolotlModelInstance) processInteraction(session *types.Session) error 
 			}
 		}
 
-		combinedFile := path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+		combinedFile := path.Join(fileManager.GetFolder(), types.TextDataPrepQuestionsFile)
 		err := system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
 		if err != nil {
 			return err

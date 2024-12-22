@@ -1035,7 +1035,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 	isActionableResponse := tools.IsActionableResponse{
 		NeedsTool:     tools.NeedsToolYes,
 		Justification: "Test reason",
-		Api:           "custom",
+		API:           "custom",
 	}
 	isActionableResponseBts, _ := json.Marshal(isActionableResponse)
 

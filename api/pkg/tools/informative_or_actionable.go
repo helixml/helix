@@ -22,7 +22,7 @@ const (
 
 type IsActionableResponse struct {
 	NeedsTool     string `json:"needs_tool"`
-	Api           string `json:"api"`
+	API           string `json:"api"`
 	Justification string `json:"justification"`
 }
 
@@ -165,7 +165,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Str("history", fmt.Sprintf("%+v", history)).
 		Str("justification", actionableResponse.Justification).
 		Str("needs_tool", actionableResponse.NeedsTool).
-		Str("chosen_tool", actionableResponse.Api).
+		Str("chosen_tool", actionableResponse.API).
 		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 

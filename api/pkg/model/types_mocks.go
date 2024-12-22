@@ -72,7 +72,7 @@ func (mr *MockModelMockRecorder) GetMemoryRequirements(mode any) *gomock.Call {
 }
 
 // GetTask mocks base method.
-func (m *MockModel) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
+func (m *MockModel) GetTask(session *types.Session, fileManager SessionFileManager) (*types.RunnerTask, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTask", session, fileManager)
 	ret0, _ := ret[0].(*types.RunnerTask)
@@ -117,7 +117,7 @@ func (mr *MockModelMockRecorder) GetType() *gomock.Call {
 }
 
 // PrepareFiles mocks base method.
-func (m *MockModel) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
+func (m *MockModel) PrepareFiles(session *types.Session, isInitialSession bool, fileManager SessionFileManager) (*types.Session, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PrepareFiles", session, isInitialSession, fileManager)
 	ret0, _ := ret[0].(*types.Session)

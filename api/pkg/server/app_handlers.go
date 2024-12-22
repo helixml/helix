@@ -212,7 +212,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	_, err = s.Controller.CreateAPIKey(ctx, user, &types.APIKey{
 		Name:  "api key 1",
-		Type:  types.APIKeyType_App,
+		Type:  types.APIkeytypeApp,
 		AppID: &sql.NullString{String: created.ID, Valid: true},
 	})
 	if err != nil {

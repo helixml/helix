@@ -42,7 +42,7 @@ func (handler *SessionFileHandler) DownloadFolder(remotePath string, localPath s
 }
 
 // Compile-time interface check:
-var _ model.ModelSessionFileManager = (*SessionFileHandler)(nil)
+var _ model.SessionFileManager = (*SessionFileHandler)(nil)
 
 type FileHandler struct {
 	runnerID          string
@@ -67,7 +67,7 @@ func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) 
 		Msgf("🟢 upload worker response: %+v", res)
 
 	if len(res.Files) > 0 {
-		uploadedFiles, err := handler.uploadFiles(res.SessionID, res.Files, types.FILESTORE_RESULTS_DIR)
+		uploadedFiles, err := handler.uploadFiles(res.SessionID, res.Files, types.FilestoreResultsDir)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +81,7 @@ func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) 
 		// we keep a history of re-trainings and can always go back to a previous step
 		// (because the previous lora dir is still there)
 		// the api server will "hoist" this folder to the session.LoraDir which is the "live" LoraDir
-		uploadedLoraDir, err := handler.uploadFolder(res.SessionID, res.LoraDir, path.Join(types.FILESTORE_LORA_DIR, res.InteractionID))
+		uploadedLoraDir, err := handler.uploadFolder(res.SessionID, res.LoraDir, path.Join(types.FilestoreLoraDir, res.InteractionID))
 		if err != nil {
 			return nil, err
 		}

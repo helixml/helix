@@ -45,7 +45,7 @@ func GetInteractionFinetuneFile(session *types.Session, interactionID string) (s
 	}
 	foundFile := ""
 	for _, filepath := range interaction.Files {
-		if path.Base(filepath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+		if path.Base(filepath) == types.TextDataPrepQuestionsFile {
 			foundFile = filepath
 			break
 		}

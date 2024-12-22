@@ -661,7 +661,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	}
 
 	log.Info().
-		Str("api", isActionable.Api).
+		Str("api", isActionable.API).
 		Str("actionable", isActionable.NeedsTool).
 		Str("justification", isActionable.Justification).
 		Str("history", fmt.Sprintf("%+v", messageHistory)).
@@ -674,12 +674,12 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	lastInteraction.Mode = types.SessionModeAction
 
 	lastInteraction.Mode = types.SessionModeAction
-	lastInteraction.Metadata["tool_action"] = isActionable.Api
+	lastInteraction.Metadata["tool_action"] = isActionable.API
 	lastInteraction.Metadata["tool_action_justification"] = isActionable.Justification
 
-	actionTool, ok := getToolFromAction(activeTools, isActionable.Api)
+	actionTool, ok := getToolFromAction(activeTools, isActionable.API)
 	if !ok {
-		return nil, fmt.Errorf("tool not found for action: %s", isActionable.Api)
+		return nil, fmt.Errorf("tool not found for action: %s", isActionable.API)
 	}
 
 	lastInteraction.Metadata["tool_id"] = actionTool.ID
@@ -1042,14 +1042,14 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	newDocumentIds := map[string]string{}
+	newDocumentIDs := map[string]string{}
 
 	for filename, documentID := range newSession.Metadata.DocumentIDs {
 		newFile := strings.Replace(filename, oldPrefix, newPrefix, 1)
-		newDocumentIds[newFile] = documentID
+		newDocumentIDs[newFile] = documentID
 	}
 
-	newSession.Metadata.DocumentIDs = newDocumentIds
+	newSession.Metadata.DocumentIDs = newDocumentIDs
 
 	copyFile := func(filePath string) (string, error) {
 		newFile := strings.Replace(filePath, oldPrefix, newPrefix, 1)
@@ -1088,7 +1088,7 @@ func (c *Controller) CloneUntilInteraction(
 		}
 
 		for _, file := range interaction.Files {
-			if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && req.Mode == types.CloneInteractionModeJustData && interaction.ID == userInteraction.ID {
+			if path.Base(file) == types.TextDataPrepQuestionsFile && req.Mode == types.CloneInteractionModeJustData && interaction.ID == userInteraction.ID {
 				// this means we are only copying the data and we've just come across the questions file
 				// in the last user interaction so we don't copy it
 				continue
