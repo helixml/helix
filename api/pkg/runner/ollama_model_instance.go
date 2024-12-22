@@ -119,7 +119,7 @@ type OllamaModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
-func (i *OllamaModelInstance) Start(ctx context.Context) error {
+func (i *OllamaModelInstance) Start(_ context.Context) error {
 	ollamaPath, err := exec.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
@@ -396,7 +396,7 @@ func (i *OllamaModelInstance) GetState() (*types.ModelInstanceState, error) {
 	}, nil
 }
 
-func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
+func (i *OllamaModelInstance) QueueSession(session *types.Session, _ bool) {
 	err := i.addJobToHistory(session)
 	if err != nil {
 		log.Error().Err(err).Msg("error adding job to history")

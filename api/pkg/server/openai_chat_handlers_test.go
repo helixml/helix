@@ -226,7 +226,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	suite.Require().NoError(err)
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
+		DoAndReturn(func(ctx context.Context, _ oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)

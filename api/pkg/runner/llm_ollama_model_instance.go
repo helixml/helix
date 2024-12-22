@@ -552,18 +552,18 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 	}
 
 	// Look up the context length for the current model
-	max_tokens := defaultMaxTokens
+	maxTokens := defaultMaxTokens
 	for _, m := range defaultModels {
 		if m.Id == inferenceReq.Request.Model {
 			log.Info().Msgf("using context length %d for model %s", m.ContextLength, inferenceReq.Request.Model)
-			max_tokens = int(m.ContextLength)
+			maxTokens = int(m.ContextLength)
 			break
 		}
 	}
 
 	// If max_tokens is specified in the request, use that instead
 	if inferenceReq.Request.MaxTokens > 0 {
-		max_tokens = inferenceReq.Request.MaxTokens
+		maxTokens = inferenceReq.Request.MaxTokens
 	}
 
 	messages := make([]api.Message, 0, len(inferenceReq.Request.Messages))
@@ -590,7 +590,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 		Stream:   &inferenceReq.Request.Stream,
 		Options: map[string]interface{}{
 			"temperature": inferenceReq.Request.Temperature,
-			"num_ctx":     max_tokens,
+			"num_ctx":     maxTokens,
 			"seed":        inferenceReq.Request.Seed,
 			"top_p":       inferenceReq.Request.TopP,
 			// ignoring everything else for now
@@ -784,7 +784,7 @@ func (i *OllamaInferenceModelInstance) errorResponse(req *types.RunnerLLMInferen
 	}
 }
 
-func (i *OllamaInferenceModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+func (i *OllamaInferenceModelInstance) QueueSession(*types.Session, bool) {}
 
 func (i *OllamaInferenceModelInstance) IsActive() bool {
 	return i.currentRequest != nil

@@ -17,7 +17,7 @@ import (
 // @Success 200 {array} types.Secret
 // @Router /api/v1/secrets [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) listSecrets(w http.ResponseWriter, r *http.Request) ([]*types.Secret, *system.HTTPError) {
+func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
@@ -51,7 +51,7 @@ func (s *HelixAPIServer) listSecrets(w http.ResponseWriter, r *http.Request) ([]
 // @Param request body types.Secret true "Request body with secret configuration."
 // @Router /api/v1/secrets [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) createSecret(w http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
+func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
@@ -90,7 +90,7 @@ func (s *HelixAPIServer) createSecret(w http.ResponseWriter, r *http.Request) (*
 // @Param id path string true "Secret ID"
 // @Router /api/v1/secrets/{id} [put]
 // @Security BearerAuth
-func (s *HelixAPIServer) updateSecret(w http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
+func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
 	id := getID(r)
 
@@ -130,7 +130,7 @@ func (s *HelixAPIServer) updateSecret(w http.ResponseWriter, r *http.Request) (*
 // @Param id path string true "Secret ID"
 // @Router /api/v1/secrets/{id} [delete]
 // @Security BearerAuth
-func (s *HelixAPIServer) deleteSecret(w http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
+func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
 	ctx := r.Context()
 	id := getID(r)
 

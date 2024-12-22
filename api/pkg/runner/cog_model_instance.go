@@ -189,7 +189,7 @@ func (i *CogModelInstance) getSessionFileHander(session *types.Session) *Session
 
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
-func (i *CogModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
+func (i *CogModelInstance) AssignSessionTask(_ context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
 	i.lastActivity = time.Now()
 	i.currentSession = session
@@ -284,7 +284,7 @@ func (i *CogModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskRes
 
 }
 
-func (i *CogModelInstance) Start(ctx context.Context) error {
+func (i *CogModelInstance) Start(_ context.Context) error {
 	// Get random free port
 	port, err := freeport.GetFreePort()
 	if err != nil {
