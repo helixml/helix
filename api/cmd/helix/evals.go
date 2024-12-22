@@ -11,7 +11,7 @@ func newEvalsCommand() *cobra.Command {
 	var evalsCmd = &cobra.Command{
 		Use:   "evals",
 		Short: "A CLI tool for evaluating finetuned LLMs",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(*cobra.Command, []string) {
 			evals.Run()
 		},
 	}

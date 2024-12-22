@@ -284,9 +284,8 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 				// OK, continue
 				foundKnowledge[created.ID] = true
 				continue
-			} else {
-				return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
 			}
+			return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
 		}
 
 		// Update existing knowledge

@@ -7,8 +7,7 @@ var rootCmd = &cobra.Command{
 	Short:   "Helix filesystem management",
 	Aliases: []string{"fs"},
 	Long:    `TODO`,
-	// nolint:revive
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(*cobra.Command, []string) {
 		// Do Stuff Here
 	},
 }

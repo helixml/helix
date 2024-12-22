@@ -19,7 +19,7 @@ func newQapairCommand() *cobra.Command {
 	var qapairCmd = &cobra.Command{
 		Use:   "qapairs",
 		Short: "A CLI tool for running QA pair commands",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			serverConfig, err := config.LoadServerConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load server config: %v", err)

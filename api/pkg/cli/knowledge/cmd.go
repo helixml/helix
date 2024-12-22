@@ -14,8 +14,7 @@ var rootCmd = &cobra.Command{
 	Short:   "Helix knowledge management",
 	Aliases: []string{"k"},
 	Long:    `TODO`,
-	// nolint:revive
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(*cobra.Command, []string) {
 		// Do Stuff Here
 	},
 }
