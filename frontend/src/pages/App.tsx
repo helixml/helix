@@ -180,7 +180,7 @@ const App: FC = () => {
     };
   }, [app?.id, fetchKnowledge]);
 
-  const handleKnowledgeUpdate = useCallback(async (updatedKnowledge: IKnowledgeSource[]) => {
+  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
     setApp(prevApp => {
       if (!prevApp) return prevApp;

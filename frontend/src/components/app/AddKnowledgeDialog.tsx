@@ -68,6 +68,8 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
     console.log(newSource);
 
     onAdd(newSource);
+    
+
     handleClose();
   };
 
