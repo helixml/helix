@@ -27,6 +27,7 @@ import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import Link from '@mui/material/Link';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
@@ -498,13 +499,33 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                           ))}
                         </Box>
                         <Typography variant="caption" sx={{ color: '#999', mt: 1, textAlign: 'center' }}>
-                          Drop files here to upload more
+                          Drop files here to upload more. Manage existing files{' '}
+                          <Link 
+                            href={`/files?path=${encodeURIComponent(source.source.filestore?.path || '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: '#90caf9' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            here
+                          </Link>.
                         </Typography>
                       </>
                     ) : (
                       <Typography variant="caption" sx={{ color: '#999', textAlign: 'center' }}>
                         {source.source.filestore?.path 
-                          ? 'No files yet - drop files here to upload them'
+                          ? <>
+                              No files yet - drop files here to upload them. Manage files{' '}
+                              <Link 
+                                href={`/files?path=${encodeURIComponent(source.source.filestore?.path)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: '#90caf9' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                here
+                              </Link>.
+                            </>
                           : 'Specify a filestore path first'
                         }
                       </Typography>
@@ -512,6 +533,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   </Box>
                 </FileUpload>
                 {source.source.filestore?.path && (
+                  <>
                   <Button
                     sx={{ mt: 1 }}
                     size="small"
@@ -520,6 +542,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   >
                     Refresh File List
                   </Button>
+                  </>
                 )}
               </>
             )}
