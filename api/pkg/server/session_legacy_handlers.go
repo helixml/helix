@@ -333,7 +333,7 @@ type startSessionConfig struct {
 	start     func() error
 }
 
-func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter, req *http.Request, user *types.User, startReq *startSessionConfig) {
+func (s *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter, req *http.Request, user *types.User, startReq *startSessionConfig) {
 	// Set chunking headers
 	res.Header().Set("Cache-Control", "no-cache")
 	res.Header().Set("Connection", "keep-alive")
@@ -344,7 +344,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	doneCh := make(chan struct{})
 
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
+	sub, err := s.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
@@ -516,7 +516,7 @@ func writeChunk(w io.Writer, chunk []byte) error {
 	return nil
 }
 
-func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter, req *http.Request, user *types.User, startReq *startSessionConfig) {
+func (s *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter, req *http.Request, user *types.User, startReq *startSessionConfig) {
 	res.Header().Set("Content-Type", "application/json")
 
 	doneCh := make(chan struct{})
@@ -525,7 +525,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	// Wait for the results from the session update. Last event will have the interaction with the full
 	// response from the model.
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
+	sub, err := s.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {

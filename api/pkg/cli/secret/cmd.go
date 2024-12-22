@@ -9,7 +9,7 @@ var rootCmd = &cobra.Command{
 	Short:   "Helix secret management",
 	Aliases: []string{"s"},
 	Long:    `TODO`,
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(*cobra.Command, []string) {
 		// Do Stuff Here
 	},
 }

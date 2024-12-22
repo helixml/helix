@@ -123,7 +123,7 @@ func NewServer(
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
+func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
 	apiRouter, err := apiServer.registerRoutes(ctx)
 	if err != nil {
 		return err
@@ -157,7 +157,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	return srv.ListenAndServe()
 }
 
-func matchAllRoutes(r *http.Request, rm *mux.RouteMatch) bool {
+func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 	return true
 }
 

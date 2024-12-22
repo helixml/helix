@@ -79,7 +79,7 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 	}
 }
 
-func (m *MultiClientManager) ListProviders(ctx context.Context) ([]types.Provider, error) {
+func (m *MultiClientManager) ListProviders(_ context.Context) ([]types.Provider, error) {
 	m.clientsMu.RLock()
 	defer m.clientsMu.RUnlock()
 
@@ -91,7 +91,7 @@ func (m *MultiClientManager) ListProviders(ctx context.Context) ([]types.Provide
 	return providers, nil
 }
 
-func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error) {
+func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
 	m.clientsMu.RLock()
 	defer m.clientsMu.RUnlock()
 

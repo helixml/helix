@@ -183,7 +183,7 @@ func (i *DiffusersModelInstance) getSessionFileHander(session *types.Session) *S
 
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
-func (i *DiffusersModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
+func (i *DiffusersModelInstance) AssignSessionTask(_ context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
 	i.lastActivity = time.Now()
 	i.currentSession = session
@@ -197,7 +197,7 @@ func (i *DiffusersModelInstance) AssignSessionTask(ctx context.Context, session 
 	return task, nil
 }
 
-func (i *DiffusersModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+func (i *DiffusersModelInstance) QueueSession(*types.Session, bool) {}
 
 func (i *DiffusersModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskResponse) {
 	if i.currentSession == nil {
