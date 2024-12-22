@@ -102,9 +102,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const handleAddSource = (newSource: IKnowledgeSource) => {
-    onUpdate([...knowledgeSources, newSource]);
-    // Save    
-    setExpanded(`panel${knowledgeSources.length}`);     
+    let knowledges = [...knowledgeSources, newSource];
+    onUpdate(knowledges);
+    setExpanded(`panel${knowledgeSources.length}`);    
   };
 
   const deleteSource = (index: number) => {
@@ -466,8 +466,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   >
                     {directoryFiles[index]?.length > 0 ? (
                       <>
-                        <Typography variant="caption" sx={{ color: '#666', mb: 1 }}>
-                          Current files in {source.source.filestore?.path}:
+                        <Typography variant="caption" sx={{ mb: 1 }}>
+                          Current files:
                         </Typography>
                         <Box sx={{ 
                           maxHeight: '200px', 
@@ -488,10 +488,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                                 }
                               }}
                             >
-                              <Typography variant="caption" sx={{ color: '#999', flexGrow: 1 }}>
+                              <Typography variant="caption" sx={{ flexGrow: 1 }}>
                                 {file.name}
                               </Typography>
-                              <Typography variant="caption" sx={{ color: '#666', ml: 2 }}>
+                              <Typography variant="caption" sx={{ ml: 2 }}>
                                 {prettyBytes(file.size || 0)}
                               </Typography>
                             </Box>
