@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+var ErrNoFilesFound = errors.New("no files found in filestore")
 
 func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
 	switch {
@@ -175,7 +178,7 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 	}
 
 	if len(data) == 0 {
-		return nil, fmt.Errorf("no data found in filestore")
+		return nil, ErrNoFilesFound
 	}
 
 	var totalSize int64
