@@ -23,6 +23,6 @@ func helloWorld(*gorm.DB) error {
 	return nil
 }
 
-var MIGRATION_SCRIPTS map[string]func(*gorm.DB) error = map[string]func(*gorm.DB) error{
+var MigrationScripts map[string]func(*gorm.DB) error = map[string]func(*gorm.DB) error{
 	"01_hello_world": helloWorld,
 }

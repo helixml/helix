@@ -554,7 +554,7 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 	// Look up the context length for the current model
 	maxTokens := defaultMaxTokens
 	for _, m := range defaultModels {
-		if m.Id == inferenceReq.Request.Model {
+		if m.ID == inferenceReq.Request.Model {
 			log.Info().Msgf("using context length %d for model %s", m.ContextLength, inferenceReq.Request.Model)
 			maxTokens = int(m.ContextLength)
 			break

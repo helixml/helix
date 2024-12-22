@@ -18,10 +18,10 @@ func NewFirecrawl(k *types.Knowledge) (*Firecrawl, error) {
 
 	var (
 		apiKey = k.Source.Web.Crawler.Firecrawl.APIKey
-		apiUrl = k.Source.Web.Crawler.Firecrawl.APIURL
+		apiURL = k.Source.Web.Crawler.Firecrawl.APIURL
 	)
 
-	app, err := firecrawl.NewFirecrawlApp(apiKey, apiUrl)
+	app, err := firecrawl.NewFirecrawlApp(apiKey, apiURL)
 	if err != nil {
 		return nil, err
 	}

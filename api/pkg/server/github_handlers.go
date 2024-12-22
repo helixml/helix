@@ -151,7 +151,7 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 
 // do we already have the github token as an api key in the database?
 func (apiServer *HelixAPIServer) getGithubDatabaseToken(ctx context.Context, user *types.User) (string, error) {
-	apiKeys, err := apiServer.Store.ListAPIKeys(ctx, &store.ListApiKeysQuery{
+	apiKeys, err := apiServer.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 	})
@@ -159,7 +159,7 @@ func (apiServer *HelixAPIServer) getGithubDatabaseToken(ctx context.Context, use
 		return "", err
 	}
 	for _, apiKey := range apiKeys {
-		if apiKey.Type == types.APIKeyType_Github {
+		if apiKey.Type == types.APIkeytypeGithub {
 			return apiKey.Key, nil
 		}
 	}
@@ -167,7 +167,7 @@ func (apiServer *HelixAPIServer) getGithubDatabaseToken(ctx context.Context, use
 }
 
 func (apiServer *HelixAPIServer) setGithubDatabaseToken(ctx context.Context, user *types.User, token string) error {
-	apiKeys, err := apiServer.Store.ListAPIKeys(ctx, &store.ListApiKeysQuery{
+	apiKeys, err := apiServer.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 	})
@@ -175,7 +175,7 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(ctx context.Context, use
 		return err
 	}
 	for _, apiKey := range apiKeys {
-		if apiKey.Type == types.APIKeyType_Github {
+		if apiKey.Type == types.APIkeytypeGithub {
 			err = apiServer.Store.DeleteAPIKey(ctx, apiKey.Key)
 			if err != nil {
 				return err
@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(ctx context.Context, use
 		OwnerType: user.Type,
 		Name:      "github-oauth",
 		Key:       token,
-		Type:      types.APIKeyType_Github,
+		Type:      types.APIkeytypeGithub,
 	})
 
 	if err != nil {

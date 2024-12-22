@@ -9,7 +9,7 @@ import (
 // a generic lora dir downloader for a session
 func downloadLoraDir(
 	session *types.Session,
-	fileManager ModelSessionFileManager,
+	fileManager SessionFileManager,
 ) (*types.Session, error) {
 	if session.LoraDir == "" {
 		return session, nil

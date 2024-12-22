@@ -96,10 +96,10 @@ func newSchedulerWithoutGoroutines(cfg *config.ServerConfig, onSchedulingErr fun
 
 	schedStratFunc := MaxSpreadStrategy
 	switch SchedulingStrategy(cfg.Providers.Helix.SchedulingStrategy) {
-	case SchedulingStrategy_MaxUtilization:
+	case SchedulingstrategyMaxutilization:
 		log.Info().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("scheduling strategy with spread work across all runners")
 		schedStratFunc = MaxUtilizationStrategy
-	case SchedulingStrategy_MaxSpread:
+	case SchedulingstrategyMaxspread:
 		log.Info().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("scheduling strategy will maximize utilization on individual runners")
 		schedStratFunc = MaxSpreadStrategy
 	default:

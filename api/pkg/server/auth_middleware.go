@@ -81,7 +81,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		}, nil
 	}
 
-	if strings.HasPrefix(token, types.API_KEY_PREIX) {
+	if strings.HasPrefix(token, types.APIKeyPrefix) {
 		// we have an API key - we should load it from the database and construct our user that way
 		apiKey, err := auth.store.GetAPIKey(ctx, token)
 		if err != nil {

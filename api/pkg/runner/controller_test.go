@@ -44,9 +44,9 @@ func TestController_GetSlots(t *testing.T) {
 
 	// Create a new controller with the server URL
 	runner, err := NewRunner(context.Background(), RunnerOptions{
-		ApiHost:     server.URL,
+		APIHost:     server.URL,
 		ID:          "test",
-		ApiToken:    "test",
+		APIToken:    "test",
 		MemoryBytes: 1,
 		RuntimeFactory: &mockRuntimeFactory{
 			getRuntimeFunc: func() *Slot {
@@ -86,9 +86,9 @@ func TestController_SlotLifecycle(t *testing.T) {
 	m.EXPECT().Stop().Times(1)
 	mockLLMWorkChan := make(chan *types.RunnerLLMInferenceRequest, 1)
 	runner, err := NewRunner(ctx, RunnerOptions{
-		ApiHost:     server.URL,
+		APIHost:     server.URL,
 		ID:          "test",
-		ApiToken:    "test",
+		APIToken:    "test",
 		MemoryBytes: 1,
 		RuntimeFactory: &mockRuntimeFactory{
 			getRuntimeFunc: func() *Slot {
@@ -115,7 +115,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test",
 							Request: &openai.ChatCompletionRequest{
-								Model: model.Model_Ollama_Llama3_8b,
+								Model: model.ModelOllamaLlama38b,
 							},
 						},
 					},
@@ -161,7 +161,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test-1",
 							Request: &openai.ChatCompletionRequest{
-								Model: model.Model_Ollama_Llama3_8b,
+								Model: model.ModelOllamaLlama38b,
 							},
 						},
 					},
@@ -174,7 +174,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 						LLMInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "test-2",
 							Request: &openai.ChatCompletionRequest{
-								Model: model.Model_Ollama_Llama3_8b,
+								Model: model.ModelOllamaLlama38b,
 							},
 						},
 					},

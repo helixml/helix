@@ -684,7 +684,7 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	if name != "" {
 		// if we are using the query string route then don't try to deode the body
 		newAPIKey.Name = name
-		newAPIKey.Type = types.APIKeyType_API
+		newAPIKey.Type = types.APIkeytypeAPI
 	} else {
 		// For now we need to manually unmarshal the body because of the sql.NullString
 		body, err := io.ReadAll(req.Body)

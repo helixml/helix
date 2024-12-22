@@ -133,8 +133,8 @@ func NewDiffusersModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*
 	id := system.GenerateUUID()
 
 	httpClientOptions := system.ClientOptions{
-		Host:  cfg.RunnerOptions.ApiHost,
-		Token: cfg.RunnerOptions.ApiToken,
+		Host:  cfg.RunnerOptions.APIHost,
+		Token: cfg.RunnerOptions.APIToken,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

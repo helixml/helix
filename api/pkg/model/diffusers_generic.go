@@ -11,7 +11,7 @@ import (
 var _ Model = &DiffusersGenericImage{}
 
 type DiffusersGenericImage struct {
-	Id          string // e.g. "stabilityai/stable-diffusion-3.5-medium"
+	ID          string // e.g. "stabilityai/stable-diffusion-3.5-medium"
 	Name        string // e.g. "Stable Diffusion 3.5 Medium"
 	Memory      uint64
 	Description string
@@ -27,14 +27,14 @@ func (i *DiffusersGenericImage) GetType() types.SessionType {
 }
 
 func (i *DiffusersGenericImage) GetID() string {
-	return i.Id
+	return i.ID
 }
 
 func (i *DiffusersGenericImage) ModelName() ModelName {
-	return NewModel(i.Id)
+	return NewModel(i.ID)
 }
 
-func (i *DiffusersGenericImage) GetTask(session *types.Session, _ ModelSessionFileManager) (*types.RunnerTask, error) {
+func (i *DiffusersGenericImage) GetTask(session *types.Session, _ SessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (i *DiffusersGenericImage) GetTextStreams(_ types.SessionMode, _ WorkerEven
 	return nil, nil, fmt.Errorf("not implemented 2")
 }
 
-func (i *DiffusersGenericImage) PrepareFiles(_ *types.Session, _ bool, _ ModelSessionFileManager) (*types.Session, error) {
+func (i *DiffusersGenericImage) PrepareFiles(_ *types.Session, _ bool, _ SessionFileManager) (*types.Session, error) {
 	return nil, fmt.Errorf("not implemented 3")
 }
 

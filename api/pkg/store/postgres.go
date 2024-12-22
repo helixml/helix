@@ -49,7 +49,7 @@ func NewPostgresStore(
 
 	// Read SSL setting from environment
 	sslSettings := "sslmode=disable"
-	if os.Getenv(ENV_POSTGRES_SSL) == "true" {
+	if os.Getenv(EnvPostgresSSL) == "true" {
 		sslSettings = "sslmode=require"
 	}
 
@@ -131,7 +131,7 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	return s.runMigrationScripts(MIGRATION_SCRIPTS)
+	return s.runMigrationScripts(MigrationScripts)
 }
 
 // loop over each migration script and run it only if it's not already been run
@@ -425,7 +425,7 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 // Available DB types
 const (
 	DatabaseTypePostgres = "postgres"
-	ENV_POSTGRES_SSL     = "HELIX_POSTGRES_SSL"
+	EnvPostgresSSL       = "HELIX_POSTGRES_SSL"
 )
 
 func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
@@ -442,7 +442,7 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 
 			// Read SSL setting from environment
 			sslSettings := "sslmode=disable"
-			if os.Getenv(ENV_POSTGRES_SSL) == "true" {
+			if os.Getenv(EnvPostgresSSL) == "true" {
 				sslSettings = "sslmode=require"
 			}
 

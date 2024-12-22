@@ -25,7 +25,7 @@ type GetSessionsQuery struct {
 	Limit         int             `json:"limit"`
 }
 
-type ListApiKeysQuery struct {
+type ListAPIKeysQuery struct {
 	Owner     string           `json:"owner"`
 	OwnerType types.OwnerType  `json:"owner_type"`
 	Type      types.APIKeyType `json:"type"`
@@ -76,7 +76,7 @@ type Store interface {
 	// api keys
 	CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error)
 	GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error)
-	ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error)
+	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.APIKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 
 	// tools

@@ -50,7 +50,7 @@ func (m ModelName) InferenceRuntime() types.InferenceRuntime {
 	if strings.Contains(m.String(), ":") {
 		return types.InferenceRuntimeOllama
 	}
-	if m.String() == Model_Cog_SDXL {
+	if m.String() == ModelCogSdxl {
 		return types.InferenceRuntimeCog
 	}
 	diffusersModels, err := GetDefaultDiffusersModels()
@@ -58,7 +58,7 @@ func (m ModelName) InferenceRuntime() types.InferenceRuntime {
 		return types.InferenceRuntimeAxolotl
 	}
 	for _, model := range diffusersModels {
-		if m.String() == model.Id {
+		if m.String() == model.ID {
 			return types.InferenceRuntimeDiffusers
 		}
 	}
@@ -85,7 +85,7 @@ func ProcessModelName(
 	case types.SessionTypeText:
 		if sessionType == types.SessionTypeText && !ragEnabled && (sessionMode == types.SessionModeFinetune || hasFinetune) {
 			// fine tuning doesn't work with ollama yet
-			return Model_Axolotl_Mistral7b, nil
+			return ModelAxolotlMistral7b, nil
 		}
 
 		switch provider {
@@ -101,19 +101,19 @@ func ProcessModelName(
 		// TODO: we plan to retire the helix-* model names, but we are keeping for now for backwards compatibility
 		switch modelName {
 		case "helix-4":
-			return Model_Ollama_Llama3_70b, nil
+			return ModelOllamaLlama370b, nil
 		case "helix-3.5":
-			return Model_Ollama_Llama3_8b, nil
+			return ModelOllamaLlama38b, nil
 		case "helix-mixtral":
-			return Model_Ollama_Mixtral, nil
+			return ModelOllamaMixtral, nil
 		case "helix-json":
-			return Model_Ollama_NousHermes2ThetaLlama3, nil
+			return ModelOllamaNoushermes2thetallama3, nil
 		case "helix-small":
-			return Model_Ollama_Phi3, nil
+			return ModelOllamaPhi3, nil
 		default:
 			if modelName == "" {
 				// default text model for non-finetune inference
-				return Model_Ollama_Llama3_8b, nil
+				return ModelOllamaLlama38b, nil
 
 			} else {
 				// allow user-provided model name (e.g. assume API users
@@ -124,7 +124,7 @@ func ProcessModelName(
 	case types.SessionTypeImage:
 		if modelName == "" {
 			// default image model for image inference
-			return Model_Diffusers_SDTurbo, nil
+			return ModelDiffusersSdturbo, nil
 		}
 		// allow user-provided model name (e.g. assume API users
 		// know what they're doing).
@@ -140,45 +140,45 @@ func ProcessModelName(
 // this gives us an in memory cache of model instances we can quickly lookup from
 func GetModels() (map[string]Model, error) {
 	models := map[string]Model{}
-	models[Model_Axolotl_Mistral7b] = &Mistral7bInstruct01{}
-	models[Model_Cog_SDXL] = &CogSDXL{}
+	models[ModelAxolotlMistral7b] = &Mistral7bInstruct01{}
+	models[ModelCogSdxl] = &CogSDXL{}
 	ollamaModels, err := GetDefaultOllamaModels()
 	if err != nil {
 		return nil, err
 	}
 	for _, model := range ollamaModels {
-		models[model.Id] = model
+		models[model.ID] = model
 	}
 	diffusersModels, err := GetDefaultDiffusersModels()
 	if err != nil {
 		return nil, err
 	}
 	for _, model := range diffusersModels {
-		models[model.Id] = model
+		models[model.ID] = model
 	}
 	return models, nil
 }
 
 const (
-	Model_Axolotl_Mistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
-	Model_Cog_SDXL          string = "stabilityai/stable-diffusion-xl-base-1.0"
-	Model_Diffusers_SD35    string = "stabilityai/stable-diffusion-3.5-medium"
-	Model_Diffusers_SDTurbo string = "stabilityai/sd-turbo"
-	Model_Diffusers_FluxDev string = "black-forest-labs/FLUX.1-dev"
+	ModelAxolotlMistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
+	ModelCogSdxl          string = "stabilityai/stable-diffusion-xl-base-1.0"
+	ModelDiffusersSd35    string = "stabilityai/stable-diffusion-3.5-medium"
+	ModelDiffusersSdturbo string = "stabilityai/sd-turbo"
+	ModelDiffusersFluxdev string = "black-forest-labs/FLUX.1-dev"
 
 	// We only need constants for _some_ ollama models that are hardcoded in
 	// various places (backward compat). Other ones can be added dynamically now.
-	Model_Ollama_Llama3_8b              string = "llama3:instruct"
-	Model_Ollama_Mixtral                string = "mixtral:instruct"
-	Model_Ollama_NousHermes2ThetaLlama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
-	Model_Ollama_Llama3_70b             string = "llama3:70b"
-	Model_Ollama_Phi3                   string = "phi3:instruct"
+	ModelOllamaLlama38b               string = "llama3:instruct"
+	ModelOllamaMixtral                string = "mixtral:instruct"
+	ModelOllamaNoushermes2thetallama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
+	ModelOllamaLlama370b              string = "llama3:70b"
+	ModelOllamaPhi3                   string = "phi3:instruct"
 )
 
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 	return []*DiffusersGenericImage{
 		{
-			Id:          Model_Diffusers_FluxDev,
+			ID:          ModelDiffusersFluxdev,
 			Name:        "FLUX.1-dev",
 			Memory:      GB * 39,
 			Description: "High quality image model, from Black Forest Labs",
@@ -192,7 +192,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
 		// Latest models, Dec 2024 updates
 		{
-			Id:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
+			ID:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
 			Memory:        GB * 15,
 			ContextLength: 32768, // goes up to 128k, but then uses 35GB
@@ -200,7 +200,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
+			ID:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
 			Name:          "Llama 3.3 70B",
 			Memory:        GB * 48,
 			ContextLength: 16384,
@@ -208,7 +208,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2:1b-instruct-q8_0
+			ID:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2:1b-instruct-q8_0
 			Name:          "Llama 3.2 1B",
 			Memory:        GB * 15,
 			ContextLength: 131072,
@@ -216,7 +216,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2:3b-instruct-q8_0
+			ID:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2:3b-instruct-q8_0
 			Name:          "Llama 3.2 3B",
 			Memory:        GB * 26,
 			ContextLength: 131072,
@@ -224,7 +224,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
+			ID:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
 			Name:          "Phi 3.5 3.8B",
 			Memory:        GB * 35,
 			ContextLength: 65536,
@@ -232,7 +232,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5:7b-instruct-q8_0
+			ID:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5:7b-instruct-q8_0
 			Name:          "Qwen 2.5 7B",
 			Memory:        GB * 12,
 			ContextLength: 32768,
@@ -240,7 +240,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "aya:8b-23-q8_0", // https://ollama.com/library/aya:8b-23-q8_0
+			ID:            "aya:8b-23-q8_0", // https://ollama.com/library/aya:8b-23-q8_0
 			Name:          "Aya 8B",
 			Memory:        GB * 11,
 			ContextLength: 8192,
@@ -248,7 +248,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
-			Id:            "aya:35b-23-q4_0", // https://ollama.com/library/aya:35b-23-q4_0
+			ID:            "aya:35b-23-q4_0", // https://ollama.com/library/aya:35b-23-q4_0
 			Name:          "Aya 35B",
 			Memory:        GB * 32,
 			ContextLength: 8192,
@@ -258,7 +258,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		// Old llama3:instruct and ph3:instruct, leaving in here because the id
 		// is in lots of our examples and tests
 		{
-			Id:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
+			ID:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
 			Name:          "Llama 3 8B",
 			Memory:        MB * 6390,
 			ContextLength: 8192,
@@ -266,7 +266,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          true,
 		},
 		{
-			Id:            "phi3:instruct", // https://ollama.com/library/phi3:instruct
+			ID:            "phi3:instruct", // https://ollama.com/library/phi3:instruct
 			Name:          "Phi-3",
 			Memory:        MB * 2300,
 			ContextLength: 131072,
@@ -274,7 +274,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          true,
 		},
 		{
-			Id:            "llama3:70b", // https://ollama.com/library/llama3:70b
+			ID:            "llama3:70b", // https://ollama.com/library/llama3:70b
 			Name:          "Llama 3 70B",
 			Memory:        GB * 40,
 			ContextLength: 8192,
@@ -282,7 +282,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          true,
 		},
 		{
-			Id:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
+			ID:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
 			Name:          "Gemma 2 2B",
 			Memory:        MB * 4916,
 			ContextLength: 8192,
