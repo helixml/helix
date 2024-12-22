@@ -19,7 +19,7 @@ func GenerateAPIKey() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return types.API_KEY_PREIX + base64.URLEncoding.EncodeToString(key), nil
+	return types.APIKeyPrefix + base64.URLEncoding.EncodeToString(key), nil
 }
 
 func GenerateEcdsaKeypair() (*types.KeyPair, error) {

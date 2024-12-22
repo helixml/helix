@@ -161,23 +161,24 @@ const (
 	SessionEventTypeDeleted SessionEventType = "deleted"
 )
 
-const FILESTORE_RESULTS_DIR = "results"
-const FILESTORE_LORA_DIR = "lora"
+const (
+	FilestoreResultsDir = "results"
+	FilestoreLoraDir    = "lora"
+	LoraDirNone         = "none"
 
-const LORA_DIR_NONE = "none"
+	// in the interaction metadata we keep track of which chunks
+	// have been turned into questions - we use the following format
+	// qa_<filename>
+	// the value will be a comma separated list of chunk indexes
+	// e.g. qa_file.txt = 0,1,2,3,4
+	TextDataPrepFilesConvertedPrefix = "qa_"
 
-// in the interaction metadata we keep track of which chunks
-// have been turned into questions - we use the following format
-// qa_<filename>
-// the value will be a comma separated list of chunk indexes
-// e.g. qa_file.txt = 0,1,2,3,4
-const TEXT_DATA_PREP_FILES_CONVERTED_PREFIX = "qa_"
+	// what we append on the end of the files to turn them into the qa files
+	TextDataPrepQuestionsFileSuffix = ".qa.jsonl"
 
-// what we append on the end of the files to turn them into the qa files
-const TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX = ".qa.jsonl"
-
-// let's write to the same file for now
-const TEXT_DATA_PREP_QUESTIONS_FILE = "finetune_dataset.jsonl"
+	// let's write to the same file for now
+	TextDataPrepQuestionsFile = "finetune_dataset.jsonl"
+)
 
 type TextDataPrepStage string
 
@@ -192,11 +193,11 @@ const (
 	TextDataPrepStageComplete          TextDataPrepStage = "complete"
 )
 
-const API_KEY_PREIX = "hl-"
+const APIKeyPrefix = "hl-"
 
 // what will activate all users being admin users
 // this is a dev setting and should be applied to ADMIN_USER_IDS
-const ADMIN_ALL_USERS = "all"
+const AdminAllUsers = "all"
 
 type InferenceRuntime string
 
@@ -231,28 +232,28 @@ var (
 type DataPrepModule string
 
 const (
-	DataPrepModule_None         DataPrepModule = ""
-	DataPrepModule_GPT3Point5   DataPrepModule = "gpt3.5"
-	DataPrepModule_GPT4         DataPrepModule = "gpt4"
-	DataPrepModule_HelixMistral DataPrepModule = "helix_mistral"
-	DataPrepModule_Dynamic      DataPrepModule = "dynamic"
+	DataprepmoduleNone         DataPrepModule = ""
+	DataprepmoduleGpt3point5   DataPrepModule = "gpt3.5"
+	DataPrepModule_GPT4        DataPrepModule = "gpt4"
+	DataprepmoduleHelixmistral DataPrepModule = "helix_mistral"
+	DataprepmoduleDynamic      DataPrepModule = "dynamic"
 )
 
 func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule, error) {
 	switch moduleName {
-	case string(DataPrepModule_GPT3Point5):
-		return DataPrepModule_GPT3Point5, nil
+	case string(DataprepmoduleGpt3point5):
+		return DataprepmoduleGpt3point5, nil
 	case string(DataPrepModule_GPT4):
 		return DataPrepModule_GPT4, nil
-	case string(DataPrepModule_HelixMistral):
-		return DataPrepModule_HelixMistral, nil
-	case string(DataPrepModule_Dynamic):
-		return DataPrepModule_Dynamic, nil
+	case string(DataprepmoduleHelixmistral):
+		return DataprepmoduleHelixmistral, nil
+	case string(DataprepmoduleDynamic):
+		return DataprepmoduleDynamic, nil
 	default:
-		if acceptEmpty && moduleName == string(DataPrepModule_None) {
-			return DataPrepModule_None, nil
+		if acceptEmpty && moduleName == string(DataprepmoduleNone) {
+			return DataprepmoduleNone, nil
 		} else {
-			return DataPrepModule_None, fmt.Errorf("invalid data prep module name: %s", moduleName)
+			return DataprepmoduleNone, fmt.Errorf("invalid data prep module name: %s", moduleName)
 		}
 	}
 }
@@ -267,13 +268,13 @@ const (
 type APIKeyType string
 
 const (
-	APIKeyType_None APIKeyType = ""
+	APIkeytypeNone APIKeyType = ""
 	// generic access token for a user
-	APIKeyType_API APIKeyType = "api"
+	APIkeytypeAPI APIKeyType = "api"
 	// a github oauth token
-	APIKeyType_Github APIKeyType = "github"
+	APIkeytypeGithub APIKeyType = "github"
 	// a helix access token for a specific app
-	APIKeyType_App APIKeyType = "app"
+	APIkeytypeApp APIKeyType = "app"
 )
 
 type DataEntityType string

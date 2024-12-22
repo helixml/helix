@@ -557,7 +557,7 @@ func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id any) *gomock.Call {
 }
 
 // ListAPIKeys mocks base method.
-func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error) {
+func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.APIKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListAPIKeys", ctx, query)
 	ret0, _ := ret[0].([]*types.APIKey)

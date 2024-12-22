@@ -120,7 +120,7 @@ Access Control
 // if any of the admin users IDs is "*" then we are in dev mode and every user is an admin
 func isDevelopmentMode(adminUserIDs []string) bool {
 	for _, id := range adminUserIDs {
-		if id == types.ADMIN_ALL_USERS {
+		if id == types.AdminAllUsers {
 			return true
 		}
 	}

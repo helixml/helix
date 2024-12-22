@@ -26,8 +26,8 @@ import (
 
 type RunnerOptions struct {
 	ID       string
-	ApiHost  string
-	ApiToken string
+	APIHost  string
+	APIToken string
 
 	CacheDir string
 
@@ -109,10 +109,10 @@ func NewRunner(
 	if options.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	if options.ApiHost == "" {
+	if options.APIHost == "" {
 		return nil, fmt.Errorf("api host required")
 	}
-	if options.ApiToken == "" {
+	if options.APIToken == "" {
 		return nil, fmt.Errorf("api token is required")
 	}
 	if options.RuntimeFactory == nil {
@@ -120,7 +120,7 @@ func NewRunner(
 	}
 
 	// Remove trailing slash from ApiHost if present
-	options.ApiHost = strings.TrimSuffix(options.ApiHost, "/")
+	options.APIHost = strings.TrimSuffix(options.APIHost, "/")
 
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
@@ -137,8 +137,8 @@ func NewRunner(
 		Ctx:     ctx,
 		Options: options,
 		httpClientOptions: system.ClientOptions{
-			Host:  options.ApiHost,
-			Token: options.ApiToken,
+			Host:  options.APIHost,
+			Token: options.APIToken,
 		},
 		activeModelInstances:  xsync.NewMapOf[string, ModelInstance](),
 		websocketEventChannel: make(chan *types.WebsocketEvent),
@@ -160,7 +160,7 @@ func (r *Runner) Initialize(ctx context.Context) error {
 
 	queryParams := url.Values{}
 	queryParams.Add("runnerid", r.Options.ID)
-	queryParams.Add("access_token", r.Options.ApiToken)
+	queryParams.Add("access_token", r.Options.APIToken)
 	parsedURL.RawQuery = queryParams.Encode()
 
 	go server.ConnectRunnerWebSocketClient(
