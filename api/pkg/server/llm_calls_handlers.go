@@ -21,7 +21,7 @@ import (
 // @Success 200 {object} types.PaginatedLLMCalls
 // @Router /api/v1/llm_calls [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) listLLMCalls(w http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
+func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
 	// Parse query parameters
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil || page < 1 {
@@ -72,7 +72,7 @@ func (s *HelixAPIServer) listLLMCalls(w http.ResponseWriter, r *http.Request) (*
 // @Success 200 {object} types.PaginatedLLMCalls
 // @Router /api/v1/llm_calls [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) listAppLLMCalls(w http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
+func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
 	appID := getID(r)
 	user := getRequestUser(r)
 

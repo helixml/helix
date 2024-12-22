@@ -346,7 +346,7 @@ func NewTestCmd() *cobra.Command {
 		Use:   "test",
 		Short: "Run tests for Helix app",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runTest(cmd, yamlFile, evaluationModel)
 		},
 	}

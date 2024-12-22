@@ -5,8 +5,7 @@ import "github.com/puzpuzpuz/xsync/v3"
 // Values returns a slice of all values in the map.
 func Values[K, V comparable](m *xsync.MapOf[K, V]) []V {
 	values := make([]V, 0, m.Size())
-	// nolint:revive
-	m.Range(func(key K, value V) bool {
+	m.Range(func(_ K, value V) bool {
 		values = append(values, value)
 		return true
 	})

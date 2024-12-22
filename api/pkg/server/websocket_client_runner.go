@@ -14,9 +14,9 @@ var mu sync.Mutex
 
 // ConnectWebSocket establishes a new WebSocket connection
 func ConnectRunnerWebSocketClient(
+	ctx context.Context,
 	url string,
 	websocketEventChan chan *types.WebsocketEvent,
-	ctx context.Context,
 ) {
 	closed := false
 	finished := make(chan bool)
@@ -95,7 +95,7 @@ func ConnectRunnerWebSocketClient(
 					log.Error().Msgf("Read error: %s\nReconnecting in 2 seconds...", err)
 					time.Sleep(2 * time.Second)
 					finished <- true
-					ConnectRunnerWebSocketClient(url, websocketEventChan, ctx)
+					ConnectRunnerWebSocketClient(ctx, url, websocketEventChan)
 					// exit this goroutine now, another one will be spawned if
 					// the recursive call to ConnectWebSocket succeeds. Not
 					// exiting this goroutine here will cause goroutines to pile

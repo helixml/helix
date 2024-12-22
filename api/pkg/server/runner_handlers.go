@@ -17,7 +17,7 @@ import (
 
 // runnerLLMInferenceRequestHandler handles LLM inference queries from the runner that are triggered either through polling
 // or through a push notification from the controller.
-func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.ResponseWriter, req *http.Request) (*types.RunnerLLMInferenceRequest, error) {
+func (s *HelixAPIServer) runnerLLMInferenceRequestHandler(_ http.ResponseWriter, req *http.Request) (*types.RunnerLLMInferenceRequest, error) {
 	vars := mux.Vars(req)
 	runnerID := vars["runnerid"]
 	if runnerID == "" {
@@ -48,7 +48,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		}
 	}
 
-	nextReq, err := apiServer.inferenceServer.GetNextLLMInferenceRequest(req.Context(), types.InferenceRequestFilter{
+	nextReq, err := s.inferenceServer.GetNextLLMInferenceRequest(req.Context(), types.InferenceRequestFilter{
 		ModelName: modelName,
 		Memory:    memory,
 		Older:     olderDuration,
@@ -57,7 +57,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 	return nextReq, err
 }
 
-func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+func (s *HelixAPIServer) getNextRunnerSession(_ http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	runnerID := vars["runnerid"]
 	if runnerID == "" {
@@ -158,7 +158,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 
 	// alow the worker to filter what tasks it wants
 	// if any of these values are defined then we will only consider those in the response
-	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), filter, runnerID)
+	nextSession, err := s.Controller.ShiftSessionQueue(req.Context(), filter, runnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,14 +168,14 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	return nextSession, nil
 }
 
-func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, req *http.Request) (*types.RunnerTaskResponse, error) {
+func (s *HelixAPIServer) handleRunnerResponse(_ http.ResponseWriter, req *http.Request) (*types.RunnerTaskResponse, error) {
 	taskResponse := &types.RunnerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
+	resp, err := s.Controller.HandleRunnerResponse(req.Context(), taskResponse)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", taskResponse.SessionID).Msg("failed to handle runner response")
 		return nil, err
@@ -183,23 +183,23 @@ func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, r
 	return resp, nil
 }
 
-func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, req *http.Request) (*types.RunnerState, error) {
+func (s *HelixAPIServer) handleRunnerMetrics(_ http.ResponseWriter, req *http.Request) (*types.RunnerState, error) {
 	runnerState := &types.RunnerState{}
 	err := json.NewDecoder(req.Body).Decode(runnerState)
 	if err != nil {
 		return nil, err
 	}
 
-	apiServer.scheduler.UpdateRunner(runnerState)
+	s.scheduler.UpdateRunner(runnerState)
 
-	runnerState, err = apiServer.Controller.AddRunnerMetrics(req.Context(), runnerState)
+	runnerState, err = s.Controller.AddRunnerMetrics(req.Context(), runnerState)
 	if err != nil {
 		return nil, err
 	}
 	return runnerState, nil
 }
 
-func (apiServer *HelixAPIServer) getDesiredRunnerSlots(res http.ResponseWriter, req *http.Request) (*types.GetDesiredRunnerSlotsResponse, error) {
+func (s *HelixAPIServer) getDesiredRunnerSlots(_ http.ResponseWriter, req *http.Request) (*types.GetDesiredRunnerSlotsResponse, error) {
 	vars := mux.Vars(req)
 	runnerID := vars["runnerid"]
 	if runnerID == "" {
@@ -207,6 +207,6 @@ func (apiServer *HelixAPIServer) getDesiredRunnerSlots(res http.ResponseWriter, 
 	}
 
 	return &types.GetDesiredRunnerSlotsResponse{
-		Data: apiServer.scheduler.SlotsForRunner(runnerID),
+		Data: s.scheduler.SlotsForRunner(runnerID),
 	}, nil
 }

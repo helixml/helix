@@ -164,9 +164,9 @@ func (r *Runner) Initialize(ctx context.Context) error {
 	parsedURL.RawQuery = queryParams.Encode()
 
 	go server.ConnectRunnerWebSocketClient(
+		ctx,
 		parsedURL.String(),
 		r.websocketEventChannel,
-		ctx,
 	)
 
 	return nil

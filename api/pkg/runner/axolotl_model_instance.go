@@ -208,7 +208,7 @@ func (i *AxolotlModelInstance) getSessionFileHander(session *types.Session) *Ses
 
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
-func (i *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
+func (i *AxolotlModelInstance) AssignSessionTask(_ context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
 	i.lastActivity = time.Now()
 	i.currentSession = session
@@ -222,7 +222,7 @@ func (i *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *t
 	return task, nil
 }
 
-func (i *AxolotlModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+func (i *AxolotlModelInstance) QueueSession(*types.Session, bool) {}
 
 /*
 
@@ -306,7 +306,7 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 
 }
 
-func (i *AxolotlModelInstance) Start(ctx context.Context) error {
+func (i *AxolotlModelInstance) Start(_ context.Context) error {
 	// Get random free port
 	port, err := freeport.GetFreePort()
 	if err != nil {
