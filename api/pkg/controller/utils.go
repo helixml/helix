@@ -188,7 +188,7 @@ func appendQuestionsToFile(
 // for the moment, we append question pairs to the same file
 // eventually we will append questions to a JSONL file per source file
 func getQuestionsFilename(sourceFilename string) string {
-	return path.Join(path.Dir(sourceFilename), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+	return path.Join(path.Dir(sourceFilename), types.TextDataPrepQuestionsFile)
 	// return fmt.Sprintf("%s%s", sourceFilename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)
 }
 

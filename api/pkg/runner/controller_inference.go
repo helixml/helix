@@ -27,7 +27,7 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 		},
 		&types.RunnerLLMInferenceRequest{
 			Request: &openai.ChatCompletionRequest{
-				Model: model.Model_Ollama_Llama3_8b,
+				Model: model.ModelOllamaLlama38b,
 			},
 		},
 	)

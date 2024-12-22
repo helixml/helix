@@ -52,8 +52,8 @@ func (suite *HelixOpenAiServerTestSuite) SetupTest() {
 }
 
 func (suite *HelixOpenAiServerTestSuite) Test_GetNextLLMInferenceRequest() {
-	suite.Assert().NoError(enqueueTestLLMWorkload(suite.srv.scheduler, "req-1", model.Model_Ollama_Llama3_70b))
-	suite.Assert().NoError(enqueueTestLLMWorkload(suite.srv.scheduler, "req-2", model.Model_Ollama_Llama3_8b))
+	suite.Assert().NoError(enqueueTestLLMWorkload(suite.srv.scheduler, "req-1", model.ModelOllamaLlama370b))
+	suite.Assert().NoError(enqueueTestLLMWorkload(suite.srv.scheduler, "req-2", model.ModelOllamaLlama38b))
 
 	// Enough time for the internal goroutine to process the queue. No way of getting access to this
 	// outside of the scheduler.

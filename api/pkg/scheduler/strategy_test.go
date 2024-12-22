@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	testModelStr = model.Model_Ollama_Llama3_8b
+	testModelStr = model.ModelOllamaLlama38b
 )
 
 var (

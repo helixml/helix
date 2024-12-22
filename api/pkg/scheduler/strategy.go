@@ -12,9 +12,9 @@ import (
 type SchedulingStrategy string
 
 const (
-	SchedulingStrategy_None           SchedulingStrategy = ""
-	SchedulingStrategy_MaxUtilization SchedulingStrategy = "max_utilization"
-	SchedulingStrategy_MaxSpread      SchedulingStrategy = "max_spread"
+	SchedulingstrategyNone           SchedulingStrategy = ""
+	SchedulingstrategyMaxutilization SchedulingStrategy = "max_utilization"
+	SchedulingstrategyMaxspread      SchedulingStrategy = "max_spread"
 )
 
 type SchedulingStrategyFunc func(Cluster, WorkloadAllocator, *Workload) (string, error)

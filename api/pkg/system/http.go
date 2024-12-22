@@ -96,8 +96,8 @@ func NewHTTPError500(message string) *HTTPError {
 type httpErrorHandler func(err *HTTPError, req *http.Request)
 type errorHandler func(err error, req *http.Request)
 
-var HTTP_ERROR_HANDLER httpErrorHandler
-var ERROR_HANDLER errorHandler
+var HTTPErrorHandler httpErrorHandler
+var ErrorHandler errorHandler
 
 // functions that understand they need to return a http error
 type httpWrapper[T any] func(res http.ResponseWriter, req *http.Request) (T, *HTTPError)
@@ -111,25 +111,25 @@ type WrapperConfig struct {
 }
 
 func SetHTTPErrorHandler(handler httpErrorHandler) {
-	HTTP_ERROR_HANDLER = handler
+	HTTPErrorHandler = handler
 }
 
 func SetErrorHandler(handler errorHandler) {
-	ERROR_HANDLER = handler
+	ErrorHandler = handler
 }
 
 // wrap a http handler with some error handling
 // so if it returns an error we handle it
 func Wrapper[T any](handler httpWrapper[T]) func(res http.ResponseWriter, req *http.Request) {
-	return WrapperWithConfig[T](handler, WrapperConfig{})
+	return WrapperWithConfig(handler, WrapperConfig{})
 }
 
 func WrapperWithConfig[T any](handler httpWrapper[T], config WrapperConfig) func(res http.ResponseWriter, req *http.Request) {
 	ret := func(res http.ResponseWriter, req *http.Request) {
 		data, err := handler(res, req)
 		if err != nil {
-			if HTTP_ERROR_HANDLER != nil {
-				HTTP_ERROR_HANDLER(err, req)
+			if HTTPErrorHandler != nil {
+				HTTPErrorHandler(err, req)
 			}
 			if !config.SilenceErrors {
 				log.Error().Msgf("error for route: %s", err.Error())
@@ -173,8 +173,8 @@ func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperCo
 	ret := func(res http.ResponseWriter, req *http.Request) {
 		data, err := handler(res, req)
 		if err != nil {
-			if ERROR_HANDLER != nil {
-				ERROR_HANDLER(err, req)
+			if ErrorHandler != nil {
+				ErrorHandler(err, req)
 			}
 			if !config.SilenceErrors {
 				log.Error().Msgf("error for route: %s", err.Error())

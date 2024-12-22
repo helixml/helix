@@ -34,7 +34,7 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
+func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager SessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 	return nil, nil, nil
 }
 
-func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
+func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSession bool, fileManager SessionFileManager) (*types.Session, error) {
 	var err error
 	if isInitialSession && session.Mode == types.SessionModeInference && session.LoraDir != "" {
 		session, err = downloadLoraDir(session, fileManager)
@@ -137,7 +137,7 @@ func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSess
 		jsonLFiles := []string{}
 		for _, interaction := range finetuneInteractions {
 			for _, file := range interaction.Files {
-				if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+				if path.Base(file) == types.TextDataPrepQuestionsFile {
 					localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
 					localPath := path.Join(fileManager.GetFolder(), localFilename)
 					err := fileManager.DownloadFile(file, localPath)
@@ -149,7 +149,7 @@ func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSess
 			}
 		}
 
-		combinedFile := path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+		combinedFile := path.Join(fileManager.GetFolder(), types.TextDataPrepQuestionsFile)
 		err = system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
 		if err != nil {
 			return nil, err

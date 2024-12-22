@@ -26,8 +26,8 @@ func NewRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
 		Runner: runner.RunnerOptions{
 			ID:                           getDefaultServeOptionString("RUNNER_ID", ""),
-			ApiHost:                      getDefaultServeOptionString("API_HOST", ""),
-			ApiToken:                     getDefaultServeOptionString("API_TOKEN", ""),
+			APIHost:                      getDefaultServeOptionString("API_HOST", ""),
+			APIToken:                     getDefaultServeOptionString("API_TOKEN", ""),
 			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING", ""),
 			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
@@ -77,12 +77,12 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Runner.ApiHost, "api-host", allOptions.Runner.ApiHost,
+		&allOptions.Runner.APIHost, "api-host", allOptions.Runner.APIHost,
 		`The base URL of the api - e.g. http://1.2.3.4:8080`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Runner.ApiToken, "api-token", allOptions.Runner.ApiToken,
+		&allOptions.Runner.APIToken, "api-token", allOptions.Runner.APIToken,
 		`The auth token for this runner`,
 	)
 
@@ -180,7 +180,7 @@ var WarmupSession_Model_Mistral7b = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeText,
-	ModelName:    model.Model_Axolotl_Mistral7b,
+	ModelName:    model.ModelAxolotlMistral7b,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -208,7 +208,7 @@ var WarmupSession_Model_SDXL = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeImage,
-	ModelName:    model.Model_Cog_SDXL,
+	ModelName:    model.ModelCogSdxl,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -218,7 +218,7 @@ var WarmupSession_Model_SDXL = types.Session{
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	system.SetupLogging()
 
-	if options.Runner.ApiToken == "" {
+	if options.Runner.APIToken == "" {
 		return fmt.Errorf("api token is required")
 	}
 
@@ -254,17 +254,17 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	// global state - expedient hack (TODO remove this when we switch cog away
 	// from downloading lora weights via http from the filestore)
-	model.APIHost = options.Runner.ApiHost
-	model.APIToken = options.Runner.ApiToken
+	model.APIHost = options.Runner.APIHost
+	model.APIToken = options.Runner.APIToken
 
 	if !options.Runner.MockRunner {
 		// Axolotl runtime warmup
 		if options.Runner.Config.Runtimes.Axolotl.Enabled {
 			for _, modelName := range options.Runner.Config.Runtimes.Axolotl.WarmupModels {
 				switch modelName {
-				case model.Model_Axolotl_Mistral7b:
+				case model.ModelAxolotlMistral7b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
-				case model.Model_Cog_SDXL:
+				case model.ModelCogSdxl:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
 				default:
 					log.Error().Msgf("Unknown warmup model %s", modelName)
@@ -276,7 +276,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		if options.Runner.Config.Runtimes.Ollama.Enabled && !options.Runner.Config.Runtimes.V2Engine {
 			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
 				switch modelName {
-				case model.Model_Ollama_Llama3_8b:
+				case model.ModelOllamaLlama38b:
 					log.Info().Msgf("Adding warmup session for model %s", modelName)
 				}
 			}

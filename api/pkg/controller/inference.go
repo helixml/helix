@@ -199,7 +199,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		return nil, false, fmt.Errorf("failed to emit run action step info: %w", err)
 	}
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
+	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API)
 	if err != nil {
 		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
 			Name:    selectedTool.Name,
@@ -256,12 +256,12 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
 	}
 
-	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
+	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API)
 	if err != nil {
 		log.Warn().
 			Err(err).
 			Str("tool", selectedTool.Name).
-			Str("action", isActionable.Api).
+			Str("action", isActionable.API).
 			Msg("failed to perform action")
 
 		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
@@ -346,9 +346,9 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		return nil, nil, false, nil
 	}
 
-	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.Api)
+	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.API)
 	if !ok {
-		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
+		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.API)
 	}
 
 	// If assistant has configured a model, give the hint to the tool that it should use that model too

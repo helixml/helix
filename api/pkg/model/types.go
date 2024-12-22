@@ -85,23 +85,23 @@ type Model interface {
 	// GetTask will be called on the session return from this function
 	// so PrepareFiles and GetTask very much work in tandem
 	// TODO: add the same for uploading files - i.e. the model shold have control over what happens
-	PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error)
+	PrepareFiles(session *types.Session, isInitialSession bool, fileManager SessionFileManager) (*types.Session, error)
 
 	// convert a session (which has an active mode i.e. inference or finetune) into a task
 	// this primarily means constructing the prompt
 	// and downloading files from the filestore
 	// we don't need to fill in the SessionID and Session fields
 	// the runner controller will do that for us
-	GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error)
+	GetTask(session *types.Session, fileManager SessionFileManager) (*types.RunnerTask, error)
 }
 
 // an interface that allows models to be opinionated about how they manage
 // a sessions files
 // for example, for text fine tuning - we want to download all JSONL files
 // across interactions and then concatenate them into one file
-// a ModelSessionFileManager implmentation will be per session and so have
+// a SessionFileManager implmentation will be per session and so have
 // allocated a folder for each session
-type ModelSessionFileManager interface {
+type SessionFileManager interface {
 	// tell the model what folder we are saving local files to
 	GetFolder() string
 	// given remote filestore path and local path

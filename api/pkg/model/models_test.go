@@ -43,7 +43,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: false,
 				ragEnabled:  true,
 			},
-			want: NewModel(Model_Ollama_Llama3_8b),
+			want: NewModel(ModelOllamaLlama38b),
 		},
 		{
 			name: "empty model, finetune, no rag",
@@ -55,7 +55,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: true,
 				ragEnabled:  false,
 			},
-			want: NewModel(Model_Axolotl_Mistral7b),
+			want: NewModel(ModelAxolotlMistral7b),
 		},
 		{
 			name: "normal inference",
@@ -67,7 +67,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: NewModel(Model_Ollama_Llama3_8b),
+			want: NewModel(ModelOllamaLlama38b),
 		},
 		{
 			name: "normal inference, model set helix-4",
@@ -79,7 +79,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: NewModel(Model_Ollama_Llama3_70b),
+			want: NewModel(ModelOllamaLlama370b),
 		},
 		{
 			name: "normal inference, model set helix-mixtral",
@@ -91,7 +91,7 @@ func TestProcessModelName(t *testing.T) {
 				hasFinetune: false,
 				ragEnabled:  false,
 			},
-			want: NewModel(Model_Ollama_Mixtral),
+			want: NewModel(ModelOllamaMixtral),
 		},
 	}
 	for _, tt := range tests {

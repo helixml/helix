@@ -9,7 +9,7 @@ import (
 )
 
 type OllamaGenericText struct {
-	Id            string // e.g. "phi3.5:3.8b-mini-instruct-q8_0"
+	ID            string // e.g. "phi3.5:3.8b-mini-instruct-q8_0"
 	Name          string // e.g. "Phi 3.5"
 	Memory        uint64
 	ContextLength int64
@@ -30,15 +30,15 @@ func (i *OllamaGenericText) GetType() types.SessionType {
 }
 
 func (i *OllamaGenericText) GetID() string {
-	return i.Id
+	return i.ID
 }
 
 func (i *OllamaGenericText) ModelName() ModelName {
-	return NewModel(i.Id)
+	return NewModel(i.ID)
 }
 
 // TODO(rusenask): probably noop
-func (i *OllamaGenericText) GetTask(session *types.Session, _ ModelSessionFileManager) (*types.RunnerTask, error) {
+func (i *OllamaGenericText) GetTask(session *types.Session, _ SessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (i *OllamaGenericText) GetTextStreams(_ types.SessionMode, _ WorkerEventHan
 	return nil, nil, fmt.Errorf("not implemented 2")
 }
 
-func (i *OllamaGenericText) PrepareFiles(_ *types.Session, _ bool, _ ModelSessionFileManager) (*types.Session, error) {
+func (i *OllamaGenericText) PrepareFiles(_ *types.Session, _ bool, _ SessionFileManager) (*types.Session, error) {
 	return nil, fmt.Errorf("not implemented 3")
 }
 

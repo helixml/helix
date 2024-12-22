@@ -45,7 +45,7 @@ func (l *CogSDXL) GetType() types.SessionType {
 	return types.SessionTypeImage
 }
 
-func (l *CogSDXL) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
+func (l *CogSDXL) GetTask(session *types.Session, fileManager SessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
@@ -125,7 +125,7 @@ func (l *CogSDXL) getMockCommand(ctx context.Context, sessionFilter types.Sessio
 	return cmd, nil
 }
 
-func (l *CogSDXL) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
+func (l *CogSDXL) PrepareFiles(session *types.Session, isInitialSession bool, fileManager SessionFileManager) (*types.Session, error) {
 	var err error
 	if isInitialSession && session.Mode == types.SessionModeInference && session.LoraDir != "" {
 		session, err = downloadLoraDir(session, fileManager)
