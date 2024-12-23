@@ -512,4 +512,4 @@ steps:
 
 services:
 - name: chrome
-  image: ghcr.io/go-rod/rod:v0.115.
+  image: ghcr.io/go-rod/rod:v0.115.0
