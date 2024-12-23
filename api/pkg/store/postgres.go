@@ -13,19 +13,19 @@ import (
 
 	"database/sql"
 
-	_ "github.com/lib/pq"
-	"github.com/rs/zerolog/log"
+	_ "github.com/doug-martin/goqu/v9/dialect/postgres"        // postgres query builder
+	_ "github.com/golang-migrate/migrate/v4/database/postgres" // postgres migrations
+	_ "github.com/lib/pq"                                      // enable postgres driver
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type PostgresStore struct {
