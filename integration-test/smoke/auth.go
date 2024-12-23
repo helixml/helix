@@ -34,9 +34,7 @@ func loginWithCredentials(page *rod.Page) error {
 	page.MustElement("input[type='submit']").MustClick()
 	page.MustWaitStable()
 
-	logStep("Saving cookies")
-	cookieStore := NewCookieStore("")
-	return cookieStore.Save(page, getServerURL())
+	return nil
 }
 
 func verifyLogin(page *rod.Page) error {

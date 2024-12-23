@@ -65,11 +65,13 @@ func StartNewSessionTest() TestCase {
 		Description: "Tests starting a new chat session after login",
 		Timeout:     20 * time.Second,
 		Run: func(browser *rod.Browser) error {
-			page := browser.MustPage(getServerURL())
-			page.MustWaitStable()
-			if err := verifyLogin(page); err != nil {
+			err := performLogin(browser)
+			if err != nil {
 				return err
 			}
+
+			page := browser.MustPage(getServerURL())
+			page.MustWaitStable()
 
 			if err := startNewChat(page); err != nil {
 				return err
@@ -142,7 +144,7 @@ func UploadPDFFileTest() TestCase {
 }
 
 func uploadPDFFile(browser *rod.Browser) error {
-	// Navigate to the files page
+	logStep("Navigating to the files page")
 	page := browser.
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(getServerURL() + "/files")
@@ -213,7 +215,7 @@ func CreateRagAppTest() TestCase {
 }
 
 func createRagApp(browser *rod.Browser) error {
-	// Navigate to the files page
+	logStep("Loading the homepage")
 	page := browser.
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(getServerURL())
