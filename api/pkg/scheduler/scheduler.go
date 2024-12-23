@@ -50,6 +50,10 @@ var _ Scheduler = &scheduler{}
 
 // NewScheduler creates a new scheduler with a workload allocator.
 // This also starts a goroutine to process the queue in the background.
+//
+// NOTE(milosgajdos): we really should make sure we return exported types.
+// If we want the type fields to be inaccessible we should make them unexported.
+// nolint:revive
 func NewScheduler(ctx context.Context, cfg *config.ServerConfig, onSchedulingErr func(work *Workload, err error)) *scheduler {
 	scheduler := newSchedulerWithoutGoroutines(cfg, onSchedulingErr)
 

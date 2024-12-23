@@ -29,16 +29,18 @@ type WorkloadAllocator interface {
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
 type TimeoutFunc func(runnerID string, lastActivityTime time.Time) bool
 
-// allocator implements the WorkloadAllocator interface, managing runners, slots, and workload allocation.
-type allocator struct {
+// Allocator implements the WorkloadAllocator interface, managing runners, slots, and workload allocation.
+type Allocator struct {
 	slots           *xsync.MapOf[uuid.UUID, *Slot] // Maps slot ID to Slot details.
 	modelStaleFunc  TimeoutFunc                    // Function to check if models are stale
 	slotTimeoutFunc TimeoutFunc                    // Function to check if slots have timed out due to error
 }
 
+var _ WorkloadAllocator = &Allocator{}
+
 // NewWorkloadAllocator creates a new allocator instance with timeout functions for models and runners.
-func NewWorkloadAllocator(staleFunc TimeoutFunc, slotTimeoutFunc TimeoutFunc) *allocator {
-	return &allocator{
+func NewWorkloadAllocator(staleFunc TimeoutFunc, slotTimeoutFunc TimeoutFunc) *Allocator {
+	return &Allocator{
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  staleFunc,
 		slotTimeoutFunc: slotTimeoutFunc,
@@ -46,7 +48,7 @@ func NewWorkloadAllocator(staleFunc TimeoutFunc, slotTimeoutFunc TimeoutFunc) *a
 }
 
 // AllocateSlot assigns a workload to a specific slot, validating the model and slot before scheduling.
-func (a *allocator) AllocateSlot(slotID uuid.UUID, req *Workload) error {
+func (a *Allocator) AllocateSlot(slotID uuid.UUID, req *Workload) error {
 	// Validate model
 	if _, err := model.GetModel(req.ModelName().String()); err != nil {
 		return fmt.Errorf("unable to get model (%s): %v", req.ModelName(), err)
@@ -81,7 +83,7 @@ func (a *allocator) AllocateSlot(slotID uuid.UUID, req *Workload) error {
 }
 
 // AllocateNewSlot creates a new slot for a workload and allocates it to the best available runner.
-func (a *allocator) AllocateNewSlot(runnerID string, req *Workload) (*Slot, error) {
+func (a *Allocator) AllocateNewSlot(runnerID string, req *Workload) (*Slot, error) {
 	// Create a new slot and schedule the workload.
 	slot := NewSlot(runnerID, req, a.modelStaleFunc, a.slotTimeoutFunc)
 	log.Trace().
@@ -100,7 +102,7 @@ func (a *allocator) AllocateNewSlot(runnerID string, req *Workload) (*Slot, erro
 }
 
 // ReleaseSlot frees the resources allocated to a specific slot.
-func (a *allocator) ReleaseSlot(slotID uuid.UUID) error {
+func (a *Allocator) ReleaseSlot(slotID uuid.UUID) error {
 	// Find the slot.
 	slot, ok := a.slots.Load(slotID)
 	if !ok {
@@ -121,7 +123,7 @@ func (a *allocator) ReleaseSlot(slotID uuid.UUID) error {
 }
 
 // ReconcileSlots updates the state of a runner and reconciles its slots with the allocator's records.
-func (a *allocator) ReconcileSlots(props *types.RunnerState) error {
+func (a *Allocator) ReconcileSlots(props *types.RunnerState) error {
 	// Log runner state update.
 	l := log.With().
 		Str("runner_id", props.ID).
@@ -216,7 +218,7 @@ func (a *allocator) ReconcileSlots(props *types.RunnerState) error {
 }
 
 // WarmSlots returns a list of available slots with warm models waiting for work.
-func (a *allocator) WarmSlots(req *Workload) []*Slot {
+func (a *Allocator) WarmSlots(req *Workload) []*Slot {
 	cosyWarm := make([]*Slot, 0, a.slots.Size())
 
 	a.slots.Range(func(id uuid.UUID, slot *Slot) bool {
@@ -268,7 +270,7 @@ func (a *allocator) WarmSlots(req *Workload) []*Slot {
 }
 
 // RunnerSlots returns all slots associated with a specific runner ID.
-func (a *allocator) RunnerSlots(id string) []*Slot {
+func (a *Allocator) RunnerSlots(id string) []*Slot {
 	allSlots := Values(a.slots)
 	// Filter slots to include only those belonging to the specified runner.
 	return Filter(allSlots, func(s *Slot) bool {
@@ -278,7 +280,7 @@ func (a *allocator) RunnerSlots(id string) []*Slot {
 
 // DeadSlots checks for any runners that have timed out and removes them.
 // It returns the slots associated with the dead runners.
-func (a *allocator) DeadSlots(deadRunnerIDs []string) []*Slot {
+func (a *Allocator) DeadSlots(deadRunnerIDs []string) []*Slot {
 	deadSlots := make([]*Slot, 0)
 	// Iterate through runners to check if any have timed out.
 	for _, runnerID := range deadRunnerIDs {
@@ -303,7 +305,7 @@ func (a *allocator) DeadSlots(deadRunnerIDs []string) []*Slot {
 }
 
 // StartSlot marks scheduled work as in progress
-func (a *allocator) StartSlot(slotID uuid.UUID) error {
+func (a *Allocator) StartSlot(slotID uuid.UUID) error {
 	// Find the slot.
 	slot, ok := a.slots.Load(slotID)
 	if !ok {
@@ -326,6 +328,6 @@ func (a *allocator) StartSlot(slotID uuid.UUID) error {
 	return nil
 }
 
-func (a *allocator) DeleteSlot(slotID uuid.UUID) {
+func (a *Allocator) DeleteSlot(slotID uuid.UUID) {
 	a.slots.Delete(slotID)
 }

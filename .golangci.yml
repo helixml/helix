@@ -12,7 +12,7 @@ linters:
     - bodyclose
     - tparallel
     - errcheck
-    #- revive
+    - revive
 
 issues:
   exlude-dirs:
