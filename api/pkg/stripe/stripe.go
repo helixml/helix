@@ -18,16 +18,16 @@ import (
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
-type StripeEventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
+type EventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
 
 type Stripe struct {
 	Cfg          config.Stripe
-	eventHandler StripeEventHandler
+	eventHandler EventHandler
 }
 
 func NewStripe(
 	cfg config.Stripe,
-	eventHandler StripeEventHandler,
+	eventHandler EventHandler,
 ) *Stripe {
 	if cfg.SecretKey != "" {
 		stripe.Key = cfg.SecretKey

@@ -13,7 +13,7 @@ func (suite *PostgresStoreTestSuite) TestCreateTool() {
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL: "http://test.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer 123",
@@ -45,7 +45,7 @@ func (suite *PostgresStoreTestSuite) TestGetTool() {
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL: "http://test.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer 123",
@@ -86,7 +86,7 @@ func (suite *PostgresStoreTestSuite) TestListTools() {
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL: "http://test.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer 123",
@@ -128,7 +128,7 @@ func (suite *PostgresStoreTestSuite) TestDeleteTool() {
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL: "http://test.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer 123",

@@ -20,7 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-type KnowledgeManager interface {
+type Manager interface {
 	NextRun(ctx context.Context, knowledgeID string) (time.Time, error)
 }
 

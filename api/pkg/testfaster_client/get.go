@@ -8,7 +8,7 @@ import (
 )
 
 // submit pool and pop a lease off it
-func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
+func (apiHandler *HTTPAPIHandler) Get(request *PoolRequest) (*Lease, error) {
 
 	socket, err := apiHandler.GetWebsocket()
 	if err != nil {
@@ -46,7 +46,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		newMeta["slot"] = addSlotToList(pool.Meta["slot"], poolSlot)
 		pool, err = apiHandler.UpdatePoolMeta(
 			PoolState{
-				PoolId: pool.Id,
+				PoolID: pool.ID,
 				Meta:   newMeta,
 			},
 		)
@@ -93,29 +93,29 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		return nil, fmt.Errorf("Error subscribing to pool events: %s", err)
 	}
 
-	fmt.Printf("Got pool (%s)\n", pool.Id)
+	fmt.Printf("Got pool (%s)\n", pool.ID)
 	if pool.State == "deleting" || pool.State == "deleted" {
 		// resurrect pool if necessary
 		pool, err = apiHandler.UpdatePool(PoolState{
-			PoolId: pool.Id,
+			PoolID: pool.ID,
 			State:  "unknown", // will trigger backend to build it if necc.
 		})
 		if err != nil {
-			return nil, fmt.Errorf("Error resurrecting pool %s: %s", pool.Id, err)
+			return nil, fmt.Errorf("Error resurrecting pool %s: %s", pool.ID, err)
 		}
 	}
 
 	if pool.State != "ready" {
 		fmt.Printf("Waiting for pool to be ready...\n")
-		stopLogsChan, err := streamPoolLogs(socket, pool.Id)
+		stopLogsChan, err := streamPoolLogs(socket, pool.ID)
 		if err != nil {
 			return nil, fmt.Errorf("Error getting logs channel for pool: %s", err)
 		}
-		_, err = waitForPool(*apiHandler, poolSubscription, pool.Id)
+		_, err = waitForPool(*apiHandler, poolSubscription, pool.ID)
 		stopLogsChan <- true
 		if err != nil {
-			pool, _ = apiHandler.GetPool(pool.Id)
-			return nil, fmt.Errorf("Error waiting for pool %s, check logs and retry at https://testfaster.ci/pools: %s", pool.Id, err)
+			pool, _ = apiHandler.GetPool(pool.ID)
+			return nil, fmt.Errorf("Error waiting for pool %s, check logs and retry at https://testfaster.ci/pools: %s", pool.ID, err)
 		}
 		fmt.Printf("Pool is now ready\n")
 	}
@@ -126,9 +126,9 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 
 	// Get pool so that we have leases filled in (response from
 	// create pool may not have this)
-	pool, err = apiHandler.GetPool(pool.Id)
+	pool, err = apiHandler.GetPool(pool.ID)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get full filled in result for pool %s: %s", pool.Id, err)
+		return nil, fmt.Errorf("unable to get full filled in result for pool %s: %s", pool.ID, err)
 	}
 
 	if name != "" {
@@ -184,21 +184,21 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	if lease == nil {
 		fmt.Printf("Creating lease...\n")
 		lease, err = apiHandler.CreateLease(&Lease{
-			Pool:  pool.Id,
+			Pool:  pool.ID,
 			State: "waiting",
 			Meta:  meta,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("Error posting lease: %s", err)
 		}
-		fmt.Printf("Lease created (%s)\n", lease.Id)
+		fmt.Printf("Lease created (%s)\n", lease.ID)
 	} else {
-		fmt.Printf("Found existing lease (%s) with name %s\n", lease.Id, name)
+		fmt.Printf("Found existing lease (%s) with name %s\n", lease.ID, name)
 	}
 
 	fmt.Printf("\n=========================================\n")
 	fmt.Printf("To connect to this VM, install and auth the cli from https://testfaster.ci/access_token then run:\n")
-	fmt.Printf("    testctl ssh --pool %s --lease %s\n", pool.Id, lease.Id)
+	fmt.Printf("    testctl ssh --pool %s --lease %s\n", pool.ID, lease.ID)
 	fmt.Printf("=========================================\n\n")
 	fmt.Printf("Waiting for lease to be assigned...\n")
 
@@ -207,7 +207,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		return nil, fmt.Errorf("Error subscribing for lease updates: %s", err)
 	}
 
-	leaseState, err := waitForLeaseAssigned(*apiHandler, leaseSubscription, pool.Id, lease.Id)
+	leaseState, err := waitForLeaseAssigned(*apiHandler, leaseSubscription, pool.ID, lease.ID)
 	if err != nil {
 		return nil, fmt.Errorf("Error waiting for lease to be assigned: %s", err)
 	}
@@ -215,8 +215,8 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	tempKubeconfig := `# Testfaster intermediate kubeconfig (recording lease info before VM is
 # started, just enough for testctl get to drop the lease & pool if necc.)
 
-##LEASE_ID=` + lease.Id + `
-##POOL_ID=` + pool.Id + "\n"
+##LEASE_ID=` + lease.ID + `
+##POOL_ID=` + pool.ID + "\n"
 
 	err = os.WriteFile("kubeconfig", []byte(tempKubeconfig), 0644)
 	if err != nil {
@@ -230,18 +230,18 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 	// let's hook into the vm logsss
 	if leaseState == "assigned" {
 		fmt.Printf("Waiting for lease to be ready...\n")
-		lease, err = apiHandler.GetLease(pool.Id, lease.Id)
+		lease, err = apiHandler.GetLease(pool.ID, lease.ID)
 		if err != nil {
 			return nil, fmt.Errorf("Error getting lease state: %s", err)
 		}
-		stopLogsChan, err := streamVmLogs(socket, pool.Id, lease.Vm)
+		stopLogsChan, err := streamVMLogs(socket, pool.ID, lease.VM)
 		if err != nil {
 			return nil, fmt.Errorf("Error getting logs channel for lease: %s", err)
 		}
-		_, err = waitForLeaseReady(*apiHandler, leaseSubscription, pool.Id, lease.Id)
+		_, err = waitForLeaseReady(*apiHandler, leaseSubscription, pool.ID, lease.ID)
 		stopLogsChan <- true
 		if err != nil {
-			lease, _ = apiHandler.GetLease(pool.Id, lease.Id)
+			lease, _ = apiHandler.GetLease(pool.ID, lease.ID)
 			return nil, fmt.Errorf("Error waiting for lease: %s\n%+v", err, lease)
 		}
 	}
@@ -254,7 +254,7 @@ func (apiHandler *HttpApiHandler) Get(request *PoolRequest) (*Lease, error) {
 		return nil, fmt.Errorf("Error unsubscribing to pool events: %s", err)
 	}
 
-	lease, err = apiHandler.GetLease(pool.Id, lease.Id)
+	lease, err = apiHandler.GetLease(pool.ID, lease.ID)
 
 	if err != nil {
 		return nil, fmt.Errorf("Error getting lease state: %s", err)

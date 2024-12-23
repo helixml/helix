@@ -274,7 +274,7 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 		return nil, fmt.Errorf("unexpected status code: %d (%s)", resp.StatusCode, string(bts))
 	}
 
-	var data []filestore.FileStoreItem
+	var data []filestore.Item
 	resultBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -396,7 +396,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var data filestore.FileStoreItem
+	var data filestore.Item
 	resultBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err

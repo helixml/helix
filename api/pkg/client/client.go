@@ -35,7 +35,7 @@ type Client interface {
 
 	ListKnowledgeVersions(ctx context.Context, f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
-	FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error)
+	FilestoreList(ctx context.Context, path string) ([]filestore.Item, error)
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
 }

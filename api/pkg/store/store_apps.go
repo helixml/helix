@@ -171,7 +171,7 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 }
 
 // XXX Copy paste to avoid import cycle
-func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
+func GetActionsFromSchema(spec string) ([]*types.ToolAPIAction, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(spec))
@@ -179,7 +179,7 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
 	}
 
-	var actions []*types.ToolApiAction
+	var actions []*types.ToolAPIAction
 
 	for path, pathItem := range schema.Paths.Map() {
 
@@ -193,7 +193,7 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 				return nil, fmt.Errorf("operationId is missing for all %s %s", method, path)
 			}
 
-			actions = append(actions, &types.ToolApiAction{
+			actions = append(actions, &types.ToolAPIAction{
 				Name:        operation.OperationID,
 				Description: description,
 				Path:        path,
@@ -212,7 +212,7 @@ func ConvertAPIToTool(api types.AssistantAPI) (*types.Tool, error) {
 		Description: api.Description,
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:                     api.URL,
 				Schema:                  api.Schema,
 				Headers:                 api.Headers,

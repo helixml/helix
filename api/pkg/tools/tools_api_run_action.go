@@ -14,7 +14,7 @@ import (
 
 const (
 	apiActionRetries       = 3
-	delayBetweenApiRetries = 50 * time.Millisecond
+	delayBetweenAPIRetries = 50 * time.Millisecond
 )
 
 type RunActionResponse struct {
@@ -30,10 +30,10 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
 			func() (*RunActionResponse, error) {
-				return c.runApiAction(ctx, sessionID, interactionID, tool, history, action)
+				return c.runAPIAction(ctx, sessionID, interactionID, tool, history, action)
 			},
 			retry.Attempts(apiActionRetries),
-			retry.Delay(delayBetweenApiRetries),
+			retry.Delay(delayBetweenAPIRetries),
 			retry.Context(ctx),
 		)
 	case types.ToolTypeZapier:
@@ -48,7 +48,7 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
-		return c.runApiActionStream(ctx, sessionID, interactionID, tool, history, action)
+		return c.runAPIActionStream(ctx, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
 		return c.RunZapierActionStream(ctx, tool, history, action)
 	default:
@@ -56,7 +56,7 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	}
 }
 
-func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) runAPIAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
 	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call api: %w", err)
@@ -66,7 +66,7 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID, interaction
 	return c.interpretResponse(ctx, sessionID, interactionID, tool, history, resp)
 }
 
-func (c *ChainStrategy) runApiActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) runAPIActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
 	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call api: %w", err)

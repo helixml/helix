@@ -12,27 +12,27 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
-var _ llms.Model = (*LangchainAdapter)(nil)
+var _ llms.Model = (*Adapter)(nil)
 
-type LangchainAdapter struct {
+type Adapter struct {
 	client helix_openai.Client
 	model  string
 
 	CallbacksHandler callbacks.Handler
 }
 
-func New(client helix_openai.Client, model string) (*LangchainAdapter, error) {
-	return &LangchainAdapter{
+func New(client helix_openai.Client, model string) (*Adapter, error) {
+	return &Adapter{
 		client: client,
 		model:  model,
 	}, nil
 }
 
-func (a *LangchainAdapter) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
+func (a *Adapter) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
 	return llms.GenerateFromSinglePrompt(ctx, a, prompt, options...)
 }
 
-func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+func (a *Adapter) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
 	if a.CallbacksHandler != nil {
 		a.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
 	}
