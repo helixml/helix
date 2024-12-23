@@ -492,6 +492,7 @@ workspace:
 trigger:
   event:
     - cron
+    - manual-smoke
   cron:
     - smoke-test-hourly
 
