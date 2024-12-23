@@ -3,12 +3,11 @@ package store
 import (
 	"fmt"
 
-	_ "github.com/lib/pq"
-
 	"gorm.io/gorm"
 
-	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/doug-martin/goqu/v9/dialect/postgres"        // postgres query builder
+	_ "github.com/golang-migrate/migrate/v4/database/postgres" // postgres migrations
+	_ "github.com/lib/pq"                                      // enable postgres driver
 )
 
 // the poing of this setup is if when we change database schemas we need to loop over
