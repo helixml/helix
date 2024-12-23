@@ -7,7 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
+	_ "net/http/pprof" // enable profiling
 	"os"
 	"sync"
 	"time"

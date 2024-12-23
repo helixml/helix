@@ -2,7 +2,6 @@ package prompts
 
 import (
 	"bytes"
-	_ "embed"
 	"strings"
 	"text/template"
 
