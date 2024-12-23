@@ -20,6 +20,11 @@ type cluster struct {
 	runnerTimeoutFunc TimeoutFunc                   // Function to check if runners have timed out.
 }
 
+var _ Cluster = &cluster{}
+
+// NOTE(milosgajdos): we really should make sure we return exported types.
+// If we want the type fields to be inaccessible we should make them unexported.
+// nolint:revive
 func NewCluster(runnerTimeoutFunc TimeoutFunc) *cluster {
 	return &cluster{
 		runners:           xsync.NewMapOf[string, *runner](),
