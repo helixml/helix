@@ -29,6 +29,10 @@ func NewTestRunner(showBrowser bool, externalBrowserURL string) (*TestRunner, er
 		ControlURL(controlURL).
 		MustConnect()
 
+	if externalBrowserURL != "" && showBrowser {
+		launcher.Open(browser.ServeMonitor(""))
+	}
+
 	return &TestRunner{
 		browser: browser,
 	}, nil

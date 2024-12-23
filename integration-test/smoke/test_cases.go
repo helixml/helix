@@ -54,7 +54,15 @@ func LoginFlowTest() TestCase {
 		Name:        "Login Flow",
 		Description: "Tests the login functionality using credentials or saved cookies",
 		Timeout:     10 * time.Second,
-		Run:         performLogin,
+		Run: func(browser *rod.Browser) error {
+			logStep("Launching browser")
+			page := browser.MustPage(getServerURL())
+			page.MustWaitLoad()
+			if err := performLogin(page); err != nil {
+				return err
+			}
+			return nil
+		},
 	}
 }
 
@@ -65,13 +73,12 @@ func StartNewSessionTest() TestCase {
 		Description: "Tests starting a new chat session after login",
 		Timeout:     20 * time.Second,
 		Run: func(browser *rod.Browser) error {
-			err := performLogin(browser)
-			if err != nil {
+			logStep("Launching browser")
+			page := browser.MustPage(getServerURL())
+			page.MustWaitLoad()
+			if err := performLogin(page); err != nil {
 				return err
 			}
-
-			page := browser.MustPage(getServerURL())
-			page.MustWaitStable()
 
 			if err := startNewChat(page); err != nil {
 				return err
@@ -144,12 +151,12 @@ func UploadPDFFileTest() TestCase {
 }
 
 func uploadPDFFile(browser *rod.Browser) error {
-	logStep("Navigating to the files page")
+	logStep("Launching browser")
 	page := browser.
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(getServerURL() + "/files")
-	page.MustWaitStable()
-	if err := verifyLogin(page); err != nil {
+	page.MustWaitLoad()
+	if err := performLogin(page); err != nil {
 		return err
 	}
 
@@ -215,12 +222,12 @@ func CreateRagAppTest() TestCase {
 }
 
 func createRagApp(browser *rod.Browser) error {
-	logStep("Loading the homepage")
+	logStep("Launching browser")
 	page := browser.
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(getServerURL())
-	page.MustWaitStable()
-	if err := verifyLogin(page); err != nil {
+	page.MustWaitLoad()
+	if err := performLogin(page); err != nil {
 		return err
 	}
 

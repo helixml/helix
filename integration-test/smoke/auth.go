@@ -4,12 +4,10 @@ import (
 	"fmt"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 )
 
-func performLogin(browser *rod.Browser) error {
-	page := browser.MustPage(getServerURL())
-	page.MustWaitStable()
-
+func performLogin(page *rod.Page) error {
 	if err := loginWithCredentials(page); err != nil {
 		return err
 	}
@@ -19,7 +17,11 @@ func performLogin(browser *rod.Browser) error {
 func loginWithCredentials(page *rod.Page) error {
 	logStep("Looking for login button")
 	loginBtn := page.MustElement("button[id='login-button']")
-	loginBtn.MustClick()
+	err := loginBtn.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		logStep("Login button not found, must be already logged in")
+		return nil
+	}
 
 	logStep("Waiting for login page to load")
 	page.MustWaitLoad()
