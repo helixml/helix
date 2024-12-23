@@ -29,21 +29,21 @@ func NewFileSystemStorage(basePath string, baseURL, secret string) *FileSystemSt
 	}
 }
 
-func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]FileStoreItem, error) {
+func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, error) {
 	fullPath := filepath.Join(s.basePath, prefix)
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
-		return []FileStoreItem{}, nil
+		return []Item{}, nil
 	}
 
-	items := []FileStoreItem{}
+	items := []Item{}
 	for _, f := range files {
 		path := filepath.Join(prefix, f.Name())
 		info, err := f.Info()
 		if err != nil {
 			return nil, fmt.Errorf("error fetching file info: %w", err)
 		}
-		items = append(items, FileStoreItem{
+		items = append(items, Item{
 			Directory: f.IsDir(),
 			Name:      f.Name(),
 			Path:      path,
@@ -56,13 +56,13 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]FileStoreI
 	return items, nil
 }
 
-func (s *FileSystemStorage) Get(_ context.Context, path string) (FileStoreItem, error) {
+func (s *FileSystemStorage) Get(_ context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		return FileStoreItem{}, fmt.Errorf("error fetching file info: %w", err)
+		return Item{}, fmt.Errorf("error fetching file info: %w", err)
 	}
-	return FileStoreItem{
+	return Item{
 		Directory: info.IsDir(),
 		Name:      info.Name(),
 		Path:      path,
@@ -76,22 +76,22 @@ func (s *FileSystemStorage) SignedURL(_ context.Context, path string) (string, e
 	return PresignURL(s.baseURL, "/"+path, s.secret, 20*time.Minute), nil
 }
 
-func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Reader) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	// Create the directory structure if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
-		return FileStoreItem{}, fmt.Errorf("failed to create directory structure: %w", err)
+		return Item{}, fmt.Errorf("failed to create directory structure: %w", err)
 	}
 
 	file, err := os.Create(fullPath)
 	if err != nil {
-		return FileStoreItem{}, fmt.Errorf("error creating file: %w", err)
+		return Item{}, fmt.Errorf("error creating file: %w", err)
 	}
 	defer file.Close()
 
 	if _, err := io.Copy(file, r); err != nil {
-		return FileStoreItem{}, fmt.Errorf("failed to copy content to file: %w", err)
+		return Item{}, fmt.Errorf("failed to copy content to file: %w", err)
 	}
 
 	return s.Get(ctx, path)
@@ -163,12 +163,12 @@ func (s *FileSystemStorage) UploadFolder(_ context.Context, path string, r io.Re
 	return nil
 }
 
-func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {
+func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath string) (Item, error) {
 	src := filepath.Join(s.basePath, path)
 	dst := filepath.Join(s.basePath, newPath)
 
 	if err := os.Rename(src, dst); err != nil {
-		return FileStoreItem{}, fmt.Errorf("failed to rename file or directory: %w", err)
+		return Item{}, fmt.Errorf("failed to rename file or directory: %w", err)
 	}
 
 	return s.Get(ctx, newPath)
@@ -184,11 +184,11 @@ func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 	return nil
 }
 
-func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (FileStoreItem, error) {
+func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	if err := os.MkdirAll(fullPath, os.ModePerm); err != nil {
-		return FileStoreItem{}, fmt.Errorf("failed to create folder: %w", err)
+		return Item{}, fmt.Errorf("failed to create folder: %w", err)
 	}
 
 	return s.Get(ctx, path)

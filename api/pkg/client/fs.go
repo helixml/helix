@@ -13,8 +13,8 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 )
 
-func (c *HelixClient) FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error) {
-	var resp []filestore.FileStoreItem
+func (c *HelixClient) FilestoreList(ctx context.Context, path string) ([]filestore.Item, error) {
+	var resp []filestore.Item
 
 	url := url.URL{
 		Path: "/filestore/list",

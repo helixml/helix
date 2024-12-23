@@ -33,9 +33,9 @@ func NewGCSStorage(ctx context.Context, bucketName, serviceAccountKeyFile string
 	}, nil
 }
 
-func (s *GCSStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, error) {
+func (s *GCSStorage) List(ctx context.Context, prefix string) ([]Item, error) {
 	it := s.bucket.Objects(ctx, &storage.Query{Prefix: prefix})
-	items := []FileStoreItem{}
+	items := []Item{}
 
 	for {
 		attrs, err := it.Next()
@@ -43,10 +43,10 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, 
 			break
 		}
 		if err != nil {
-			return []FileStoreItem{}, nil
+			return []Item{}, nil
 		}
 
-		item := FileStoreItem{
+		item := Item{
 			Directory: strings.HasSuffix(attrs.Name, "/"),
 			Name:      attrs.Name,
 			Path:      attrs.Name,
@@ -60,13 +60,13 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, 
 	return items, nil
 }
 
-func (s *GCSStorage) Get(ctx context.Context, path string) (FileStoreItem, error) {
+func (s *GCSStorage) Get(ctx context.Context, path string) (Item, error) {
 	attrs, err := s.bucket.Object(path).Attrs(ctx)
 	if err != nil {
-		return FileStoreItem{}, fmt.Errorf("error fetching GCS object attributes: %w", err)
+		return Item{}, fmt.Errorf("error fetching GCS object attributes: %w", err)
 	}
 
-	return FileStoreItem{
+	return Item{
 		Directory: strings.HasSuffix(attrs.Name, "/"),
 		Name:      attrs.Name,
 		Path:      attrs.Name,
@@ -83,20 +83,20 @@ func (s *GCSStorage) SignedURL(_ context.Context, path string) (string, error) {
 	})
 }
 
-func (s *GCSStorage) WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (s *GCSStorage) WriteFile(ctx context.Context, path string, r io.Reader) (Item, error) {
 	obj := s.bucket.Object(path)
 	writer := obj.NewWriter(ctx)
 	if _, err := io.Copy(writer, r); err != nil {
-		return FileStoreItem{}, fmt.Errorf("failed to copy content to GCS: %w", err)
+		return Item{}, fmt.Errorf("failed to copy content to GCS: %w", err)
 	}
 	if err := writer.Close(); err != nil {
-		return FileStoreItem{}, fmt.Errorf("failed to finalize GCS object upload: %w", err)
+		return Item{}, fmt.Errorf("failed to finalize GCS object upload: %w", err)
 	}
 	attrs, err := obj.Attrs(ctx)
 	if err != nil {
-		return FileStoreItem{}, fmt.Errorf("error fetching GCS object attributes after upload: %w", err)
+		return Item{}, fmt.Errorf("error fetching GCS object attributes after upload: %w", err)
 	}
-	return FileStoreItem{
+	return Item{
 		Directory: strings.HasSuffix(attrs.Name, "/"),
 		Name:      attrs.Name,
 		Path:      attrs.Name,
@@ -197,7 +197,7 @@ func (s *GCSStorage) UploadFolder(ctx context.Context, path string, r io.Reader)
 	return nil
 }
 
-func (s *GCSStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {
+func (s *GCSStorage) Rename(ctx context.Context, path string, newPath string) (Item, error) {
 	src := s.bucket.Object(path)
 	dst := s.bucket.Object(newPath)
 
@@ -210,23 +210,23 @@ func (s *GCSStorage) Rename(ctx context.Context, path string, newPath string) (F
 				break
 			}
 			if err != nil {
-				return FileStoreItem{}, fmt.Errorf("error iterating over GCS objects during rename: %w", err)
+				return Item{}, fmt.Errorf("error iterating over GCS objects during rename: %w", err)
 			}
 			newObjPath := strings.Replace(attrs.Name, path, newPath, 1)
 			_, err = s.bucket.Object(newObjPath).CopierFrom(src).Run(ctx)
 			if err != nil {
-				return FileStoreItem{}, fmt.Errorf("error copying GCS object during rename: %w", err)
+				return Item{}, fmt.Errorf("error copying GCS object during rename: %w", err)
 			}
 			if err := src.Delete(ctx); err != nil {
-				return FileStoreItem{}, fmt.Errorf("error deleting original GCS object post rename: %w", err)
+				return Item{}, fmt.Errorf("error deleting original GCS object post rename: %w", err)
 			}
 		}
 	} else { // For single objects
 		if _, err := dst.CopierFrom(src).Run(ctx); err != nil {
-			return FileStoreItem{}, fmt.Errorf("failed to rename GCS object: %w", err)
+			return Item{}, fmt.Errorf("failed to rename GCS object: %w", err)
 		}
 		if err := src.Delete(ctx); err != nil {
-			return FileStoreItem{}, fmt.Errorf("failed to delete original GCS object after renaming: %w", err)
+			return Item{}, fmt.Errorf("failed to delete original GCS object after renaming: %w", err)
 		}
 	}
 	return s.Get(ctx, newPath)
@@ -255,16 +255,16 @@ func (s *GCSStorage) Delete(ctx context.Context, path string) error {
 	return nil
 }
 
-func (s *GCSStorage) CreateFolder(ctx context.Context, path string) (FileStoreItem, error) {
+func (s *GCSStorage) CreateFolder(ctx context.Context, path string) (Item, error) {
 	obj := s.bucket.Object(path + "/")
 	if _, err := obj.NewWriter(ctx).Write([]byte("")); err != nil {
 		// Check if the error is due to the folder already existing
 		if strings.Contains(err.Error(), "googleapi: Error 409: Conflict") {
 			attrs, err := obj.Attrs(ctx)
 			if err != nil {
-				return FileStoreItem{}, fmt.Errorf("error fetching GCS object attributes after folder creation: %w", err)
+				return Item{}, fmt.Errorf("error fetching GCS object attributes after folder creation: %w", err)
 			}
-			return FileStoreItem{
+			return Item{
 				Directory: strings.HasSuffix(attrs.Name, "/"),
 				Name:      attrs.Name,
 				Path:      attrs.Name,
@@ -273,13 +273,13 @@ func (s *GCSStorage) CreateFolder(ctx context.Context, path string) (FileStoreIt
 				Size:      attrs.Size,
 			}, nil
 		}
-		return FileStoreItem{}, fmt.Errorf("failed to create GCS folder: %w", err)
+		return Item{}, fmt.Errorf("failed to create GCS folder: %w", err)
 	}
 	attrs, err := obj.Attrs(ctx)
 	if err != nil {
-		return FileStoreItem{}, fmt.Errorf("error fetching GCS object attributes after folder creation: %w", err)
+		return Item{}, fmt.Errorf("error fetching GCS object attributes after folder creation: %w", err)
 	}
-	return FileStoreItem{
+	return Item{
 		Directory: strings.HasSuffix(attrs.Name, "/"),
 		Name:      attrs.Name,
 		Path:      attrs.Name,

@@ -25,7 +25,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type ControllerOptions struct {
+type Options struct {
 	Config            *config.ServerConfig
 	Store             store.Store
 	PubSub            pubsub.PubSub
@@ -43,7 +43,7 @@ type ControllerOptions struct {
 
 type Controller struct {
 	Ctx          context.Context
-	Options      ControllerOptions
+	Options      Options
 	ToolsPlanner tools.Planner
 
 	providerManager manager.ProviderManager
@@ -68,7 +68,7 @@ type Controller struct {
 
 func NewController(
 	ctx context.Context,
-	options ControllerOptions,
+	options Options,
 ) (*Controller, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("store is required")

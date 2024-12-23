@@ -41,7 +41,7 @@ func (m *MockExtractor) EXPECT() *MockExtractorMockRecorder {
 }
 
 // Extract mocks base method.
-func (m *MockExtractor) Extract(ctx context.Context, req *ExtractRequest) (string, error) {
+func (m *MockExtractor) Extract(ctx context.Context, req *Request) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Extract", ctx, req)
 	ret0, _ := ret[0].(string)

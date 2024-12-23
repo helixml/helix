@@ -72,7 +72,7 @@ func (suite *ControllerSuite) SetupTest() {
 
 	scheduler := scheduler.NewScheduler(suite.ctx, cfg, nil)
 
-	c, err := NewController(context.Background(), ControllerOptions{
+	c, err := NewController(context.Background(), Options{
 		Config:          cfg,
 		Store:           suite.store,
 		Janitor:         janitor.NewJanitor(config.Janitor{}),
@@ -210,7 +210,7 @@ func (suite *ControllerSuite) Test_EvaluateSecrets() {
 							{
 								ID: "tool_id",
 								Config: types.ToolConfig{
-									API: &types.ToolApiConfig{
+									API: &types.ToolAPIConfig{
 										Model: "gpt-4o",
 										Headers: map[string]string{
 											"X-Secret-Key": "${API_KEY}",

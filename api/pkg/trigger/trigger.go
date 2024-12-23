@@ -14,22 +14,22 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type TriggerManager struct {
+type Manager struct {
 	cfg        *config.ServerConfig
 	store      store.Store
 	controller *controller.Controller
 	wg         sync.WaitGroup
 }
 
-func NewTriggerManager(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *TriggerManager {
-	return &TriggerManager{
+func NewTriggerManager(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Manager {
+	return &Manager{
 		cfg:        cfg,
 		store:      store,
 		controller: controller,
 	}
 }
 
-func (t *TriggerManager) Start(ctx context.Context) {
+func (t *Manager) Start(ctx context.Context) {
 
 	log.Info().Msg("starting Helix triggers")
 
@@ -50,7 +50,7 @@ func (t *TriggerManager) Start(ctx context.Context) {
 	t.wg.Wait()
 }
 
-func (t *TriggerManager) runDiscord(ctx context.Context) {
+func (t *Manager) runDiscord(ctx context.Context) {
 	discordTrigger := discord.New(t.cfg, t.store, t.controller)
 
 	for {
@@ -67,7 +67,7 @@ func (t *TriggerManager) runDiscord(ctx context.Context) {
 	}
 }
 
-func (t *TriggerManager) runCron(ctx context.Context) {
+func (t *Manager) runCron(ctx context.Context) {
 	cronTrigger, err := cron.New(t.cfg, t.store, t.controller)
 	if err != nil {
 		log.Err(err).Msg("failed to create cron trigger")

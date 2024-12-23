@@ -27,7 +27,7 @@ const (
 )
 
 type InferenceModelInstanceConfig struct {
-	RunnerOptions RunnerOptions
+	RunnerOptions Options
 
 	// Get next chat completion request
 	GetNextRequest func() (*types.RunnerLLMInferenceRequest, error)
@@ -42,7 +42,7 @@ var (
 )
 
 func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelInstanceConfig, request *types.RunnerLLMInferenceRequest) (*OllamaInferenceModelInstance, error) {
-	modelName := model.ModelName(request.Request.Model)
+	modelName := model.Name(request.Request.Model)
 
 	aiModel, err := model.GetModel(string(modelName))
 	if err != nil {
@@ -85,9 +85,9 @@ type OllamaInferenceModelInstance struct {
 	id string
 
 	model     model.Model
-	modelName model.ModelName
+	modelName model.Name
 
-	runnerOptions RunnerOptions
+	runnerOptions Options
 
 	finishCh chan bool
 

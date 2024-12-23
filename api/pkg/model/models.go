@@ -31,20 +31,20 @@ func GetModel(modelName string) (Model, error) {
 // then have a generic ollama model that can be instantiated anyhow
 // we need to maintain a mapping from known model names to optimal memory usage, though
 
-// TODO: having a separate ModelName type just so we can put the
+// TODO: having a separate Name type just so we can put the
 // InferenceRuntime() method on it is silly, we should move the InferenceRuntime
 // logic onto the Model struct maybe
-type ModelName string
+type Name string
 
-func NewModel(name string) ModelName {
-	return ModelName(name)
+func NewModel(name string) Name {
+	return Name(name)
 }
 
-func (m ModelName) String() string {
+func (m Name) String() string {
 	return string(m)
 }
 
-func (m ModelName) InferenceRuntime() types.InferenceRuntime {
+func (m Name) InferenceRuntime() types.InferenceRuntime {
 	// only ollama model names contain a colon.
 	// TODO: add explicit API field for backend
 	if strings.Contains(m.String(), ":") {

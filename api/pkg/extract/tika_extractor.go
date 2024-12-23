@@ -33,7 +33,7 @@ func NewTikaExtractor(extractorURL string) *TikaExtractor {
 	}
 }
 
-func (e *TikaExtractor) Extract(ctx context.Context, extractReq *ExtractRequest) (string, error) {
+func (e *TikaExtractor) Extract(ctx context.Context, extractReq *Request) (string, error) {
 	resp, err := retry.DoWithData(func() (string, error) {
 		return e.extract(ctx, extractReq)
 	},
@@ -51,7 +51,7 @@ func (e *TikaExtractor) Extract(ctx context.Context, extractReq *ExtractRequest)
 	return resp, err
 }
 
-func (e *TikaExtractor) extract(ctx context.Context, extractReq *ExtractRequest) (string, error) {
+func (e *TikaExtractor) extract(ctx context.Context, extractReq *Request) (string, error) {
 	if extractReq.URL == "" && len(extractReq.Content) == 0 {
 		return "", fmt.Errorf("no URL or content provided")
 	}

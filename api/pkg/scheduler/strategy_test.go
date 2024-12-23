@@ -66,7 +66,7 @@ func TestPlacement_MaxSpread_MultiMachine(t *testing.T) {
 	assert.Equal(t, "test-runner-2", runnerID)
 }
 
-func createPlacementWork(name string, model model.ModelName) *Workload {
+func createPlacementWork(name string, model model.Name) *Workload {
 	req := &types.RunnerLLMInferenceRequest{
 		RequestID: name,
 		Request: &openai.ChatCompletionRequest{

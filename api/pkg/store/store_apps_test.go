@@ -143,7 +143,7 @@ func (suite *PostgresStoreTestSuite) TestRectifyApp() {
 										Description: "Test API",
 										ToolType:    types.ToolTypeAPI,
 										Config: types.ToolConfig{
-											API: &types.ToolApiConfig{
+											API: &types.ToolAPIConfig{
 												URL:    "http://example.com/api",
 												Schema: "openapi: 3.0.0\ninfo:\n  title: Test API\n  version: 1.0.0",
 												Headers: map[string]string{

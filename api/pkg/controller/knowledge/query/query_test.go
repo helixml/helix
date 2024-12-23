@@ -68,7 +68,7 @@ func (suite *QuerySuite) SetupTest() {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
 
-	suite.query = New(&QueryConfig{
+	suite.query = New(&Config{
 		store:     suite.store,
 		apiClient: apiClient,
 		getRAGClient: func(_ context.Context, _ *types.Knowledge) (rag.RAG, error) {

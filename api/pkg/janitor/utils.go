@@ -10,7 +10,7 @@ type SlackRequestBody struct {
 	Text string `json:"text"`
 }
 
-func sendSlackNotification(webhookUrl string, message string) error {
+func sendSlackNotification(webhookURL string, message string) error {
 	data := SlackRequestBody{
 		Text: message,
 	}
@@ -18,7 +18,7 @@ func sendSlackNotification(webhookUrl string, message string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, webhookUrl, bytes.NewBuffer(slackBody))
+	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewBuffer(slackBody))
 	if err != nil {
 		return err
 	}

@@ -77,7 +77,7 @@ type OllamaModelInstance struct {
 	model  model.Model
 	filter types.SessionFilter
 
-	runnerOptions RunnerOptions
+	runnerOptions Options
 
 	finishCh chan bool
 

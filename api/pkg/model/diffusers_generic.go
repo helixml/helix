@@ -30,7 +30,7 @@ func (i *DiffusersGenericImage) GetID() string {
 	return i.ID
 }
 
-func (i *DiffusersGenericImage) ModelName() ModelName {
+func (i *DiffusersGenericImage) ModelName() Name {
 	return NewModel(i.ID)
 }
 
