@@ -14,13 +14,19 @@ type TestRunner struct {
 	failed  int
 }
 
-func NewTestRunner(showBrowser bool) (*TestRunner, error) {
-	url := launcher.New().
-		Headless(!showBrowser).
-		MustLaunch()
+func NewTestRunner(showBrowser bool, externalBrowserURL string) (*TestRunner, error) {
+	var controlURL string
+
+	if externalBrowserURL != "" {
+		controlURL = externalBrowserURL
+	} else {
+		controlURL = launcher.New().
+			Headless(!showBrowser).
+			MustLaunch()
+	}
 
 	browser := rod.New().
-		ControlURL(url).
+		ControlURL(controlURL).
 		MustConnect()
 
 	return &TestRunner{

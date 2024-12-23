@@ -10,7 +10,9 @@ func main() {
 	showBrowser := flag.Bool("show", false, "Show browser during test execution")
 	flag.Parse()
 
-	runner, err := NewTestRunner(*showBrowser)
+	externalBrowserURL := os.Getenv("RAG_CRAWLER_LAUNCHER_URL")
+
+	runner, err := NewTestRunner(*showBrowser, externalBrowserURL)
 	if err != nil {
 		fmt.Printf("Failed to initialize test runner: %v\n", err)
 		os.Exit(1)
