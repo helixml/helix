@@ -2,16 +2,14 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/go-rod/rod"
 )
 
 func performLogin(browser *rod.Browser) error {
 	page := browser.MustPage(getServerURL())
-	page.MustWaitLoad()
+	page.MustWaitStable()
 
-	// // If cookies are not loaded, perform login or do it anyway if forceLogin is true
 	if err := loginWithCredentials(page); err != nil {
 		return err
 	}
@@ -43,7 +41,7 @@ func loginWithCredentials(page *rod.Page) error {
 
 func verifyLogin(page *rod.Page) error {
 	logStep("Verifying login")
-	username := os.Getenv("HELIX_USER")
+	username := getHelixUser()
 	xpath := fmt.Sprintf(`//span[contains(text(), '%s')]`, username)
 	el := page.MustElementX(xpath)
 	if el == nil {

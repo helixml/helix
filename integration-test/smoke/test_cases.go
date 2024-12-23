@@ -65,12 +65,11 @@ func StartNewSessionTest() TestCase {
 		Description: "Tests starting a new chat session after login",
 		Timeout:     20 * time.Second,
 		Run: func(browser *rod.Browser) error {
-			if err := performLogin(browser); err != nil {
-				return err
-			}
-
 			page := browser.MustPage(getServerURL())
 			page.MustWaitStable()
+			if err := verifyLogin(page); err != nil {
+				return err
+			}
 
 			if err := startNewChat(page); err != nil {
 				return err
@@ -143,15 +142,14 @@ func UploadPDFFileTest() TestCase {
 }
 
 func uploadPDFFile(browser *rod.Browser) error {
-	if err := performLogin(browser); err != nil {
-		return err
-	}
-
 	// Navigate to the files page
 	page := browser.
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(getServerURL() + "/files")
 	page.MustWaitStable()
+	if err := verifyLogin(page); err != nil {
+		return err
+	}
 
 	// Create test folder
 	xpath := fmt.Sprintf(`//button[contains(text(), '%s')]`, "Create Folder")
@@ -215,15 +213,14 @@ func CreateRagAppTest() TestCase {
 }
 
 func createRagApp(browser *rod.Browser) error {
-	if err := performLogin(browser); err != nil {
-		return err
-	}
-
 	// Navigate to the files page
 	page := browser.
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(getServerURL())
 	page.MustWaitStable()
+	if err := verifyLogin(page); err != nil {
+		return err
+	}
 
 	logStep("Browsing to the apps page")
 	page.MustElement("button[aria-controls='menu-appbar']").MustClick()
