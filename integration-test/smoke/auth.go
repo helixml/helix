@@ -11,18 +11,20 @@ func performLogin(browser *rod.Browser, forceLogin bool) error {
 	page := browser.MustPage(getServerURL())
 	page.MustWaitLoad()
 
-	if forceLogin {
-		return loginWithCredentials(page)
+	// If not forceLogin, try to load cookies
+	if !forceLogin {
+		cookieStore := NewCookieStore("")
+		if cookieStore.Load(page, getServerURL()) == nil {
+			logStep("Cookies loaded, reloading page")
+			page.MustReload()
+			return verifyLogin(page)
+		}
 	}
 
-	cookieStore := NewCookieStore("")
-	if err := cookieStore.Load(page, getServerURL()); err != nil {
-		return loginWithCredentials(page)
-	} else {
-		logStep("Cookies loaded, reloading page")
-		page.MustReload()
+	// If cookies are not loaded, perform login or do it anyway if forceLogin is true
+	if err := loginWithCredentials(page); err != nil {
+		return err
 	}
-
 	return verifyLogin(page)
 }
 
@@ -44,6 +46,7 @@ func loginWithCredentials(page *rod.Page) error {
 	page.MustElement("input[type='submit']").MustClick()
 	page.MustWaitStable()
 
+	logStep("Saving cookies")
 	cookieStore := NewCookieStore("")
 	return cookieStore.Save(page, getServerURL())
 }
