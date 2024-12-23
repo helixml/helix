@@ -22,7 +22,7 @@ type JobCandidateQuery struct {
 	CandidateName string
 }
 
-var JOB_VACANCY_CANDIDATES = []JobVacancyCandidate{
+var JobVacancyCandidates = []JobVacancyCandidate{
 	{
 		ID:             "1",
 		Name:           "Alice Bennett",
@@ -67,7 +67,7 @@ func listCandidates(w http.ResponseWriter, r *http.Request) {
 		JobTitle:      getQueryParamStringAny("job_title", params),
 		CandidateName: getQueryParamStringAny("candidate_name", params),
 	}
-	filteredCandidates := filterCandidates(JOB_VACANCY_CANDIDATES, query)
+	filteredCandidates := filterCandidates(JobVacancyCandidates, query)
 	fmt.Printf("filteredCandidates --------------------------------------\n")
 	spew.Dump(query)
 	spew.Dump(filteredCandidates)

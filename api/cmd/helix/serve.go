@@ -327,7 +327,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	var appController *controller.Controller
 
-	controllerOptions := controller.ControllerOptions{
+	controllerOptions := controller.Options{
 		Config:               cfg,
 		Store:                store,
 		PubSub:               ps,

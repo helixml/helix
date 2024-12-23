@@ -68,11 +68,11 @@ func processConfig(yamlFile []byte) (*types.AppHelixConfig, error) {
 	}
 
 	// Check if it has the CRD structure
-	_, hasApiVersion := rawMap["apiVersion"]
+	_, hasAPIVersion := rawMap["apiVersion"]
 	_, hasKind := rawMap["kind"]
 	_, hasSpec := rawMap["spec"]
 
-	isCRD := hasApiVersion && hasKind && hasSpec
+	isCRD := hasAPIVersion && hasKind && hasSpec
 
 	if isCRD {
 		// If it looks like a CRD, we must treat it as one

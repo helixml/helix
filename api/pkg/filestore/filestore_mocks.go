@@ -56,10 +56,10 @@ func (mr *MockFileStoreMockRecorder) CopyFile(ctx, from, to any) *gomock.Call {
 }
 
 // CreateFolder mocks base method.
-func (m *MockFileStore) CreateFolder(ctx context.Context, path string) (FileStoreItem, error) {
+func (m *MockFileStore) CreateFolder(ctx context.Context, path string) (Item, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateFolder", ctx, path)
-	ret0, _ := ret[0].(FileStoreItem)
+	ret0, _ := ret[0].(Item)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -100,10 +100,10 @@ func (mr *MockFileStoreMockRecorder) DownloadFolder(ctx, path any) *gomock.Call 
 }
 
 // Get mocks base method.
-func (m *MockFileStore) Get(ctx context.Context, path string) (FileStoreItem, error) {
+func (m *MockFileStore) Get(ctx context.Context, path string) (Item, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", ctx, path)
-	ret0, _ := ret[0].(FileStoreItem)
+	ret0, _ := ret[0].(Item)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -115,10 +115,10 @@ func (mr *MockFileStoreMockRecorder) Get(ctx, path any) *gomock.Call {
 }
 
 // List mocks base method.
-func (m *MockFileStore) List(ctx context.Context, path string) ([]FileStoreItem, error) {
+func (m *MockFileStore) List(ctx context.Context, path string) ([]Item, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", ctx, path)
-	ret0, _ := ret[0].([]FileStoreItem)
+	ret0, _ := ret[0].([]Item)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -145,10 +145,10 @@ func (mr *MockFileStoreMockRecorder) OpenFile(ctx, path any) *gomock.Call {
 }
 
 // Rename mocks base method.
-func (m *MockFileStore) Rename(ctx context.Context, path, newPath string) (FileStoreItem, error) {
+func (m *MockFileStore) Rename(ctx context.Context, path, newPath string) (Item, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Rename", ctx, path, newPath)
-	ret0, _ := ret[0].(FileStoreItem)
+	ret0, _ := ret[0].(Item)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -189,10 +189,10 @@ func (mr *MockFileStoreMockRecorder) UploadFolder(ctx, path, r any) *gomock.Call
 }
 
 // WriteFile mocks base method.
-func (m *MockFileStore) WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (m *MockFileStore) WriteFile(ctx context.Context, path string, r io.Reader) (Item, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WriteFile", ctx, path, r)
-	ret0, _ := ret[0].(FileStoreItem)
+	ret0, _ := ret[0].(Item)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

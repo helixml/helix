@@ -20,7 +20,7 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-type HttpApiHandler struct {
+type HTTPAPIHandler struct {
 	endpoint    string
 	accessToken string
 	websocket   *WebSocket
@@ -48,8 +48,8 @@ type WebsocketEnvelope struct {
 	Body        string `json:"body"`
 }
 
-func NewHttpApiHandler(endpoint, accessToken string) *HttpApiHandler {
-	handler := &HttpApiHandler{
+func NewHTTPAPIHandler(endpoint, accessToken string) *HTTPAPIHandler {
+	handler := &HTTPAPIHandler{
 		endpoint:    endpoint,
 		accessToken: accessToken,
 	}
@@ -63,14 +63,14 @@ type SocketImplementation interface {
 }
 
 func (pool *Pool) GetSubscriptionChannel() string {
-	return fmt.Sprintf("pool.%s", pool.Id)
+	return fmt.Sprintf("pool.%s", pool.ID)
 }
 
 func streamPoolLogs(socket SocketImplementation, id string) (chan bool, error) {
 	return streamEntityLogs(socket, fmt.Sprintf("pool_logs.%s", id), "pool_logs")
 }
 
-func streamVmLogs(socket SocketImplementation, pool, id string) (chan bool, error) {
+func streamVMLogs(socket SocketImplementation, pool, id string) (chan bool, error) {
 	return streamEntityLogs(socket, fmt.Sprintf("vm_logs.%s.%s", pool, id), "vm_logs")
 }
 
@@ -117,12 +117,12 @@ func streamEntityLogs(socket SocketImplementation, channel, messageType string) 
 }
 
 func (lease *Lease) GetSubscriptionChannel() string {
-	return fmt.Sprintf("lease.%s.%s", lease.Pool, lease.Id)
+	return fmt.Sprintf("lease.%s.%s", lease.Pool, lease.ID)
 }
 
-func getLeaseLoader(apiHandler HttpApiHandler, poolId, leaseId string) func() (string, string, error) {
+func getLeaseLoader(apiHandler HTTPAPIHandler, poolID, leaseID string) func() (string, string, error) {
 	return func() (string, string, error) {
-		lease, err := apiHandler.GetLease(poolId, leaseId)
+		lease, err := apiHandler.GetLease(poolID, leaseID)
 		if err != nil {
 			return "", "", err
 		}
@@ -147,7 +147,7 @@ func getLeaseProcessor() func(envelope WebsocketEnvelope) (string, error) {
 	}
 }
 
-func waitForLease(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscription, pool, id string, isReady func(string) bool) (string, error) {
+func waitForLease(apiHandler HTTPAPIHandler, poolSubscription *WebsocketSubscription, pool, id string, isReady func(string) bool) (string, error) {
 
 	getError := func(state string) error {
 		if state == "error" || state == "complete" || state == "timeout" {
@@ -195,7 +195,7 @@ func (waiter *EntityWaiterSocket) wait() error {
 
 	return nil
 }
-func (waiter EntityWaiterApi) check() (bool, string, string, error) {
+func (waiter EntityWaiterAPI) check() (bool, string, string, error) {
 	state, status, err := waiter.loader()
 	if err != nil {
 		return false, state, status, err
@@ -265,7 +265,7 @@ func (waiter *EntityWaiter) wait() (string, error) {
 	}
 }
 
-func (waiter EntityWaiterApi) wait() error {
+func (waiter EntityWaiterAPI) wait() error {
 	go func() {
 		ticker := time.Tick(1 * time.Second)
 		for {
@@ -289,21 +289,21 @@ func (waiter EntityWaiterApi) wait() error {
 	return nil
 }
 
-func waitForLeaseAssigned(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscription, pool, id string) (string, error) {
+func waitForLeaseAssigned(apiHandler HTTPAPIHandler, poolSubscription *WebsocketSubscription, pool, id string) (string, error) {
 	isReady := func(state string) bool {
 		return state == "ready" || state == "assigned"
 	}
 	return waitForLease(apiHandler, poolSubscription, pool, id, isReady)
 }
 
-func waitForLeaseReady(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscription, pool, id string) (string, error) {
+func waitForLeaseReady(apiHandler HTTPAPIHandler, poolSubscription *WebsocketSubscription, pool, id string) (string, error) {
 	isReady := func(state string) bool {
 		return state == "ready"
 	}
 	return waitForLease(apiHandler, poolSubscription, pool, id, isReady)
 }
 
-func getPoolLoader(apiHandler HttpApiHandler, id string) func() (string, string, error) {
+func getPoolLoader(apiHandler HTTPAPIHandler, id string) func() (string, string, error) {
 	return func() (string, string, error) {
 		pool, err := apiHandler.GetPool(id)
 		if err != nil {
@@ -330,7 +330,7 @@ func getPoolProcessor() func(envelope WebsocketEnvelope) (string, error) {
 	}
 }
 
-func waitForPool(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscription, id string) (string, error) {
+func waitForPool(apiHandler HTTPAPIHandler, poolSubscription *WebsocketSubscription, id string) (string, error) {
 
 	isReady := func(state string) bool {
 		return state == "ready"
@@ -356,7 +356,7 @@ func waitForPool(apiHandler HttpApiHandler, poolSubscription *WebsocketSubscript
 	return waiter.wait()
 }
 
-type EntityWaiterApi struct {
+type EntityWaiterAPI struct {
 	loader    func() (string, string, error)
 	errorChan chan error
 	readyChan chan string
@@ -378,16 +378,16 @@ type EntityWaiterSocket struct {
 }
 
 type EntityWaiter struct {
-	apiWaiter    *EntityWaiterApi
+	apiWaiter    *EntityWaiterAPI
 	socketWaiter *EntityWaiterSocket
 }
 
-func NewEntityApiWaiter(
+func NewEntityAPIWaiter(
 	loader func() (string, string, error),
 	isReady func(string) bool,
 	getError func(string) error,
-) *EntityWaiterApi {
-	waiter := &EntityWaiterApi{
+) *EntityWaiterAPI {
+	waiter := &EntityWaiterAPI{
 		loader:    loader,
 		isReady:   isReady,
 		getError:  getError,
@@ -430,13 +430,13 @@ func NewEntityWaiter(
 	messageType string,
 ) *EntityWaiter {
 	waiter := &EntityWaiter{
-		apiWaiter:    NewEntityApiWaiter(loader, isReady, getError),
+		apiWaiter:    NewEntityAPIWaiter(loader, isReady, getError),
 		socketWaiter: NewEntitySocketWaiter(poolSubscription, processor, isReady, getError, channel, messageType),
 	}
 	return waiter
 }
 
-func (handler *HttpApiHandler) GetWebsocket() (SocketImplementation, error) {
+func (handler *HTTPAPIHandler) GetWebsocket() (SocketImplementation, error) {
 	if handler.websocket != nil {
 		return handler.websocket, nil
 	}
@@ -453,7 +453,7 @@ func timeTrack(start time.Time, name string) {
 	log.Printf("%s took %s", name, elapsed)
 }
 
-func (handler *HttpApiHandler) Request(method string, path string, body interface{}, result interface{}) error {
+func (handler *HTTPAPIHandler) Request(method string, path string, body interface{}, result interface{}) error {
 
 	if os.Getenv("DEBUG_HTTP") != "" {
 		defer timeTrack(time.Now(), fmt.Sprintf("%s %s", method, path))
@@ -536,7 +536,7 @@ func (handler *HttpApiHandler) Request(method string, path string, body interfac
 	return err
 }
 
-func (handler *HttpApiHandler) PingBackend() (*Backend, error) {
+func (handler *HTTPAPIHandler) PingBackend() (*Backend, error) {
 	backend := &Backend{}
 	err := handler.Request(http.MethodPut, "/api/v1/backend/ping", nil, &backend)
 	if err != nil {
@@ -546,7 +546,7 @@ func (handler *HttpApiHandler) PingBackend() (*Backend, error) {
 	return backend, nil
 }
 
-func (handler *HttpApiHandler) GetPools() ([]*Pool, error) {
+func (handler *HTTPAPIHandler) GetPools() ([]*Pool, error) {
 	poolArray := []*Pool{}
 	err := handler.Request(http.MethodGet, "/api/v1/pools", nil, &poolArray)
 	if err != nil {
@@ -555,7 +555,7 @@ func (handler *HttpApiHandler) GetPools() ([]*Pool, error) {
 	return poolArray, nil
 }
 
-func (handler *HttpApiHandler) CreatePool(request *PoolRequest) (*Pool, error) {
+func (handler *HTTPAPIHandler) CreatePool(request *PoolRequest) (*Pool, error) {
 	pool := &Pool{}
 	err := handler.Request(http.MethodPost, "/api/v1/pools", request, pool)
 	if err != nil {
@@ -564,7 +564,7 @@ func (handler *HttpApiHandler) CreatePool(request *PoolRequest) (*Pool, error) {
 	return pool, nil
 }
 
-func (handler *HttpApiHandler) GetPool(id string) (*Pool, error) {
+func (handler *HTTPAPIHandler) GetPool(id string) (*Pool, error) {
 	pool := Pool{}
 	err := handler.Request(http.MethodGet, fmt.Sprintf("/api/v1/pools/%s", id), nil, &pool)
 	if err != nil {
@@ -573,57 +573,57 @@ func (handler *HttpApiHandler) GetPool(id string) (*Pool, error) {
 	return &pool, nil
 }
 
-func (handler *HttpApiHandler) UpdatePool(update PoolState) (*Pool, error) {
+func (handler *HTTPAPIHandler) UpdatePool(update PoolState) (*Pool, error) {
 	updatedPool := &Pool{}
-	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/state", update.PoolId), update, &updatedPool)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/state", update.PoolID), update, &updatedPool)
 	if err != nil {
 		return nil, err
 	}
 	return updatedPool, nil
 }
 
-func (handler *HttpApiHandler) UpdatePoolMeta(update PoolState) (*Pool, error) {
+func (handler *HTTPAPIHandler) UpdatePoolMeta(update PoolState) (*Pool, error) {
 	updatedPool := &Pool{}
-	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/meta", update.PoolId), update, &updatedPool)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/meta", update.PoolID), update, &updatedPool)
 	if err != nil {
 		return nil, err
 	}
 	return updatedPool, nil
 }
 
-func (handler *HttpApiHandler) CreateVm(vm *Vm) (*Vm, error) {
-	createdVm := &Vm{}
-	err := handler.Request(http.MethodPost, fmt.Sprintf("/api/v1/pools/%s/vms", vm.Pool), vm, &createdVm)
+func (handler *HTTPAPIHandler) CreateVM(vm *VM) (*VM, error) {
+	createdVM := &VM{}
+	err := handler.Request(http.MethodPost, fmt.Sprintf("/api/v1/pools/%s/vms", vm.Pool), vm, &createdVM)
 	if err != nil {
 		return nil, err
 	}
-	return createdVm, nil
+	return createdVM, nil
 }
 
-func (handler *HttpApiHandler) UpdateVm(update VmState) (*Vm, error) {
+func (handler *HTTPAPIHandler) UpdateVM(update VMState) (*VM, error) {
 	log.Printf("[UpdateVm] updating with %+v", update)
-	updatedVm := &Vm{}
-	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/vms/%s/state", update.PoolId, update.VmId), update, &updatedVm)
+	updatedVM := &VM{}
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/vms/%s/state", update.PoolID, update.VMID), update, &updatedVM)
 	if err != nil {
 		return nil, err
 	}
-	return updatedVm, nil
+	return updatedVM, nil
 }
 
-func (handler *HttpApiHandler) DeleteVm(poolId, vmId string) error {
-	return handler.Request(http.MethodDelete, fmt.Sprintf("/api/v1/pools/%s/vms/%s", poolId, vmId), nil, nil)
+func (handler *HTTPAPIHandler) DeleteVM(poolID, vmID string) error {
+	return handler.Request(http.MethodDelete, fmt.Sprintf("/api/v1/pools/%s/vms/%s", poolID, vmID), nil, nil)
 }
 
-func (handler *HttpApiHandler) GetLease(poolId, leaseId string) (*Lease, error) {
+func (handler *HTTPAPIHandler) GetLease(poolID, leaseID string) (*Lease, error) {
 	lease := Lease{}
-	err := handler.Request(http.MethodGet, fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolId, leaseId), nil, &lease)
+	err := handler.Request(http.MethodGet, fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolID, leaseID), nil, &lease)
 	if err != nil {
 		return nil, err
 	}
 	return &lease, nil
 }
 
-func (handler *HttpApiHandler) CreateLease(lease *Lease) (*Lease, error) {
+func (handler *HTTPAPIHandler) CreateLease(lease *Lease) (*Lease, error) {
 	createdLease := &Lease{}
 	err := handler.Request(http.MethodPost, fmt.Sprintf("/api/v1/pools/%s/leases", lease.Pool), lease, &createdLease)
 	if err != nil {
@@ -632,16 +632,16 @@ func (handler *HttpApiHandler) CreateLease(lease *Lease) (*Lease, error) {
 	return createdLease, nil
 }
 
-func (handler *HttpApiHandler) UpdateLease(update LeaseState) (*Lease, error) {
+func (handler *HTTPAPIHandler) UpdateLease(update LeaseState) (*Lease, error) {
 	updatedLease := &Lease{}
-	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/leases/%s/state", update.PoolId, update.LeaseId), update, &updatedLease)
+	err := handler.Request(http.MethodPut, fmt.Sprintf("/api/v1/pools/%s/leases/%s/state", update.PoolID, update.LeaseID), update, &updatedLease)
 	if err != nil {
 		return nil, err
 	}
 	return updatedLease, nil
 }
 
-func (handler *HttpApiHandler) DeleteLease(poolID string, leaseID string) error {
+func (handler *HTTPAPIHandler) DeleteLease(poolID string, leaseID string) error {
 	err := handler.Request(http.MethodDelete, fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolID, leaseID), "", "")
 	if err != nil {
 		return err
@@ -649,7 +649,7 @@ func (handler *HttpApiHandler) DeleteLease(poolID string, leaseID string) error 
 	return nil
 }
 
-func (handler *HttpApiHandler) PostData(url string, data interface{}) error {
+func (handler *HTTPAPIHandler) PostData(url string, data interface{}) error {
 	return handler.Request(
 		http.MethodPost,
 		url,
@@ -659,7 +659,7 @@ func (handler *HttpApiHandler) PostData(url string, data interface{}) error {
 }
 
 type Backend struct {
-	Id string `json:"id"`
+	ID string `json:"id"`
 }
 
 type Connection struct {
@@ -678,26 +678,26 @@ type PortMappings struct {
 }
 
 type PoolState struct {
-	PoolId string             `json:"pool_id"`
+	PoolID string             `json:"pool_id"`
 	State  string             `json:"state"` // "building", "ready", "deleting", "deleted", "error"
 	Status string             `json:"status"`
-	Vms    map[string]VmState `json:"vms"`
+	Vms    map[string]VMState `json:"vms"`
 	Meta   map[string]string  `json:"meta"`
 }
 
-type VmState struct {
-	PoolId       string        `json:"pool_id"`
-	VmId         string        `json:"vm_id"` // UUID not api id
-	Ip           string        `json:"ip"`
+type VMState struct {
+	PoolID       string        `json:"pool_id"`
+	VMID         string        `json:"vm_id"` // UUID not api id
+	IP           string        `json:"ip"`
 	State        string        `json:"state"` // "discovering", "off", "starting", "running", "deleting", "deleted", "error"
 	Status       string        `json:"status"`
 	PortMappings *PortMappings `json:"port_mappings"`
 }
 
 type LeaseState struct {
-	PoolId      string    `json:"pool_id"`
-	LeaseId     string    `json:"lease_id"`
-	VmId        string    `json:"vm_id"` // id from ignite
+	PoolID      string    `json:"pool_id"`
+	LeaseID     string    `json:"lease_id"`
+	VMID        string    `json:"vm_id"` // id from ignite
 	State       string    `json:"state"` // "waiting", "assigned", "ready", "complete", "timeout", "error"
 	Status      string    `json:"status"`
 	Kubeconfig  string    `json:"kubeconfig"`
@@ -706,13 +706,13 @@ type LeaseState struct {
 }
 
 type Secret struct {
-	Id    string `json:"id,omitempty" yaml:"id"`
+	ID    string `json:"id,omitempty" yaml:"id"`
 	Name  string `json:"name" yaml:"name"`
 	Value string `json:"value" yaml:"value"`
 }
 
 type Pool struct {
-	Id                 string            `json:"id,omitempty" yaml:"id"`
+	ID                 string            `json:"id,omitempty" yaml:"id"`
 	CreatedAt          time.Time         `json:"created_at,omitempty" yaml:"created_at"`
 	UpdatedAt          time.Time         `json:"updated_at,omitempty" yaml:"updated_at"`
 	Team               string            `json:"team,omitempty" yaml:"team,omitempty"`
@@ -730,33 +730,33 @@ type Pool struct {
 	OSImageHash        string            `json:"os_image_hash" yaml:"os_image_hash"`
 	Config             PoolConfig        `json:"config" yaml:"config"`
 	Meta               map[string]string `json:"meta" yaml:"meta"`
-	Vms                []*Vm             `json:"vms,omitempty" yaml:"vms"`
+	Vms                []*VM             `json:"vms,omitempty" yaml:"vms"`
 	Leases             []*Lease          `json:"leases,omitempty" yaml:"leases"`
 	Secrets            []Secret          `json:"secrets,omitempty" yaml:"secrets"`
 }
 
-type Vm struct {
-	Id           string            `json:"id" yaml:"id"`
-	Uuid         string            `json:"uuid" yaml:"uuid"` // backend-generated uuid
+type VM struct {
+	ID           string            `json:"id" yaml:"id"`
+	UUID         string            `json:"uuid" yaml:"uuid"` // backend-generated uuid
 	CreatedAt    time.Time         `json:"created_at" yaml:"created_at"`
 	Pool         string            `json:"pool" yaml:"pool"`
 	Backend      string            `json:"backend" yaml:"backend"`
 	State        string            `json:"state" yaml:"state"`
 	Status       string            `json:"status,omitempty" yaml:"status"` // human readable error string or longer description with handy debug info
-	Ip           string            `json:"ip" yaml:"ip"`
+	IP           string            `json:"ip" yaml:"ip"`
 	Meta         map[string]string `json:"meta" yaml:"meta"`
 	PortMappings *PortMappings     `json:"port_mappings" yaml:"port_mappings"`
 }
 
 type Lease struct {
-	Id                string            `json:"id" yaml:"id"`
+	ID                string            `json:"id" yaml:"id"`
 	CreatedAt         time.Time         `json:"created_at" yaml:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at" yaml:"updated_at"`
 	AssignedAt        time.Time         `json:"assigned_at" yaml:"assigned_at"`
 	ActivatedAt       time.Time         `json:"activated_at" yaml:"activated_at"`
 	Pool              string            `json:"pool" yaml:"pool"`
 	Backend           string            `json:"backend" yaml:"backend"`
-	Vm                string            `json:"vm" yaml:"vm"`
+	VM                string            `json:"vm" yaml:"vm"`
 	State             string            `json:"state" yaml:"state"`
 	Status            string            `json:"status,omitempty" yaml:"status"` // human readable error string or longer description with handy debug info
 	Kubeconfig        string            `json:"kubeconfig" yaml:"kubeconfig"`
@@ -790,7 +790,7 @@ type LaunchButton struct {
 	// specify either port and path, or url
 	Port int    `json:"port,omitempty" yaml:"port,omitempty"`
 	Path string `json:"path,omitempty" yaml:"path,omitempty"`
-	Url  string `json:"url,omitempty" yaml:"url,omitempty"`
+	URL  string `json:"url,omitempty" yaml:"url,omitempty"`
 }
 
 type LaunchConfig struct {
@@ -817,7 +817,7 @@ type PoolConfig struct {
 
 // When we make pools, they don't have vms or leases or state or status, when we read them they do.
 type PoolRequest struct {
-	Id                 string            `json:"id" yaml:"id"`
+	ID                 string            `json:"id" yaml:"id"`
 	CreatedAt          time.Time         `json:"created_at" yaml:"created_at"`
 	Name               string            `json:"name" yaml:"name"`
 	Type               string            `json:"type" yaml:"type"`
@@ -845,7 +845,7 @@ func (pool Pool) GetState() string {
 	return pool.State
 }
 
-func (vm Vm) GetState() string {
+func (vm VM) GetState() string {
 	return vm.State
 }
 

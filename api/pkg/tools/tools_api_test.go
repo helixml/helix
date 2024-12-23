@@ -150,9 +150,9 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    ts.URL,
-				Schema: miniPetStoreApiSpec,
+				Schema: miniPetStoreAPISpec,
 			},
 		},
 	}
@@ -195,9 +195,9 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    ts.URL,
-				Schema: petStoreApiSpec,
+				Schema: petStoreAPISpec,
 			},
 		},
 	}
@@ -223,9 +223,9 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    "https://example.com",
-				Schema: petStoreApiSpec,
+				Schema: petStoreAPISpec,
 				Headers: map[string]string{
 					"X-Api-Key": "1234567890",
 				},
@@ -251,9 +251,9 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    "https://example.com",
-				Schema: petStoreApiSpec,
+				Schema: petStoreAPISpec,
 				Headers: map[string]string{
 					"X-Api-Key": "1234567890",
 				},
@@ -285,7 +285,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Query() {
 		Description: "What's the weather in London?",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    "https://api.openweathermap.org/data/2.5",
 				Schema: string(weatherSpec),
 				Headers: map[string]string{
@@ -321,11 +321,11 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		Name:     "productsAPI",
 		ToolType: types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:                 "https://example.com",
-				Schema:              petStoreApiSpec,
+				Schema:              petStoreAPISpec,
 				RequestPrepTemplate: `CUSTOM_TEMPLATE_HERE`,
-				Actions: []*types.ToolApiAction{
+				Actions: []*types.ToolAPIAction{
 					{
 						Name:        "getProductDetails",
 						Description: "database API that can be used to query product information in the database",
@@ -335,7 +335,7 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		},
 	}
 
-	chatReq, err := suite.strategy.getApiSystemPrompt(tool, "getProductDetails")
+	chatReq, err := suite.strategy.getAPISystemPrompt(tool, "getProductDetails")
 	suite.Require().NoError(err)
 
 	suite.Contains(chatReq.Content, "CUSTOM_TEMPLATE_HERE")
@@ -345,25 +345,25 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
-	actions, err := GetActionsFromSchema(petStoreApiSpec)
+	actions, err := GetActionsFromSchema(petStoreAPISpec)
 	require.NoError(t, err)
 	require.Len(t, actions, 3)
 
-	assert.Contains(t, actions, &types.ToolApiAction{
+	assert.Contains(t, actions, &types.ToolAPIAction{
 		Name:        "listPets",
 		Description: "List all pets",
 		Method:      "GET",
 		Path:        "/pets",
 	})
 
-	assert.Contains(t, actions, &types.ToolApiAction{
+	assert.Contains(t, actions, &types.ToolAPIAction{
 		Name:        "createPets",
 		Description: "Create a pet",
 		Method:      "POST",
 		Path:        "/pets",
 	})
 
-	assert.Contains(t, actions, &types.ToolApiAction{
+	assert.Contains(t, actions, &types.ToolAPIAction{
 		Name:        "showPetById",
 		Description: "Info for a specific pet",
 		Method:      "GET",
@@ -374,8 +374,8 @@ func Test_getActionsFromSchema(t *testing.T) {
 func Test_filterOpenAPISchema_GetBody(t *testing.T) {
 	filtered, err := filterOpenAPISchema(&types.Tool{
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
-				Schema: petStoreApiSpec,
+			API: &types.ToolAPIConfig{
+				Schema: petStoreAPISpec,
 			},
 		},
 	}, "showPetById")
@@ -384,7 +384,7 @@ func Test_filterOpenAPISchema_GetBody(t *testing.T) {
 	golden.Assert(t, filtered, "filtered-one-pet.golden.json")
 }
 
-const petStoreApiSpec = `openapi: "3.0.0"
+const petStoreAPISpec = `openapi: "3.0.0"
 info:
   version: 1.0.0
   title: Swagger Petstore
@@ -417,7 +417,7 @@ paths:
               schema:
                 type: string
           content:
-            application/json:    
+            application/json:
               schema:
                 $ref: "#/components/schemas/Pets"
         default:
@@ -505,7 +505,7 @@ components:
           type: string
 `
 
-const miniPetStoreApiSpec = `openapi: "3.0.0"
+const miniPetStoreAPISpec = `openapi: "3.0.0"
 info:
   version: 1.0.0
   title: Swagger Petstore
@@ -513,7 +513,7 @@ info:
     name: MIT
 servers:
   - url: http://petstore.swagger.io/v1
-paths:  
+paths:
   /pets/{petId}:
     get:
       summary: Info for a specific pet

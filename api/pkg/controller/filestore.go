@@ -13,21 +13,21 @@ import (
 //go:embed filestore_folders.json
 var jsonFile embed.FS
 
-func GetFolders() ([]filestore.FilestoreFolder, error) {
+func GetFolders() ([]filestore.Folder, error) {
 	file, err := jsonFile.Open("filestore_folders.json")
 	if err != nil {
-		return []filestore.FilestoreFolder{}, err
+		return []filestore.Folder{}, err
 	}
 	defer file.Close()
 
 	content, err := io.ReadAll(file)
 	if err != nil {
-		return []filestore.FilestoreFolder{}, err
+		return []filestore.Folder{}, err
 	}
 
-	var folders []filestore.FilestoreFolder
+	var folders []filestore.Folder
 	if err := json.Unmarshal(content, &folders); err != nil {
-		return []filestore.FilestoreFolder{}, err
+		return []filestore.Folder{}, err
 	}
 
 	return folders, nil
@@ -102,20 +102,20 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.OwnerContext, path string
 	return retPath, nil
 }
 
-func (c *Controller) FilestoreConfig(ctx types.OwnerContext) (filestore.FilestoreConfig, error) {
+func (c *Controller) FilestoreConfig(ctx types.OwnerContext) (filestore.Config, error) {
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
 
 	folders, err := GetFolders()
 	if err != nil {
-		return filestore.FilestoreConfig{}, err
+		return filestore.Config{}, err
 	}
-	return filestore.FilestoreConfig{
+	return filestore.Config{
 		UserPrefix: userPrefix,
 		Folders:    folders,
 	}, nil
 }
 
-func (c *Controller) FilestoreList(ctx types.OwnerContext, path string) ([]filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreList(ctx types.OwnerContext, path string) ([]filestore.Item, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -123,18 +123,18 @@ func (c *Controller) FilestoreList(ctx types.OwnerContext, path string) ([]files
 	return c.Options.Filestore.List(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreGet(ctx types.OwnerContext, path string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreGet(ctx types.OwnerContext, path string) (filestore.Item, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
-		return filestore.FileStoreItem{}, err
+		return filestore.Item{}, err
 	}
 	return c.Options.Filestore.Get(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreCreateFolder(ctx types.OwnerContext, path string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreCreateFolder(ctx types.OwnerContext, path string) (filestore.Item, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
-		return filestore.FileStoreItem{}, err
+		return filestore.Item{}, err
 	}
 	return c.Options.Filestore.CreateFolder(c.Ctx, filePath)
 }
@@ -155,22 +155,22 @@ func (c *Controller) FilestoreDownloadFolder(ctx types.OwnerContext, path string
 	return c.Options.Filestore.DownloadFolder(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreUploadFile(ctx types.OwnerContext, path string, r io.Reader) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreUploadFile(ctx types.OwnerContext, path string, r io.Reader) (filestore.Item, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
-		return filestore.FileStoreItem{}, err
+		return filestore.Item{}, err
 	}
 	return c.Options.Filestore.WriteFile(c.Ctx, filePath, r)
 }
 
-func (c *Controller) FilestoreRename(ctx types.OwnerContext, path string, newPath string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreRename(ctx types.OwnerContext, path string, newPath string) (filestore.Item, error) {
 	fullPath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
-		return filestore.FileStoreItem{}, err
+		return filestore.Item{}, err
 	}
 	fullNewPath, err := c.ensureFilestoreUserPath(ctx, newPath)
 	if err != nil {
-		return filestore.FileStoreItem{}, err
+		return filestore.Item{}, err
 	}
 	return c.Options.Filestore.Rename(c.Ctx, fullPath, fullNewPath)
 }

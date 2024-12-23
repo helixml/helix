@@ -92,7 +92,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	providerManager := manager.NewMockProviderManager(ctrl)
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
 
-	c, err := controller.NewController(context.Background(), controller.ControllerOptions{
+	c, err := controller.NewController(context.Background(), controller.Options{
 		Config:          cfg,
 		Store:           suite.store,
 		Janitor:         janitor.NewJanitor(config.Janitor{}),

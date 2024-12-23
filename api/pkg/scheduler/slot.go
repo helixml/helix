@@ -126,7 +126,7 @@ func (s *Slot) Mode() types.SessionMode {
 	return s.work.Mode()
 }
 
-func (s *Slot) ModelName() model.ModelName {
+func (s *Slot) ModelName() model.Name {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

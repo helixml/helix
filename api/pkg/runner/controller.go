@@ -24,7 +24,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type RunnerOptions struct {
+type Options struct {
 	ID       string
 	APIHost  string
 	APIToken string
@@ -93,7 +93,7 @@ type RunnerOptions struct {
 
 type Runner struct {
 	Ctx                   context.Context
-	Options               RunnerOptions
+	Options               Options
 	httpClientOptions     system.ClientOptions
 	activeModelInstances  *xsync.MapOf[string, ModelInstance] // the map of model instances that we have loaded and are currently running
 	websocketEventChannel chan *types.WebsocketEvent          // how we write web sockets messages to the api server
@@ -103,7 +103,7 @@ type Runner struct {
 
 func NewRunner(
 	ctx context.Context,
-	options RunnerOptions,
+	options Options,
 ) (*Runner, error) {
 
 	if options.ID == "" {
@@ -391,7 +391,7 @@ func GiB(bytes int64) float32 {
 // version (and server) in another branch I don't want to convert it to the slots methodology just
 // yet.
 // nolint:unused
-func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*types.Session, error) {
+func (r *Runner) getNextAPISession(_ context.Context, queryParams url.Values) (*types.Session, error) {
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetAPIPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err
@@ -458,7 +458,7 @@ func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
 	case types.WorkerTaskResponseTypeResult:
 		// if it's a full result then we just post it to the api
 		log.Info().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
-		return r.postWorkerResponseToApi(res)
+		return r.postWorkerResponseToAPI(res)
 	case types.WorkerTaskResponseTypeProgress, types.WorkerTaskResponseTypeStream:
 		// streaming updates it's a websocket event
 		return r.sendWorkerResponseToWebsocket(res)
@@ -488,7 +488,7 @@ func (r *Runner) sendWorkerResponseToWebsocket(res *types.RunnerTaskResponse) er
 	return nil
 }
 
-func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
+func (r *Runner) postWorkerResponseToAPI(res *types.RunnerTaskResponse) error {
 	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 
 	// this function will write any task responses back to the api server for it to process

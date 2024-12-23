@@ -131,32 +131,32 @@ func (mr *MockModelMockRecorder) PrepareFiles(session, isInitialSession, fileMan
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareFiles", reflect.TypeOf((*MockModel)(nil).PrepareFiles), session, isInitialSession, fileManager)
 }
 
-// MockModelSessionFileManager is a mock of ModelSessionFileManager interface.
-type MockModelSessionFileManager struct {
+// MockSessionFileManager is a mock of SessionFileManager interface.
+type MockSessionFileManager struct {
 	ctrl     *gomock.Controller
-	recorder *MockModelSessionFileManagerMockRecorder
+	recorder *MockSessionFileManagerMockRecorder
 	isgomock struct{}
 }
 
-// MockModelSessionFileManagerMockRecorder is the mock recorder for MockModelSessionFileManager.
-type MockModelSessionFileManagerMockRecorder struct {
-	mock *MockModelSessionFileManager
+// MockSessionFileManagerMockRecorder is the mock recorder for MockSessionFileManager.
+type MockSessionFileManagerMockRecorder struct {
+	mock *MockSessionFileManager
 }
 
-// NewMockModelSessionFileManager creates a new mock instance.
-func NewMockModelSessionFileManager(ctrl *gomock.Controller) *MockModelSessionFileManager {
-	mock := &MockModelSessionFileManager{ctrl: ctrl}
-	mock.recorder = &MockModelSessionFileManagerMockRecorder{mock}
+// NewMockSessionFileManager creates a new mock instance.
+func NewMockSessionFileManager(ctrl *gomock.Controller) *MockSessionFileManager {
+	mock := &MockSessionFileManager{ctrl: ctrl}
+	mock.recorder = &MockSessionFileManagerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockModelSessionFileManager) EXPECT() *MockModelSessionFileManagerMockRecorder {
+func (m *MockSessionFileManager) EXPECT() *MockSessionFileManagerMockRecorder {
 	return m.recorder
 }
 
 // DownloadFile mocks base method.
-func (m *MockModelSessionFileManager) DownloadFile(remotePath, localPath string) error {
+func (m *MockSessionFileManager) DownloadFile(remotePath, localPath string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DownloadFile", remotePath, localPath)
 	ret0, _ := ret[0].(error)
@@ -164,13 +164,13 @@ func (m *MockModelSessionFileManager) DownloadFile(remotePath, localPath string)
 }
 
 // DownloadFile indicates an expected call of DownloadFile.
-func (mr *MockModelSessionFileManagerMockRecorder) DownloadFile(remotePath, localPath any) *gomock.Call {
+func (mr *MockSessionFileManagerMockRecorder) DownloadFile(remotePath, localPath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadFile", reflect.TypeOf((*MockModelSessionFileManager)(nil).DownloadFile), remotePath, localPath)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadFile", reflect.TypeOf((*MockSessionFileManager)(nil).DownloadFile), remotePath, localPath)
 }
 
 // DownloadFolder mocks base method.
-func (m *MockModelSessionFileManager) DownloadFolder(remotePath, localPath string) error {
+func (m *MockSessionFileManager) DownloadFolder(remotePath, localPath string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DownloadFolder", remotePath, localPath)
 	ret0, _ := ret[0].(error)
@@ -178,13 +178,13 @@ func (m *MockModelSessionFileManager) DownloadFolder(remotePath, localPath strin
 }
 
 // DownloadFolder indicates an expected call of DownloadFolder.
-func (mr *MockModelSessionFileManagerMockRecorder) DownloadFolder(remotePath, localPath any) *gomock.Call {
+func (mr *MockSessionFileManagerMockRecorder) DownloadFolder(remotePath, localPath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadFolder", reflect.TypeOf((*MockModelSessionFileManager)(nil).DownloadFolder), remotePath, localPath)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadFolder", reflect.TypeOf((*MockSessionFileManager)(nil).DownloadFolder), remotePath, localPath)
 }
 
 // GetFolder mocks base method.
-func (m *MockModelSessionFileManager) GetFolder() string {
+func (m *MockSessionFileManager) GetFolder() string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetFolder")
 	ret0, _ := ret[0].(string)
@@ -192,7 +192,7 @@ func (m *MockModelSessionFileManager) GetFolder() string {
 }
 
 // GetFolder indicates an expected call of GetFolder.
-func (mr *MockModelSessionFileManagerMockRecorder) GetFolder() *gomock.Call {
+func (mr *MockSessionFileManagerMockRecorder) GetFolder() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFolder", reflect.TypeOf((*MockModelSessionFileManager)(nil).GetFolder))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFolder", reflect.TypeOf((*MockSessionFileManager)(nil).GetFolder))
 }

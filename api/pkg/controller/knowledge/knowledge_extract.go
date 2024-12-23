@@ -62,7 +62,7 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		}
 
 		if extractorEnabled {
-			extracted, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
+			extracted, err := r.extractor.Extract(ctx, &extract.Request{
 				URL: u,
 			})
 			if err != nil {
@@ -204,7 +204,7 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 	var extractedData []*indexerData
 
 	for _, d := range data {
-		extractedText, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
+		extractedText, err := r.extractor.Extract(ctx, &extract.Request{
 			Content: d.Data,
 		})
 		if err != nil {

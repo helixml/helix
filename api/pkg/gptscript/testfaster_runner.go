@@ -85,7 +85,7 @@ systemctl start gptscript.service
 `
 
 // TODO: delete
-func getTestfasterAPIHandler(cfg *config.ServerConfig) (*testfaster.HttpApiHandler, error) {
+func getTestfasterAPIHandler(cfg *config.ServerConfig) (*testfaster.HTTPAPIHandler, error) {
 	if cfg.GPTScript.TestFaster.URL == "" {
 		return nil, fmt.Errorf("Please set HELIX_TESTFASTER_URL to use remote gptscript execution - join the helix.ml discord for more info")
 	}
@@ -93,7 +93,7 @@ func getTestfasterAPIHandler(cfg *config.ServerConfig) (*testfaster.HttpApiHandl
 		return nil, fmt.Errorf("Please set HELIX_TESTFASTER_TOKEN to use remote gptscript execution - join the helix.ml discord for more info")
 	}
 
-	apiHandler := testfaster.NewHttpApiHandler(
+	apiHandler := testfaster.NewHTTPAPIHandler(
 		cfg.GPTScript.TestFaster.URL,
 		cfg.GPTScript.TestFaster.Token,
 	)
@@ -169,7 +169,7 @@ func getTestfasterCluster(cfg *config.ServerConfig) (*TestFasterCluster, error) 
 
 	return &TestFasterCluster{
 		PoolID:  lease.Pool,
-		LeaseID: lease.Id,
+		LeaseID: lease.ID,
 		URL:     fmt.Sprintf("http://%s:%s", externalIP, port),
 	}, nil
 }

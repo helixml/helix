@@ -302,10 +302,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	user := getRequestUser(req)
-	session_id := mux.Vars(req)["id"]
-	session, err := s.Store.GetSession(ctx, session_id)
+	sessionID := mux.Vars(req)["id"]
+	session, err := s.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", session_id, err), http.StatusInternalServerError)
+		http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", sessionID, err), http.StatusInternalServerError)
 		return
 	}
 

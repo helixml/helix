@@ -17,7 +17,7 @@ type SlotFactory interface {
 		work *scheduler.Workload,
 		inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
 		sessionResponseHandler func(res *types.RunnerTaskResponse) error,
-		runnerOptions RunnerOptions,
+		runnerOptions Options,
 	) (*Slot, error)
 }
 
@@ -102,7 +102,7 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 	// TODO(PHIL): Also the slot doesn't know when the work has finished.
 	inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
 	sessionResponseHandler func(res *types.RunnerTaskResponse) error,
-	runnerOptions RunnerOptions,
+	runnerOptions Options,
 ) (*Slot, error) {
 	slot := &Slot{
 		ID:                     slotID,
@@ -144,7 +144,7 @@ func (f *runtimeFactory) NewSlot(ctx context.Context,
 		)
 		workCh := make(chan *types.Session, 1)
 		initialSession := work.Session()
-		runtimeName := model.ModelName(initialSession.ModelName).InferenceRuntime()
+		runtimeName := model.Name(initialSession.ModelName).InferenceRuntime()
 
 		// if we are in mock mode - we need the axolotl model instance because
 		// it understands how to do a mock runner

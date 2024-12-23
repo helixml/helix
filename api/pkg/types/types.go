@@ -886,7 +886,7 @@ type Tool struct {
 }
 
 type ToolConfig struct {
-	API       *ToolApiConfig       `json:"api"`
+	API       *ToolAPIConfig       `json:"api"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
 	Zapier    *ToolZapierConfig    `json:"zapier"`
 }
@@ -913,10 +913,10 @@ func (ToolConfig) GormDataType() string {
 	return "json"
 }
 
-type ToolApiConfig struct {
+type ToolAPIConfig struct {
 	URL     string           `json:"url" yaml:"url"` // Server override
 	Schema  string           `json:"schema" yaml:"schema"`
-	Actions []*ToolApiAction `json:"actions" yaml:"actions"` // Read-only, parsed from schema on creation
+	Actions []*ToolAPIAction `json:"actions" yaml:"actions"` // Read-only, parsed from schema on creation
 
 	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
 	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
@@ -929,7 +929,7 @@ type ToolApiConfig struct {
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec
-type ToolApiAction struct {
+type ToolAPIAction struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
 	Method      string `json:"method" yaml:"method"`
@@ -1045,7 +1045,7 @@ type AppHelixConfigMetadata struct {
 }
 
 type AppHelixConfigCRD struct {
-	ApiVersion string                 `json:"apiVersion" yaml:"apiVersion"`
+	APIVersion string                 `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                 `json:"kind" yaml:"kind"`
 	Metadata   AppHelixConfigMetadata `json:"metadata" yaml:"metadata"`
 	Spec       AppHelixConfig         `json:"spec" yaml:"spec"`
