@@ -505,9 +505,9 @@ steps:
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password
   commands:
+    - cd integration-test/smoke
     - go run .
     - echo "::set-output name=test_status::$?"
-  working_directory: integration-test/smoke
   depends_on: []
 
 services:
