@@ -7,21 +7,11 @@ import (
 	"github.com/go-rod/rod"
 )
 
-func performLogin(browser *rod.Browser, forceLogin bool) error {
+func performLogin(browser *rod.Browser) error {
 	page := browser.MustPage(getServerURL())
 	page.MustWaitLoad()
 
-	// If not forceLogin, try to load cookies
-	if !forceLogin {
-		cookieStore := NewCookieStore("")
-		if cookieStore.Load(page, getServerURL()) == nil {
-			logStep("Cookies loaded, reloading page")
-			page.MustReload()
-			return verifyLogin(page)
-		}
-	}
-
-	// If cookies are not loaded, perform login or do it anyway if forceLogin is true
+	// // If cookies are not loaded, perform login or do it anyway if forceLogin is true
 	if err := loginWithCredentials(page); err != nil {
 		return err
 	}
