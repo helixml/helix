@@ -54,7 +54,9 @@ func LoginFlowTest() TestCase {
 		Name:        "Login Flow",
 		Description: "Tests the login functionality using credentials or saved cookies",
 		Timeout:     10 * time.Second,
-		Run:         performLogin,
+		Run: func(b *rod.Browser) error {
+			return performLogin(b, true)
+		},
 	}
 }
 
@@ -65,7 +67,7 @@ func StartNewSessionTest() TestCase {
 		Description: "Tests starting a new chat session after login",
 		Timeout:     20 * time.Second,
 		Run: func(browser *rod.Browser) error {
-			if err := performLogin(browser); err != nil {
+			if err := performLogin(browser, false); err != nil {
 				return err
 			}
 
@@ -143,7 +145,7 @@ func UploadPDFFileTest() TestCase {
 }
 
 func uploadPDFFile(browser *rod.Browser) error {
-	if err := performLogin(browser); err != nil {
+	if err := performLogin(browser, false); err != nil {
 		return err
 	}
 
@@ -215,7 +217,7 @@ func CreateRagAppTest() TestCase {
 }
 
 func createRagApp(browser *rod.Browser) error {
-	if err := performLogin(browser); err != nil {
+	if err := performLogin(browser, false); err != nil {
 		return err
 	}
 

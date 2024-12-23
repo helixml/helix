@@ -7,9 +7,14 @@ import (
 	"github.com/go-rod/rod"
 )
 
-func performLogin(browser *rod.Browser) error {
+func performLogin(browser *rod.Browser, forceLogin bool) error {
 	page := browser.MustPage(getServerURL())
 	page.MustWaitLoad()
+
+	if forceLogin {
+		return loginWithCredentials(page)
+	}
+
 	cookieStore := NewCookieStore("")
 	if err := cookieStore.Load(page, getServerURL()); err != nil {
 		return loginWithCredentials(page)
