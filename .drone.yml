@@ -492,9 +492,6 @@ workspace:
 trigger:
   event:
     - cron
-    - custom
-  branch:
-    - smoke-test  # Add this section to allow branch-specific triggers
   cron:
     - smoke-test-hourly
 
@@ -516,5 +513,3 @@ steps:
 services:
 - name: chrome
   image: ghcr.io/go-rod/rod:v0.115.
-
-depends_on: []
