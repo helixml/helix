@@ -13,7 +13,7 @@ func (suite *PostgresStoreTestSuite) Test_ListSessionTools() {
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL: "http://test.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer 123",

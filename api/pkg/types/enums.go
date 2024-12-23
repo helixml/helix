@@ -234,7 +234,7 @@ type DataPrepModule string
 const (
 	DataprepmoduleNone         DataPrepModule = ""
 	DataprepmoduleGpt3point5   DataPrepModule = "gpt3.5"
-	DataPrepModule_GPT4        DataPrepModule = "gpt4"
+	DataprepmoduleGPT4         DataPrepModule = "gpt4"
 	DataprepmoduleHelixmistral DataPrepModule = "helix_mistral"
 	DataprepmoduleDynamic      DataPrepModule = "dynamic"
 )
@@ -243,8 +243,8 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 	switch moduleName {
 	case string(DataprepmoduleGpt3point5):
 		return DataprepmoduleGpt3point5, nil
-	case string(DataPrepModule_GPT4):
-		return DataPrepModule_GPT4, nil
+	case string(DataprepmoduleGPT4):
+		return DataprepmoduleGPT4, nil
 	case string(DataprepmoduleHelixmistral):
 		return DataprepmoduleHelixmistral, nil
 	case string(DataprepmoduleDynamic):

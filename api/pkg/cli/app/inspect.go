@@ -37,7 +37,7 @@ var inspectCmd = &cobra.Command{
 
 		// Convert to CRD format for both JSON and YAML output
 		crd := types.AppHelixConfigCRD{
-			ApiVersion: "app.aispec.org/v1alpha1",
+			APIVersion: "app.aispec.org/v1alpha1",
 			Kind:       "AIApp",
 			Metadata: types.AppHelixConfigMetadata{
 				Name: appConfig.Name,

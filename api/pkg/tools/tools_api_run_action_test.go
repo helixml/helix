@@ -31,10 +31,10 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    ts.URL,
-				Schema: petStoreApiSpec,
-				Actions: []*types.ToolApiAction{
+				Schema: petStoreAPISpec,
+				Actions: []*types.ToolAPIAction{
 					{
 						Name:        "listPets",
 						Description: "List all pets",
@@ -139,13 +139,13 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 		Description: "Weather API service that can be used to retrieve weather information for the given location",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    ts.URL,
 				Schema: string(weatherSpec),
 				Query: map[string]string{
 					"appid": "secret-key",
 				},
-				Actions: []*types.ToolApiAction{
+				Actions: []*types.ToolAPIAction{
 					{
 						Name:        "CurrentWeatherData",
 						Description: "Call current weather data for one location",
@@ -207,13 +207,13 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 		Description: "Weather API service that can be used to retrieve weather information for the given location",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
+			API: &types.ToolAPIConfig{
 				URL:    ts.URL,
 				Schema: string(weatherSpec),
 				Query: map[string]string{
 					"appid": "secret-key",
 				},
-				Actions: []*types.ToolApiAction{
+				Actions: []*types.ToolAPIAction{
 					{
 						Name:        "CurrentWeatherData",
 						Description: "Call current weather data for one location",

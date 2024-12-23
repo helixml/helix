@@ -18,7 +18,7 @@ func TestProcessModelName(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    ModelName
+		want    Name
 		wantErr bool
 	}{
 		{

@@ -233,6 +233,7 @@ func (t *Typesense) ensureCollection(ctx context.Context) error {
 		}
 	}
 
+	// nolint:revive
 	schema := &api.CollectionSchema{
 		Name: t.collection,
 		Fields: []api.Field{

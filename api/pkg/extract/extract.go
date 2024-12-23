@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type ExtractRequest struct {
+type Request struct {
 	URL     string `json:"url"`
 	Content []byte `json:"content"`
 }
@@ -20,7 +20,7 @@ type ExtractRequest struct {
 //go:generate mockgen -source $GOFILE -destination extractor_mocks.go -package $GOPACKAGE
 
 type Extractor interface {
-	Extract(ctx context.Context, req *ExtractRequest) (string, error)
+	Extract(ctx context.Context, req *Request) (string, error)
 }
 
 // DefaultExtractor is the default, llamaindex based text extractor
@@ -37,7 +37,7 @@ func NewDefaultExtractor(extractorURL string) *DefaultExtractor {
 	}
 }
 
-func (e *DefaultExtractor) Extract(ctx context.Context, extractReq *ExtractRequest) (string, error) {
+func (e *DefaultExtractor) Extract(ctx context.Context, extractReq *Request) (string, error) {
 	if extractReq.URL == "" && len(extractReq.Content) == 0 {
 		return "", fmt.Errorf("no URL or content provided")
 	}

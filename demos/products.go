@@ -38,7 +38,7 @@ type Receipt struct {
 	CustomerEmail string `json:"customer_email"`
 }
 
-var PRODUCT_DATA = []Product{
+var ProductData = []Product{
 	{
 		ID:          "1",
 		Name:        "SX67",
@@ -98,7 +98,7 @@ func listProducts(w http.ResponseWriter, r *http.Request) {
 		CPU:      getQueryParamString("cpu", params, []string{"i5", "i7", "i9"}),
 		RAM:      getQueryParamInteger("ram", params),
 	}
-	filteredProducts := filterProducts(PRODUCT_DATA, query)
+	filteredProducts := filterProducts(ProductData, query)
 	fmt.Printf("listProducts --------------------------------------\n")
 	spew.Dump(query)
 	spew.Dump(filteredProducts)

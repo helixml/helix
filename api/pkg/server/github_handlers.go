@@ -207,7 +207,7 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(user *types.User, pageURL 
 			// so it is authenticated
 			"%s%s/github/callback?access_token=%s&pageURL=%s",
 			apiServer.Cfg.WebServer.URL,
-			API_PREFIX,
+			APIPrefix,
 			url.QueryEscape(user.Token),
 			url.QueryEscape(pageURL),
 		),
@@ -286,7 +286,7 @@ func (apiServer *HelixAPIServer) getGithubClientFromUserContext(ctx context.Cont
 	})
 }
 
-func (apiServer *HelixAPIServer) listGithubRepos(res http.ResponseWriter, req *http.Request) ([]string, error) {
+func (apiServer *HelixAPIServer) listGithubRepos(_ http.ResponseWriter, req *http.Request) ([]string, error) {
 	client, err := apiServer.getGithubClientFromRequest(req)
 	if err != nil {
 		return nil, err

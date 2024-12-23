@@ -19,7 +19,7 @@ func TestExtractURL(t *testing.T) {
 
 	t.Run("ExtractURL", func(t *testing.T) {
 		ctx := context.Background()
-		text, err := extractor.Extract(ctx, &ExtractRequest{
+		text, err := extractor.Extract(ctx, &Request{
 			URL: "https://www.theguardian.com/environment/article/2024/jun/06/tiger-shark-regurgitates-eats-echidna-australia",
 		})
 		require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestExtractURL(t *testing.T) {
 		bts, err := os.ReadFile("./testdata/cb750.pdf")
 		require.NoError(t, err)
 
-		text, err := extractor.Extract(ctx, &ExtractRequest{
+		text, err := extractor.Extract(ctx, &Request{
 			Content: bts,
 		})
 		require.NoError(t, err)

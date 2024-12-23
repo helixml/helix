@@ -36,7 +36,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 			return c.isActionable(ctx, sessionID, interactionID, tools, history, options...)
 		},
 		retry.Attempts(apiActionRetries),
-		retry.Delay(delayBetweenApiRetries),
+		retry.Delay(delayBetweenAPIRetries),
 		retry.Context(ctx),
 		retry.OnRetry(func(n uint, err error) {
 			log.Warn().

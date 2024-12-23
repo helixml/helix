@@ -94,7 +94,7 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerEnabled() {
 }
 
 func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractDisabled() {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "Hello, world!")
 	}))
 	defer ts.Close()
@@ -137,7 +137,7 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractEnabled
 		},
 	}
 
-	suite.extractor.EXPECT().Extract(gomock.Any(), &extract.ExtractRequest{
+	suite.extractor.EXPECT().Extract(gomock.Any(), &extract.Request{
 		URL: "https://example.com",
 	}).Return("Hello, world!", nil)
 

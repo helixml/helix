@@ -127,7 +127,7 @@ func (c *Controller) convertDocumentsToText(ctx context.Context, session *types.
 			filenameParts := strings.Split(file, ".")
 			originalFile := file
 
-			extractRequest := &extract.ExtractRequest{}
+			extractRequest := &extract.Request{}
 
 			// If the file itself ends with .url then it's a textfile
 			// that has a URL we should download as the actual file

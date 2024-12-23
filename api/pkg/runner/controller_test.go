@@ -28,7 +28,7 @@ func (m *mockRuntimeFactory) NewSlot(ctx context.Context,
 	work *scheduler.Workload,
 	inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
 	sessionResponseHandler func(res *types.RunnerTaskResponse) error,
-	runnerOptions RunnerOptions,
+	runnerOptions Options,
 ) (*Slot, error) {
 	return m.getRuntimeFunc(), nil
 }
@@ -43,7 +43,7 @@ func TestController_GetSlots(t *testing.T) {
 	defer server.Close()
 
 	// Create a new controller with the server URL
-	runner, err := NewRunner(context.Background(), RunnerOptions{
+	runner, err := NewRunner(context.Background(), Options{
 		APIHost:     server.URL,
 		ID:          "test",
 		APIToken:    "test",
@@ -85,7 +85,7 @@ func TestController_SlotLifecycle(t *testing.T) {
 	m.EXPECT().IsActive().Return(true).Times(1)
 	m.EXPECT().Stop().Times(1)
 	mockLLMWorkChan := make(chan *types.RunnerLLMInferenceRequest, 1)
-	runner, err := NewRunner(ctx, RunnerOptions{
+	runner, err := NewRunner(ctx, Options{
 		APIHost:     server.URL,
 		ID:          "test",
 		APIToken:    "test",

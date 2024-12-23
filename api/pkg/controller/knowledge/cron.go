@@ -14,7 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (r *Reconciler) NextRun(ctx context.Context, knowledgeID string) (time.Time, error) {
+func (r *Reconciler) NextRun(_ context.Context, knowledgeID string) (time.Time, error) {
 	jobs := r.cron.Jobs()
 
 	for _, job := range jobs {

@@ -69,8 +69,8 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 			Name:     "weatherAPI",
 			ToolType: types.ToolTypeAPI,
 			Config: types.ToolConfig{
-				API: &types.ToolApiConfig{
-					Actions: []*types.ToolApiAction{
+				API: &types.ToolAPIConfig{
+					Actions: []*types.ToolAPIAction{
 						{
 							Name:        "getWeather",
 							Description: "Weather API that can return the current weather for a given location",
@@ -83,8 +83,8 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 			Name:     "productsAPI",
 			ToolType: types.ToolTypeAPI,
 			Config: types.ToolConfig{
-				API: &types.ToolApiConfig{
-					Actions: []*types.ToolApiAction{
+				API: &types.ToolAPIConfig{
+					Actions: []*types.ToolAPIAction{
 						{
 							Name:        "getProductDetails",
 							Description: "database API that can be used to query product information in the database",
@@ -142,8 +142,8 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 			Name:     "weatherAPI",
 			ToolType: types.ToolTypeAPI,
 			Config: types.ToolConfig{
-				API: &types.ToolApiConfig{
-					Actions: []*types.ToolApiAction{
+				API: &types.ToolAPIConfig{
+					Actions: []*types.ToolAPIAction{
 						{
 							Name:        "getWeather",
 							Description: "Weather API that can return the current weather for a given location",
@@ -156,8 +156,8 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 			Name:     "productsAPI",
 			ToolType: types.ToolTypeAPI,
 			Config: types.ToolConfig{
-				API: &types.ToolApiConfig{
-					Actions: []*types.ToolApiAction{
+				API: &types.ToolAPIConfig{
+					Actions: []*types.ToolAPIAction{
 						{
 							Name:        "getProductDetails",
 							Description: "database API that can be used to query product information in the database",
@@ -190,8 +190,8 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 			Name:     "weatherAPI",
 			ToolType: types.ToolTypeAPI,
 			Config: types.ToolConfig{
-				API: &types.ToolApiConfig{
-					Actions: []*types.ToolApiAction{
+				API: &types.ToolAPIConfig{
+					Actions: []*types.ToolAPIAction{
 						{
 							Name:        "getWeather",
 							Description: "Weather API that can return the current weather for a given location",
@@ -204,8 +204,8 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 			Name:     "productsAPI",
 			ToolType: types.ToolTypeAPI,
 			Config: types.ToolConfig{
-				API: &types.ToolApiConfig{
-					Actions: []*types.ToolApiAction{
+				API: &types.ToolAPIConfig{
+					Actions: []*types.ToolAPIAction{
 						{
 							Name:        "getProductDetails",
 							Description: "database API that can be used to query product information in the database",

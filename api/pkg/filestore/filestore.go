@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-type FileStoreItem struct {
+type Item struct {
 	// timestamp
 	Created int64 `json:"created"`
 	// bytes
@@ -22,35 +22,35 @@ type FileStoreItem struct {
 }
 
 // top level filestore folders that have special meaning
-type FilestoreFolder struct {
+type Folder struct {
 	Name     string `json:"name"`
 	Readonly bool   `json:"readonly"`
 }
 
-type FilestoreConfig struct {
+type Config struct {
 	// this will be the virtual path from the storage instance
 	// to the users root directory
 	// we use this to strip the full paths in the frontend so we can deal with only relative paths
-	UserPrefix string            `json:"user_prefix"`
-	Folders    []FilestoreFolder `json:"folders"`
+	UserPrefix string   `json:"user_prefix"`
+	Folders    []Folder `json:"folders"`
 }
 
 //go:generate mockgen -source $GOFILE -destination filestore_mocks.go -package $GOPACKAGE
 
 type FileStore interface {
 	// list the items at a certain path
-	List(ctx context.Context, path string) ([]FileStoreItem, error)
-	Get(ctx context.Context, path string) (FileStoreItem, error)
+	List(ctx context.Context, path string) ([]Item, error)
+	Get(ctx context.Context, path string) (Item, error)
 	SignedURL(ctx context.Context, path string) (string, error)
-	CreateFolder(ctx context.Context, path string) (FileStoreItem, error)
+	CreateFolder(ctx context.Context, path string) (Item, error)
 
 	OpenFile(ctx context.Context, path string) (io.ReadCloser, error)
-	WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
+	WriteFile(ctx context.Context, path string, r io.Reader) (Item, error)
 	// this will return a tar file stream
 	DownloadFolder(ctx context.Context, path string) (io.Reader, error)
 	// upload a tar stream to a path
 	UploadFolder(ctx context.Context, path string, r io.Reader) error
-	Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error)
+	Rename(ctx context.Context, path string, newPath string) (Item, error)
 	Delete(ctx context.Context, path string) error
 	CopyFile(ctx context.Context, from string, to string) error
 }

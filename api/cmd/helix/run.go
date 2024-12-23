@@ -19,23 +19,23 @@ import (
 )
 
 type RunOptions struct {
-	ApiUrl      string
-	ApiKey      string
+	APIURL      string
+	APIKey      string
 	Type        string
 	Prompt      string
 	ActiveTools string
-	SessionId   string
+	SessionID   string
 }
 
 func NewRunOptions() *RunOptions {
 	return &RunOptions{
-		ApiUrl: getDefaultServeOptionString("HELIX_API_URL", "https://app.tryhelix.ai"),
-		ApiKey: getDefaultServeOptionString("HELIX_API_KEY", ""),
+		APIURL: getDefaultServeOptionString("HELIX_API_URL", "https://app.tryhelix.ai"),
+		APIKey: getDefaultServeOptionString("HELIX_API_KEY", ""),
 		// e.g. export HELIX_ACTIVE_TOOLS=tool_01hsdm1n7ftba0s0vtejrjf0k2,tool_01hsdmasz3sp16qep1v2mm7enm,tool_01hsdmj3ntya23dmd2qdr1eyhn
 		ActiveTools: getDefaultServeOptionString("HELIX_ACTIVE_TOOLS", ""),
 		Type:        "text",
 		Prompt:      "what laptops are available to buy?",
-		SessionId:   "", // means new session
+		SessionID:   "", // means new session
 	}
 }
 
@@ -53,7 +53,7 @@ func newRunCmd() *cobra.Command {
 	}
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.ApiUrl, "api-host", allOptions.ApiUrl,
+		&allOptions.APIURL, "api-host", allOptions.APIURL,
 		`The base URL of the runner`,
 	)
 
@@ -68,7 +68,7 @@ func newRunCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Prompt, "session", allOptions.SessionId,
+		&allOptions.Prompt, "session", allOptions.SessionID,
 		`If specified, add to existing session`,
 	)
 
@@ -96,7 +96,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	}
 
 	// can't update these on an existing session
-	if options.SessionId == "" {
+	if options.SessionID == "" {
 		if err := writer.WriteField("mode", "inference"); err != nil {
 			return err
 		}
@@ -112,12 +112,12 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 
 	var req *http.Request
 	var err error
-	if options.SessionId == "" {
+	if options.SessionID == "" {
 		// Create a new POST request with the multipart content type and body
-		req, err = http.NewRequest("POST", options.ApiUrl+"/api/v1/sessions", &buffer)
+		req, err = http.NewRequest(http.MethodPost, options.APIURL+"/api/v1/sessions", &buffer)
 	} else {
 		// Update an existing session
-		req, err = http.NewRequest("PUT", options.ApiUrl+"/api/v1/sessions/"+options.SessionId, &buffer)
+		req, err = http.NewRequest(http.MethodPut, options.APIURL+"/api/v1/sessions/"+options.SessionID, &buffer)
 	}
 	if err != nil {
 		fmt.Println("Error creating request:", err)
@@ -125,7 +125,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	}
 
 	// Set the bearer token API key
-	req.Header.Set("Authorization", "Bearer "+options.ApiKey)
+	req.Header.Set("Authorization", "Bearer "+options.APIKey)
 
 	// fmt.Println("Using API key", options.ApiKey)
 
@@ -171,7 +171,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	var latestSession *types.Interaction
 	for {
 		// Poll the session status
-		session, err := getSessionStatus(options.ApiUrl, options.ApiKey, session.ID)
+		session, err := getSessionStatus(options.APIURL, options.APIKey, session.ID)
 		if err != nil {
 			fmt.Println("Error getting session status:", err)
 			break
@@ -203,9 +203,9 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 }
 
 // Function to get the session status
-func getSessionStatus(apiUrl, apiKey, sessionID string) (*types.Session, error) {
+func getSessionStatus(apiURL, apiKey, sessionID string) (*types.Session, error) {
 	// Create the GET request
-	req, err := http.NewRequest("GET", apiUrl+"/api/v1/sessions/"+sessionID, nil)
+	req, err := http.NewRequest(http.MethodGet, apiURL+"/api/v1/sessions/"+sessionID, nil)
 	if err != nil {
 		return nil, err
 	}

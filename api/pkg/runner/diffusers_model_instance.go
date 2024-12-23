@@ -43,7 +43,7 @@ type DiffusersInferenceResponse struct {
 }
 
 type DiffusersModelInstanceConfig struct {
-	RunnerOptions RunnerOptions
+	RunnerOptions Options
 
 	// Get next chat completion request
 	GetNextRequest func() (*types.Session, error)
@@ -62,7 +62,7 @@ type DiffusersModelInstance struct {
 	model             model.Model
 	filter            types.SessionFilter
 	finishChan        chan bool
-	runnerOptions     RunnerOptions
+	runnerOptions     Options
 	httpClientOptions system.ClientOptions
 
 	// we write responses to this function and they will be sent to the api

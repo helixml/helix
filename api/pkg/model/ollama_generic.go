@@ -33,7 +33,7 @@ func (i *OllamaGenericText) GetID() string {
 	return i.ID
 }
 
-func (i *OllamaGenericText) ModelName() ModelName {
+func (i *OllamaGenericText) ModelName() Name {
 	return NewModel(i.ID)
 }
 

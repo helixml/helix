@@ -23,7 +23,7 @@ type SalesLeadQuery struct {
 	Status string
 }
 
-var SALES_LEADS = []SalesLead{
+var SalesLeads = []SalesLead{
 	{
 		ID:                 "1",
 		CompanyName:        "Tech Innovations Inc.",
@@ -71,7 +71,7 @@ func listSalesLeads(w http.ResponseWriter, r *http.Request) {
 	query := SalesLeadQuery{
 		Status: getQueryParamString("status", params, []string{"active"}),
 	}
-	filteredSalesLeads := filterSalesLeads(SALES_LEADS, query)
+	filteredSalesLeads := filterSalesLeads(SalesLeads, query)
 	fmt.Printf("filteredSalesLeads --------------------------------------\n")
 	spew.Dump(query)
 	spew.Dump(filteredSalesLeads)

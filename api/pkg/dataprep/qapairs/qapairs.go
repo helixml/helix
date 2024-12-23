@@ -26,7 +26,7 @@ type Prompt struct {
 	Name       string                                             `yaml:"name"`
 	System     string                                             `yaml:"system"`
 	User       string                                             `yaml:"user"`
-	JsonSchema *ext_openai.ChatCompletionResponseFormatJSONSchema `yaml:"json_schema"`
+	JSONSchema *ext_openai.ChatCompletionResponseFormatJSONSchema `yaml:"json_schema"`
 }
 
 type Text struct {
@@ -38,7 +38,7 @@ type Text struct {
 
 type Log struct {
 	Date      string `yaml:"date"`
-	ApiUrl    string `yaml:"api_url"`
+	APIURL    string `yaml:"api_url"`
 	Model     string `yaml:"model"`
 	System    string `yaml:"system"`
 	User      string `yaml:"user"`
@@ -236,7 +236,7 @@ func Query(client openai.Client, ownerID, sessionID, model string, prompt Prompt
 	resp, err := chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
 		log.Warn().Msgf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
-		resp, err = chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
+		resp, err = chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, prompt.JSONSchema)
 		if err != nil {
 			log.Warn().Msgf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
 			latency := time.Since(startTime).Milliseconds()

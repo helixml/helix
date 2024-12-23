@@ -55,12 +55,12 @@ func (w *Workload) ID() string {
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }
 
-func (w *Workload) ModelName() model.ModelName {
+func (w *Workload) ModelName() model.Name {
 	switch w.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
-		return model.ModelName(w.llmInfereceRequest.Request.Model)
+		return model.Name(w.llmInfereceRequest.Request.Model)
 	case WorkloadTypeSession:
-		return model.ModelName(w.session.ModelName)
+		return model.Name(w.session.ModelName)
 	}
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }

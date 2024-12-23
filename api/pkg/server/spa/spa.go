@@ -10,19 +10,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type SPAFileServer struct {
+type FileServer struct {
 	fileSystem http.FileSystem
 	fileServer http.Handler
 }
 
-func NewSPAFileServer(fileSystem http.FileSystem) *SPAFileServer {
-	return &SPAFileServer{
+func NewSPAFileServer(fileSystem http.FileSystem) *FileServer {
+	return &FileServer{
 		fileSystem: fileSystem,
 		fileServer: http.FileServer(fileSystem),
 	}
 }
 
-func (s *SPAFileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path, err := filepath.Abs(r.URL.Path)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -45,13 +45,13 @@ func (s *SPAFileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SPAReverseProxyServer is used for local development or in theory it could be used
+// ReverseProxyServer is used for local development or in theory it could be used
 // if the frontend is running on a different container
-type SPAReverseProxyServer struct {
+type ReverseProxyServer struct {
 	reverseProxy *httputil.ReverseProxy
 }
 
-func NewSPAReverseProxyServer(frontend string) *SPAReverseProxyServer {
+func NewSPAReverseProxyServer(frontend string) *ReverseProxyServer {
 	u, err := url.Parse(frontend)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse frontend URL")
@@ -71,11 +71,11 @@ func NewSPAReverseProxyServer(frontend string) *SPAReverseProxyServer {
 		}
 	}
 
-	return &SPAReverseProxyServer{
+	return &ReverseProxyServer{
 		reverseProxy: reverseProxy,
 	}
 }
 
-func (s *SPAReverseProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *ReverseProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.reverseProxy.ServeHTTP(w, r)
 }

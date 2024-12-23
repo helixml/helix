@@ -99,7 +99,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 }
 
 func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
-	systemPrompt, err := c.getApiSystemPrompt(tool, action)
+	systemPrompt, err := c.getAPISystemPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
@@ -197,7 +197,7 @@ func unmarshalParams(data string) (map[string]string, error) {
 	return params, nil
 }
 
-func (c *ChainStrategy) getApiSystemPrompt(tool *types.Tool, action string) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getAPISystemPrompt(tool *types.Tool, action string) (openai.ChatCompletionMessage, error) {
 	// Render template
 	apiUserPromptTemplate := apiUserPrompt
 
@@ -315,7 +315,7 @@ Based on conversation below, construct a valid JSON object. In cases where user 
 ONLY use search parameters from the user messages below - do NOT use search parameters provided in the examples.
 `
 
-func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
+func filterOpenAPISchema(tool *types.Tool, operationID string) (string, error) {
 	loader := openapi3.NewLoader()
 
 	if tool.Config.API == nil || tool.Config.API.Schema == "" {
@@ -337,7 +337,7 @@ func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 
 	for path, pathItem := range schema.Paths.Map() {
 		for method, operation := range pathItem.Operations() {
-			if operation.OperationID == operationId {
+			if operation.OperationID == operationID {
 				// filtered.addOperation(path, method, operation)
 				filtered.AddOperation(path, method, operation)
 
@@ -378,7 +378,7 @@ func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	return string(jsonSpec), nil
 }
 
-func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
+func GetActionsFromSchema(spec string) ([]*types.ToolAPIAction, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(spec))
@@ -386,7 +386,7 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
 	}
 
-	var actions []*types.ToolApiAction
+	var actions []*types.ToolAPIAction
 
 	for path, pathItem := range schema.Paths.Map() {
 
@@ -400,7 +400,7 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 				return nil, fmt.Errorf("operationId is missing for all %s %s", method, path)
 			}
 
-			actions = append(actions, &types.ToolApiAction{
+			actions = append(actions, &types.ToolAPIAction{
 				Name:        operation.OperationID,
 				Description: description,
 				Path:        path,

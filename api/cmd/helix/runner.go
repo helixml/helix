@@ -18,13 +18,13 @@ import (
 )
 
 type RunnerOptions struct {
-	Runner  runner.RunnerOptions
+	Runner  runner.Options
 	Janitor config.Janitor
 }
 
 func NewRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
-		Runner: runner.RunnerOptions{
+		Runner: runner.Options{
 			ID:                           getDefaultServeOptionString("RUNNER_ID", ""),
 			APIHost:                      getDefaultServeOptionString("API_HOST", ""),
 			APIToken:                     getDefaultServeOptionString("API_TOKEN", ""),
@@ -159,21 +159,21 @@ func newRunnerCmd() *cobra.Command {
 	return runnerCmd
 }
 
-var ITX_A = &types.Interaction{
+var ItxA = &types.Interaction{
 	ID:       "warmup-user",
 	Created:  time.Now(),
 	Creator:  "user",
 	Message:  "a new runner is born",
 	Finished: true,
 }
-var ITX_B = &types.Interaction{
+var ItxB = &types.Interaction{
 	ID:       "warmup-system",
 	Created:  time.Now(),
 	Creator:  "system",
 	Finished: false,
 }
 
-var WarmupSession_Model_Mistral7b = types.Session{
+var WarmupsessionModelMistral7b = types.Session{
 	ID:           types.WarmupTextSessionID,
 	Name:         "warmup-text",
 	Created:      time.Now(),
@@ -182,12 +182,12 @@ var WarmupSession_Model_Mistral7b = types.Session{
 	Type:         types.SessionTypeText,
 	ModelName:    model.ModelAxolotlMistral7b,
 	LoraDir:      "",
-	Interactions: []*types.Interaction{ITX_A, ITX_B},
+	Interactions: []*types.Interaction{ItxA, ItxB},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
 }
 
-var WarmupSession_Model_Ollama_Llama3_8b = types.Session{
+var WarmupsessionModelOllamaLlama38b = types.Session{
 	ID:           types.WarmupTextSessionID,
 	Name:         "warmup-text",
 	Created:      time.Now(),
@@ -196,12 +196,12 @@ var WarmupSession_Model_Ollama_Llama3_8b = types.Session{
 	Type:         types.SessionTypeText,
 	ModelName:    "llama3:instruct",
 	LoraDir:      "",
-	Interactions: []*types.Interaction{ITX_A, ITX_B},
+	Interactions: []*types.Interaction{ItxA, ItxB},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
 }
 
-var WarmupSession_Model_SDXL = types.Session{
+var WarmupsessionModelSdxl = types.Session{
 	ID:           types.WarmupImageSessionID,
 	Name:         "warmup-image",
 	Created:      time.Now(),
@@ -210,7 +210,7 @@ var WarmupSession_Model_SDXL = types.Session{
 	Type:         types.SessionTypeImage,
 	ModelName:    model.ModelCogSdxl,
 	LoraDir:      "",
-	Interactions: []*types.Interaction{ITX_A, ITX_B},
+	Interactions: []*types.Interaction{ItxA, ItxB},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
 }

@@ -189,7 +189,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
-		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, API_PREFIX)
+		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
@@ -244,23 +244,23 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	return apiServer.Controller.GetStatus(ctx, user)
 }
 
-func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
+func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.Config, error) {
 	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
-func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
 }
 
@@ -374,7 +374,7 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFolder(res http.ResponseWr
 }
 
 // TODO: this need auth because right now it's an open filestore
-func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
@@ -396,7 +396,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter,
 		OwnerType: session.OwnerType,
 	}
 
-	result := []filestore.FileStoreItem{}
+	result := []filestore.Item{}
 	files := req.MultipartForm.File["files"]
 
 	for _, fileHeader := range files {
@@ -417,7 +417,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter,
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter, req *http.Request) (*filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter, req *http.Request) (*filestore.Item, error) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
