@@ -23,8 +23,9 @@ var (
 )
 
 var (
-	ErrNoAPIKeyFound = errors.New("no API key found")
-	ErrNoUserIDFound = errors.New("no user ID found")
+	ErrNoAPIKeyFound           = errors.New("no API key found")
+	ErrNoUserIDFound           = errors.New("no user ID found")
+	ErrAppAPIKeyPathNotAllowed = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
 )
 
 type authMiddlewareConfig struct {
@@ -152,7 +153,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		// If app API key, check if the path is in the allowed list
 		if user.AppID != "" {
 			if _, ok := AppAPIKeyPaths[r.URL.Path]; !ok {
-				http.Error(w, "path not allowed for app API keys", http.StatusForbidden)
+				http.Error(w, ErrAppAPIKeyPathNotAllowed.Error(), http.StatusForbidden)
 				return
 			}
 		}
@@ -177,7 +178,7 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 
 		if user.AppID != "" {
 			if _, ok := AppAPIKeyPaths[r.URL.Path]; !ok {
-				http.Error(w, "path not allowed for app API keys", http.StatusForbidden)
+				http.Error(w, ErrAppAPIKeyPathNotAllowed.Error(), http.StatusForbidden)
 				return
 			}
 		}
