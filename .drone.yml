@@ -509,11 +509,6 @@ steps:
     - go run .
     - echo "::set-output name=test_status::$?"
   depends_on: []
-  when:
-    branch:
-    - smoke-test
-    event:
-    - push
 
 services:
 - name: chrome
