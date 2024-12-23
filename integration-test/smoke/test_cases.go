@@ -183,7 +183,7 @@ func uploadPDFFile(browser *rod.Browser) error {
 	logStep("clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
 	upload.MustSetFiles("/Users/phil/code/helixml/helix/integration-test/data/smoke/hr-guide.pdf")
-	page.Reload()
+	page.MustReload()
 
 	logStep("waiting for file to exist, then clicking on it")
 	file := page.MustElementX(fmt.Sprintf(`//a[contains(text(), '%s')]`, "hr-guide.pdf"))
