@@ -27,7 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 
-	_ "net/http/pprof"
+	_ "net/http/pprof" // enable profiling
 )
 
 const APIPrefix = "/api/v1"
