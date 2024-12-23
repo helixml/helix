@@ -493,6 +493,8 @@ trigger:
   event:
     - cron
     - custom
+  branch:
+    - smoke-test  # Add this section to allow branch-specific triggers
   cron:
     - smoke-test-hourly
 
