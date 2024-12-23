@@ -21,7 +21,7 @@ type ModelInstanceConfig struct {
 	InitialSessionURL string
 	ResponseHandler   func(res *types.RunnerTaskResponse) error
 	GetNextSession    func() (*types.Session, error)
-	RunnerOptions     RunnerOptions
+	RunnerOptions     Options
 }
 
 // RunnerOptions is already defined in controller.go, so we'll remove it from here
