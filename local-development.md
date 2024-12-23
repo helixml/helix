@@ -1,29 +1,5 @@
 # HelixML Local Development guide
 
-## Table of Contents
-
-- [HelixML Local Development guide](#helixml-local-development-guide)
-  - [Table of Contents](#table-of-contents)
-  - [Introduction](#introduction)
-  - [Prerequisites](#prerequisites)
-  - [Setting Up the Development Environment](#setting-up-the-development-environment)
-  - [Project Structure](#project-structure)
-  - [Running the Application](#running-the-application)
-    - [1. Bring up the Helix stack](#1-bring-up-the-helix-stack)
-    - [2. Attach a runner](#2-attach-a-runner)
-      - [Connecting to a Runner via SSH](#connecting-to-a-runner-via-ssh)
-      - [Connecting to a Runner via WebhookRelay](#connecting-to-a-runner-via-webhookrelay)
-    - [3. (Optional) Expose a Github Webhook](#3-optional-expose-a-github-webhook)
-    - [4. Rebuild individual components](#4-rebuild-individual-components)
-    - [5. Running linter](#5-running-linter)
-    - [6. Running tests](#6-running-tests)
-    - [7. Tear down the Helix stack](#7-tear-down-the-helix-stack)
-  - [Debugging](#debugging)
-  - [Contributing](#contributing)
-  - [Further Reading](#further-reading)
-
-## Introduction
-
 Welcome to the local development documentation for **Helix.ml**! This guide will help you set up your development environment, understand the project structure, run the application locally, and contribute to the Helix.
 
 ## Prerequisites
