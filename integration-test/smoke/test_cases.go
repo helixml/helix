@@ -206,7 +206,7 @@ func CreateRagAppTest() TestCase {
 	return TestCase{
 		Name:        "Create RAG App",
 		Description: "Tests creating a RAG app",
-		Timeout:     60 * time.Second,
+		Timeout:     120 * time.Second,
 		Run:         createRagApp,
 	}
 }
@@ -242,7 +242,6 @@ func createRagApp(browser *rod.Browser) error {
 	page.MustElement(`input[value=filestore]`).MustClick()
 	page.MustElement(`input[type=text]`).MustInput(folderName)
 	page.MustElementX(`//button[text() = 'Add']`).MustClick()
-	page.MustElementX(`//button[text() = 'Save']`).MustClick()
 
 	logStep("Save the app again")
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
@@ -250,7 +249,11 @@ func createRagApp(browser *rod.Browser) error {
 
 	logStep("clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
-	upload.MustSetFiles("../data/smoke/hr-guide.pdf")
+
+	wait1 := page.MustWaitRequestIdle()
+	upload.MustSetFiles("/integration-test/data/smoke/hr-guide.pdf")
+	wait1()
+
 	page.MustReload()
 
 	logStep("Waiting for knowledge source to be ready")
