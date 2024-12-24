@@ -510,7 +510,6 @@ steps:
   commands:
   - cp -r integration-test/* /integration-test
   - go test -timeout 300s -tags=integration -v ./integration-test/smoke
-  - echo "::set-output name=test_status::$?"
   depends_on: []
 
 volumes:
