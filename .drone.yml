@@ -511,7 +511,7 @@ steps:
       from_secret: smoke_test_helix_password
   commands:
     - cp -r integration-test/* /integration-test/
-    - go test -v ./integration-test/smoke
+    - go test -tags=integration -v ./integration-test/smoke
     - echo "::set-output name=test_status::$?"
   depends_on: []
 
