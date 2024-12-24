@@ -49,14 +49,14 @@ func TestCreateRagApp(t *testing.T) {
 	helper.LogStep(t, "Adding knowledge source")
 	page.MustElementX(`//button[text() = 'Add Knowledge Source']`).MustClick()
 	page.MustElement(`input[value=filestore]`).MustClick()
-	page.MustElement(`input[type=text]`).MustInput(helper.TestPDFFile)
+	page.MustElement(`input[type=text]`).MustInput("test hr-guide.pdf")
 	page.MustElementX(`//button[text() = 'Add']`).MustClick()
 
 	helper.LogStep(t, "Save the app again")
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
 	page.MustWaitStable()
 
-	helper.LogStep(t, "clicking on the upload file button")
+	helper.LogStep(t, "Clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
 
 	wait1 := page.MustWaitRequestIdle()
