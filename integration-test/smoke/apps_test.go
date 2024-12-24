@@ -49,7 +49,7 @@ func TestCreateRagApp(t *testing.T) {
 	helper.LogStep(t, "Adding knowledge source")
 	page.MustElementX(`//button[text() = 'Add Knowledge Source']`).MustClick()
 	page.MustElement(`input[value=filestore]`).MustClick()
-	page.MustElement(`input[type=text]`).MustInput(folderName)
+	page.MustElement(`input[type=text]`).MustInput(helper.TestPDFFile)
 	page.MustElementX(`//button[text() = 'Add']`).MustClick()
 
 	helper.LogStep(t, "Save the app again")
