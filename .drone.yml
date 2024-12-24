@@ -495,11 +495,6 @@ trigger:
   cron:
     - smoke-test-hourly
 
-volumes:
-  - name: integration-test
-    host:
-      path: ${DRONE_WORKSPACE}/integration-test
-
 steps:
 - name: smoke-test-saas
   image: golang:1.23.4-alpine3.21
@@ -509,16 +504,22 @@ steps:
     HELIX_USER: phil+smoketest@helix.ml
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password
+  volumes:
+  - name: integration-test
+    path: /integration-test
   commands:
-    - mkdir -p ${DRONE_WORKSPACE}/integration-test
-    - cp -r integration-test/* ${DRONE_WORKSPACE}/integration-test
-    - go test -timeout 300s -tags=integration -v ./integration-test/smoke
-    - echo "::set-output name=test_status::$?"
+  - cp -r integration-test/* /integration-test
+  - go test -timeout 300s -tags=integration -v ./integration-test/smoke
+  - echo "::set-output name=test_status::$?"
   depends_on: []
+
+volumes:
+- name: integration-test
+  temp: {}
 
 services:
 - name: chrome
   image: ghcr.io/go-rod/rod:v0.115.0
   volumes:
-    - name: integration-test
-      path: /integration-test
+  - name: integration-test
+    path: /integration-test
