@@ -1,6 +1,7 @@
 package smoke
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 )
 
 // createBrowser creates a new browser instance for testing
-func createBrowser() *rod.Browser {
+func createBrowser(ctx context.Context) *rod.Browser {
 	showBrowser := os.Getenv("SHOW_BROWSER")
 	externalBrowserURL := os.Getenv("BROWSER_URL")
 
@@ -24,6 +25,7 @@ func createBrowser() *rod.Browser {
 
 	browser := rod.New().
 		ControlURL(controlURL).
+		Context(ctx).
 		MustConnect()
 
 	if externalBrowserURL != "" && showBrowser != "" {

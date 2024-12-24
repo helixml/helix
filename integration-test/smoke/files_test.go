@@ -2,6 +2,7 @@ package smoke
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-rod/rod/lib/devices"
 	"github.com/helixml/helix/integration-test/smoke/helper"
@@ -12,7 +13,9 @@ const folderName = "smoke"
 
 func TestUploadPDFFile(t *testing.T) {
 	t.Parallel()
-	browser := createBrowser()
+	ctx := helper.SetTestTimeout(t, 30*time.Second)
+
+	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
 	page := browser.
@@ -46,7 +49,7 @@ func TestUploadPDFFile(t *testing.T) {
 
 	helper.LogStep(t, "Uploading file")
 	upload := page.MustElement("input[type='file']")
-	upload.MustSetFiles("/Users/phil/code/helixml/helix/integration-test/data/smoke/hr-guide.pdf")
+	upload.MustSetFiles(helper.TestPDFFile)
 	page.MustReload()
 
 	helper.LogStep(t, "Verifying file exists")

@@ -1,6 +1,7 @@
 package smoke
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,9 @@ import (
 
 func TestCreateRagApp(t *testing.T) {
 	t.Parallel()
-	browser := createBrowser()
+	ctx := helper.SetTestTimeout(t, 60*time.Second)
+
+	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
 	page := browser.
@@ -49,4 +52,33 @@ func TestCreateRagApp(t *testing.T) {
 	helper.LogStep(t, "Save the app again")
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
 	page.MustWaitStable()
+
+	helper.LogStep(t, "clicking on the upload file button")
+	upload := page.MustElement("input[type='file']")
+
+	wait1 := page.MustWaitRequestIdle()
+	upload.MustSetFiles(helper.TestPDFFile)
+	wait1()
+
+	page.MustReload()
+	page.MustWaitStable()
+
+	helper.LogStep(t, "Double checking that the file is present in the knowledge")
+	moreButton := page.MustElement(`[data-testid='ExpandMoreIcon']`)
+	moreButton.MustClick()
+	knowledgeSources := page.MustElementsX(`//span[text() = 'hr-guide.pdf']`)
+	require.Equal(t, 1, len(knowledgeSources), "knowledge source should be present")
+
+	helper.LogStep(t, "Waiting for knowledge source to be ready")
+	page.MustElementX(`//span[contains(text(), 'ready')]`)
+
+	helper.LogStep(t, "Testing the app")
+	page.MustElement("#textEntry").MustInput("do you have a shoe policy")
+	page.MustElement("#sendButton").MustClick()
+
+	message := page.MustElement(".interactionMessage")
+	if !strings.Contains(message.MustText(), "shoe policy") {
+		helper.LogAndFail(t, "App did not respond with the correct answer")
+	}
+	helper.LogStep(t, "App responded with the correct answer")
 }

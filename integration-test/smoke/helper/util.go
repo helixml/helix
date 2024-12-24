@@ -1,17 +1,29 @@
 package helper
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 )
 
+const (
+	// This is the location inside the rod container
+	TestPDFFile = "/integration-test/data/smoke/hr-guide.pdf"
+)
+
 func LogStep(t *testing.T, step string) {
 	t.Logf("⏩ %s", step)
+}
+
+func LogAndFail(t *testing.T, message string) {
+	t.Logf("❌ %s", message)
+	t.FailNow()
 }
 
 func GetServerURL() string {
@@ -118,4 +130,16 @@ func SendMessage(t *testing.T, page *rod.Page) error {
 	}
 
 	return nil
+}
+
+func SetTestTimeout(t *testing.T, timeout time.Duration) context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	t.Cleanup(cancel) // Register the cancel function to be called when the test finishes
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			LogAndFail(t, "Test timed out")
+		}
+	}()
+	return ctx
 }

@@ -2,6 +2,7 @@ package smoke
 
 import (
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
@@ -9,7 +10,9 @@ import (
 
 func TestStartNewSession(t *testing.T) {
 	t.Parallel()
-	browser := createBrowser()
+	ctx := helper.SetTestTimeout(t, 30*time.Second)
+
+	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
 	page := browser.MustPage(helper.GetServerURL())
