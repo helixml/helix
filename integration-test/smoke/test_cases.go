@@ -244,6 +244,10 @@ func createRagApp(browser *rod.Browser) error {
 	page.MustElementX(`//button[text() = 'Add']`).MustClick()
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
 
+	logStep("Save the app again")
+	page.MustElementX(`//button[text() = 'Save']`).MustClick()
+	page.MustWaitStable()
+
 	logStep("clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
 	upload.MustSetFiles("../data/smoke/hr-guide.pdf")
