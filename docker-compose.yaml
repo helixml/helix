@@ -131,6 +131,8 @@ services:
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
+    volumes:
+      - ./integration-test/data/smoke:/integration-test/data/smoke
     ports:
       - 7317:7317
 volumes:
