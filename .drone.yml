@@ -510,7 +510,7 @@ steps:
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password
   commands:
-    - cp -r integration-test/* /integration-test/
+    - cp -r integration-test/* ${DRONE_WORKSPACE}/integration-test
     - go test -tags=integration -v ./integration-test/smoke
     - echo "::set-output name=test_status::$?"
   depends_on: []
