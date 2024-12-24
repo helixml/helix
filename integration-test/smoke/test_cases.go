@@ -244,6 +244,11 @@ func createRagApp(browser *rod.Browser) error {
 	page.MustElementX(`//button[text() = 'Add']`).MustClick()
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
 
+	logStep("clicking on the upload file button")
+	upload := page.MustElement("input[type='file']")
+	upload.MustSetFiles("/Users/phil/code/helixml/helix/integration-test/data/smoke/hr-guide.pdf")
+	page.MustReload()
+
 	logStep("Waiting for knowledge source to be ready")
 	page.MustElementX(`//span[contains(text(), 'ready')]`)
 
