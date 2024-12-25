@@ -146,6 +146,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		"/ws/gptscript-runner",
 	)
 
+	go func() {
+		err := apiServer.startModelProxyServer(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to start model proxy server")
+		}
+	}()
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		WriteTimeout:      time.Minute * 15,
@@ -227,6 +234,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
+
+	authRouter.Handle("/mcp", upstream("mcp", "tcp", mcpServerAddr))
 
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		// disable directory listings
