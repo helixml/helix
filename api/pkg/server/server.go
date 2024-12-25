@@ -235,8 +235,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
 
-	authRouter.Handle("/mcp", upstream("mcp", "tcp", mcpServerAddr))
-
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		// disable directory listings
 		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Cfg.WebServer.LocalFilestorePath)})
@@ -286,6 +284,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+
+	// Model context protocol
+	router.Handle("/sse", modelContextProtocolHandler())
+	router.Handle("/message", modelContextProtocolHandler())
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
 
