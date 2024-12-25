@@ -17,7 +17,7 @@ func init() {
 
 var runProxyCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run Helix mcp proxy",
+	Short: "Run Helix mpc (model context protocol) proxy",
 	Long:  `TODO`,
 	Run: func(*cobra.Command, []string) {
 		helixAPIKey := os.Getenv("HELIX_API_KEY")
@@ -27,7 +27,7 @@ var runProxyCmd = &cobra.Command{
 			log.Fatal("HELIX_API_KEY and HELIX_URL must be set")
 		}
 
-		u, err := url.Parse(helixURL)
+		u, err := url.Parse(helixURL + "/api/v1/mcp")
 		if err != nil {
 			log.Fatal("HELIX_URL must be a valid URL")
 		}

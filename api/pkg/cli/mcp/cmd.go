@@ -6,8 +6,8 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:     "mcp",
-	Short:   "Helix mcp proxy",
-	Aliases: []string{"m"},
+	Short:   "Helix model context protocol proxy",
+	Aliases: []string{"mcp"},
 	Long:    `TODO`,
 	Run: func(*cobra.Command, []string) {
 		// Do Stuff Here
