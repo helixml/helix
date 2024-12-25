@@ -30,7 +30,7 @@ func NewServer() *Server {
 const (
 	InternalPort = 21000
 	// Should match the API prefix in the server
-	BaseURL = "/api/v1/mcp"
+	BaseURL = "/api/v1/mcp/"
 )
 
 type Server struct {
@@ -55,9 +55,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Add tool handler
 	srv.AddTool(tool, helloHandler)
 
-	server.NewStdioServer(srv)
-
-	mcpServer := server.NewSSEServer(srv, BaseURL)
+	mcpServer := server.NewSSEServer(srv, "")
 
 	go func() {
 		<-ctx.Done()
