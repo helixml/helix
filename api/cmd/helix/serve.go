@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/mcp"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
@@ -382,7 +383,23 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
+	mcpServer := mcp.NewServer(store, ragClient, appController)
+
+	server, err := server.NewServer(
+		cfg,
+		store,
+		ps,
+		gse,
+		providerManager,
+		helixInference,
+		keycloakAuthenticator,
+		stripe,
+		appController,
+		janitor,
+		knowledgeReconciler,
+		scheduler,
+		mcpServer,
+	)
 	if err != nil {
 		return err
 	}

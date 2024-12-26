@@ -2,17 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-
-	"github.com/helixml/helix/api/pkg/mcp"
 )
 
 func (apiServer *HelixAPIServer) startModelProxyServer(ctx context.Context) error {
-	mcpServer := mcp.NewServer()
-
-	return mcpServer.Run(ctx)
+	return apiServer.mcpServer.Run(ctx)
 }
 
 func modelContextProtocolHandler() http.Handler {
@@ -23,6 +20,14 @@ func modelContextProtocolHandler() http.Handler {
 	proxy := httputil.NewSingleHostReverseProxy(u)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("XX path", r.URL.Path)
+		fmt.Println("XX method", r.Method)
+
+		u, p, ok := r.BasicAuth()
+		fmt.Println("XX u", u)
+		fmt.Println("XX p", p)
+		fmt.Println("XX ok", ok)
+
 		proxy.ServeHTTP(w, r)
 	})
 }
