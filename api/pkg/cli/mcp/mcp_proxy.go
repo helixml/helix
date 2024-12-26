@@ -4,32 +4,65 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func init() {
 	rootCmd.AddCommand(runProxyCmd)
 }
 
+func setup() {
+	zerolog.TimeFieldFormat = time.RFC3339
+
+	// setup logging, write into home directory under .helix/mcp.log, an append file
+	logFile, err := os.OpenFile(filepath.Join(os.Getenv("HOME"), ".helix", "mcp.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to open log file")
+	}
+
+	log.Logger = zerolog.New(logFile).With().Timestamp().Logger()
+}
+
 var runProxyCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run Helix mpc (model context protocol) proxy",
 	Long:  `TODO`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		apiClient, err := client.NewClientFromEnv()
+	RunE: func(_ *cobra.Command, _ []string) error {
+		setup()
+
+		cfg, err := config.LoadCliConfig()
 		if err != nil {
+			log.Error().Err(err).Msg("failed to load cli config")
+			return err
+		}
+
+		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create api client")
 			return err
 		}
 
 		helixAppID := os.Getenv("HELIX_APP_ID")
 		if helixAppID == "" {
+			log.Error().Msg("HELIX_APP_ID is not set")
 			return fmt.Errorf("HELIX_APP_ID is not set")
 		}
+
+		log.Info().
+			Str("app_id", helixAppID).
+			Str("helix_url", cfg.URL).
+			Msg("starting mcp proxy")
 
 		srv := &ModelContextProtocolServer{
 			apiClient: apiClient,
@@ -102,4 +135,64 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	}
 
 	return nil
+}
+
+const (
+	testAppID  = "app_01jfsqaq25xytqc1ep8hrt7php"
+	testUserID = "191517eb-4dd3-4e71-8370-40d419f1c854"
+)
+
+type helixMCPTool struct {
+	appID   string
+	tool    *mcp.Tool
+	handler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+}
+
+// TODO: load gptscript, zapier tools as well
+func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.AssistantConfig) ([]*helixMCPTool, error) {
+	var mcpTools []*helixMCPTool
+
+	for _, tool := range app.Tools {
+		switch tool.ToolType {
+		case types.ToolTypeAPI:
+			// Each API tool has a list of actions, adding them separately
+			for _, action := range tool.Config.API.Actions {
+				mcpTool := mcp.NewTool(action.Name,
+					mcp.WithDescription(action.Description),
+				)
+
+				mcpTools = append(mcpTools, &helixMCPTool{
+					appID:   app.ID,
+					tool:    &mcpTool,
+					handler: mcps.helloHandler,
+				})
+			}
+		case types.ToolTypeGPTScript:
+			mcpTool := mcp.NewTool(tool.Name,
+				mcp.WithDescription(tool.Description),
+			)
+
+			mcpTools = append(mcpTools, &helixMCPTool{
+				appID:   app.ID,
+				tool:    &mcpTool,
+				handler: mcps.helloHandler,
+			})
+		case types.ToolTypeZapier:
+			mcpTool := mcp.NewTool(tool.Name,
+				mcp.WithDescription(tool.Description),
+			)
+			mcpTools = append(mcpTools, &helixMCPTool{
+				appID:   app.ID,
+				tool:    &mcpTool,
+				handler: mcps.helloHandler,
+			})
+		}
+
+	}
+
+	return mcpTools, nil
+}
+
+func (mcps *ModelContextProtocolServer) helloHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultText("Hello, World!"), nil
 }
