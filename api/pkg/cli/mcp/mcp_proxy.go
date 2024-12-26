@@ -1,11 +1,12 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"os"
 
-	mcp_golang "github.com/metoro-io/mcp-golang"
-	"github.com/metoro-io/mcp-golang/transport/stdio"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/client"
@@ -44,49 +45,61 @@ type ModelContextProtocolServer struct {
 	apiClient client.Client
 }
 
-func (s *ModelContextProtocolServer) Start() error {
-	done := make(chan struct{})
+func (mcps *ModelContextProtocolServer) Start() error {
+	// Create a new MCP server
+	s := server.NewMCPServer(
+		"Calculator Demo",
+		"1.0.0",
+		server.WithResourceCapabilities(true, true),
+		server.WithLogging(),
+	)
 
-	server := mcp_golang.NewServer(stdio.NewStdioServerTransport())
+	// Add a calculator tool
+	calculatorTool := mcp.NewTool("calculate",
+		mcp.WithDescription("Perform basic arithmetic operations"),
+		mcp.WithString("operation",
+			mcp.Required(),
+			mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
+			mcp.Enum("add", "subtract", "multiply", "divide"),
+		),
+		mcp.WithNumber("x",
+			mcp.Required(),
+			mcp.Description("First number"),
+		),
+		mcp.WithNumber("y",
+			mcp.Required(),
+			mcp.Description("Second number"),
+		),
+	)
 
-	err := server.RegisterTool("hello", "Say hello to a person", func(arguments MyFunctionsArguments) (*mcp_golang.ToolResponse, error) {
-		return mcp_golang.NewToolResponse(mcp_golang.NewTextContent(fmt.Sprintf("Hello, %server!", arguments.Submitter))), nil
+	// Add the calculator handler
+	s.AddTool(calculatorTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		op := request.Params.Arguments["operation"].(string)
+		x := request.Params.Arguments["x"].(float64)
+		y := request.Params.Arguments["y"].(float64)
+
+		var result float64
+		switch op {
+		case "add":
+			result = x + y
+		case "subtract":
+			result = x - y
+		case "multiply":
+			result = x * y
+		case "divide":
+			if y == 0 {
+				return mcp.NewToolResultError("Cannot divide by zero"), nil
+			}
+			result = x / y
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("%.2f", result)), nil
 	})
-	if err != nil {
-		panic(err)
-	}
 
-	err = server.RegisterPrompt("promt_test", "This is a test prompt", func(arguments Content) (*mcp_golang.PromptResponse, error) {
-		return mcp_golang.NewPromptResponse("description", mcp_golang.NewPromptMessage(mcp_golang.NewTextContent(fmt.Sprintf("Hello, %server!", arguments.Title)), mcp_golang.RoleUser)), nil
-	})
-	if err != nil {
-		panic(err)
+	// Start the server
+	if err := server.ServeStdio(s); err != nil {
+		fmt.Printf("Server error: %v\n", err)
 	}
-
-	err = server.RegisterResource("test://resource", "resource_test", "This is a test resource", "application/json", func() (*mcp_golang.ResourceResponse, error) {
-		return mcp_golang.NewResourceResponse(mcp_golang.NewTextEmbeddedResource("test://resource", "This is a test resource", "application/json")), nil
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	err = server.Serve()
-	if err != nil {
-		panic(err)
-	}
-
-	<-done
 
 	return nil
-}
-
-// Tool arguments are just structs, annotated with jsonschema tags
-// More at https://mcpgolang.com/tools#schema-generation
-type Content struct {
-	Title       string  `json:"title" jsonschema:"required,description=The title to submit"`
-	Description *string `json:"description" jsonschema:"description=The description to submit"`
-}
-type MyFunctionsArguments struct {
-	Submitter string  `json:"submitter" jsonschema:"required,description=The name of the thing calling this tool (openai, google, claude, etc)"`
-	Content   Content `json:"content" jsonschema:"required,description=The content of the message"`
 }
