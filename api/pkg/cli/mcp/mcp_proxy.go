@@ -16,6 +16,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -30,7 +31,7 @@ func setup() {
 	// Create .helix directory if it doesn't exist
 	helixDir := filepath.Join(os.Getenv("HOME"), ".helix")
 	if err := os.MkdirAll(helixDir, 0755); err != nil {
-		log.Fatal().Err(err).Msg("failed to create .helix directory")
+		return
 	}
 
 	var writer io.Writer
@@ -50,7 +51,7 @@ var runProxyCmd = &cobra.Command{
 	Short: "Run Helix mpc (model context protocol) proxy",
 	Long:  `TODO`,
 	RunE: func(_ *cobra.Command, _ []string) error {
-		// setup()
+		setup()
 
 		cfg, err := config.LoadCliConfig()
 		if err != nil {
@@ -59,6 +60,10 @@ var runProxyCmd = &cobra.Command{
 		}
 
 		helixAppID := os.Getenv("HELIX_APP_ID")
+
+		cfg.APIKey = "hl-NColKMiDhBodAfm4UXZRHrQlU7HXgZiVd6Yg27gAJfo="
+		cfg.URL = "http://localhost:8080"
+		helixAppID = "app_01jfsqaq25xytqc1ep8hrt7php"
 
 		log.Trace().
 			Str("app_id", helixAppID).
@@ -94,53 +99,75 @@ type ModelContextProtocolServer struct {
 func (mcps *ModelContextProtocolServer) Start() error {
 	// Create a new MCP server
 	s := server.NewMCPServer(
-		"Calculator Demo",
+		"Helix ML",
 		"1.0.0",
 		server.WithResourceCapabilities(true, true),
 		server.WithLogging(),
 	)
 
+	app, err := mcps.apiClient.GetApp(context.Background(), mcps.appID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get app")
+		return err
+	}
+
+	// TODO: configure assistant
+	mcpTools, err := mcps.getModelContextProtocolTools(&app.Config.Helix.Assistants[0])
+	if err != nil {
+		log.Error().
+			Str("app_id", mcps.appID).
+			Err(err).
+			Msg("failed to get mcp tools for the assistant")
+		return err
+	}
+
+	log.Info().Any("mcpTools", mcpTools).Msg("adding tools")
+
+	for _, mt := range mcpTools {
+		s.AddTool(mt.tool, mt.handler)
+	}
+
 	// Add a calculator tool
-	calculatorTool := mcp.NewTool("calculate",
-		mcp.WithDescription("Perform basic arithmetic operations"),
-		mcp.WithString("operation",
-			mcp.Required(),
-			mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
-			mcp.Enum("add", "subtract", "multiply", "divide"),
-		),
-		mcp.WithNumber("x",
-			mcp.Required(),
-			mcp.Description("First number"),
-		),
-		mcp.WithNumber("y",
-			mcp.Required(),
-			mcp.Description("Second number"),
-		),
-	)
+	// calculatorTool := mcp.NewTool("calculate",
+	// 	mcp.WithDescription("Perform basic arithmetic operations"),
+	// 	mcp.WithString("operation",
+	// 		mcp.Required(),
+	// 		mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
+	// 		mcp.Enum("add", "subtract", "multiply", "divide"),
+	// 	),
+	// 	mcp.WithNumber("x",
+	// 		mcp.Required(),
+	// 		mcp.Description("First number"),
+	// 	),
+	// 	mcp.WithNumber("y",
+	// 		mcp.Required(),
+	// 		mcp.Description("Second number"),
+	// 	),
+	// )
 
-	// Add the calculator handler
-	s.AddTool(calculatorTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		op := request.Params.Arguments["operation"].(string)
-		x := request.Params.Arguments["x"].(float64)
-		y := request.Params.Arguments["y"].(float64)
+	// // Add the calculator handler
+	// s.AddTool(calculatorTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// 	op := request.Params.Arguments["operation"].(string)
+	// 	x := request.Params.Arguments["x"].(float64)
+	// 	y := request.Params.Arguments["y"].(float64)
 
-		var result float64
-		switch op {
-		case "add":
-			result = x + y
-		case "subtract":
-			result = x - y
-		case "multiply":
-			result = x * y
-		case "divide":
-			if y == 0 {
-				return mcp.NewToolResultError("Cannot divide by zero"), nil
-			}
-			result = x / y
-		}
+	// 	var result float64
+	// 	switch op {
+	// 	case "add":
+	// 		result = x + y
+	// 	case "subtract":
+	// 		result = x - y
+	// 	case "multiply":
+	// 		result = x * y
+	// 	case "divide":
+	// 		if y == 0 {
+	// 			return mcp.NewToolResultError("Cannot divide by zero"), nil
+	// 		}
+	// 		result = x / y
+	// 	}
 
-		return mcp.NewToolResultText(fmt.Sprintf("%.2f", result)), nil
-	})
+	// 	return mcp.NewToolResultText(fmt.Sprintf("%.2f", result)), nil
+	// })
 
 	// Start the server
 	if err := server.ServeStdio(s); err != nil {
@@ -150,14 +177,8 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	return nil
 }
 
-const (
-	testAppID  = "app_01jfsqaq25xytqc1ep8hrt7php"
-	testUserID = "191517eb-4dd3-4e71-8370-40d419f1c854"
-)
-
 type helixMCPTool struct {
-	appID   string
-	tool    *mcp.Tool
+	tool    mcp.Tool
 	handler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
@@ -165,47 +186,84 @@ type helixMCPTool struct {
 func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.AssistantConfig) ([]*helixMCPTool, error) {
 	var mcpTools []*helixMCPTool
 
-	for _, tool := range app.Tools {
-		switch tool.ToolType {
-		case types.ToolTypeAPI:
-			// Each API tool has a list of actions, adding them separately
-			for _, action := range tool.Config.API.Actions {
-				mcpTool := mcp.NewTool(action.Name,
-					mcp.WithDescription(action.Description),
-				)
-
-				mcpTools = append(mcpTools, &helixMCPTool{
-					appID:   app.ID,
-					tool:    &mcpTool,
-					handler: mcps.helloHandler,
-				})
-			}
-		case types.ToolTypeGPTScript:
-			mcpTool := mcp.NewTool(tool.Name,
-				mcp.WithDescription(tool.Description),
-			)
-
-			mcpTools = append(mcpTools, &helixMCPTool{
-				appID:   app.ID,
-				tool:    &mcpTool,
-				handler: mcps.helloHandler,
-			})
-		case types.ToolTypeZapier:
-			mcpTool := mcp.NewTool(tool.Name,
-				mcp.WithDescription(tool.Description),
-			)
-			mcpTools = append(mcpTools, &helixMCPTool{
-				appID:   app.ID,
-				tool:    &mcpTool,
-				handler: mcps.helloHandler,
-			})
+	for _, apiTool := range app.APIs {
+		tool, err := store.ConvertAPIToTool(apiTool)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Msg("failed to convert api tool to mcp tool")
+			continue
 		}
 
+		// switch tool.ToolType {
+		// case types.ToolTypeAPI:
+		// Each API tool has a list of actions, adding them separately
+		for _, action := range tool.Config.API.Actions {
+			mcpTool := mcp.NewTool(action.Name,
+				mcp.WithDescription(action.Description),
+			)
+
+			log.Info().Any("tool", action).Msg("adding tool")
+
+			mcpTools = append(mcpTools, &helixMCPTool{
+				tool:    mcpTool,
+				handler: mcps.apiToolHandler,
+			})
+		}
+		// case types.ToolTypeGPTScript:
+		// 	mcpTool := mcp.NewTool(tool.Name,
+		// 		mcp.WithDescription(tool.Description),
+		// 	)
+
+		// 	mcpTools = append(mcpTools, &helixMCPTool{
+		// 		appID:   app.ID,
+		// 		tool:    mcpTool,
+		// 		handler: mcps.gptScriptToolHandler,
+		// 	})
+		// case types.ToolTypeZapier:
+		// 	mcpTool := mcp.NewTool(tool.Name,
+		// 		mcp.WithDescription(tool.Description),
+		// 	)
+		// 	mcpTools = append(mcpTools, &helixMCPTool{
+		// 		appID:   app.ID,
+		// 		tool:    mcpTool,
+		// 		handler: mcps.zapierToolHandler,
+		// 	})
+	}
+
+	for _, gptScript := range app.GPTScripts {
+		mcpTool := mcp.NewTool(gptScript.Name,
+			mcp.WithDescription(gptScript.Description),
+		)
+
+		mcpTools = append(mcpTools, &helixMCPTool{
+			tool:    mcpTool,
+			handler: mcps.gptScriptToolHandler,
+		})
+	}
+
+	for _, zapier := range app.Zapier {
+		mcpTool := mcp.NewTool(zapier.Name,
+			mcp.WithDescription(zapier.Description),
+		)
+
+		mcpTools = append(mcpTools, &helixMCPTool{
+			tool:    mcpTool,
+			handler: mcps.zapierToolHandler,
+		})
 	}
 
 	return mcpTools, nil
 }
 
-func (mcps *ModelContextProtocolServer) helloHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (mcps *ModelContextProtocolServer) apiToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultText("Hello, World!"), nil
+}
+
+func (mcps *ModelContextProtocolServer) gptScriptToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultText("Hello, World!"), nil
+}
+
+func (mcps *ModelContextProtocolServer) zapierToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("Hello, World!"), nil
 }
