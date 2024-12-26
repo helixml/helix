@@ -34,7 +34,7 @@ type ChatCompletionOptions struct {
 // Runs the OpenAI with tools/app configuration and returns the response.
 // Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
-	assistant, err := c.loadAssistant(ctx, user, opts)
+	assistant, err := c.LoadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
 		return nil, nil, err
@@ -98,7 +98,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
 	req.Stream = true
 
-	assistant, err := c.loadAssistant(ctx, user, opts)
+	assistant, err := c.LoadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
 		return nil, nil, err
@@ -287,7 +287,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 }
 
 func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*types.Tool, *tools.IsActionableResponse, bool, error) {
-	assistant, err := c.loadAssistant(ctx, user, opts)
+	assistant, err := c.LoadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
 		return nil, nil, false, err
@@ -376,7 +376,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	return selectedTool, isActionable, true, nil
 }
 
-func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
+func (c *Controller) LoadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
 	if opts.AppID == "" {
 		return &types.AssistantConfig{}, nil
 	}
