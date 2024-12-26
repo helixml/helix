@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"os"
 
 	mcp_golang "github.com/metoro-io/mcp-golang"
 	"github.com/metoro-io/mcp-golang/transport/stdio"
@@ -24,8 +25,14 @@ var runProxyCmd = &cobra.Command{
 			return err
 		}
 
+		helixAppID := os.Getenv("HELIX_APP_ID")
+		if helixAppID == "" {
+			return fmt.Errorf("HELIX_APP_ID is not set")
+		}
+
 		srv := &ModelContextProtocolServer{
 			apiClient: apiClient,
+			appID:     helixAppID,
 		}
 
 		return srv.Start()
@@ -33,6 +40,7 @@ var runProxyCmd = &cobra.Command{
 }
 
 type ModelContextProtocolServer struct {
+	appID     string
 	apiClient client.Client
 }
 
@@ -40,6 +48,7 @@ func (s *ModelContextProtocolServer) Start() error {
 	done := make(chan struct{})
 
 	server := mcp_golang.NewServer(stdio.NewStdioServerTransport())
+
 	err := server.RegisterTool("hello", "Say hello to a person", func(arguments MyFunctionsArguments) (*mcp_golang.ToolResponse, error) {
 		return mcp_golang.NewToolResponse(mcp_golang.NewTextContent(fmt.Sprintf("Hello, %server!", arguments.Submitter))), nil
 	})
