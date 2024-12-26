@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,12 +27,22 @@ func setup() {
 	zerolog.TimeFieldFormat = time.RFC3339
 
 	// setup logging, write into home directory under .helix/mcp.log, an append file
-	logFile, err := os.OpenFile(filepath.Join(os.Getenv("HOME"), ".helix", "mcp.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to open log file")
+	// Create .helix directory if it doesn't exist
+	helixDir := filepath.Join(os.Getenv("HOME"), ".helix")
+	if err := os.MkdirAll(helixDir, 0755); err != nil {
+		log.Fatal().Err(err).Msg("failed to create .helix directory")
 	}
 
-	log.Logger = zerolog.New(logFile).With().Timestamp().Logger()
+	var writer io.Writer
+
+	logFile, err := os.OpenFile(filepath.Join(helixDir, "mcp.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		writer = io.Discard
+	} else {
+		writer = logFile
+	}
+
+	log.Logger = zerolog.New(writer).With().Timestamp().Logger()
 }
 
 var runProxyCmd = &cobra.Command{
@@ -39,7 +50,7 @@ var runProxyCmd = &cobra.Command{
 	Short: "Run Helix mpc (model context protocol) proxy",
 	Long:  `TODO`,
 	RunE: func(_ *cobra.Command, _ []string) error {
-		setup()
+		// setup()
 
 		cfg, err := config.LoadCliConfig()
 		if err != nil {
@@ -47,22 +58,24 @@ var runProxyCmd = &cobra.Command{
 			return err
 		}
 
-		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to create api client")
-			return err
-		}
-
 		helixAppID := os.Getenv("HELIX_APP_ID")
+
+		log.Trace().
+			Str("app_id", helixAppID).
+			Str("helix_url", cfg.URL).
+			Str("helix_api_key", cfg.APIKey).
+			Msg("starting mcp proxy")
+
 		if helixAppID == "" {
 			log.Error().Msg("HELIX_APP_ID is not set")
 			return fmt.Errorf("HELIX_APP_ID is not set")
 		}
 
-		log.Info().
-			Str("app_id", helixAppID).
-			Str("helix_url", cfg.URL).
-			Msg("starting mcp proxy")
+		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create api client")
+			return err
+		}
 
 		srv := &ModelContextProtocolServer{
 			apiClient: apiClient,
