@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -130,11 +131,11 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	// Add a calculator tool
 	// calculatorTool := mcp.NewTool("calculate",
 	// 	mcp.WithDescription("Perform basic arithmetic operations"),
-	// 	mcp.WithString("operation",
-	// 		mcp.Required(),
-	// 		mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
-	// 		mcp.Enum("add", "subtract", "multiply", "divide"),
-	// 	),
+	// mcp.WithString("operation",
+	// 	mcp.Required(),
+	// 	mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
+	// 	mcp.Enum("add", "subtract", "multiply", "divide"),
+	// ),
 	// 	mcp.WithNumber("x",
 	// 		mcp.Required(),
 	// 		mcp.Description("First number"),
@@ -195,8 +196,6 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 			continue
 		}
 
-		// switch tool.ToolType {
-		// case types.ToolTypeAPI:
 		// Each API tool has a list of actions, adding them separately
 		for _, action := range tool.Config.API.Actions {
 			mcpTool := mcp.NewTool(action.Name,
@@ -210,25 +209,6 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 				handler: mcps.apiToolHandler,
 			})
 		}
-		// case types.ToolTypeGPTScript:
-		// 	mcpTool := mcp.NewTool(tool.Name,
-		// 		mcp.WithDescription(tool.Description),
-		// 	)
-
-		// 	mcpTools = append(mcpTools, &helixMCPTool{
-		// 		appID:   app.ID,
-		// 		tool:    mcpTool,
-		// 		handler: mcps.gptScriptToolHandler,
-		// 	})
-		// case types.ToolTypeZapier:
-		// 	mcpTool := mcp.NewTool(tool.Name,
-		// 		mcp.WithDescription(tool.Description),
-		// 	)
-		// 	mcpTools = append(mcpTools, &helixMCPTool{
-		// 		appID:   app.ID,
-		// 		tool:    mcpTool,
-		// 		handler: mcps.zapierToolHandler,
-		// 	})
 	}
 
 	for _, gptScript := range app.GPTScripts {
@@ -253,6 +233,29 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		})
 	}
 
+	knowledges, err := mcps.apiClient.ListKnowledge(context.Background(), &client.KnowledgeFilter{
+		AppID: mcps.appID,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to list knowledge")
+		return nil, err
+	}
+
+	for _, knowledge := range knowledges {
+		mcpTool := mcp.NewTool(knowledge.Name,
+			mcp.WithDescription(fmt.Sprintf("This knowledge tool is for: %s", knowledge.Description)),
+			mcp.WithString("prompt",
+				mcp.Required(),
+				mcp.Description("The prompt to search knowledge with, use concise, main keywords as the engine is performing both semantic and full text search"),
+			),
+		)
+
+		mcpTools = append(mcpTools, &helixMCPTool{
+			tool:    mcpTool,
+			handler: mcps.getKnowledgeToolHandler(knowledge.ID),
+		})
+	}
+
 	return mcpTools, nil
 }
 
@@ -266,4 +269,36 @@ func (mcps *ModelContextProtocolServer) gptScriptToolHandler(ctx context.Context
 
 func (mcps *ModelContextProtocolServer) zapierToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("Hello, World!"), nil
+}
+
+func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		prompt, ok := request.Params.Arguments["prompt"]
+		if !ok {
+			return mcp.NewToolResultError("prompt is required"), nil
+		}
+
+		promptStr, ok := prompt.(string)
+		if !ok {
+			return mcp.NewToolResultError("prompt must be a string"), nil
+		}
+
+		results, err := mcps.apiClient.SearchKnowledge(ctx, &client.KnowledgeSearchQuery{
+			AppID:       mcps.appID,
+			KnowledgeID: knowledgeID,
+			Prompt:      promptStr,
+		})
+		if err != nil {
+			log.Error().Err(err).Msg("failed to search knowledge")
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		resultsJSON, err := json.Marshal(results)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal knowledge search results")
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		return mcp.NewToolResultText(string(resultsJSON)), nil
+	}
 }
