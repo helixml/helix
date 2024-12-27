@@ -710,3 +710,16 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	return result, nil
 }
+
+// appRunAPIAction godoc
+// @Summary Run an API action with parameters
+// @Description Run an API action with parameters
+// @Tags    apps
+
+// @Success 200 {object} types.RunActionResponse
+// @Param request    body types.GptScriptRequest true "Request body with script configuration.")
+// @Router /api/v1/apps/{id}/gptscript [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) appRunAPIAction(w http.ResponseWriter, r *http.Request) (*tools.RunActionResponse, *system.HTTPError) {
+
+}
