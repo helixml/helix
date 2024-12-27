@@ -1498,3 +1498,14 @@ type RunnerActualSlotAttributes struct {
 	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
 	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
 }
+
+type RunAPIActionRequest struct {
+	Tool       *Tool
+	Action     string
+	Parameters map[string]string
+}
+
+type RunAPIActionResponse struct {
+	Response string `json:"response"` // Raw response from the API
+	Error    string `json:"error"`
+}
