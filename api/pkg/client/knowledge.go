@@ -70,3 +70,19 @@ func (c *HelixClient) ListKnowledgeVersions(ctx context.Context, f *KnowledgeVer
 
 	return knowledge, nil
 }
+
+type KnowledgeSearchQuery struct {
+	AppID       string
+	KnowledgeID string
+	Prompt      string
+}
+
+func (c *HelixClient) SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error) {
+	var result []*types.KnowledgeSearchResult
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/search?app_id=%s&prompt=%s", f.AppID, f.Prompt), nil, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
