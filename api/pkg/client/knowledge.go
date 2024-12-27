@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -79,7 +80,16 @@ type KnowledgeSearchQuery struct {
 
 func (c *HelixClient) SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error) {
 	var result []*types.KnowledgeSearchResult
-	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/search?app_id=%s&prompt=%s", f.AppID, f.Prompt), nil, &result)
+
+	params := url.Values{}
+	params.Add("app_id", f.AppID)
+	params.Add("prompt", f.Prompt)
+	if f.KnowledgeID != "" {
+		params.Add("knowledge_id", f.KnowledgeID)
+	}
+
+	path := "/search?" + params.Encode()
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &result)
 	if err != nil {
 		return nil, err
 	}
