@@ -64,7 +64,7 @@ var runProxyCmd = &cobra.Command{
 
 		cfg.APIKey = "hl-NColKMiDhBodAfm4UXZRHrQlU7HXgZiVd6Yg27gAJfo="
 		cfg.URL = "http://localhost:8080"
-		helixAppID = "app_01jfsqaq25xytqc1ep8hrt7php"
+		helixAppID = "app_01jejsctgm721hfn1mcrsme00k"
 
 		log.Trace().
 			Str("app_id", helixAppID).
@@ -243,7 +243,7 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 	for _, knowledge := range knowledges {
 		mcpTool := mcp.NewTool(knowledge.Name,
-			mcp.WithDescription(fmt.Sprintf("This knowledge tool is for: %s", knowledge.Description)),
+			mcp.WithDescription(fmt.Sprintf("Knowledge tool to search for: '%s'. Returns fragments from the database", knowledge.Description)),
 			mcp.WithString("prompt",
 				mcp.Required(),
 				mcp.Description("The prompt to search knowledge with, use concise, main keywords as the engine is performing both semantic and full text search"),

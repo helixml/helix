@@ -27,6 +27,7 @@ type Client interface {
 	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
 	DeleteKnowledge(ctx context.Context, id string) error
 	RefreshKnowledge(ctx context.Context, id string) error
+	SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error)
 
 	ListSecrets(ctx context.Context) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
