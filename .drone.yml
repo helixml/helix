@@ -511,6 +511,17 @@ steps:
   - cp -r integration-test/* /integration-test
   - go test -timeout 300s -tags=integration -v ./integration-test/smoke
   depends_on: []
+- name: slack-notification
+  image: plugins/slack
+  settings:
+    webhook:
+      from_secret: JANITOR_SLACK_WEBHOOK_URL
+    channel: helix-janitor
+    # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
+    message: "❌ Smoke test failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+  when:
+    status: 
+    - failure
 
 volumes:
 - name: integration-test
