@@ -79,13 +79,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.refresh_schedule = ''; // Empty string for one-off
     }
 
-    // Update the name based on the source
-    if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
-      newSource.name = newSource.source.web.urls.join(', ');
-    } else if (newSource.source.filestore?.path) {
-      newSource.name = newSource.source.filestore.path;
-    } else {
-      newSource.name = 'Unnamed Source';
+    // Only update the name based on the source if no custom name is set
+    if (!updatedSource.name) {
+      // if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
+      //   newSource.name = newSource.source.web.urls.join(', ');
+      // } else if (newSource.source.filestore?.path) {
+      //   newSource.name = newSource.source.filestore.path;
+      // } else {
+      newSource.name = 'UnnamedSource';
+      // }
     }
 
     if (newSource.source.web && newSource.source.web.crawler) {
@@ -266,6 +268,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             helperText={errors[index]}
           />
         )}
+
+        <TextField
+          fullWidth
+          label="Name"
+          value={source.name || ''}
+          onChange={(e) => {
+            handleSourceUpdate(index, { 
+              name: e.target.value 
+            });
+          }}
+          disabled={disabled}
+          sx={{ mb: 2 }}
+          placeholder="Give this knowledge source a name (optional)"
+        />
 
         <TextField
           fullWidth
