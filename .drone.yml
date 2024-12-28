@@ -494,6 +494,12 @@ trigger:
     - cron
   cron:
     - smoke-test-hourly
+    - developer 
+    # To run this manually, create a new cron job in Drone called developer and pointing to your-branch-name .
+    # Then send a curl request to:
+    # curl --request POST \
+    #   --url 'https://drone.lukemarsden.net/api/repos/helixml/helix/cron/developer?branch=your-branch-name' \
+    #   --header 'Authorization: Bearer XXXXXX'
 
 steps:
 - name: smoke-test-saas
@@ -508,6 +514,7 @@ steps:
   - name: integration-test
     path: /integration-test
   commands:
+  - apk add --no-cache curl bash openssl
   - cp -r integration-test/* /integration-test
   - go test -timeout 300s -tags=integration -v ./integration-test/smoke
   depends_on: []
