@@ -25,6 +25,8 @@ type Client interface {
 	DeleteApp(ctx context.Context, appID string, deleteKnowledge bool) error
 	ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error)
 
+	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]string) (*types.RunAPIActionResponse, error)
+
 	ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error)
 	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
 	DeleteKnowledge(ctx context.Context, id string) error
