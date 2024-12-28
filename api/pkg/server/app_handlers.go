@@ -755,7 +755,7 @@ func (s *HelixAPIServer) appRunAPIAction(w http.ResponseWriter, r *http.Request)
 
 	tool, ok := tools.GetToolFromAction(app.Config.Helix.Assistants[0].Tools, req.Action)
 	if !ok {
-		return nil, system.NewHTTPError400("action is not valid")
+		return nil, system.NewHTTPError400(fmt.Sprintf("action %s not found in the assistant tools", req.Action))
 	}
 
 	req.Tool = tool
