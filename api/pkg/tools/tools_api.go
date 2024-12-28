@@ -410,7 +410,24 @@ func GetActionsFromSchema(spec string) ([]*types.ToolAPIAction, error) {
 	return actions, nil
 }
 
-func GetParametersFromSchema(spec string, action string) (map[string]string, error) {
+type Parameter struct {
+	Name        string
+	Required    bool
+	Type        ParameterType
+	Description string
+}
+
+type ParameterType string
+
+const (
+	ParameterTypeString  ParameterType = "string"
+	ParameterTypeInteger ParameterType = "integer"
+	ParameterTypeBoolean ParameterType = "boolean"
+	ParameterTypeArray   ParameterType = "array"
+	ParameterTypeObject  ParameterType = "object"
+)
+
+func GetParametersFromSchema(spec string, action string) ([]*Parameter, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(spec))
@@ -418,17 +435,35 @@ func GetParametersFromSchema(spec string, action string) (map[string]string, err
 		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
 	}
 
-	parameters := make(map[string]string)
+	var parameters []*Parameter
 
 	for _, pathItem := range schema.Paths.Map() {
 		for _, operation := range pathItem.Operations() {
 			if operation.OperationID == action {
 				for _, param := range operation.Parameters {
-					parameters[param.Value.Name] = param.Value.Description
+					parameters = append(parameters, &Parameter{
+						Name:        param.Value.Name,
+						Required:    param.Value.Required,
+						Type:        getParameterType(param.Value.Schema),
+						Description: param.Value.Description,
+					})
 				}
+
+				// if operation.RequestBody != nil {
+				// 	// TODO: Add body parameter. Need to lookup the schema in components
+				// 	// and then add it to the parameters list all items.
+				// }
 			}
 		}
 	}
 
 	return parameters, nil
+}
+
+func getParameterType(schema *openapi3.SchemaRef) ParameterType {
+	if len(schema.Value.Type.Slice()) > 0 {
+		return ParameterType(schema.Value.Type.Slice()[0])
+	}
+
+	return ParameterTypeString
 }
