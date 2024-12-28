@@ -1500,9 +1500,10 @@ type RunnerActualSlotAttributes struct {
 }
 
 type RunAPIActionRequest struct {
-	Tool       *Tool
-	Action     string
-	Parameters map[string]string
+	Action     string            `json:"action"`
+	Parameters map[string]string `json:"parameters"`
+
+	Tool *Tool `json:"-"` // Set internally
 }
 
 type RunAPIActionResponse struct {

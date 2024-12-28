@@ -677,7 +677,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	lastInteraction.Metadata["tool_action"] = isActionable.API
 	lastInteraction.Metadata["tool_action_justification"] = isActionable.Justification
 
-	actionTool, ok := getToolFromAction(activeTools, isActionable.API)
+	actionTool, ok := tools.GetToolFromAction(activeTools, isActionable.API)
 	if !ok {
 		return nil, fmt.Errorf("tool not found for action: %s", isActionable.API)
 	}
