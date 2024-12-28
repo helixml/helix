@@ -77,7 +77,6 @@ func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	page.MustElement("input[type='text']").MustInput(username)
 	page.MustElement("input[type='password']").MustInput(password)
 	page.MustElement("input[type='submit']").MustClick()
-	page.MustWaitStable()
 
 	return nil
 }
@@ -104,8 +103,6 @@ func StartNewChat(t *testing.T, page *rod.Page) error {
 	LogStep(t, "Clicking New Session button")
 	elements[0].MustClick()
 
-	LogStep(t, "Waiting for page to stabilize")
-	page.MustWaitStable()
 	return nil
 }
 
@@ -119,9 +116,6 @@ func SendMessage(t *testing.T, page *rod.Page) error {
 	LogStep(t, "Looking for send button")
 	sendButton := page.MustElement("#sendButton")
 	sendButton.MustClick()
-
-	LogStep(t, "Waiting for message to be sent")
-	page.MustWaitStable()
 
 	LogStep(t, "Looking for chat message")
 	chatMessage := page.MustElement("div.interactionMessage")
