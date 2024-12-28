@@ -35,13 +35,12 @@ func TestCreateRagApp(t *testing.T) {
 
 	helper.LogStep(t, "Creating a new app")
 	page.MustElement("#new-app-button").MustClick()
-	page.MustWaitStable()
 
 	helper.LogStep(t, "Save initial app")
 	appName := "smoke-" + time.Now().Format("20060102150405")
 	page.MustElement("#app-name").MustInput(appName)
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
-	page.MustWaitStable()
+	page.MustWaitDOMStable() // because this is a modal, need to wait until DOM is stable
 
 	helper.LogStep(t, "Adding knowledge")
 	page.MustElementX(`//button[text() = 'Knowledge']`).MustClick()
@@ -54,7 +53,6 @@ func TestCreateRagApp(t *testing.T) {
 
 	helper.LogStep(t, "Save the app again")
 	page.MustElementX(`//button[text() = 'Save']`).MustClick()
-	page.MustWaitStable()
 
 	helper.LogStep(t, "Clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
@@ -64,7 +62,6 @@ func TestCreateRagApp(t *testing.T) {
 	wait1()
 
 	page.MustReload()
-	page.MustWaitStable()
 
 	helper.LogStep(t, "Double checking that the file is present in the knowledge")
 	moreButton := page.MustElement(`[data-testid='ExpandMoreIcon']`)
