@@ -126,8 +126,6 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		}
 	}
 
-	// messages = append(messages, userPrompt)
-
 	// copy what works for the is_actionable prompt
 	messages = append(messages,
 		openai.ChatCompletionMessage{
@@ -410,4 +408,27 @@ func GetActionsFromSchema(spec string) ([]*types.ToolAPIAction, error) {
 	}
 
 	return actions, nil
+}
+
+func GetParametersFromSchema(spec string, action string) (map[string]string, error) {
+	loader := openapi3.NewLoader()
+
+	schema, err := loader.LoadFromData([]byte(spec))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
+	}
+
+	parameters := make(map[string]string)
+
+	for _, pathItem := range schema.Paths.Map() {
+		for _, operation := range pathItem.Operations() {
+			if operation.OperationID == action {
+				for _, param := range operation.Parameters {
+					parameters[param.Value.Name] = param.Value.Description
+				}
+			}
+		}
+	}
+
+	return parameters, nil
 }
