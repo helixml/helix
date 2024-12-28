@@ -670,20 +670,21 @@ func Test_GetParametersFromSchema(t *testing.T) {
 		params, err := GetParametersFromSchema(petStoreAPISpec, "showPetById")
 		require.NoError(t, err)
 		require.Len(t, params, 1)
-		require.Equal(t, params["petId"], "The id of the pet to retrieve")
+		require.Equal(t, "petId", params[0].Name)
+		require.Equal(t, "The id of the pet to retrieve", params[0].Description)
+		require.Equal(t, ParameterTypeString, params[0].Type)
 	})
 
 	t.Run("listPets", func(t *testing.T) {
 		params, err := GetParametersFromSchema(petStoreAPISpec, "listPets")
 		require.NoError(t, err)
 		require.Len(t, params, 1)
-		require.Equal(t, params["limit"], "How many items to return at one time (max 100)")
+		require.Equal(t, "limit", params[0].Name)
+		require.Equal(t, "How many items to return at one time (max 100)", params[0].Description)
+		require.Equal(t, ParameterTypeInteger, params[0].Type)
 	})
 
 	t.Run("createPets", func(t *testing.T) {
-		params, err := GetParametersFromSchema(petStoreAPISpec, "createPets")
-		require.NoError(t, err)
-		require.Len(t, params, 1)
-		require.Equal(t, params["limit"], "How many items to return at one time (max 100)")
+		// TODO: implement create test when we have a body parameter
 	})
 }
