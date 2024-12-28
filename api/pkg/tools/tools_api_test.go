@@ -664,3 +664,26 @@ func Test_unmarshalParams(t *testing.T) {
 		})
 	}
 }
+
+func Test_GetParametersFromSchema(t *testing.T) {
+	t.Run("showPetById", func(t *testing.T) {
+		params, err := GetParametersFromSchema(petStoreAPISpec, "showPetById")
+		require.NoError(t, err)
+		require.Len(t, params, 1)
+		require.Equal(t, params["petId"], "The id of the pet to retrieve")
+	})
+
+	t.Run("listPets", func(t *testing.T) {
+		params, err := GetParametersFromSchema(petStoreAPISpec, "listPets")
+		require.NoError(t, err)
+		require.Len(t, params, 1)
+		require.Equal(t, params["limit"], "How many items to return at one time (max 100)")
+	})
+
+	t.Run("createPets", func(t *testing.T) {
+		params, err := GetParametersFromSchema(petStoreAPISpec, "createPets")
+		require.NoError(t, err)
+		require.Len(t, params, 1)
+		require.Equal(t, params["limit"], "How many items to return at one time (max 100)")
+	})
+}
