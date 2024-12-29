@@ -63,10 +63,6 @@ var runProxyCmd = &cobra.Command{
 
 		helixAppID := os.Getenv("HELIX_APP_ID")
 
-		cfg.APIKey = "hl-NColKMiDhBodAfm4UXZRHrQlU7HXgZiVd6Yg27gAJfo="
-		cfg.URL = "http://localhost:8080"
-		helixAppID = "app_01jejsctgm721hfn1mcrsme00k"
-
 		log.Trace().
 			Str("app_id", helixAppID).
 			Str("helix_url", cfg.URL).
@@ -128,48 +124,6 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	for _, mt := range mcpTools {
 		s.AddTool(mt.tool, mt.handler)
 	}
-
-	// Add a calculator tool
-	// calculatorTool := mcp.NewTool("calculate",
-	// 	mcp.WithDescription("Perform basic arithmetic operations"),
-	// mcp.WithString("operation",
-	// 	mcp.Required(),
-	// 	mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
-	// 	mcp.Enum("add", "subtract", "multiply", "divide"),
-	// ),
-	// 	mcp.WithNumber("x",
-	// 		mcp.Required(),
-	// 		mcp.Description("First number"),
-	// 	),
-	// 	mcp.WithNumber("y",
-	// 		mcp.Required(),
-	// 		mcp.Description("Second number"),
-	// 	),
-	// )
-
-	// // Add the calculator handler
-	// s.AddTool(calculatorTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// 	op := request.Params.Arguments["operation"].(string)
-	// 	x := request.Params.Arguments["x"].(float64)
-	// 	y := request.Params.Arguments["y"].(float64)
-
-	// 	var result float64
-	// 	switch op {
-	// 	case "add":
-	// 		result = x + y
-	// 	case "subtract":
-	// 		result = x - y
-	// 	case "multiply":
-	// 		result = x * y
-	// 	case "divide":
-	// 		if y == 0 {
-	// 			return mcp.NewToolResultError("Cannot divide by zero"), nil
-	// 		}
-	// 		result = x / y
-	// 	}
-
-	// 	return mcp.NewToolResultText(fmt.Sprintf("%.2f", result)), nil
-	// })
 
 	// Start the server
 	if err := server.ServeStdio(s); err != nil {
