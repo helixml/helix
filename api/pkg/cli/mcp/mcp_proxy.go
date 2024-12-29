@@ -274,12 +274,12 @@ func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *ty
 	}
 }
 
-func (mcps *ModelContextProtocolServer) gptScriptToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
+func (mcps *ModelContextProtocolServer) gptScriptToolHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
 	// TODO: implement gpt script tool handler
 	return mcp.NewToolResultText("Hello, World!"), nil
 }
 
-func (mcps *ModelContextProtocolServer) zapierToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
+func (mcps *ModelContextProtocolServer) zapierToolHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
 	// TODO: implement zapier tool handler
 	return mcp.NewToolResultText("Hello, World!"), nil
 }
