@@ -13,8 +13,8 @@ func init() {
 	searchCmd.Flags().String("knowledge", "", "Knowledge ID to search within")
 	searchCmd.Flags().String("prompt", "", "Search prompt")
 
-	searchCmd.MarkFlagRequired("app")
-	searchCmd.MarkFlagRequired("prompt")
+	_ = searchCmd.MarkFlagRequired("app")
+	_ = searchCmd.MarkFlagRequired("prompt")
 
 	rootCmd.AddCommand(searchCmd)
 }
@@ -23,7 +23,7 @@ var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "Search knowledge",
 	Long:  `Search through knowledge using a prompt`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
