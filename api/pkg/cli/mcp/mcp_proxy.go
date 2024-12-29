@@ -214,8 +214,6 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 			mcpParams = append(mcpParams, mcp.WithDescription(action.Description))
 
 			for _, param := range parameters {
-				// switch param.Type {
-				// case tools.ParameterTypeString:
 				if param.Required {
 					mcpParams = append(mcpParams, mcp.WithString(param.Name,
 						mcp.Required(),
@@ -226,19 +224,6 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 						mcp.Description(param.Description),
 					))
 				}
-
-				// case tools.ParameterTypeInteger:
-				// 	if param.Required {
-				// 		mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
-				// 			mcp.Required(),
-				// 			mcp.Description(param.Description),
-				// 		))
-				// 	} else {
-				// 		mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
-				// 			mcp.Description(param.Description),
-				// 		))
-				// 	}
-				// }
 			}
 
 			mcpTool := mcp.NewTool(action.Name,
@@ -249,7 +234,7 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 			mcpTools = append(mcpTools, &helixMCPTool{
 				tool:    mcpTool,
-				handler: mcps.getApiToolHandler(mcps.appID, tool, action.Name),
+				handler: mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
 			})
 		}
 	}
@@ -302,9 +287,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 	return mcpTools, nil
 }
 
-func (mcps *ModelContextProtocolServer) getApiToolHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
 		log.Info().
 			Str("tool", tool.Name).
 			Str("action", action).
@@ -326,11 +310,7 @@ func (mcps *ModelContextProtocolServer) getApiToolHandler(appID string, tool *ty
 			params[k] = val
 		}
 
-		// 	op := request.Params.Arguments["operation"].(string)
-		// 	x := request.Params.Arguments["x"].(float64)
-		// 	y := request.Params.Arguments["y"].(float64)
-
-		resp, err := mcps.apiClient.RunAPIAction(context.Background(), appID, action, params)
+		resp, err := mcps.apiClient.RunAPIAction(ctx, appID, action, params)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to run api action")
 			return mcp.NewToolResultError(err.Error()), nil
