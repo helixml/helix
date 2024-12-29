@@ -3,6 +3,8 @@ package tools
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func AttemptFixJSON(data string) string {
@@ -24,4 +26,26 @@ func AttemptFixJSON(data string) string {
 func unmarshalJSON(data string, v interface{}) error {
 	fixedData := AttemptFixJSON(data)
 	return json.Unmarshal([]byte(fixedData), v)
+}
+
+func GetToolFromAction(tools []*types.Tool, action string) (*types.Tool, bool) {
+	for _, tool := range tools {
+		switch tool.ToolType {
+		case types.ToolTypeAPI:
+			for _, a := range tool.Config.API.Actions {
+				if a.Name == action {
+					return tool, true
+				}
+			}
+		case types.ToolTypeGPTScript:
+			if tool.Name == action {
+				return tool, true
+			}
+		case types.ToolTypeZapier:
+			if tool.Name == action {
+				return tool, true
+			}
+		}
+	}
+	return nil, false
 }

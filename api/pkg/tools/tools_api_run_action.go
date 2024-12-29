@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -138,4 +139,45 @@ func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID st
 		Msg("API call done")
 
 	return resp, nil
+}
+
+// RunAPIActionWithParameters executes the API request with the given parameters. This method (compared to RunAction) doesn't require
+// invoking any LLM, neither for request formation nor for response interpretation.
+// In this mode Helix is acting as a plumbing only
+func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest) (*types.RunAPIActionResponse, error) {
+	if req.Tool == nil {
+		return nil, fmt.Errorf("tool is required")
+	}
+
+	if req.Action == "" {
+		return nil, fmt.Errorf("action is required")
+	}
+
+	if req.Parameters == nil {
+		// Initialize empty parameters map, some API actions don't require parameters
+		req.Parameters = make(map[string]string)
+	}
+
+	log.Info().
+		Str("tool", req.Tool.Name).
+		Str("action", req.Action).
+		Msg("API request parameters prepared")
+
+	httpRequest, err := c.prepareRequest(ctx, req.Tool, req.Action, req.Parameters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpRequest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make api call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return &types.RunAPIActionResponse{Response: string(body)}, nil
 }

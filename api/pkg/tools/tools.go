@@ -26,6 +26,10 @@ type Planner interface {
 	RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*oai.ChatCompletionStream, error)
 	// Validation and defaulting
 	ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error)
+
+	// Low level methods for Model Context Protocol (MCP)
+	RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest) (*types.RunAPIActionResponse, error)
+	// TODO: GPTScript, Zapier.
 }
 
 // Static check

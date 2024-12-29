@@ -346,7 +346,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		return nil, nil, false, nil
 	}
 
-	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.API)
+	selectedTool, ok := tools.GetToolFromAction(assistant.Tools, isActionable.API)
 	if !ok {
 		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.API)
 	}
