@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -198,8 +199,50 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 		// Each API tool has a list of actions, adding them separately
 		for _, action := range tool.Config.API.Actions {
+			parameters, err := tools.GetParametersFromSchema(tool.Config.API.Schema, action.Name)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("tool", tool.Name).
+					Str("action", action.Name).
+					Msg("failed to get parameters from schema")
+				continue
+			}
+
+			var mcpParams []mcp.ToolOption
+
+			mcpParams = append(mcpParams, mcp.WithDescription(action.Description))
+
+			for _, param := range parameters {
+				switch param.Type {
+				case tools.ParameterTypeString:
+					if param.Required {
+						mcpParams = append(mcpParams, mcp.WithString(param.Name,
+							mcp.Required(),
+							mcp.Description(param.Description),
+						))
+					} else {
+						mcpParams = append(mcpParams, mcp.WithString(param.Name,
+							mcp.Description(param.Description),
+						))
+					}
+
+				case tools.ParameterTypeInteger:
+					if param.Required {
+						mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
+							mcp.Required(),
+							mcp.Description(param.Description),
+						))
+					} else {
+						mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
+							mcp.Description(param.Description),
+						))
+					}
+				}
+			}
+
 			mcpTool := mcp.NewTool(action.Name,
-				mcp.WithDescription(action.Description),
+				mcpParams...,
 			)
 
 			log.Info().Any("tool", action).Msg("adding tool")
@@ -260,6 +303,10 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 }
 
 func (mcps *ModelContextProtocolServer) apiToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Info().
+		Str("request", request.Params.Name).
+		Any("params", request.Params.Arguments).
+		Msg("api tool handler")
 	return mcp.NewToolResultText("Hello, World!"), nil
 }
 
