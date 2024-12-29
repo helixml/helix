@@ -683,8 +683,4 @@ func Test_GetParametersFromSchema(t *testing.T) {
 		require.Equal(t, "How many items to return at one time (max 100)", params[0].Description)
 		require.Equal(t, ParameterTypeInteger, params[0].Type)
 	})
-
-	t.Run("createPets", func(t *testing.T) {
-		// TODO: implement create test when we have a body parameter
-	})
 }

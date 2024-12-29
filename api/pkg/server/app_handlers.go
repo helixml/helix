@@ -720,7 +720,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 // @Param request    body types.RunAPIActionRequest true "Request body with API action name and parameters.")
 // @Router /api/v1/apps/{id}/api-actions [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) appRunAPIAction(w http.ResponseWriter, r *http.Request) (*types.RunAPIActionResponse, *system.HTTPError) {
+func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request) (*types.RunAPIActionResponse, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
 
