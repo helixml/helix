@@ -214,31 +214,31 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 			mcpParams = append(mcpParams, mcp.WithDescription(action.Description))
 
 			for _, param := range parameters {
-				switch param.Type {
-				case tools.ParameterTypeString:
-					if param.Required {
-						mcpParams = append(mcpParams, mcp.WithString(param.Name,
-							mcp.Required(),
-							mcp.Description(param.Description),
-						))
-					} else {
-						mcpParams = append(mcpParams, mcp.WithString(param.Name,
-							mcp.Description(param.Description),
-						))
-					}
-
-				case tools.ParameterTypeInteger:
-					if param.Required {
-						mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
-							mcp.Required(),
-							mcp.Description(param.Description),
-						))
-					} else {
-						mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
-							mcp.Description(param.Description),
-						))
-					}
+				// switch param.Type {
+				// case tools.ParameterTypeString:
+				if param.Required {
+					mcpParams = append(mcpParams, mcp.WithString(param.Name,
+						mcp.Required(),
+						mcp.Description(param.Description),
+					))
+				} else {
+					mcpParams = append(mcpParams, mcp.WithString(param.Name,
+						mcp.Description(param.Description),
+					))
 				}
+
+				// case tools.ParameterTypeInteger:
+				// 	if param.Required {
+				// 		mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
+				// 			mcp.Required(),
+				// 			mcp.Description(param.Description),
+				// 		))
+				// 	} else {
+				// 		mcpParams = append(mcpParams, mcp.WithNumber(param.Name,
+				// 			mcp.Description(param.Description),
+				// 		))
+				// 	}
+				// }
 			}
 
 			mcpTool := mcp.NewTool(action.Name,
@@ -249,7 +249,7 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 			mcpTools = append(mcpTools, &helixMCPTool{
 				tool:    mcpTool,
-				handler: mcps.apiToolHandler,
+				handler: mcps.getApiToolHandler(mcps.appID, tool, action.Name),
 			})
 		}
 	}
@@ -302,19 +302,51 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 	return mcpTools, nil
 }
 
-func (mcps *ModelContextProtocolServer) apiToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	log.Info().
-		Str("request", request.Params.Name).
-		Any("params", request.Params.Arguments).
-		Msg("api tool handler")
-	return mcp.NewToolResultText("Hello, World!"), nil
+func (mcps *ModelContextProtocolServer) getApiToolHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+
+		log.Info().
+			Str("tool", tool.Name).
+			Str("action", action).
+			Msg("api tool handler")
+
+		params := make(map[string]string)
+
+		for k, v := range request.Params.Arguments {
+			val, ok := v.(string)
+			if !ok {
+				log.Error().
+					Str("tool", tool.Name).
+					Str("action", action).
+					Str("param", k).
+					Any("value", v).
+					Msg("param is not a string")
+				continue
+			}
+			params[k] = val
+		}
+
+		// 	op := request.Params.Arguments["operation"].(string)
+		// 	x := request.Params.Arguments["x"].(float64)
+		// 	y := request.Params.Arguments["y"].(float64)
+
+		resp, err := mcps.apiClient.RunAPIAction(context.Background(), appID, action, params)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to run api action")
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		return mcp.NewToolResultText(resp.Response), nil
+	}
 }
 
 func (mcps *ModelContextProtocolServer) gptScriptToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// TODO: implement gpt script tool handler
 	return mcp.NewToolResultText("Hello, World!"), nil
 }
 
 func (mcps *ModelContextProtocolServer) zapierToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// TODO: implement zapier tool handler
 	return mcp.NewToolResultText("Hello, World!"), nil
 }
 
