@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -23,10 +25,13 @@ type Client interface {
 	DeleteApp(ctx context.Context, appID string, deleteKnowledge bool) error
 	ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error)
 
+	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]string) (*types.RunAPIActionResponse, error)
+
 	ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error)
 	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
 	DeleteKnowledge(ctx context.Context, id string) error
 	RefreshKnowledge(ctx context.Context, id string) error
+	SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error)
 
 	ListSecrets(ctx context.Context) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
@@ -135,6 +140,14 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 		if err != nil {
 			return fmt.Errorf("status code %d", resp.StatusCode)
 		}
+		log.Error().
+			Err(err).
+			Int("status_code", resp.StatusCode).
+			Str("body", string(bts)).
+			Str("url", fullURL).
+			Str("method", method).
+			Str("request_body", string(bodyBytes)).
+			Msg("error")
 		return fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
 	}
 

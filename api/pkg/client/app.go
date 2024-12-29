@@ -98,3 +98,22 @@ func (c *HelixClient) GetAppByName(ctx context.Context, name string) (*types.App
 	log.Debug().Str("name", name).Msg("app not found")
 	return nil, fmt.Errorf("app with name %s not found", name)
 }
+
+func (c *HelixClient) RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]string) (*types.RunAPIActionResponse, error) {
+	req := types.RunAPIActionRequest{
+		Action:     action,
+		Parameters: parameters,
+	}
+
+	bts, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp types.RunAPIActionResponse
+	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/apps/%s/api-actions", appID), bytes.NewBuffer(bts), &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

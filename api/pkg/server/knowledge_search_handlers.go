@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
 
 	"sort"
@@ -29,6 +30,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 		ID:    knowledgeID,
 	})
 	if err != nil {
+		log.Error().Err(err).Msgf("error listing knowledges for app %s", appID)
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
@@ -39,6 +41,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 
 	if len(knowledges) == 0 {
 		// Make an empty results list
+		log.Warn().Msg("no knowledges found for app")
 		return []*types.KnowledgeSearchResult{}, nil
 	}
 
@@ -51,6 +54,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 
 		client, err := s.Controller.GetRagClient(ctx, knowledge)
 		if err != nil {
+			log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
@@ -64,6 +68,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
 			})
 			if err != nil {
+				log.Error().Err(err).Msgf("error querying RAG for knowledge %s", knowledge.ID)
 				return fmt.Errorf("error querying RAG for knowledge %s: %w", knowledge.ID, err)
 			}
 
@@ -85,6 +90,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 
 	err = pool.Wait()
 	if err != nil {
+		log.Error().Err(err).Msg("error waiting for RAG queries")
 		return nil, system.NewHTTPError500(err.Error())
 	}
 

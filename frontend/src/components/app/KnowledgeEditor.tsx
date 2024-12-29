@@ -79,13 +79,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.refresh_schedule = ''; // Empty string for one-off
     }
 
-    // Update the name based on the source
-    if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
-      newSource.name = newSource.source.web.urls.join(', ');
-    } else if (newSource.source.filestore?.path) {
-      newSource.name = newSource.source.filestore.path;
-    } else {
-      newSource.name = 'Unnamed Source';
+    // Only update the name based on the source if no custom name is set
+    if (!updatedSource.name) {
+      // if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
+      //   newSource.name = newSource.source.web.urls.join(', ');
+      // } else if (newSource.source.filestore?.path) {
+      //   newSource.name = newSource.source.filestore.path;
+      // } else {
+      newSource.name = 'UnnamedSource';
+      // }
     }
 
     if (newSource.source.web && newSource.source.web.crawler) {
@@ -267,59 +269,86 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           />
         )}
 
-        
-        <>
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <TextField
-              fullWidth
-              label="Results Count (optional)"
-              type="number"
-              value={source.rag_settings.results_count}
-              onChange={(e) => {
-                const value = parseInt(e.target.value);
-                handleSourceUpdate(index, {
-                  rag_settings: {
-                    ...source.rag_settings,
-                    results_count: value
-                  }
-                });
-              }}
-              disabled={disabled}
-            />
-            <TextField
-              fullWidth
-              label="Chunk Size (optional)"
-              type="number"              
-              value={source.rag_settings.chunk_size}
-              onChange={(e) => {
-                const value = parseInt(e.target.value);
-                handleSourceUpdate(index, {
-                  rag_settings: {
-                    ...source.rag_settings,
-                    chunk_size: value
-                  }
-                });
-              }}
-              disabled={disabled}
-            />
-            <TextField
-              fullWidth
-              label="Chunk Overflow (optional)"
-              type="number"
-              value={source.rag_settings.chunk_overflow}
-              onChange={(e) => {
-                const value = parseInt(e.target.value);
-                handleSourceUpdate(index, {
-                  rag_settings: {
-                    ...source.rag_settings,
-                    chunk_overflow: value
-                  }
-                });
-              }}
-              disabled={disabled}
-            />
-          </Box>
-        </>
+        <TextField
+          fullWidth
+          label="Name"
+          value={source.name || ''}
+          onChange={(e) => {
+            handleSourceUpdate(index, { 
+              name: e.target.value 
+            });
+          }}
+          disabled={disabled}
+          sx={{ mb: 2 }}
+          placeholder="Give this knowledge source a name (optional)"
+        />
+
+        <TextField
+          fullWidth
+          label="Description"
+          multiline
+          rows={2}
+          value={source.description || ''}
+          onChange={(e) => {
+            handleSourceUpdate(index, { 
+              description: e.target.value 
+            });
+          }}
+          disabled={disabled}
+          sx={{ mb: 2 }}
+          placeholder="Description for this knowledge source. This will be used by the agent to search for relevant information."
+        />
+
+        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          <TextField
+            fullWidth
+            label="Results Count (optional)"
+            type="number"
+            value={source.rag_settings.results_count}
+            onChange={(e) => {
+              const value = parseInt(e.target.value);
+              handleSourceUpdate(index, {
+                rag_settings: {
+                  ...source.rag_settings,
+                  results_count: value
+                }
+              });
+            }}
+            disabled={disabled}
+          />
+          <TextField
+            fullWidth
+            label="Chunk Size (optional)"
+            type="number"              
+            value={source.rag_settings.chunk_size}
+            onChange={(e) => {
+              const value = parseInt(e.target.value);
+              handleSourceUpdate(index, {
+                rag_settings: {
+                  ...source.rag_settings,
+                  chunk_size: value
+                }
+              });
+            }}
+            disabled={disabled}
+          />
+          <TextField
+            fullWidth
+            label="Chunk Overflow (optional)"
+            type="number"
+            value={source.rag_settings.chunk_overflow}
+            onChange={(e) => {
+              const value = parseInt(e.target.value);
+              handleSourceUpdate(index, {
+                rag_settings: {
+                  ...source.rag_settings,
+                  chunk_overflow: value
+                }
+              });
+            }}
+            disabled={disabled}
+          />
+        </Box>
 
         {sourceType === 'web' && (
           <>

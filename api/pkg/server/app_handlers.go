@@ -710,3 +710,60 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	return result, nil
 }
+
+// appRunAPIAction godoc
+// @Summary Run an API action with parameters
+// @Description Run an API action with parameters
+// @Tags    apps
+
+// @Success 200 {object} types.RunAPIActionResponse
+// @Param request    body types.RunAPIActionRequest true "Request body with API action name and parameters.")
+// @Router /api/v1/apps/{id}/api-actions [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request) (*types.RunAPIActionResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	app, err := s.Store.GetAppWithTools(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("app not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if user.ID != app.Owner && !app.Global {
+		return nil, system.NewHTTPError403("you do not have permission to run this action")
+	}
+
+	// load the body of the request
+	var req types.RunAPIActionRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 4, error: %s", err))
+	}
+
+	if req.Action == "" {
+		return nil, system.NewHTTPError400("action is required")
+	}
+
+	if len(app.Config.Helix.Assistants) == 0 {
+		return nil, system.NewHTTPError400("action is required")
+	}
+
+	// Validate whether action is valid
+
+	tool, ok := tools.GetToolFromAction(app.Config.Helix.Assistants[0].Tools, req.Action)
+	if !ok {
+		return nil, system.NewHTTPError400(fmt.Sprintf("action %s not found in the assistant tools", req.Action))
+	}
+
+	req.Tool = tool
+
+	response, err := s.Controller.ToolsPlanner.RunAPIActionWithParameters(r.Context(), &req)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return response, nil
+}
