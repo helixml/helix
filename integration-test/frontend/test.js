@@ -60,28 +60,28 @@ import puppeteer from 'puppeteer'
  
   // //  await page.click('#continue-button');
  
-  //  await bluebird.delay(5000);
+  //  await delay(5000);
  
   //  await page.screenshot({ path: 'screenshots/after-click-continue-button.png', fullPage: true });
  
   //  // Wait for the text entry to be visible
   //  await page.waitForSelector('#textEntry', { visible: true, timeout: 10000 });
-  //  await bluebird.delay(5000);
+  //  await delay(5000);
  
   //  await page.screenshot({ path: 'screenshots/before-type-textEntry.png', fullPage: true });
  
   //  await page.type('#textEntry', 'select all the icons that start with the letter o');
-  //  await bluebird.delay(5000);
+  //  await delay(5000);
 
   //  await page.screenshot({ path: 'screenshots/after-type-textEntry.png', fullPage: true });
 
   //  await page.click('#send-button');
 
-  //  await bluebird.delay(5000);
+  //  await delay(5000);
 
   //  await page.screenshot({ path: 'screenshots/after-click-sendButton.png', fullPage: true });
 
-  //  await bluebird.delay(5000);
+  //  await delay(5000);
 
   //  await page.screenshot({ path: 'screenshots/after-log-console.png', fullPage: true });
 

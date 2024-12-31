@@ -4,7 +4,6 @@
   "type": "module",
   "description": "puppeteer scripts for testing the frontend",
   "dependencies": {
-    "bluebird": "^3.7.2",
     "node-fetch": "^3.3.2",
     "puppeteer": "^22.11.0"
   }

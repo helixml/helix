@@ -166,7 +166,7 @@ const App: FC = () => {
       fetchKnowledgeTimeoutRef.current = setTimeout(() => {
         fetchKnowledge();
         scheduleFetch(); // Schedule the next fetch
-      }, 2000); // 2 seconds
+      }, 2000) as NodeJS.Timeout; // 2 seconds
     };
 
     if (app?.id) {
