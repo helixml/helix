@@ -1,4 +1,3 @@
-import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
 import { createContext, FC, useCallback, useEffect, useMemo, useState } from 'react'
 import useApi from '../hooks/useApi'
@@ -139,7 +138,7 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const loadAll = useCallback(async () => {
-    await bluebird.all([
+    await Promise.all([
       loadStatus(),
       loadServerConfig(),
     ])

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, SetStateAction, Dispatch } from 'react'
 import useRouter from '../hooks/useRouter'
-import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
 import {
@@ -27,7 +26,7 @@ import {
 import {
   DEFAULT_SESSION_CONFIG,
 } from '../config'
-import { parse } from 'path'
+import { map as mapAsync } from '../utils/promise';
 
 export interface IFinetuneInputs {
   inputValue: string,
@@ -98,7 +97,7 @@ export const useCreateInputs = () => {
 
   const serializePage = useCallback(async () => {
     const drawerLabels: Record<string, string> = {}
-    const serializedFiles = await bluebird.map(finetuneFiles, async (file) => {
+    const serializedFiles = await mapAsync(finetuneFiles, async (file) => {
       drawerLabels[file.file.name] = file.drawerLabel
       const serializedFile = await serializeFile(file.file)
       await saveFile(serializedFile)
@@ -209,7 +208,7 @@ export const useCreateInputs = () => {
     // map over the empty content files
     // load their content from the individual file key
     // turn into native File
-    const loadedFiles = await bluebird.map(data.files, async file => {
+    const loadedFiles = await mapAsync(data.files, async file => {
       const loadedFile = await loadFile(file)
       await deleteFile(file)
       const deserializedFile = deserializeFile(loadedFile)

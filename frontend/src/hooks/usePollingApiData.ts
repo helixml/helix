@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import bluebird from 'bluebird'
 import useApi from './useApi'
 import { logger } from '../utils/debug'
+import { delay } from '../utils/promise';
 
 export function usePollingApiData<DataType = any>({
   url,
@@ -57,7 +57,7 @@ export function usePollingApiData<DataType = any>({
     const doLoop = async () => {
       while(loading) {
         await fetchData()
-        await bluebird.delay(reloadInterval)
+        await delay(reloadInterval)
       }
     }
     doLoop()
