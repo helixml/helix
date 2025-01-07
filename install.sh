@@ -717,7 +717,7 @@ EOF"
     echo "│"
     echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
     echo "│ This will take a minute or so to boot."
-    echo "└───────────────────────���───────────────────────────────────────────────────"
+    echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
 # Install runner if requested or in AUTO mode with GPU
