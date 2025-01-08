@@ -1,148 +1,51 @@
-name: GitHub Issues Assistant
-description: An AI assistant that helps manage and interact with GitHub Issues using natural language
-avatar: 🐙
-image: default
-
-assistants:
-  - name: GitHub Issues Helper
-    description: I help manage GitHub Issues and provide insights about your repositories
-    avatar: 🎫
-    type: text
-    model: gpt-4
-    system_prompt: |
-      You are a GitHub Issues expert assistant. You help users manage their GitHub issues and provide insights about their repositories.
-      Always format your responses in a clear, organized manner. When displaying issues, include key information like title, number, status, and assignees.
-
-    apis:
-      - name: list_issues
-        description: List repository issues
-        url: https://api.github.com/repos/${GITHUB_OWNER}/${repo}/issues
-        headers:
-          Authorization: Bearer ${GITHUB_API_TOKEN}
-          Accept: application/vnd.github.v3+json
-        schema: |
-          {
-            "type": "object",
-            "required": ["repo"],
-            "properties": {
-              "repo": {
-                "type": "string",
-                "description": "Repository name"
-              },
-              "state": {
-                "type": "string",
-                "enum": ["open", "closed", "all"],
-                "default": "open"
-              },
-              "assignee": {
-                "type": "string",
-                "description": "Filter by assignee username"
-              }
-            }
-          }
-
-      - name: create_issue
-        description: Create a new issue
-        url: https://api.github.com/repos/${GITHUB_OWNER}/${repo}/issues
-        method: POST
-        headers:
-          Authorization: Bearer ${GITHUB_API_TOKEN}
-          Accept: application/vnd.github.v3+json
-        schema: |
-          {
-            "type": "object",
-            "required": ["repo", "title"],
-            "properties": {
-              "repo": {
-                "type": "string",
-                "description": "Repository name"
-              },
-              "title": {
-                "type": "string",
-                "description": "Issue title"
-              },
-              "body": {
-                "type": "string",
-                "description": "Issue description"
-              },
-              "assignees": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Usernames to assign"
-              },
-              "labels": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Labels to apply"
-              }
-            }
-          }
-
-      - name: get_issue
-        description: Get a specific issue
-        url: https://api.github.com/repos/${GITHUB_OWNER}/${repo}/issues/${issue_number}
-        headers:
-          Authorization: Bearer ${GITHUB_API_TOKEN}
-          Accept: application/vnd.github.v3+json
-        schema: |
-          {
-            "type": "object",
-            "required": ["repo", "issue_number"],
-            "properties": {
-              "repo": {
-                "type": "string",
-                "description": "Repository name"
-              },
-              "issue_number": {
-                "type": "integer",
-                "description": "Issue number"
-              }
-            }
-          }
-
-      - name: update_issue
-        description: Update an existing issue
-        url: https://api.github.com/repos/${GITHUB_OWNER}/${repo}/issues/${issue_number}
-        method: PATCH
-        headers:
-          Authorization: Bearer ${GITHUB_API_TOKEN}
-          Accept: application/vnd.github.v3+json
-        schema: |
-          {
-            "type": "object",
-            "required": ["repo", "issue_number"],
-            "properties": {
-              "repo": {
-                "type": "string",
-                "description": "Repository name"
-              },
-              "issue_number": {
-                "type": "integer",
-                "description": "Issue number"
-              },
-              "title": {
-                "type": "string",
-                "description": "New issue title"
-              },
-              "body": {
-                "type": "string",
-                "description": "New issue description"
-              },
-              "state": {
-                "type": "string",
-                "enum": ["open", "closed"],
-                "description": "Issue state"
-              },
-              "assignees": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Usernames to assign"
-              }
-            }
-          }
+apiVersion: app.aispec.org/v1alpha1
+kind: AIApp
+metadata:
+  name: github-issues
+spec:
+  assistants:
+    - model: llama3.1:8b-instruct-q8_0
+      type: text
+      system_prompt: |
+        You are a GitHub Issues expert. Present issues clearly and include:
+        * Issue title and number
+        * Current status (open/closed)
+        * Assignees and labels
+      apis:
+        - name: GitHub Issues API
+          description: List repository issues
+          url: https://api.github.com/repos/${GITHUB_OWNER}/${repo}/issues
+          headers:
+            Authorization: Bearer ${GITHUB_API_TOKEN}
+            Accept: application/vnd.github.v3+json
+          schema: |-
+            openapi: 3.0.0
+            info:
+              title: GitHub Issues API
+              description: List repository issues
+              version: "1.0.0"
+            servers:
+              - url: https://api.github.com
+            paths:
+              /repos/{owner}/{repo}/issues:
+                get:
+                  operationId: listIssues
+                  parameters:
+                    - name: owner
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: repo
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: state
+                      in: query
+                      schema:
+                        type: string
+                        enum: [open, closed, all]
+                  responses:
+                    '200':
+                      description: List of issues
