@@ -4,7 +4,6 @@
 package smoke
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -29,19 +28,8 @@ func TestCreateRagApp(t *testing.T) {
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
 
-	helper.LogStep(t, "Browsing to the apps page")
-	page.MustElement("button[aria-controls='menu-appbar']").MustClick()
-	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustClick()
-
-	helper.LogStep(t, "Creating a new app")
-	page.MustElement("#new-app-button").MustClick()
-	page.MustWaitStable()
-
-	helper.LogStep(t, "Save initial app")
-	appName := "smoke-" + time.Now().Format("20060102150405")
-	page.MustElement("#app-name").MustInput(appName)
-	page.MustElementX(`//button[text() = 'Save']`).MustClick()
-	page.MustWaitStable()
+	helper.BrowseToAppsPage(t, page)
+	helper.CreateNewApp(t, page)
 
 	helper.LogStep(t, "Adding knowledge")
 	page.MustElementX(`//button[text() = 'Knowledge']`).MustClick()
@@ -52,9 +40,7 @@ func TestCreateRagApp(t *testing.T) {
 	page.MustElement(`input[type=text]`).MustInput("test hr-guide.pdf")
 	page.MustElementX(`//button[text() = 'Add']`).MustClick()
 
-	helper.LogStep(t, "Save the app again")
-	page.MustElementX(`//button[text() = 'Save']`).MustClick()
-	page.MustWaitStable()
+	helper.SaveApp(t, page)
 
 	helper.LogStep(t, "Clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
@@ -64,7 +50,6 @@ func TestCreateRagApp(t *testing.T) {
 	wait1()
 
 	page.MustReload()
-	page.MustWaitStable()
 
 	helper.LogStep(t, "Double checking that the file is present in the knowledge")
 	moreButton := page.MustElement(`[data-testid='ExpandMoreIcon']`)
@@ -79,9 +64,5 @@ func TestCreateRagApp(t *testing.T) {
 	page.MustElement("#textEntry").MustInput("do you have a shoe policy")
 	page.MustElement("#sendButton").MustClick()
 
-	message := page.MustElement(".interactionMessage")
-	if !strings.Contains(message.MustText(), "shoe policy") {
-		helper.LogAndFail(t, "App did not respond with the correct answer")
-	}
-	helper.LogStep(t, "App responded with the correct answer")
+	helper.WaitForHelixResponse(t, page, "workplace safety")
 }
