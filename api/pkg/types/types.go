@@ -555,7 +555,7 @@ type UserStatus struct {
 }
 
 type User struct {
-	// the actual token used and it's type
+	// the actual token used and its type
 	Token string
 	// none, runner. keycloak, api_key
 	TokenType TokenType
