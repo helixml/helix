@@ -78,6 +78,8 @@ func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	page.MustElement("input[type='password']").MustInput(password)
 	page.MustElement("input[type='submit']").MustClick()
 
+	page.MustWaitLoad()
+
 	return nil
 }
 
