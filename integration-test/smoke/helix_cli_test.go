@@ -7,22 +7,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
 )
 
-func TestInstallScript(t *testing.T) {
-	t.Parallel()
-
-	// Create temp dir for test
-	tmpDir, err := os.MkdirTemp("", "helix-install-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
+func InstallHelixCLI(t *testing.T, tmpDir string) string {
+	helper.LogStep(t, "Installing Helix CLI")
 	// Change to temp dir
-	err = os.Chdir(tmpDir)
+	err := os.Chdir(tmpDir)
 	require.NoError(t, err)
 
 	// Download install script
@@ -63,9 +60,22 @@ func TestInstallScript(t *testing.T) {
 	_, err = os.Stat(cliInstallPath)
 	require.NoError(t, err, "CLI should be installed at %s", cliInstallPath)
 
+	return cliInstallPath
+}
+
+func TestHelixCLIInstall(t *testing.T) {
+	t.Parallel()
+
+	// Create temp dir for test
+	tmpDir, err := os.MkdirTemp("", "helix-install-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cliInstallPath := InstallHelixCLI(t, tmpDir)
+
 	// Get latest version from get.helix.ml
 	latestVersionCmd := exec.Command("curl", "-sL", "https://get.helix.ml/latest.txt")
-	output, err = latestVersionCmd.CombinedOutput()
+	output, err := latestVersionCmd.CombinedOutput()
 	require.NoError(t, err, "Failed to get latest version: %s", string(output))
 	latestVersion := strings.TrimSpace(string(output))
 
@@ -74,4 +84,48 @@ func TestInstallScript(t *testing.T) {
 	output, err = cliCmd.CombinedOutput()
 	require.NoError(t, err, "CLI version command failed: %s", string(output))
 	require.Contains(t, string(output), latestVersion, "CLI version command should return version %s", latestVersion)
+}
+
+func TestHelixCLITest(t *testing.T) {
+	t.Parallel()
+	ctx := helper.SetTestTimeout(t, 30*time.Second)
+
+	browser := createBrowser(ctx)
+	defer browser.MustClose()
+
+	page := browser.MustPage(helper.GetServerURL())
+	defer page.MustClose()
+	page.MustWaitLoad()
+
+	err := helper.PerformLogin(t, page)
+	require.NoError(t, err, "login should succeed")
+
+	// Get the API key
+	apiKey := helper.GetFirstAPIKey(t, page)
+
+	// Create temp dir for test
+	tmpDir, err := os.MkdirTemp("", "helix-install-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cliInstallPath := InstallHelixCLI(t, tmpDir)
+
+	helper.LogStep(t, "Downloading https://github.com/helixml/testing-genai/blob/main/comedian.yaml")
+	downloadCmd := exec.Command("curl", "-sL", "-O", "https://raw.githubusercontent.com/helixml/testing-genai/refs/heads/main/comedian.yaml")
+	output, err := downloadCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to download comedian.yaml: %s", string(output))
+
+	helper.LogStep(t, "Replacing model with helix llama3.1:8b-instruct-q8_0")
+	yamlFile, err := os.ReadFile("comedian.yaml")
+	require.NoError(t, err)
+	re := regexp.MustCompile(`model:.*`)
+	yamlFile = re.ReplaceAll(yamlFile, []byte("model: llama3.1:8b-instruct-q8_0"))
+	os.WriteFile("comedian.yaml", yamlFile, 0644)
+
+	helper.LogStep(t, "Running helix test")
+	helixTestCmd := exec.Command(cliInstallPath, "test", "-f", "comedian.yaml")
+	helixTestCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
+	helixTestCmd.Dir = tmpDir
+	output, err = helixTestCmd.CombinedOutput()
+	require.NoError(t, err, "Helix test failed: %s", string(output))
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -138,4 +139,13 @@ func SetTestTimeout(t *testing.T, timeout time.Duration) context.Context {
 		}
 	}()
 	return ctx
+}
+
+func GetFirstAPIKey(t *testing.T, page *rod.Page) string {
+	LogStep(t, "Getting API key")
+	page.MustNavigate(fmt.Sprintf("%s/account", GetServerURL()))
+	page.MustWaitLoad()
+	apiKey := page.MustElementX("(//p[contains(text(),'hl-')])[1]").MustText()
+	require.NotEmpty(t, apiKey, "API key should be set")
+	return apiKey
 }
