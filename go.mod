@@ -39,8 +39,8 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mark3labs/mcp-go v0.8.2
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
-	github.com/nats-io/nats-server/v2 v2.10.9
-	github.com/nats-io/nats.go v1.32.0
+	github.com/nats-io/nats-server/v2 v2.10.14
+	github.com/nats-io/nats.go v1.34.1
 	github.com/nikoksr/notify v0.41.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
@@ -60,6 +60,7 @@ require (
 	go.uber.org/mock v0.4.0
 	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
 	golang.org/x/crypto v0.31.0
+	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
 	golang.org/x/oauth2 v0.21.0
 	golang.org/x/term v0.27.0
 	google.golang.org/api v0.183.0
@@ -171,7 +172,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
-	github.com/nats-io/jwt/v2 v2.5.3 // indirect
+	github.com/nats-io/jwt/v2 v2.5.5 // indirect
 	github.com/nats-io/nkeys v0.4.7 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
@@ -230,7 +231,6 @@ require (
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
