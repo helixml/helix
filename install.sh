@@ -36,6 +36,7 @@ HF_TOKEN=""
 PROXY=https://get.helix.ml
 EXTRA_OLLAMA_MODELS=""
 HELIX_VERSION=""
+CLI_INSTALL_PATH="/usr/local/bin/helix"
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -77,6 +78,7 @@ Options:
   -y                       Auto approve the installation
   --extra-ollama-models    Specify additional Ollama models to download when installing the runner (comma-separated), for example "nemotron-mini:4b,codegemma:2b-code-q8_0"
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
+  --cli-install-path <path> Specify custom installation path for the CLI binary (default: /usr/local/bin/helix)
 
 Examples:
 
@@ -203,6 +205,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --helix-version)
             HELIX_VERSION="$2"
+            shift 2
+            ;;
+        --cli-install-path=*)
+            CLI_INSTALL_PATH="${1#*=}"
+            shift
+            ;;
+        --cli-install-path)
+            CLI_INSTALL_PATH="$2"
             shift 2
             ;;
         *)
@@ -353,9 +363,10 @@ mkdir -p $INSTALL_DIR/scripts/postgres/
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
     echo -e "\nDownloading Helix CLI..."
-    sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
-    sudo chmod +x /usr/local/bin/helix
-    echo "Helix CLI has been installed to /usr/local/bin/helix"
+    sudo mkdir -p "$(dirname "$CLI_INSTALL_PATH")"
+    sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o "$CLI_INSTALL_PATH"
+    sudo chmod +x "$CLI_INSTALL_PATH"
+    echo "Helix CLI has been installed to $CLI_INSTALL_PATH"
 fi
 
 # Function to generate random alphanumeric password

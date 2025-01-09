@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,9 +50,28 @@ func TestInstallScript(t *testing.T) {
 	dockerShimFile.Close()
 	os.Chmod(dockerShim, 0755)
 
+	// Create a custom CLI install path
+	cliInstallPath := filepath.Join(tmpDir, "helix")
+
 	// Run install script, using the shim for sudo
-	installCmd := exec.Command("bash", "install.sh", "-y", "--controlplane")
+	installCmd := exec.Command("bash", "install.sh", "-y", "--controlplane", "--cli", "--cli-install-path", cliInstallPath)
 	installCmd.Env = append(os.Environ(), "PATH="+tmpDir+":"+os.Getenv("PATH"))
 	output, err = installCmd.CombinedOutput()
 	require.NoError(t, err, "Install script failed: %s", string(output))
+
+	// Verify CLI was installed
+	_, err = os.Stat(cliInstallPath)
+	require.NoError(t, err, "CLI should be installed at %s", cliInstallPath)
+
+	// Get latest version from get.helix.ml
+	latestVersionCmd := exec.Command("curl", "-sL", "https://get.helix.ml/latest.txt")
+	output, err = latestVersionCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to get latest version: %s", string(output))
+	latestVersion := strings.TrimSpace(string(output))
+
+	// Run the CLI, should return a semantic version
+	cliCmd := exec.Command(cliInstallPath, "version")
+	output, err = cliCmd.CombinedOutput()
+	require.NoError(t, err, "CLI version command failed: %s", string(output))
+	require.Contains(t, string(output), latestVersion, "CLI version command should return version %s", latestVersion)
 }
