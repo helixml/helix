@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -10,6 +11,11 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	scriptStreamName = "SCRIPTS_STREAM"
+	scriptsSubject   = "SCRIPTS.*"
 )
 
 type Nats struct {
@@ -22,13 +28,18 @@ type Nats struct {
 	consumer   jetstream.Consumer
 }
 
-func NewInMemoryNats(storeDir string) (*Nats, error) {
+func NewInMemoryNats() (*Nats, error) {
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
 	opts := &server.Options{
 		Host:      "127.0.0.1",
 		Port:      server.RANDOM_PORT,
 		NoSigs:    true,
 		JetStream: true,
-		StoreDir:  storeDir,
+		StoreDir:  tmpDir,
 		// Setting payload to 32 MB
 		MaxPayload: 32 * 1024 * 1024,
 	}
@@ -58,9 +69,12 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		return nil, fmt.Errorf("failed to create jetstream context: %w", err)
 	}
 
+	// Clean up old streams
+	gcJetStream(js)
+
 	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
-		Name:      "SCRIPTS_STREAM",
-		Subjects:  []string{"SCRIPTS.*"},
+		Name:      scriptStreamName,
+		Subjects:  []string{scriptsSubject},
 		Retention: jetstream.WorkQueuePolicy,
 		// Storage:   jetstream.MemoryStorage,
 		Discard: jetstream.DiscardOld,
@@ -70,7 +84,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		// },
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create jetstream stream: %w", err)
+		return nil, fmt.Errorf("failed to create internal jetstream stream: %w", err)
 	}
 
 	ctx := context.Background()
@@ -336,4 +350,21 @@ type consumerWrapper struct{}
 
 func (c *consumerWrapper) Unsubscribe() error {
 	return nil
+}
+
+// gcJetStream is a helper function to clean up old streams
+func gcJetStream(js jetstream.JetStream) {
+	streams := js.ListStreams(context.Background())
+
+	for s := range streams.Info() {
+		log.Debug().
+			Str("name", s.Config.Name).
+			Strs("subjects", s.Config.Subjects).
+			Msg("checking stream for cleanup")
+		if s.Config.Subjects[0] == "SCRIPTS.*" {
+			if err := js.DeleteStream(context.Background(), s.Config.Name); err != nil {
+				log.Err(err).Str("name", s.Config.Name).Msg("failed to delete stream")
+			}
+		}
+	}
 }

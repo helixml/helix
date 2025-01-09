@@ -32,7 +32,7 @@ func (suite *HelixOpenAiServerTestSuite) SetupTest() {
 	suite.ctx = context.Background()
 	suite.ctrl = gomock.NewController(suite.T())
 
-	pubsub, err := pubsub.NewInMemoryNats(suite.T().TempDir())
+	pubsub, err := pubsub.NewInMemoryNats()
 	suite.Require().NoError(err)
 
 	suite.pubsub = pubsub
