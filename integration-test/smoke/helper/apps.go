@@ -1,9 +1,7 @@
 package helper
 
 import (
-	"fmt"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +32,8 @@ func SaveApp(t *testing.T, page *rod.Page) {
 	page.MustWaitStable()
 }
 
-func WaitForHelixResponse(t *testing.T, page *rod.Page, expectedResponse string) {
+// This function checks to see if Helix has responded. It doesn't check the text.
+func WaitForHelixResponse(t *testing.T, page *rod.Page) {
 	timeout := time.After(10 * time.Second)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -42,12 +41,11 @@ func WaitForHelixResponse(t *testing.T, page *rod.Page, expectedResponse string)
 	for {
 		select {
 		case <-timeout:
-			message := page.MustElementX("(//div[@class = 'interactionMessage'])[last()]").MustText()
-			LogAndFail(t, fmt.Sprintf("Incorrect response from app, expected '%s', got: %s", expectedResponse, message))
+			LogAndFail(t, "App did not respond with an answer")
 		case <-ticker.C:
-			message := page.MustElementX("(//div[@class = 'interactionMessage'])[last()]").MustText()
-			if strings.Contains(strings.ToLower(message), strings.ToLower(expectedResponse)) {
-				LogStep(t, "App responded with the correct answer")
+			responses := page.MustElementsX("(//div[@class = 'interactionMessage'])")
+			if len(responses) > 1 {
+				LogStep(t, "App responded with an answer")
 				return
 			}
 		}

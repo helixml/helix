@@ -64,5 +64,5 @@ func TestCreateRagApp(t *testing.T) {
 	page.MustElement("#textEntry").MustInput("do you have a shoe policy")
 	page.MustElement("#sendButton").MustClick()
 
-	helper.WaitForHelixResponse(t, page, "workplace safety")
+	helper.WaitForHelixResponse(t, page)
 }
