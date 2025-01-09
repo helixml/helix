@@ -44,10 +44,17 @@ func WaitForHelixResponse(t *testing.T, page *rod.Page) {
 			LogAndFail(t, "App did not respond with an answer")
 		case <-ticker.C:
 			responses := page.MustElementsX("(//div[@class = 'interactionMessage'])")
-			if len(responses) > 1 {
-				LogStep(t, "App responded with an answer")
-				return
+			if len(responses) < 2 {
+				// Must have the initial message and a response
+				continue
 			}
+			lastMessage := responses[len(responses)-1].MustText()
+			if len(lastMessage) < 10 {
+				// Response must be at least 10 characters
+				continue
+			}
+			LogStep(t, "App responded with an answer")
+			return
 		}
 	}
 }
