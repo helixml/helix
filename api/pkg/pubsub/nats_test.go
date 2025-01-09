@@ -16,7 +16,7 @@ import (
 func TestNatsPubsub(t *testing.T) {
 
 	t.Run("Subscribe", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats(t.TempDir())
+		pubsub, err := NewInMemoryNats()
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -45,7 +45,7 @@ func TestNatsPubsub(t *testing.T) {
 	})
 
 	t.Run("Subscribe_Wildcard", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats(t.TempDir())
+		pubsub, err := NewInMemoryNats()
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -74,7 +74,7 @@ func TestNatsPubsub(t *testing.T) {
 	})
 
 	t.Run("Subscribe_Resubscribe", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats(t.TempDir())
+		pubsub, err := NewInMemoryNats()
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -124,7 +124,7 @@ func TestNatsPubsub(t *testing.T) {
 }
 
 func TestQueueMultipleSubs(t *testing.T) {
-	pubsub, err := NewInMemoryNats(t.TempDir())
+	pubsub, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -200,7 +200,7 @@ func TestQueueMultipleSubs(t *testing.T) {
 
 func TestNatsStreaming(t *testing.T) {
 	t.Run("SubscribeLater", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats(t.TempDir())
+		pubsub, err := NewInMemoryNats()
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -273,7 +273,7 @@ func TestNatsStreaming(t *testing.T) {
 }
 
 func TestStreamRetries(t *testing.T) {
-	pubsub, err := NewInMemoryNats(t.TempDir())
+	pubsub, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -352,7 +352,7 @@ func TestStreamRetries(t *testing.T) {
 }
 
 func TestStreamMultipleSubs(t *testing.T) {
-	pubsub, err := NewInMemoryNats(t.TempDir())
+	pubsub, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	// Leaving a little bit of time to go into inactive state,
@@ -433,7 +433,7 @@ func TestStreamMultipleSubs(t *testing.T) {
 }
 
 func TestStreamAfterDelay(t *testing.T) {
-	pubsub, err := NewInMemoryNats(t.TempDir())
+	pubsub, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -518,7 +518,7 @@ func TestStreamAfterDelay(t *testing.T) {
 }
 
 func TestStreamFailOne(t *testing.T) {
-	pubsub, err := NewInMemoryNats(t.TempDir())
+	pubsub, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	ctx := context.Background()

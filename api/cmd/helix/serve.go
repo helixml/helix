@@ -190,7 +190,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	ps, err := pubsub.New(cfg.PubSub.StoreDir)
+	ps, err := pubsub.New()
 	if err != nil {
 		return err
 	}

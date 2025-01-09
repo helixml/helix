@@ -75,7 +75,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New(suite.T().TempDir())
+	ps, err := pubsub.New()
 	suite.NoError(err)
 
 	suite.openAiClient = openai.NewMockClient(ctrl)

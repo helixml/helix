@@ -9,9 +9,9 @@ const (
 	// TODO: NATS/Redis
 )
 
-func New(storeDir string) (PubSub, error) {
+func New() (PubSub, error) {
 	// TODO: switch on the provider type
-	return NewInMemoryNats(storeDir)
+	return NewInMemoryNats()
 }
 
 type Config struct {

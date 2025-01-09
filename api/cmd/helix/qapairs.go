@@ -24,7 +24,7 @@ func newQapairCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load server config: %v", err)
 			}
-			ps, err := pubsub.New(serverConfig.PubSub.StoreDir)
+			ps, err := pubsub.New()
 			if err != nil {
 				return err
 			}

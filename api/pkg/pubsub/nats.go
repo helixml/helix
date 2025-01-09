@@ -23,15 +23,12 @@ type Nats struct {
 	consumer   jetstream.Consumer
 }
 
-func NewInMemoryNats(storeDir string) (*Nats, error) {
+func NewInMemoryNats() (*Nats, error) {
 
 	// disregard storeDir, it causes "filtered consumer not unique on workqueue
 	// stream" error on restarts. For now, just use a random temp directory so
 	// we are using the disk, but not the same directory on restarts.
-	//
-	// TODO: stop passing storeDir to the pubsub provider (and making it
-	// configurable), it's confusing because the value passed doesn't get used
-	storeDir = os.TempDir()
+	storeDir := os.TempDir()
 
 	opts := &server.Options{
 		Host:      "127.0.0.1",
