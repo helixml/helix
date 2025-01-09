@@ -29,7 +29,11 @@ type Nats struct {
 }
 
 func NewInMemoryNats() (*Nats, error) {
-	tmpDir, _ := os.MkdirTemp(os.TempDir(), "helix-nats")
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
 	opts := &server.Options{
 		Host:      "127.0.0.1",
 		Port:      server.RANDOM_PORT,
