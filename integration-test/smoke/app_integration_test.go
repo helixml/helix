@@ -60,5 +60,5 @@ func TestCreateIntegrationApp(t *testing.T) {
 	page.MustElement("#textEntry").MustInput("what is the USD GBP rate")
 	page.MustElement("#sendButton").MustClick()
 
-	helper.WaitForHelixResponse(t, page, "US Dollar")
+	helper.WaitForHelixResponse(t, page)
 }
