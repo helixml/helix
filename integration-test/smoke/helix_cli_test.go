@@ -110,22 +110,19 @@ func TestHelixCLITest(t *testing.T) {
 
 	cliInstallPath := InstallHelixCLI(t, tmpDir)
 
-	helper.LogStep(t, "Downloading https://github.com/helixml/testing-genai/blob/main/comedian.yaml")
-	downloadCmd := exec.Command("curl", "-sL", "-O", "https://raw.githubusercontent.com/helixml/testing-genai/refs/heads/main/comedian.yaml")
-	output, err := downloadCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to download comedian.yaml: %s", string(output))
+	filePath := helper.DownloadFile(t, "https://raw.githubusercontent.com/helixml/testing-genai/refs/heads/main/comedian.yaml", filepath.Join(tmpDir, "comedian.yaml"))
 
 	helper.LogStep(t, "Replacing model with helix llama3.1:8b-instruct-q8_0")
-	yamlFile, err := os.ReadFile("comedian.yaml")
+	yamlFile, err := os.ReadFile(filePath)
 	require.NoError(t, err)
 	re := regexp.MustCompile(`model:.*`)
 	yamlFile = re.ReplaceAll(yamlFile, []byte("model: llama3.1:8b-instruct-q8_0"))
-	os.WriteFile("comedian.yaml", yamlFile, 0644)
+	os.WriteFile(filePath, yamlFile, 0644)
 
 	helper.LogStep(t, "Running helix test")
-	helixTestCmd := exec.Command(cliInstallPath, "test", "-f", "comedian.yaml")
+	helixTestCmd := exec.Command(cliInstallPath, "test", "-f", filePath)
 	helixTestCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
 	helixTestCmd.Dir = tmpDir
-	output, err = helixTestCmd.CombinedOutput()
+	output, err := helixTestCmd.CombinedOutput()
 	require.NoError(t, err, "Helix test failed: %s", string(output))
 }
