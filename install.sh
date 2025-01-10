@@ -286,26 +286,39 @@ check_ollama() {
 if [ "$AUTO" = true ]; then
     CLI=true
     CONTROLPLANE=true
-    if check_nvidia_gpu; then
-        RUNNER=true
-    fi
-    echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
-    if check_nvidia_gpu; then
-        echo "🚀 NVIDIA GPU detected. Runner will be installed locally."
-        echo
-    elif check_ollama; then
-        echo "🦙 Ollama detected. Using local Ollama for inference provider."
+
+    # If user specified an LLM provider, don't auto-detect
+    if [ -n "$OPENAI_API_KEY" ] || [ -n "$TOGETHER_API_KEY" ]; then
+        echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
+        if [ -n "$OPENAI_API_KEY" ]; then
+            echo "Using OpenAI-compatible API for inference."
+        else
+            echo "Using Together.ai for inference."
+        fi
         echo
     else
-        echo "No NVIDIA GPU or Ollama detected. Ensure Ollama is running if you want to "
-        echo "use it for inference. Otherwise, you need to point a DNS name at this server "
-        echo "and set --api-host (e.g. --api-host https://helix.mycompany.com) and then "
-        echo "connect a separate GPU node to this controlplane."
-        echo
-        echo "Command will be printed at the end to install runner separately on a GPU node, "
-        echo "or pass --together-api-key to connect to together.ai for LLM inference."
-        echo "See --help for more options."
-        echo
+        # Only auto-detect if no LLM provider was specified
+        if check_nvidia_gpu; then
+            RUNNER=true
+        fi
+        echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
+        if check_nvidia_gpu; then
+            echo "🚀 NVIDIA GPU detected. Runner will be installed locally."
+            echo
+        elif check_ollama; then
+            echo "🦙 Ollama detected. Using local Ollama for inference provider."
+            echo
+        else
+            echo "No NVIDIA GPU or Ollama detected. Ensure Ollama is running if you want to "
+            echo "use it for inference. Otherwise, you need to point a DNS name at this server "
+            echo "and set --api-host (e.g. --api-host https://helix.mycompany.com) and then "
+            echo "connect a separate GPU node to this controlplane."
+            echo
+            echo "Command will be printed at the end to install runner separately on a GPU node, "
+            echo "or pass --together-api-key to connect to together.ai for LLM inference."
+            echo "See --help for more options."
+            echo
+        fi
     fi
 fi
 
