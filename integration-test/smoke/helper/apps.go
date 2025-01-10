@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func WaitForHelixResponse(t *testing.T, page *rod.Page) {
 				// Response must be at least 10 characters
 				continue
 			}
-			LogStep(t, "App responded with an answer")
+			LogStep(t, fmt.Sprintf("App responded with an answer: %s", lastMessage))
 			return
 		}
 	}
