@@ -57,6 +57,26 @@ elif [ "$OS" = "darwin" ]; then
     INSTALL_DIR="$HOME/HelixML"
 fi
 
+# Function to check if docker works without sudo
+check_docker_sudo() {
+    if timeout 10 docker ps >/dev/null 2>&1; then
+        echo "false"
+    else
+        if timeout 10 sudo docker ps >/dev/null 2>&1; then
+            echo "true"
+        else
+            echo "Docker is not running or not installed"
+            exit 1
+        fi
+    fi
+}
+
+# Determine if we need sudo for docker commands
+NEED_SUDO=$(check_docker_sudo)
+DOCKER_CMD="docker"
+if [ "$NEED_SUDO" = "true" ]; then
+    DOCKER_CMD="sudo docker"
+fi
 
 # Function to display help message
 display_help() {
@@ -236,7 +256,7 @@ fi
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
@@ -252,7 +272,7 @@ check_ollama() {
     fi
 
     # Check Docker bridge IP
-    DOCKER_BRIDGE_IP=$(sudo docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
+    DOCKER_BRIDGE_IP=$($DOCKER_CMD network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
     if [ -n "$DOCKER_BRIDGE_IP" ]; then
         if curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
             return 0
@@ -433,7 +453,7 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
+    if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -721,7 +741,11 @@ EOF"
     echo "│ Start the Helix services by running:"
     echo "│"
     echo "│ cd $INSTALL_DIR"
-    echo "│ sudo docker compose up -d --remove-orphans"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│ sudo docker compose up -d --remove-orphans"
+    else
+        echo "│ docker compose up -d --remove-orphans"
+    fi
     if [ "$CADDY" = true ]; then
         echo "│ sudo systemctl restart caddy"
     fi
@@ -802,21 +826,21 @@ else
 fi
 
 # Check if api-1 container is running
-if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
     API_HOST="http://api:80"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
 # Check if helix_default network exists, create it if it doesn't
-if ! sudo docker network inspect helix_default >/dev/null 2>&1; then
+if ! docker network inspect helix_default >/dev/null 2>&1; then
     echo "Creating helix_default network..."
-    sudo docker network create helix_default
+    docker network create helix_default
 else
     echo "helix_default network already exists."
 fi
 
 # Run the docker container
-sudo docker run --privileged --gpus all --shm-size=10g \\
+docker run --privileged --gpus all --shm-size=10g \\
     --restart=always -d \\
     --name helix-runner --ipc=host --ulimit memlock=-1 \\
     --ulimit stack=67108864 \\
@@ -837,7 +861,11 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ To start the runner, run:"
     echo "│"
-    echo "│   sudo $INSTALL_DIR/runner.sh"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   sudo $INSTALL_DIR/runner.sh"
+    else
+        echo "│   $INSTALL_DIR/runner.sh"
+    fi
     echo "│"
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi
