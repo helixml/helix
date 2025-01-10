@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"path"
 	"testing"
 	"time"
 
@@ -148,4 +150,15 @@ func GetFirstAPIKey(t *testing.T, page *rod.Page) string {
 	apiKey := page.MustElementX("(//p[contains(text(),'hl-')])[1]").MustText()
 	require.NotEmpty(t, apiKey, "API key should be set")
 	return apiKey
+}
+
+func DownloadFile(t *testing.T, url string, dir string) string {
+	err := os.MkdirAll(dir, 0755)
+	require.NoError(t, err)
+	LogStep(t, fmt.Sprintf("Downloading %s", url))
+	downloadCmd := exec.Command("curl", "-sL", "-O", url)
+	downloadCmd.Dir = dir
+	output, err := downloadCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to download %s: %s", path.Base(url), string(output))
+	return path.Base(url)
 }
