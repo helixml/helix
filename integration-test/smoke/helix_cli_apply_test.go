@@ -41,49 +41,52 @@ func TestHelixCLIApply(t *testing.T) {
 
 	cliInstallPath := InstallHelixCLI(t, tmpDir)
 
-	appURL := "https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/marvin_paranoid_bot.yaml"
-	fileName := path.Base(appURL)
-	helper.LogStep(t, fmt.Sprintf("Downloading %s", appURL))
-	downloadCmd := exec.Command("curl", "-sL", "-O", appURL)
-	output, err := downloadCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to download %s: %s", fileName, string(output))
+	openAPIExample := "https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/openapi/jobvacancies.yaml"
+	helper.DownloadFile(t, openAPIExample, path.Join(tmpDir, "openapi"))
 
-	helper.LogStep(t, "Running helix apply")
-	helixApplyCmd := exec.Command(cliInstallPath, "apply", "-f", fileName)
-	helixApplyCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
-	helixApplyCmd.Dir = tmpDir
-	output, err = helixApplyCmd.CombinedOutput()
-	require.NoError(t, err, "Helix apply failed: %s", string(output))
+	for _, appURL := range []string{
+		"https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/marvin_paranoid_bot.yaml",
+		"https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/api_tools.yaml",
+	} {
+		fileName := helper.DownloadFile(t, appURL, tmpDir)
 
-	// Parse the name of the app from the yaml file
-	yamlFile, err := os.ReadFile(fileName)
-	require.NoError(t, err)
-	re := regexp.MustCompile(`name:.*`)
-	matches := re.FindStringSubmatch(string(yamlFile))
-	require.Greater(t, len(matches), 0, "No app name found in %s", fileName)
-	appName := strings.TrimPrefix(matches[0], "name:")
-	appName = strings.TrimSpace(appName)
+		helper.LogStep(t, "Running helix apply")
+		helixApplyCmd := exec.Command(cliInstallPath, "apply", "-f", fileName)
+		helixApplyCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
+		helixApplyCmd.Dir = tmpDir
+		output, err := helixApplyCmd.CombinedOutput()
+		require.NoError(t, err, "Helix apply failed: %s", string(output))
 
-	// Use helix app list to get the most recent marvin app id
-	helixAppListCmd := exec.Command(cliInstallPath, "app", "list")
-	helixAppListCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
-	helixAppListCmd.Dir = tmpDir
-	output, err = helixAppListCmd.CombinedOutput()
-	require.NoError(t, err, "Helix app list failed: %s", string(output))
+		// Parse the name of the app from the yaml file
+		yamlFile, err := os.ReadFile(fileName)
+		require.NoError(t, err)
+		re := regexp.MustCompile(`name:.*`)
+		matches := re.FindStringSubmatch(string(yamlFile))
+		require.Greater(t, len(matches), 0, "No app name found in %s", fileName)
+		appName := strings.TrimPrefix(matches[0], "name:")
+		appName = strings.TrimSpace(appName)
 
-	re = regexp.MustCompile(`\s*(app_[a-zA-Z0-9_]+)\s+` + regexp.QuoteMeta(appName) + `\s+`)
-	matches = re.FindStringSubmatch(string(output))
-	require.Greater(t, len(matches), 0, "App '%s' not found in output: %s", appName, string(output))
-	appID := strings.TrimSpace(matches[1])
-	helper.LogStep(t, fmt.Sprintf("App id: %s", appID))
+		// Use helix app list to get the most recent marvin app id
+		helixAppListCmd := exec.Command(cliInstallPath, "app", "list")
+		helixAppListCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
+		helixAppListCmd.Dir = tmpDir
+		output, err = helixAppListCmd.CombinedOutput()
+		require.NoError(t, err, "Helix app list failed: %s", string(output))
 
-	// Check that the app is working
-	page = browser.MustPage(helper.GetServerURL() + "/app/" + appID)
-	page.MustWaitLoad()
+		re = regexp.MustCompile(`\s*(app_[a-zA-Z0-9_]+)\s+` + regexp.QuoteMeta(appName) + `\s+`)
+		matches = re.FindStringSubmatch(string(output))
+		require.Greater(t, len(matches), 0, "App '%s' not found in output: %s", appName, string(output))
+		appID := strings.TrimSpace(matches[1])
+		helper.LogStep(t, fmt.Sprintf("App id: %s", appID))
 
-	helper.LogStep(t, "Testing the app")
-	page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
-	page.MustElement("#sendButton").MustClick()
+		// Check that the app is working
+		page = browser.MustPage(helper.GetServerURL() + "/app/" + appID)
+		page.MustWaitLoad()
 
-	helper.WaitForHelixResponse(t, page)
+		helper.LogStep(t, "Testing the app")
+		page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
+		page.MustElement("#sendButton").MustClick()
+
+		helper.WaitForHelixResponse(t, page)
+	}
 }
