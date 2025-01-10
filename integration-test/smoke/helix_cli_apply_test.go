@@ -19,7 +19,7 @@ import (
 
 func TestHelixCLIApply(t *testing.T) {
 	t.Parallel()
-	ctx := helper.SetTestTimeout(t, 30*time.Second)
+	ctx := helper.SetTestTimeout(t, 120*time.Second)
 
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
@@ -41,28 +41,45 @@ func TestHelixCLIApply(t *testing.T) {
 
 	cliInstallPath := InstallHelixCLI(t, tmpDir)
 
-	openAPIExample := "https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/openapi/jobvacancies.yaml"
-	helper.DownloadFile(t, openAPIExample, path.Join(tmpDir, "openapi"))
+	repoDir := helper.DownloadRepository(t, tmpDir)
 
-	for _, appURL := range []string{
-		"https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/marvin_paranoid_bot.yaml",
-		"https://raw.githubusercontent.com/helixml/helix/refs/heads/main/examples/api_tools.yaml",
+	files, err := os.ReadDir(path.Join(repoDir, "examples"))
+	require.NoError(t, err)
+	for _, file := range files {
+		fmt.Println(file.Name())
+	}
+
+	for _, fileName := range []string{
+		"api_tools.yaml",
+		"basic_knowledge.yaml",
+		"cron_app.yaml",
+		"discord_bot.yaml",
+		"gptscript_app.yaml",
+		"guardian.yaml",
+		// "helix_docs.yaml", // Global app, can't update
+		// "hn-scraper.yaml", // Global app, can't update
+		"marvin_paranoid_bot.yaml",
+		"override_prompts.yaml",
+		"uploaded_files.yaml",
+		"using_secrets.yaml",
+		// "website_custom_rag.yaml", // This doesn't work
+		"website_knowledge.yaml",
+		// "zapier.yaml", // This requires a secret
 	} {
-		fileName := helper.DownloadFile(t, appURL, tmpDir)
-
+		file := path.Join(repoDir, "examples", fileName)
 		helper.LogStep(t, "Running helix apply")
-		helixApplyCmd := exec.Command(cliInstallPath, "apply", "-f", fileName)
+		helixApplyCmd := exec.Command(cliInstallPath, "apply", "-f", file)
 		helixApplyCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
-		helixApplyCmd.Dir = tmpDir
+		helixApplyCmd.Dir = path.Join(repoDir, "examples")
 		output, err := helixApplyCmd.CombinedOutput()
 		require.NoError(t, err, "Helix apply failed: %s", string(output))
 
 		// Parse the name of the app from the yaml file
-		yamlFile, err := os.ReadFile(fileName)
+		yamlFile, err := os.ReadFile(file)
 		require.NoError(t, err)
 		re := regexp.MustCompile(`name:.*`)
 		matches := re.FindStringSubmatch(string(yamlFile))
-		require.Greater(t, len(matches), 0, "No app name found in %s", fileName)
+		require.Greater(t, len(matches), 0, "No app name found in %s", file)
 		appName := strings.TrimPrefix(matches[0], "name:")
 		appName = strings.TrimSpace(appName)
 
@@ -83,7 +100,7 @@ func TestHelixCLIApply(t *testing.T) {
 		page = browser.MustPage(helper.GetServerURL() + "/app/" + appID)
 		page.MustWaitLoad()
 
-		helper.LogStep(t, "Testing the app")
+		helper.LogStep(t, fmt.Sprintf("Testing the app: %s", appName))
 		page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
 		page.MustElement("#sendButton").MustClick()
 

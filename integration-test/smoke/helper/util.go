@@ -162,3 +162,19 @@ func DownloadFile(t *testing.T, url string, dir string) string {
 	require.NoError(t, err, "Failed to download %s: %s", path.Base(url), string(output))
 	return path.Base(url)
 }
+
+func DownloadRepository(t *testing.T, dir string) string {
+	url := "https://github.com/helixml/helix/archive/refs/heads/main.zip"
+	err := os.MkdirAll(dir, 0755)
+	require.NoError(t, err)
+	LogStep(t, fmt.Sprintf("Downloading %s", url))
+	downloadCmd := exec.Command("curl", "-sL", "-o", path.Join(dir, "helix-main.zip"), url)
+	output, err := downloadCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to download %s: %s", path.Base(url), string(output))
+
+	unzipCmd := exec.Command("unzip", "-q", path.Join(dir, "helix-main.zip"), "-d", dir)
+	output, err = unzipCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to unzip %s: %s", path.Base(url), string(output))
+
+	return path.Join(dir, "helix-main")
+}
