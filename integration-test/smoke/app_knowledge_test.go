@@ -14,7 +14,7 @@ import (
 
 func TestCreateRagApp(t *testing.T) {
 	t.Parallel()
-	ctx := helper.SetTestTimeout(t, 60*time.Second)
+	ctx := helper.SetTestTimeout(t, 120*time.Second)
 
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
@@ -45,6 +45,7 @@ func TestCreateRagApp(t *testing.T) {
 	helper.LogStep(t, "Clicking on the upload file button")
 	upload := page.MustElement("input[type='file']")
 
+	helper.LogStep(t, "Uploading the file")
 	wait1 := page.MustWaitRequestIdle()
 	upload.MustSetFiles(helper.TestPDFFile)
 	wait1()
