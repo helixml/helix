@@ -71,13 +71,6 @@ check_docker_sudo() {
     fi
 }
 
-# Determine if we need sudo for docker commands
-NEED_SUDO=$(check_docker_sudo)
-DOCKER_CMD="docker"
-if [ "$NEED_SUDO" = "true" ]; then
-    DOCKER_CMD="sudo docker"
-fi
-
 # Function to display help message
 display_help() {
     cat << EOF
@@ -243,6 +236,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# default docker command
+DOCKER_CMD="docker"
+
+# Only check docker sudo if we need docker (i.e., not CLI-only installation)
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ]; then
+    NEED_SUDO="false"
+else
+    # Determine if we need sudo for docker commands
+    NEED_SUDO=$(check_docker_sudo)
+    if [ "$NEED_SUDO" = "true" ]; then
+        DOCKER_CMD="sudo docker"
+    fi
+fi
+
 # Determine version to install
 if [ -n "$HELIX_VERSION" ]; then
     LATEST_RELEASE="$HELIX_VERSION"
@@ -251,7 +258,6 @@ else
     LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
     echo "Using latest Helix version: $LATEST_RELEASE"
 fi
-
 
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
@@ -262,7 +268,6 @@ check_nvidia_gpu() {
         return 1
     fi
 }
-
 
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
