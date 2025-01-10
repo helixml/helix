@@ -36,7 +36,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 		k.Message = ""
 
 		// Sanity check the limits
-		if k.Source.Web != nil {
+		if k.Source.Web != nil && k.Source.Web.Crawler != nil {
 			if r.config.RAG.Crawler.MaxPages > 0 && k.Source.Web.Crawler.MaxPages > r.config.RAG.Crawler.MaxPages {
 				log.Warn().Msg("knowledge 'max pages' limit is above the server config, updating")
 				k.Source.Web.Crawler.MaxPages = r.config.RAG.Crawler.MaxPages
