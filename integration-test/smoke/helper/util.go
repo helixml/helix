@@ -160,7 +160,7 @@ func DownloadFile(t *testing.T, url string, dir string) string {
 	downloadCmd.Dir = dir
 	output, err := downloadCmd.CombinedOutput()
 	require.NoError(t, err, "Failed to download %s: %s", path.Base(url), string(output))
-	return path.Base(url)
+	return path.Join(dir, path.Base(url))
 }
 
 func DownloadRepository(t *testing.T, dir string) string {

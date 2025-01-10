@@ -43,12 +43,6 @@ func TestHelixCLIApply(t *testing.T) {
 
 	repoDir := helper.DownloadRepository(t, tmpDir)
 
-	files, err := os.ReadDir(path.Join(repoDir, "examples"))
-	require.NoError(t, err)
-	for _, file := range files {
-		fmt.Println(file.Name())
-	}
-
 	for _, fileName := range []string{
 		"api_tools.yaml",
 		"basic_knowledge.yaml",
