@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -21,7 +23,9 @@ const (
 )
 
 func LogStep(t *testing.T, step string) {
-	t.Logf("⏩ %s", step)
+	_, file, line, _ := runtime.Caller(1) // Get caller info, skip 1 frame to get the caller rather than this function
+	timestamp := time.Now().Format("15:04:05.000")
+	t.Logf("[%s] ⏩ %s (at %s:%d)", timestamp, step, filepath.Base(file), line)
 }
 
 func LogAndFail(t *testing.T, message string) {
@@ -177,4 +181,12 @@ func DownloadRepository(t *testing.T, dir string) string {
 	require.NoError(t, err, "Failed to unzip %s: %s", path.Base(url), string(output))
 
 	return path.Join(dir, "helix-main")
+}
+
+// MustReload reloads the page and waits for the navigation to complete
+// Helper function because if you MustWaitLoad instead, it sometimes panics
+func MustReload(t *testing.T, page *rod.Page) {
+	LogStep(t, "Reloading the page")
+	page.MustReload()
+	page.MustWaitNavigation()
 }
