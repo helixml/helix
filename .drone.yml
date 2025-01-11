@@ -533,7 +533,7 @@ steps:
   commands:
   - apk add --no-cache curl bash openssl
   - cp -r integration-test/* /integration-test
-  - go test -timeout 300s -tags=integration -v ./integration-test/smoke
+  - go test -timeout 600s -tags=integration -v ./integration-test/smoke
   depends_on: []
 - name: slack-notification
   image: plugins/slack

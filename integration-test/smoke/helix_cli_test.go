@@ -64,7 +64,6 @@ func InstallHelixCLI(t *testing.T, tmpDir string) string {
 }
 
 func TestHelixCLIInstall(t *testing.T) {
-
 	// Create temp dir for test
 	tmpDir, err := os.MkdirTemp("", "helix-install-test-*")
 	require.NoError(t, err)
@@ -86,7 +85,6 @@ func TestHelixCLIInstall(t *testing.T) {
 }
 
 func TestHelixCLITest(t *testing.T) {
-	t.Parallel()
 	ctx := helper.SetTestTimeout(t, 30*time.Second)
 
 	browser := createBrowser(ctx)

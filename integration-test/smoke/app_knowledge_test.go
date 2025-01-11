@@ -49,7 +49,7 @@ func TestCreateRagApp(t *testing.T) {
 	upload.MustSetFiles(helper.TestPDFFile)
 	wait1()
 
-	page.MustReload()
+	helper.MustReload(t, page)
 
 	helper.LogStep(t, "Double checking that the file is present in the knowledge")
 	moreButton := page.MustElement(`[data-testid='ExpandMoreIcon']`)
