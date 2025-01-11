@@ -50,7 +50,6 @@ func TestCreateIntegrationApp(t *testing.T) {
 	page.MustElementX(`//button[@id = 'submitButton' and text() = 'Save']`).MustClick()
 
 	helper.SaveApp(t, page)
-	helper.MustReload(t, page)
 
 	helper.LogStep(t, "Testing the app")
 	page.MustElement("#textEntry").MustInput("what is the USD GBP rate")
