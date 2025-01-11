@@ -12,7 +12,6 @@ import (
 )
 
 func TestStartNewSession(t *testing.T) {
-	t.Parallel()
 	ctx := helper.SetTestTimeout(t, 30*time.Second)
 
 	browser := createBrowser(ctx)

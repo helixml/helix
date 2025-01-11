@@ -13,7 +13,6 @@ import (
 )
 
 func TestCreateRagApp(t *testing.T) {
-	t.Parallel()
 	ctx := helper.SetTestTimeout(t, 120*time.Second)
 
 	browser := createBrowser(ctx)
@@ -65,5 +64,5 @@ func TestCreateRagApp(t *testing.T) {
 	page.MustElement("#textEntry").MustInput("do you have a shoe policy")
 	page.MustElement("#sendButton").MustClick()
 
-	helper.WaitForHelixResponse(t, page)
+	helper.WaitForHelixResponse(ctx, t, page)
 }
