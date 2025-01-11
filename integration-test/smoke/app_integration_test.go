@@ -13,7 +13,6 @@ import (
 )
 
 func TestCreateIntegrationApp(t *testing.T) {
-	t.Parallel()
 	ctx := helper.SetTestTimeout(t, 60*time.Second)
 
 	browser := createBrowser(ctx)
@@ -60,5 +59,5 @@ func TestCreateIntegrationApp(t *testing.T) {
 	page.MustElement("#textEntry").MustInput("what is the USD GBP rate")
 	page.MustElement("#sendButton").MustClick()
 
-	helper.WaitForHelixResponse(t, page)
+	helper.WaitForHelixResponse(ctx, t, page)
 }

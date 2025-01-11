@@ -18,7 +18,6 @@ import (
 )
 
 func TestHelixCLIApply(t *testing.T) {
-	t.Parallel()
 	ctx := helper.SetTestTimeout(t, 120*time.Second)
 
 	browser := createBrowser(ctx)
@@ -98,6 +97,6 @@ func TestHelixCLIApply(t *testing.T) {
 		page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
 		page.MustElement("#sendButton").MustClick()
 
-		helper.WaitForHelixResponse(t, page)
+		helper.WaitForHelixResponse(ctx, t, page)
 	}
 }
