@@ -182,11 +182,3 @@ func DownloadRepository(t *testing.T, dir string) string {
 
 	return path.Join(dir, "helix-main")
 }
-
-// MustReload reloads the page and waits for the navigation to complete
-// Helper function because if you MustWaitLoad instead, it sometimes panics
-func MustReload(t *testing.T, page *rod.Page) {
-	LogStep(t, "Reloading the page")
-	page.MustReload()
-	page.MustWaitNavigation()
-}
