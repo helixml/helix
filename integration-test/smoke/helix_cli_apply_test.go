@@ -25,7 +25,6 @@ func TestHelixCLIApply(t *testing.T) {
 
 	page := browser.MustPage(helper.GetServerURL())
 	defer page.MustClose()
-	page.MustWaitLoad()
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
@@ -60,7 +59,7 @@ func TestHelixCLIApply(t *testing.T) {
 		// "zapier.yaml", // This requires a secret
 	} {
 		file := path.Join(repoDir, "examples", fileName)
-		helper.LogStep(t, "Running helix apply")
+		helper.LogStep(t, fmt.Sprintf("Running helix apply for %s", file))
 		helixApplyCmd := exec.Command(cliInstallPath, "apply", "-f", file)
 		helixApplyCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+helper.GetServerURL())
 		helixApplyCmd.Dir = path.Join(repoDir, "examples")
@@ -90,9 +89,7 @@ func TestHelixCLIApply(t *testing.T) {
 		helper.LogStep(t, fmt.Sprintf("App id: %s", appID))
 
 		// Check that the app is working
-		page = browser.MustPage(helper.GetServerURL() + "/app/" + appID)
-		page.MustWaitLoad()
-
+		page.MustNavigate(helper.GetServerURL() + "/app/" + appID)
 		helper.LogStep(t, fmt.Sprintf("Testing the app: %s", appName))
 		page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
 		page.MustElement("#sendButton").MustClick()

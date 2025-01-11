@@ -22,7 +22,6 @@ func TestCreateRagApp(t *testing.T) {
 		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
 		MustPage(helper.GetServerURL())
 	defer page.MustClose()
-	page.MustWaitLoad()
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")

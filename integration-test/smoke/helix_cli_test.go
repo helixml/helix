@@ -92,7 +92,6 @@ func TestHelixCLITest(t *testing.T) {
 
 	page := browser.MustPage(helper.GetServerURL())
 	defer page.MustClose()
-	page.MustWaitLoad()
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
