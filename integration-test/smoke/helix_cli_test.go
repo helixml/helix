@@ -64,7 +64,6 @@ func InstallHelixCLI(t *testing.T, tmpDir string) string {
 }
 
 func TestHelixCLIInstall(t *testing.T) {
-	t.Parallel()
 
 	// Create temp dir for test
 	tmpDir, err := os.MkdirTemp("", "helix-install-test-*")

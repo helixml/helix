@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -34,15 +35,14 @@ func SaveApp(t *testing.T, page *rod.Page) {
 }
 
 // This function checks to see if Helix has responded. It doesn't check the text.
-func WaitForHelixResponse(t *testing.T, page *rod.Page) {
-	timeout := time.After(10 * time.Second)
+func WaitForHelixResponse(ctx context.Context, t *testing.T, page *rod.Page) {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-timeout:
-			LogAndFail(t, "App did not respond with an answer")
+		case <-ctx.Done():
+			return
 		case <-ticker.C:
 			responses := page.MustElementsX("(//div[@class = 'interactionMessage'])")
 			if len(responses) < 2 {
