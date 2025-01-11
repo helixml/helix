@@ -73,9 +73,6 @@ func loginWithCredentials(t *testing.T, page *rod.Page) error {
 		return nil
 	}
 
-	LogStep(t, "Waiting for login page to load")
-	page.MustWaitLoad()
-
 	LogStep(t, "Getting credentials from environment")
 	username := GetHelixUser()
 	password := GetHelixPassword()
@@ -84,8 +81,6 @@ func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	page.MustElement("input[type='text']").MustInput(username)
 	page.MustElement("input[type='password']").MustInput(password)
 	page.MustElement("input[type='submit']").MustClick()
-
-	page.MustWaitLoad()
 
 	return nil
 }
@@ -150,7 +145,6 @@ func SetTestTimeout(t *testing.T, timeout time.Duration) context.Context {
 func GetFirstAPIKey(t *testing.T, page *rod.Page) string {
 	LogStep(t, "Getting API key")
 	page.MustNavigate(fmt.Sprintf("%s/account", GetServerURL()))
-	page.MustWaitLoad()
 	apiKey := page.MustElementX("(//p[contains(text(),'hl-')])[1]").MustText()
 	require.NotEmpty(t, apiKey, "API key should be set")
 	return apiKey
