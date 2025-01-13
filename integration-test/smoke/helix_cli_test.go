@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
@@ -85,7 +84,7 @@ func TestHelixCLIInstall(t *testing.T) {
 }
 
 func TestHelixCLITest(t *testing.T) {
-	ctx := helper.SetTestTimeout(t, 30*time.Second)
+	ctx := helper.CreateContext(t)
 
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
