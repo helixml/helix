@@ -5,7 +5,6 @@ package smoke
 
 import (
 	"testing"
-	"time"
 
 	"github.com/go-rod/rod/lib/devices"
 	"github.com/helixml/helix/integration-test/smoke/helper"
@@ -13,7 +12,7 @@ import (
 )
 
 func TestCreateIntegrationApp(t *testing.T) {
-	ctx := helper.SetTestTimeout(t, 60*time.Second)
+	ctx := helper.CreateContext(t)
 
 	browser := createBrowser(ctx)
 	defer browser.MustClose()

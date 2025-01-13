@@ -143,8 +143,8 @@ func StartNewImageSession(t *testing.T, page *rod.Page) error {
 	return nil
 }
 
-func SetTestTimeout(t *testing.T, timeout time.Duration) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func CreateContext(t *testing.T) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel) // Register the cancel function to be called when the test finishes
 	go func() {
 		<-ctx.Done()

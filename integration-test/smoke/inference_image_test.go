@@ -5,14 +5,13 @@ package smoke
 
 import (
 	"testing"
-	"time"
 
 	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
 )
 
 func TestImageInference(t *testing.T) {
-	ctx := helper.SetTestTimeout(t, 90*time.Second)
+	ctx := helper.CreateContext(t)
 
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
