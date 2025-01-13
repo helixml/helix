@@ -184,7 +184,7 @@ const App: FC = () => {
     setKnowledgeSources(updatedKnowledge);
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         knowledge: updatedKnowledge,
       }));
@@ -288,7 +288,7 @@ const App: FC = () => {
       setIsNewApp(false);
     }
     setApp(initialApp);
-    if (initialApp && initialApp.config.helix.assistants.length > 0) {
+    if (initialApp && initialApp.config.helix.assistants && initialApp.config.helix.assistants.length > 0) {
       setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
     }
   }, [params.app_id, apps.data, account.user]);
@@ -387,7 +387,7 @@ const App: FC = () => {
             external_url: app.config.helix.external_url,
             avatar,
             image,
-            assistants: app.config.helix.assistants.map(assistant => ({
+            assistants: (app.config.helix.assistants || []).map(assistant => ({
               ...assistant,
               system_prompt: systemPrompt,
               knowledge: knowledgeSources,
@@ -504,7 +504,7 @@ const App: FC = () => {
 
   const validateApiSchemas = (app: IApp): string[] => {
     const errors: string[] = [];
-    app.config.helix.assistants.forEach((assistant, assistantIndex) => {
+    (app.config.helix.assistants || []).forEach((assistant, assistantIndex) => {
       if (assistant.tools && assistant.tools.length > 0) {
         assistant.tools.forEach((tool, toolIndex) => {
           if (tool.tool_type === 'api' && tool.config.api) {
@@ -547,7 +547,7 @@ const App: FC = () => {
 
   useEffect(() => {
     if (!app) return;
-    setName(app.config.helix.name || '');
+    setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
     let cleanedConfig = removeEmptyValues(app.config.helix);
@@ -566,10 +566,13 @@ const App: FC = () => {
     setAllowedDomains(app.config.allowed_domains || []);
     setShared(app.shared ? true : false);
     setGlobal(app.global ? true : false);
-    setSystemPrompt(app.config.helix.assistants[0]?.system_prompt || '');
+    // TODO: the golang types have changed to "omitempty" for the helix config fields that are arrays or objects
+    // this is the correct behavior but the frontend codebase needs updating to reflect the optional nature of these fields
+    // then can get rid of the monstrosity of the following ternary operators
+    setSystemPrompt(app.config.helix.assistants ? app.config.helix.assistants[0]?.system_prompt || '' : '');
     setAvatar(app.config.helix.avatar || '');
     setImage(app.config.helix.image || '');
-    setModel(app.config.helix.assistants[0]?.model || '');
+    setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
     setHasLoaded(true);
   }, [app])
 
@@ -586,7 +589,7 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
         const gptscripts = [...(assistant.gptscripts || [])];
         const targetIndex = typeof index === 'number' ? index : gptscripts.length;
         gptscripts[targetIndex] = script;
@@ -612,7 +615,7 @@ const App: FC = () => {
   const onDeleteGptScript = useCallback((scriptId: string) => {
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
       }));
@@ -660,9 +663,9 @@ const App: FC = () => {
       return;
     }
 
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+    const updatedAssistants = (app.config.helix.assistants || []).map(assistant => ({
       ...assistant,
-      tools: assistant.tools.filter(tool => tool.id !== toolId),
+      tools: (assistant.tools || []).filter(tool => tool.id !== toolId),
       gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
     }));
 
@@ -691,7 +694,7 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
         const apis = [...(assistant.apis || [])];
         const targetIndex = typeof index === 'number' ? index : apis.length;
         console.log('App - API tool update:', {
@@ -724,7 +727,7 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
         const zapier = [...(assistant.zapier || [])];
         const targetIndex = typeof index === 'number' ? index : zapier.length;
         console.log('App - Zapier tool update:', {
@@ -754,7 +757,7 @@ const App: FC = () => {
   const onDeleteApiTool = useCallback((toolId: string) => {
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         apis: (assistant.apis || []).filter((api) => api.name !== toolId)
       }));
@@ -774,7 +777,7 @@ const App: FC = () => {
   const onDeleteZapierTool = useCallback((toolId: string) => {
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
       }));
@@ -790,6 +793,11 @@ const App: FC = () => {
       };
     });
   }, []);
+
+  const assistants = app?.config.helix.assistants || []
+  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
+  const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
+  const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
 
   if(!account.user) return null
   if(!app) return null
@@ -927,14 +935,14 @@ const App: FC = () => {
                 {tabValue === 'integrations' && (
                   <>
                     <ApiIntegrations
-                      apis={app?.config.helix.assistants[0]?.apis || []}
+                      apis={apiAssistants}
                       onSaveApiTool={onSaveApiTool}
                       onDeleteApiTool={onDeleteApiTool}
                       isReadOnly={isReadOnly}
                     />
 
                     <ZapierIntegrations
-                      zapier={app?.config.helix.assistants[0]?.zapier || []}
+                      zapier={zapierAssistants}
                       onSaveZapierTool={onSaveZapierTool}
                       onDeleteZapierTool={onDeleteZapierTool}
                       isReadOnly={isReadOnly}
@@ -953,7 +961,7 @@ const App: FC = () => {
                       };
                       setEditingGptScript({
                         tool: newScript,
-                        index: app?.config.helix.assistants[0]?.gptscripts?.length || 0
+                        index: gptscriptsAssistants.length
                       });
                     }}
                     onEdit={(tool, index) => setEditingGptScript({tool, index})}
