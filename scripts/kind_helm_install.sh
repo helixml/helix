@@ -57,6 +57,7 @@ kubectl cluster-info --context kind-$CLUSTER_NAME
 
 # Install Keycloak using Helm
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+  --version "24.3.1" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
   --set image.tag="23.0.7" \
