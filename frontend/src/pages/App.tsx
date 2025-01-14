@@ -45,6 +45,7 @@ import {
   IAssistantGPTScript,
   IAssistantZapier,
   IFileStoreItem,
+  IAssistantConfig,
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
@@ -83,6 +84,8 @@ const App: FC = () => {
 
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
+  const [ hasInitialised, setHasInitialised ] = useState(false)
+  //const [ assistants, setAssistants ] = useState<IAssistantConfig[]>([])
   const [ description, setDescription ] = useState('')
   const [ shared, setShared ] = useState(false)
   const [ global, setGlobal ] = useState(false)
@@ -180,27 +183,6 @@ const App: FC = () => {
     };
   }, [app?.id, fetchKnowledge]);
 
-  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
-    setKnowledgeSources(updatedKnowledge);
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
-        ...assistant,
-        knowledge: updatedKnowledge,
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, [app?.id]);
-
   const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
       const filesResult = await api.get('/api/v1/filestore/list', {
@@ -288,7 +270,7 @@ const App: FC = () => {
       setIsNewApp(false);
     }
     setApp(initialApp);
-    if (initialApp && initialApp.config.helix.assistants.length > 0) {
+    if (initialApp && initialApp.config.helix.assistants && initialApp.config.helix.assistants.length > 0) {
       setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
     }
   }, [params.app_id, apps.data, account.user]);
@@ -347,25 +329,38 @@ const App: FC = () => {
     }
     return true;
   }, [app, name]);
+  
+  const validateApiSchemas = (app: IApp): string[] => {
+    const errors: string[] = [];
+    (app.config.helix.assistants || []).forEach((assistant, assistantIndex) => {
+      if (assistant.tools && assistant.tools.length > 0) {
+        assistant.tools.forEach((tool, toolIndex) => {
+          if (tool.tool_type === 'api' && tool.config.api) {
+            try {
+              const parsedSchema = parseYaml(tool.config.api.schema);
+              if (!parsedSchema || typeof parsedSchema !== 'object') {
+                errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+              }
+            } catch (error) {
+              errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
+            }
+          }
+        });
+      }
+    });
+    return errors;
+  };
 
-  const onSave = useCallback(async (quiet: boolean = false): Promise<IApp | null> => {
-    if (!app) {
-      snackbar.error('No app data available');
-      return null;
-    }
+  const validateKnowledge = () => {
+    const hasErrors = knowledgeSources.some(source => 
+      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
+    );
+    setKnowledgeErrors(hasErrors);
+    return !hasErrors;
+  };
 
-    if (!validate() || !validateKnowledge()) {
-      setShowErrors(true);
-      return null;
-    }
-
-    const schemaErrors = validateApiSchemas(app);
-    if (schemaErrors.length > 0) {
-      snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
-      return null;
-    }
-
-    setShowErrors(false);
+  const getUpdatedAppState = (): IAppUpdate | undefined => {
+    if (!app) return undefined
 
     var updatedApp: IAppUpdate;
     if (isGithubApp) {
@@ -387,7 +382,7 @@ const App: FC = () => {
             external_url: app.config.helix.external_url,
             avatar,
             image,
-            assistants: app.config.helix.assistants.map(assistant => ({
+            assistants: (app.config.helix.assistants || []).map(assistant => ({
               ...assistant,
               system_prompt: systemPrompt,
               knowledge: knowledgeSources,
@@ -417,6 +412,31 @@ const App: FC = () => {
         last_update: app.config.github.last_update,
       };
     }
+
+    return updatedApp
+  }
+
+  const onSave = async (quiet: boolean = false): Promise<IApp | null> => {
+    if (!app) {
+      snackbar.error('No app data available');
+      return null;
+    }
+
+    if (!validate() || !validateKnowledge()) {
+      setShowErrors(true);
+      return null;
+    }
+
+    const schemaErrors = validateApiSchemas(app);
+    if (schemaErrors.length > 0) {
+      snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
+      return null;
+    }
+
+    setShowErrors(false);
+
+    const updatedApp = getUpdatedAppState()
+    if (!updatedApp) return null
 
     try {
       let result;
@@ -452,7 +472,48 @@ const App: FC = () => {
       }
       return null;
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
+  }
+
+  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
+    setKnowledgeSources(updatedKnowledge);
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+
+      // if we don't have any assistants - create a default one
+      const currentAssistants = prevApp.config.helix.assistants || [];
+      let updatedAssistants = currentAssistants;
+      
+      if (currentAssistants.length === 0) {
+        // create a default assistant
+        updatedAssistants = [{
+          id: uuidv4(),
+          name: "Default Assistant",
+          description: "",
+          type: SESSION_TYPE_TEXT,
+          system_prompt: systemPrompt,
+          model: model,
+          knowledge: updatedKnowledge,
+        }];
+      } else {
+        // update existing assistants with new knowledge
+        updatedAssistants = currentAssistants.map(assistant => ({
+          ...assistant,
+          knowledge: updatedKnowledge,
+        }));
+      }
+
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }
 
   const { NewInference } = useStreaming();
 
@@ -502,35 +563,6 @@ const App: FC = () => {
     setSearchResults(newSearchResults);
   }
 
-  const validateApiSchemas = (app: IApp): string[] => {
-    const errors: string[] = [];
-    app.config.helix.assistants.forEach((assistant, assistantIndex) => {
-      if (assistant.tools && assistant.tools.length > 0) {
-        assistant.tools.forEach((tool, toolIndex) => {
-          if (tool.tool_type === 'api' && tool.config.api) {
-            try {
-              const parsedSchema = parseYaml(tool.config.api.schema);
-              if (!parsedSchema || typeof parsedSchema !== 'object') {
-                errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
-              }
-            } catch (error) {
-              errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
-            }
-          }
-        });
-      }
-    });
-    return errors;
-  };
-
-  const validateKnowledge = () => {
-    const hasErrors = knowledgeSources.some(source => 
-      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
-    );
-    setKnowledgeErrors(hasErrors);
-    return !hasErrors;
-  };
-
   useEffect(() => {
     if(!account.user) return
     if (params.app_id === "new") return; // Don't load data for new app
@@ -547,7 +579,9 @@ const App: FC = () => {
 
   useEffect(() => {
     if (!app) return;
-    setName(app.config.helix.name || '');
+    if (hasInitialised) return
+    setHasInitialised(true)
+    setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
     let cleanedConfig = removeEmptyValues(app.config.helix);
@@ -566,10 +600,13 @@ const App: FC = () => {
     setAllowedDomains(app.config.allowed_domains || []);
     setShared(app.shared ? true : false);
     setGlobal(app.global ? true : false);
-    setSystemPrompt(app.config.helix.assistants[0]?.system_prompt || '');
+    // TODO: the golang types have changed to "omitempty" for the helix config fields that are arrays or objects
+    // this is the correct behavior but the frontend codebase needs updating to reflect the optional nature of these fields
+    // then can get rid of the monstrosity of the following ternary operators
+    setSystemPrompt(app.config.helix.assistants ? app.config.helix.assistants[0]?.system_prompt || '' : '');
     setAvatar(app.config.helix.avatar || '');
     setImage(app.config.helix.image || '');
-    setModel(app.config.helix.assistants[0]?.model || '');
+    setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
     setHasLoaded(true);
   }, [app])
 
@@ -586,7 +623,7 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
         const gptscripts = [...(assistant.gptscripts || [])];
         const targetIndex = typeof index === 'number' ? index : gptscripts.length;
         gptscripts[targetIndex] = script;
@@ -612,7 +649,7 @@ const App: FC = () => {
   const onDeleteGptScript = useCallback((scriptId: string) => {
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
       }));
@@ -660,9 +697,9 @@ const App: FC = () => {
       return;
     }
 
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+    const updatedAssistants = (app.config.helix.assistants || []).map(assistant => ({
       ...assistant,
-      tools: assistant.tools.filter(tool => tool.id !== toolId),
+      tools: (assistant.tools || []).filter(tool => tool.id !== toolId),
       gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
     }));
 
@@ -691,7 +728,7 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
         const apis = [...(assistant.apis || [])];
         const targetIndex = typeof index === 'number' ? index : apis.length;
         console.log('App - API tool update:', {
@@ -724,7 +761,7 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => {
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
         const zapier = [...(assistant.zapier || [])];
         const targetIndex = typeof index === 'number' ? index : zapier.length;
         console.log('App - Zapier tool update:', {
@@ -754,7 +791,7 @@ const App: FC = () => {
   const onDeleteApiTool = useCallback((toolId: string) => {
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         apis: (assistant.apis || []).filter((api) => api.name !== toolId)
       }));
@@ -774,7 +811,7 @@ const App: FC = () => {
   const onDeleteZapierTool = useCallback((toolId: string) => {
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
         ...assistant,
         zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
       }));
@@ -790,6 +827,11 @@ const App: FC = () => {
       };
     });
   }, []);
+
+  const assistants = app?.config.helix.assistants || []
+  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
+  const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
+  const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
 
   if(!account.user) return null
   if(!app) return null
@@ -862,174 +904,181 @@ const App: FC = () => {
     >
       <Container maxWidth="xl" sx={{ height: 'calc(100% - 100px)' }}>
         <Box sx={{ height: 'calc(100vh - 100px)', width: '100%', flexGrow: 1, p: 2 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
-              <Tabs value={tabValue} onChange={handleTabChange}>
-                <Tab label="Settings" value="settings" />
-                <Tab label="Knowledge" value="knowledge" />
-                <Tab label="Integrations" value="integrations" />
-                <Tab label="GPTScripts" value="gptscripts" />
-                <Tab label="API Keys" value="apikeys" />
-                <Tab label="Developers" value="developers" />
-                <Tab label="Logs" value="logs" />
-              </Tabs>
-              
-              <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                {tabValue === 'settings' && (
-                  <AppSettings
-                    name={name}
-                    setName={setName}
-                    description={description}
-                    setDescription={setDescription}
-                    systemPrompt={systemPrompt}
-                    setSystemPrompt={setSystemPrompt}
-                    avatar={avatar}
-                    setAvatar={setAvatar}
-                    image={image}
-                    setImage={setImage}
-                    shared={shared}
-                    setShared={setShared}
-                    global={global}
-                    setGlobal={setGlobal}
-                    model={model}
-                    setModel={setModel}
-                    readOnly={readOnly}
-                    isReadOnly={isReadOnly}
-                    showErrors={showErrors}
-                    isAdmin={account.admin}
-                  />
-                )}
+          <Box>
+            <Tabs value={tabValue} onChange={handleTabChange}>
+              <Tab label="Settings" value="settings" />
+              <Tab label="Knowledge" value="knowledge" />
+              <Tab label="Integrations" value="integrations" />
+              <Tab label="GPTScripts" value="gptscripts" />
+              <Tab label="API Keys" value="apikeys" />
+              <Tab label="Developers" value="developers" />
+              <Tab label="Logs" value="logs" />
+            </Tabs>
+          </Box>
+          <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
+            <Grid container spacing={2} sx={{ height: '100%' }}>
+              <Grid item sm={12} md={6} sx={{ 
+                borderRight: '1px solid #303047',
+                height: '100%',
+                overflow: 'auto'
+              }}>
+                <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                  {tabValue === 'settings' && (
+                    <AppSettings
+                      name={name}
+                      setName={setName}
+                      description={description}
+                      setDescription={setDescription}
+                      systemPrompt={systemPrompt}
+                      setSystemPrompt={setSystemPrompt}
+                      avatar={avatar}
+                      setAvatar={setAvatar}
+                      image={image}
+                      setImage={setImage}
+                      shared={shared}
+                      setShared={setShared}
+                      global={global}
+                      setGlobal={setGlobal}
+                      model={model}
+                      setModel={setModel}
+                      readOnly={readOnly}
+                      isReadOnly={isReadOnly}
+                      showErrors={showErrors}
+                      isAdmin={account.admin}
+                    />
+                  )}
 
-                {tabValue === 'knowledge' && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                      Knowledge Sources
-                    </Typography>
-                    <KnowledgeEditor
-                      knowledgeSources={knowledgeSources}
-                      onUpdate={handleKnowledgeUpdate}
-                      onRefresh={handleRefreshKnowledge}
-                      onUpload={handleFileUpload}
-                      loadFiles={handleLoadFiles}
-                      uploadProgress={filestore.uploadProgress}
-                      disabled={isReadOnly}
-                      knowledgeList={knowledgeList}
+                  {tabValue === 'knowledge' && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="h6" sx={{ mb: 2 }}>
+                        Knowledge Sources
+                      </Typography>
+                      <KnowledgeEditor
+                        knowledgeSources={knowledgeSources}
+                        onUpdate={handleKnowledgeUpdate}
+                        onRefresh={handleRefreshKnowledge}
+                        onUpload={handleFileUpload}
+                        loadFiles={handleLoadFiles}
+                        uploadProgress={filestore.uploadProgress}
+                        disabled={isReadOnly}
+                        knowledgeList={knowledgeList}
+                        appId={app.id}
+                      />
+                      {knowledgeErrors && showErrors && (
+                        <Alert severity="error" sx={{ mt: 2 }}>
+                          Please specify at least one URL for each knowledge source.
+                        </Alert>
+                      )}
+                    </Box>
+                  )}
+
+                  {tabValue === 'integrations' && (
+                    <>
+                      <ApiIntegrations
+                        apis={apiAssistants}
+                        onSaveApiTool={onSaveApiTool}
+                        onDeleteApiTool={onDeleteApiTool}
+                        isReadOnly={isReadOnly}
+                      />
+
+                      <ZapierIntegrations
+                        zapier={zapierAssistants}
+                        onSaveZapierTool={onSaveZapierTool}
+                        onDeleteZapierTool={onDeleteZapierTool}
+                        isReadOnly={isReadOnly}
+                      />
+                    </>
+                  )}
+
+                  {tabValue === 'gptscripts' && (
+                    <GPTScriptsSection
+                      app={app}
+                      onAddGptScript={() => {
+                        const newScript: IAssistantGPTScript = {
+                          name: '',
+                          description: '',
+                          content: '',
+                        };
+                        setEditingGptScript({
+                          tool: newScript,
+                          index: gptscriptsAssistants.length
+                        });
+                      }}
+                      onEdit={(tool, index) => setEditingGptScript({tool, index})}
+                      onDeleteGptScript={onDeleteGptScript}
+                      isReadOnly={isReadOnly}
+                      isGithubApp={isGithubApp}
+                    />
+                  )}
+
+                  {tabValue === 'apikeys' && (
+                    <APIKeysSection
+                      apiKeys={account.apiKeys}
+                      onAddAPIKey={onAddAPIKey}
+                      onDeleteKey={(key) => setDeletingAPIKey(key)}
+                      allowedDomains={allowedDomains}
+                      setAllowedDomains={setAllowedDomains}
+                      isReadOnly={isReadOnly}
+                      readOnly={readOnly}
+                    />
+                  )}
+
+                  {tabValue === 'developers' && (
+                    <DevelopersSection
+                      schema={schema}
+                      setSchema={setSchema}
+                      showErrors={showErrors}
                       appId={app.id}
+                      navigate={navigate}
                     />
-                    {knowledgeErrors && showErrors && (
-                      <Alert severity="error" sx={{ mt: 2 }}>
-                        Please specify at least one URL for each knowledge source.
-                      </Alert>
-                    )}
-                  </Box>
-                )}
+                  )}
 
-                {tabValue === 'integrations' && (
-                  <>
-                    <ApiIntegrations
-                      apis={app?.config.helix.assistants[0]?.apis || []}
-                      onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteApiTool}
-                      isReadOnly={isReadOnly}
-                    />
-
-                    <ZapierIntegrations
-                      zapier={app?.config.helix.assistants[0]?.zapier || []}
-                      onSaveZapierTool={onSaveZapierTool}
-                      onDeleteZapierTool={onDeleteZapierTool}
-                      isReadOnly={isReadOnly}
-                    />
-                  </>
-                )}
-
-                {tabValue === 'gptscripts' && (
-                  <GPTScriptsSection
-                    app={app}
-                    onAddGptScript={() => {
-                      const newScript: IAssistantGPTScript = {
-                        name: '',
-                        description: '',
-                        content: '',
-                      };
-                      setEditingGptScript({
-                        tool: newScript,
-                        index: app?.config.helix.assistants[0]?.gptscripts?.length || 0
-                      });
-                    }}
-                    onEdit={(tool, index) => setEditingGptScript({tool, index})}
-                    onDeleteGptScript={onDeleteGptScript}
-                    isReadOnly={isReadOnly}
-                    isGithubApp={isGithubApp}
-                  />
-                )}
-
-                {tabValue === 'apikeys' && (
-                  <APIKeysSection
-                    apiKeys={account.apiKeys}
-                    onAddAPIKey={onAddAPIKey}
-                    onDeleteKey={(key) => setDeletingAPIKey(key)}
-                    allowedDomains={allowedDomains}
-                    setAllowedDomains={setAllowedDomains}
-                    isReadOnly={isReadOnly}
-                    readOnly={readOnly}
-                  />
-                )}
-
-                {tabValue === 'developers' && (
-                  <DevelopersSection
-                    schema={schema}
-                    setSchema={setSchema}
-                    showErrors={showErrors}
-                    appId={app.id}
-                    navigate={navigate}
-                  />
-                )}
-
-                {tabValue === 'logs' && (
-                  <Box sx={{ mt: 2 }}>
-                    <AppLogsTable appId={app.id} />
-                  </Box>
-                )}
-              </Box>
-              
-              {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
-                <Box sx={{ mt: 2, pl: 3 }}>
-                  <Button
-                    type="button"
-                    color="secondary"
-                    variant="contained"
-                    onClick={() => onSave(false)}
-                    disabled={isReadOnly && !isGithubApp}
-                  >
-                    Save
-                  </Button>
+                  {tabValue === 'logs' && (
+                    <Box sx={{ mt: 2 }}>
+                      <AppLogsTable appId={app.id} />
+                    </Box>
+                  )}
                 </Box>
+                
+                {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+                  <Box sx={{ mt: 2, pl: 3 }}>
+                    <Button
+                      type="button"
+                      color="secondary"
+                      variant="contained"
+                      onClick={() => onSave(false)}
+                      disabled={isReadOnly && !isGithubApp}
+                    >
+                      Save
+                    </Button>
+                  </Box>
+                )}
+              </Grid>
+              {/* For API keys section show  */}
+              {tabValue === 'apikeys' ? (
+                <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
+              ) : (
+                <PreviewPanel
+                loading={loading}
+                name={name}
+                avatar={avatar}
+                image={image}
+                isSearchMode={isSearchMode}
+                setIsSearchMode={setIsSearchMode}
+                inputValue={inputValue}
+                setInputValue={setInputValue}
+                onInference={onInference}
+                onSearch={onSearch}
+                hasKnowledgeSources={hasKnowledgeSources}
+                searchResults={searchResults}
+                session={session.data}
+                serverConfig={account.serverConfig}
+                themeConfig={themeConfig}
+                snackbar={snackbar}
+                />
               )}
             </Grid>
-            {/* For API keys section show  */}
-            {tabValue === 'apikeys' ? (
-              <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
-            ) : (
-              <PreviewPanel
-              loading={loading}
-              name={name}
-              avatar={avatar}
-              image={image}
-              isSearchMode={isSearchMode}
-              setIsSearchMode={setIsSearchMode}
-              inputValue={inputValue}
-              setInputValue={setInputValue}
-              onInference={onInference}
-              onSearch={onSearch}
-              hasKnowledgeSources={hasKnowledgeSources}
-              searchResults={searchResults}
-              session={session.data}
-              serverConfig={account.serverConfig}
-              themeConfig={themeConfig}
-              snackbar={snackbar}
-              />
-            )}
-          </Grid>
+          </Box>
         </Box>
       </Container>
       {

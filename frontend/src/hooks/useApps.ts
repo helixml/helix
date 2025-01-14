@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import useApi from '../hooks/useApi'
 
 import {
@@ -13,6 +13,7 @@ import {
 
 export const useApps = () => {
   const api = useApi()
+  const mountedRef = useRef(true)
   
   const [ data, setData ] = useState<IApp[]>([])
   const [ app, setApp ] = useState<IApp>()
@@ -21,6 +22,12 @@ export const useApps = () => {
   const [ githubReposLoading, setGithubReposLoading ] = useState(false)
   const [ connectError, setConnectError ] = useState('')
   const [ connectLoading, setConectLoading ] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const helixApps = useMemo(() => {
     return data.filter(app => app.app_source == APP_SOURCE_HELIX)
@@ -35,12 +42,12 @@ export const useApps = () => {
   ])
 
   const loadData = useCallback(async () => {
-    const result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
+    let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
       snackbar: true,
     })
-    if(!result) return
+    if(result === null) result = []  
+    if(!result || !mountedRef.current) return
     setData(result)
-    // setData(APPS)
   }, [])
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
@@ -48,10 +55,9 @@ export const useApps = () => {
     const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
       snackbar: showErrors,
     })
-    if(!result) return
+    if(!result || !mountedRef.current) return
     setApp(result)
     setData(prevData => prevData.map(a => a.id === id ? result : a))
-    // setApp(APPS[0])
   }, [api])
 
   const loadGithubStatus = useCallback(async (pageURL: string) => {
@@ -70,6 +76,7 @@ export const useApps = () => {
     }
     setGithubReposLoading(true)
     const repos = await api.get<string[]>(`/api/v1/github/repos`)
+    if(!mountedRef.current) return
     setGithubRepos(repos || [])
     setGithubReposLoading(false)
   }, [
@@ -127,13 +134,52 @@ export const useApps = () => {
         console.log("useApps: No result returned from create");
         return undefined;
       }
-      loadData();
+      await loadData();
       return result;
     } catch (error) {
       console.error("useApps: Error creating app:", error);
       throw error; // Re-throw the error so it can be caught in the component
     }
   }, [api, loadData])
+
+  // helper function to create a new empty helix app without any config
+  // this is so we can get a UUID from the server before we start to mess with the app form
+  const createEmptyHelixApp = useCallback(async (): Promise<IApp | undefined> => {
+    console.log("useApps: Creating new empty app");
+    try {
+      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
+        app_source: 'helix',
+        config: {
+          helix: {
+            external_url: '',
+            name: '',
+            description: '',
+            avatar: '',
+            image: '',
+            assistants: [],
+          },
+          secrets: {},
+          allowed_domains: [],
+        }
+      }, {
+        params: {
+          create: true,
+        }
+      }, {
+        snackbar: true, // We'll handle snackbar messages in the component
+      });
+      console.log("useApps: Create empty app result:", result);
+      if (!result) {
+        console.log("useApps: No result returned from create empty app");
+        return undefined;
+      }
+      await loadData();
+      return result;
+    } catch (error) {
+      console.error("useApps: Error creating app:", error);
+      throw error; // Re-throw the error so it can be caught in the component
+    }
+  }, [api])
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
     try {
@@ -162,9 +208,10 @@ export const useApps = () => {
     await api.delete(`/api/v1/apps/${id}`, {}, {
       snackbar: true,
     })
-    loadData()
+    await loadData()
     return true
   }, [
+    api,
     loadData,
   ])
 
@@ -180,6 +227,7 @@ export const useApps = () => {
     loadGithubStatus,
     loadGithubRepos,
     createGithubApp,
+    createEmptyHelixApp,
     createApp,
     updateApp,
     deleteApp,

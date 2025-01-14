@@ -117,6 +117,14 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
 
+	// if the create query param is truthy, set the name to the ID
+	// this is so the frontend can quickly create the app before redirecting to the edit page for the new app
+	// this avoids us "editing" a new app that does have an ID yet which causes various other problems
+	// (for example adding/editing RAG sources or any other one-to-(one|many) relationships)
+	if createParam := r.URL.Query().Get("create"); createParam != "" {
+		app.Config.Helix.Name = app.ID
+	}
+
 	for _, a := range existingApps {
 		if app.Config.Helix.Name != "" && a.Config.Helix.Name == app.Config.Helix.Name {
 			return nil, system.NewHTTPError400(fmt.Sprintf("app (%s) with name %s already exists", a.ID, a.Config.Helix.Name))
