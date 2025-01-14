@@ -45,6 +45,7 @@ import {
   IAssistantGPTScript,
   IAssistantZapier,
   IFileStoreItem,
+  IAssistantConfig,
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
@@ -83,6 +84,8 @@ const App: FC = () => {
 
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
+  const [ hasInitialised, setHasInitialised ] = useState(false)
+  //const [ assistants, setAssistants ] = useState<IAssistantConfig[]>([])
   const [ description, setDescription ] = useState('')
   const [ shared, setShared ] = useState(false)
   const [ global, setGlobal ] = useState(false)
@@ -473,23 +476,9 @@ const App: FC = () => {
 
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
-  }
-
-  const handleKnowledgeUpdate2 = (updatedKnowledge: IKnowledgeSource[]) => {
-    setKnowledgeSources(updatedKnowledge);
-    
-    console.log('--------------------------------------------')
-    console.log('--------------------------------------------')
-    console.log('updatedKnowledge')
-    console.log(updatedKnowledge)
     setApp(prevApp => {
       if (!prevApp) return prevApp;
 
-      console.log('--------------------------------------------')
-      console.log('--------------------------------------------')
-      console.log('prevApp')
-      console.log(prevApp)
-      
       // if we don't have any assistants - create a default one
       const currentAssistants = prevApp.config.helix.assistants || [];
       let updatedAssistants = currentAssistants;
@@ -512,9 +501,6 @@ const App: FC = () => {
           knowledge: updatedKnowledge,
         }));
       }
-
-      console.log('--------------------------------------------')
-      console.log(prevApp)
 
       return {
         ...prevApp,
@@ -593,6 +579,8 @@ const App: FC = () => {
 
   useEffect(() => {
     if (!app) return;
+    if (hasInitialised) return
+    setHasInitialised(true)
     setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
