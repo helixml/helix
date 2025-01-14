@@ -19,7 +19,8 @@ import (
 
 const (
 	// This is the location inside the rod container
-	TestPDFFile = "/integration-test/data/smoke/hr-guide.pdf"
+	TestPDFFile   = "/integration-test/data/smoke/hr-guide.pdf"
+	TestHornetPDF = "/integration-test/data/smoke/cb650r_2021.pdf"
 )
 
 func LogStep(t *testing.T, step string) {

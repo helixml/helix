@@ -59,3 +59,15 @@ func WaitForHelixResponse(ctx context.Context, t *testing.T, page *rod.Page) {
 		}
 	}
 }
+
+func HasKnowledge(t *testing.T, page *rod.Page) bool {
+	page.MustElementX(`//button[text() = 'Knowledge']`).MustClick()
+	moreButton := page.MustElements(`[data-testid='ExpandMoreIcon']`)
+	return len(moreButton) > 0
+}
+
+func WaitForKnowledgeReady(t *testing.T, page *rod.Page) {
+	LogStep(t, "Waiting for knowledge source to be ready")
+	page.MustElementX(`//button[text() = 'Knowledge']`).MustClick()
+	page.MustElementX(`//span[contains(text(), 'ready')]`)
+}

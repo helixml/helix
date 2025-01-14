@@ -31,6 +31,12 @@ func TestHelixCLIApply(t *testing.T) {
 	// Get the API key
 	apiKey := helper.GetFirstAPIKey(t, page)
 
+	// Upload the required hornet pdf file for the uploaded_files.yaml example
+	helper.BrowseToFilesPage(t, page)
+	helper.CreateFolder(t, page, "hornet")
+	helper.BrowseToFolder(t, page, "hornet")
+	helper.UploadFile(t, page, helper.TestHornetPDF)
+
 	// Create temp dir for test
 	tmpDir, err := os.MkdirTemp("", "helix-apply-test-*")
 	require.NoError(t, err)
@@ -89,6 +95,11 @@ func TestHelixCLIApply(t *testing.T) {
 
 		// Check that the app is working
 		page.MustNavigate(helper.GetServerURL() + "/app/" + appID)
+		if helper.HasKnowledge(t, page) {
+			helper.LogStep(t, "App has knowledge")
+			helper.WaitForKnowledgeReady(t, page)
+		}
+
 		helper.LogStep(t, fmt.Sprintf("Testing the app: %s", appName))
 		page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
 		page.MustElement("#sendButton").MustClick()

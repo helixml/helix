@@ -53,8 +53,7 @@ func TestCreateRagApp(t *testing.T) {
 	knowledgeSources := page.MustElementsX(`//span[text() = 'hr-guide.pdf']`)
 	require.Equal(t, 1, len(knowledgeSources), "knowledge source should be present")
 
-	helper.LogStep(t, "Waiting for knowledge source to be ready")
-	page.MustElementX(`//span[contains(text(), 'ready')]`)
+	helper.WaitForKnowledgeReady(t, page)
 
 	helper.LogStep(t, "Testing the app")
 	page.MustElement("#textEntry").MustInput("do you have a shoe policy")
