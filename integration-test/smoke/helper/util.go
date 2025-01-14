@@ -130,8 +130,21 @@ func SendMessage(t *testing.T, page *rod.Page) error {
 	return nil
 }
 
-func SetTestTimeout(t *testing.T, timeout time.Duration) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func StartNewImageSession(t *testing.T, page *rod.Page) error {
+	LogStep(t, "Creating new session")
+	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustClick()
+
+	LogStep(t, "Selecting Image mode")
+	page.MustElementX(`//button[contains(text(), 'TEXT')]`).MustClick()
+
+	// Button must now say "IMAGE"
+	page.MustElementX(`//button[contains(text(), 'IMAGE')]`)
+
+	return nil
+}
+
+func CreateContext(t *testing.T) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel) // Register the cancel function to be called when the test finishes
 	go func() {
 		<-ctx.Done()
