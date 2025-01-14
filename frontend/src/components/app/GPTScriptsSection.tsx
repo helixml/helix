@@ -23,6 +23,7 @@ const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
   isGithubApp,
   onEdit,
 }) => {
+  const gptScripts = app?.config?.helix?.assistants?.[0]?.gptscripts || [];
   return (
     <Box sx={{ mt: 2 }}>
       <Typography variant="h6" sx={{ mb: 1 }}>
@@ -38,7 +39,7 @@ const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
         Add GPTScript
       </Button>
       <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-        {app?.config.helix?.assistants[0]?.gptscripts?.map((script: IAssistantGPTScript, index: number) => (
+        {gptScripts.map((script: IAssistantGPTScript, index: number) => (
           <Box
             key={script.file}
             sx={{
