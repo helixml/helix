@@ -180,60 +180,6 @@ const App: FC = () => {
     };
   }, [app?.id, fetchKnowledge]);
 
-  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
-    setKnowledgeSources(updatedKnowledge);
-
-    console.log('--------------------------------------------')
-    console.log('--------------------------------------------')
-    console.log('updatedKnowledge')
-    console.log(updatedKnowledge)
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-
-      console.log('--------------------------------------------')
-      console.log('--------------------------------------------')
-      console.log('prevApp')
-      console.log(prevApp)
-      
-      // if we don't have any assistants - create a default one
-      const currentAssistants = prevApp.config.helix.assistants || [];
-      let updatedAssistants = currentAssistants;
-      
-      if (currentAssistants.length === 0) {
-        // create a default assistant
-        updatedAssistants = [{
-          id: uuidv4(),
-          name: "Default Assistant",
-          description: "",
-          type: SESSION_TYPE_TEXT,
-          system_prompt: systemPrompt,
-          model: model,
-          knowledge: updatedKnowledge,
-        }];
-      } else {
-        // update existing assistants with new knowledge
-        updatedAssistants = currentAssistants.map(assistant => ({
-          ...assistant,
-          knowledge: updatedKnowledge,
-        }));
-      }
-
-      console.log('--------------------------------------------')
-      console.log(prevApp)
-
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }
-
   const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
       const filesResult = await api.get('/api/v1/filestore/list', {
@@ -380,25 +326,38 @@ const App: FC = () => {
     }
     return true;
   }, [app, name]);
+  
+  const validateApiSchemas = (app: IApp): string[] => {
+    const errors: string[] = [];
+    (app.config.helix.assistants || []).forEach((assistant, assistantIndex) => {
+      if (assistant.tools && assistant.tools.length > 0) {
+        assistant.tools.forEach((tool, toolIndex) => {
+          if (tool.tool_type === 'api' && tool.config.api) {
+            try {
+              const parsedSchema = parseYaml(tool.config.api.schema);
+              if (!parsedSchema || typeof parsedSchema !== 'object') {
+                errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+              }
+            } catch (error) {
+              errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
+            }
+          }
+        });
+      }
+    });
+    return errors;
+  };
 
-  const onSave = useCallback(async (quiet: boolean = false): Promise<IApp | null> => {
-    if (!app) {
-      snackbar.error('No app data available');
-      return null;
-    }
+  const validateKnowledge = () => {
+    const hasErrors = knowledgeSources.some(source => 
+      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
+    );
+    setKnowledgeErrors(hasErrors);
+    return !hasErrors;
+  };
 
-    if (!validate() || !validateKnowledge()) {
-      setShowErrors(true);
-      return null;
-    }
-
-    const schemaErrors = validateApiSchemas(app);
-    if (schemaErrors.length > 0) {
-      snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
-      return null;
-    }
-
-    setShowErrors(false);
+  const getUpdatedAppState = (): IAppUpdate | undefined => {
+    if (!app) return undefined
 
     var updatedApp: IAppUpdate;
     if (isGithubApp) {
@@ -451,6 +410,31 @@ const App: FC = () => {
       };
     }
 
+    return updatedApp
+  }
+
+  const onSave = async (quiet: boolean = false): Promise<IApp | null> => {
+    if (!app) {
+      snackbar.error('No app data available');
+      return null;
+    }
+
+    if (!validate() || !validateKnowledge()) {
+      setShowErrors(true);
+      return null;
+    }
+
+    const schemaErrors = validateApiSchemas(app);
+    if (schemaErrors.length > 0) {
+      snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
+      return null;
+    }
+
+    setShowErrors(false);
+
+    const updatedApp = getUpdatedAppState()
+    if (!updatedApp) return null
+
     try {
       let result;
       if (isNewApp) {
@@ -485,7 +469,65 @@ const App: FC = () => {
       }
       return null;
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
+  }
+
+  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
+    setKnowledgeSources(updatedKnowledge);
+  }
+
+  const handleKnowledgeUpdate2 = (updatedKnowledge: IKnowledgeSource[]) => {
+    setKnowledgeSources(updatedKnowledge);
+    
+    console.log('--------------------------------------------')
+    console.log('--------------------------------------------')
+    console.log('updatedKnowledge')
+    console.log(updatedKnowledge)
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+
+      console.log('--------------------------------------------')
+      console.log('--------------------------------------------')
+      console.log('prevApp')
+      console.log(prevApp)
+      
+      // if we don't have any assistants - create a default one
+      const currentAssistants = prevApp.config.helix.assistants || [];
+      let updatedAssistants = currentAssistants;
+      
+      if (currentAssistants.length === 0) {
+        // create a default assistant
+        updatedAssistants = [{
+          id: uuidv4(),
+          name: "Default Assistant",
+          description: "",
+          type: SESSION_TYPE_TEXT,
+          system_prompt: systemPrompt,
+          model: model,
+          knowledge: updatedKnowledge,
+        }];
+      } else {
+        // update existing assistants with new knowledge
+        updatedAssistants = currentAssistants.map(assistant => ({
+          ...assistant,
+          knowledge: updatedKnowledge,
+        }));
+      }
+
+      console.log('--------------------------------------------')
+      console.log(prevApp)
+
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }
 
   const { NewInference } = useStreaming();
 
@@ -534,35 +576,6 @@ const App: FC = () => {
     }
     setSearchResults(newSearchResults);
   }
-
-  const validateApiSchemas = (app: IApp): string[] => {
-    const errors: string[] = [];
-    (app.config.helix.assistants || []).forEach((assistant, assistantIndex) => {
-      if (assistant.tools && assistant.tools.length > 0) {
-        assistant.tools.forEach((tool, toolIndex) => {
-          if (tool.tool_type === 'api' && tool.config.api) {
-            try {
-              const parsedSchema = parseYaml(tool.config.api.schema);
-              if (!parsedSchema || typeof parsedSchema !== 'object') {
-                errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
-              }
-            } catch (error) {
-              errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
-            }
-          }
-        });
-      }
-    });
-    return errors;
-  };
-
-  const validateKnowledge = () => {
-    const hasErrors = knowledgeSources.some(source => 
-      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
-    );
-    setKnowledgeErrors(hasErrors);
-    return !hasErrors;
-  };
 
   useEffect(() => {
     if(!account.user) return
