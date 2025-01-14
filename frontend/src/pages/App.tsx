@@ -180,14 +180,47 @@ const App: FC = () => {
     };
   }, [app?.id, fetchKnowledge]);
 
-  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
+  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
+
+    console.log('--------------------------------------------')
+    console.log('--------------------------------------------')
+    console.log('updatedKnowledge')
+    console.log(updatedKnowledge)
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        knowledge: updatedKnowledge,
-      }));
+
+      console.log('--------------------------------------------')
+      console.log('--------------------------------------------')
+      console.log('prevApp')
+      console.log(prevApp)
+      
+      // if we don't have any assistants - create a default one
+      const currentAssistants = prevApp.config.helix.assistants || [];
+      let updatedAssistants = currentAssistants;
+      
+      if (currentAssistants.length === 0) {
+        // create a default assistant
+        updatedAssistants = [{
+          id: uuidv4(),
+          name: "Default Assistant",
+          description: "",
+          type: SESSION_TYPE_TEXT,
+          system_prompt: systemPrompt,
+          model: model,
+          knowledge: updatedKnowledge,
+        }];
+      } else {
+        // update existing assistants with new knowledge
+        updatedAssistants = currentAssistants.map(assistant => ({
+          ...assistant,
+          knowledge: updatedKnowledge,
+        }));
+      }
+
+      console.log('--------------------------------------------')
+      console.log(prevApp)
+
       return {
         ...prevApp,
         config: {
@@ -199,7 +232,7 @@ const App: FC = () => {
         },
       };
     });
-  }, [app?.id]);
+  }
 
   const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
@@ -870,174 +903,181 @@ const App: FC = () => {
     >
       <Container maxWidth="xl" sx={{ height: 'calc(100% - 100px)' }}>
         <Box sx={{ height: 'calc(100vh - 100px)', width: '100%', flexGrow: 1, p: 2 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
-              <Tabs value={tabValue} onChange={handleTabChange}>
-                <Tab label="Settings" value="settings" />
-                <Tab label="Knowledge" value="knowledge" />
-                <Tab label="Integrations" value="integrations" />
-                <Tab label="GPTScripts" value="gptscripts" />
-                <Tab label="API Keys" value="apikeys" />
-                <Tab label="Developers" value="developers" />
-                <Tab label="Logs" value="logs" />
-              </Tabs>
-              
-              <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                {tabValue === 'settings' && (
-                  <AppSettings
-                    name={name}
-                    setName={setName}
-                    description={description}
-                    setDescription={setDescription}
-                    systemPrompt={systemPrompt}
-                    setSystemPrompt={setSystemPrompt}
-                    avatar={avatar}
-                    setAvatar={setAvatar}
-                    image={image}
-                    setImage={setImage}
-                    shared={shared}
-                    setShared={setShared}
-                    global={global}
-                    setGlobal={setGlobal}
-                    model={model}
-                    setModel={setModel}
-                    readOnly={readOnly}
-                    isReadOnly={isReadOnly}
-                    showErrors={showErrors}
-                    isAdmin={account.admin}
-                  />
-                )}
+          <Box>
+            <Tabs value={tabValue} onChange={handleTabChange}>
+              <Tab label="Settings" value="settings" />
+              <Tab label="Knowledge" value="knowledge" />
+              <Tab label="Integrations" value="integrations" />
+              <Tab label="GPTScripts" value="gptscripts" />
+              <Tab label="API Keys" value="apikeys" />
+              <Tab label="Developers" value="developers" />
+              <Tab label="Logs" value="logs" />
+            </Tabs>
+          </Box>
+          <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
+            <Grid container spacing={2} sx={{ height: '100%' }}>
+              <Grid item sm={12} md={6} sx={{ 
+                borderRight: '1px solid #303047',
+                height: '100%',
+                overflow: 'auto'
+              }}>
+                <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                  {tabValue === 'settings' && (
+                    <AppSettings
+                      name={name}
+                      setName={setName}
+                      description={description}
+                      setDescription={setDescription}
+                      systemPrompt={systemPrompt}
+                      setSystemPrompt={setSystemPrompt}
+                      avatar={avatar}
+                      setAvatar={setAvatar}
+                      image={image}
+                      setImage={setImage}
+                      shared={shared}
+                      setShared={setShared}
+                      global={global}
+                      setGlobal={setGlobal}
+                      model={model}
+                      setModel={setModel}
+                      readOnly={readOnly}
+                      isReadOnly={isReadOnly}
+                      showErrors={showErrors}
+                      isAdmin={account.admin}
+                    />
+                  )}
 
-                {tabValue === 'knowledge' && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                      Knowledge Sources
-                    </Typography>
-                    <KnowledgeEditor
-                      knowledgeSources={knowledgeSources}
-                      onUpdate={handleKnowledgeUpdate}
-                      onRefresh={handleRefreshKnowledge}
-                      onUpload={handleFileUpload}
-                      loadFiles={handleLoadFiles}
-                      uploadProgress={filestore.uploadProgress}
-                      disabled={isReadOnly}
-                      knowledgeList={knowledgeList}
+                  {tabValue === 'knowledge' && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="h6" sx={{ mb: 2 }}>
+                        Knowledge Sources
+                      </Typography>
+                      <KnowledgeEditor
+                        knowledgeSources={knowledgeSources}
+                        onUpdate={handleKnowledgeUpdate}
+                        onRefresh={handleRefreshKnowledge}
+                        onUpload={handleFileUpload}
+                        loadFiles={handleLoadFiles}
+                        uploadProgress={filestore.uploadProgress}
+                        disabled={isReadOnly}
+                        knowledgeList={knowledgeList}
+                        appId={app.id}
+                      />
+                      {knowledgeErrors && showErrors && (
+                        <Alert severity="error" sx={{ mt: 2 }}>
+                          Please specify at least one URL for each knowledge source.
+                        </Alert>
+                      )}
+                    </Box>
+                  )}
+
+                  {tabValue === 'integrations' && (
+                    <>
+                      <ApiIntegrations
+                        apis={apiAssistants}
+                        onSaveApiTool={onSaveApiTool}
+                        onDeleteApiTool={onDeleteApiTool}
+                        isReadOnly={isReadOnly}
+                      />
+
+                      <ZapierIntegrations
+                        zapier={zapierAssistants}
+                        onSaveZapierTool={onSaveZapierTool}
+                        onDeleteZapierTool={onDeleteZapierTool}
+                        isReadOnly={isReadOnly}
+                      />
+                    </>
+                  )}
+
+                  {tabValue === 'gptscripts' && (
+                    <GPTScriptsSection
+                      app={app}
+                      onAddGptScript={() => {
+                        const newScript: IAssistantGPTScript = {
+                          name: '',
+                          description: '',
+                          content: '',
+                        };
+                        setEditingGptScript({
+                          tool: newScript,
+                          index: gptscriptsAssistants.length
+                        });
+                      }}
+                      onEdit={(tool, index) => setEditingGptScript({tool, index})}
+                      onDeleteGptScript={onDeleteGptScript}
+                      isReadOnly={isReadOnly}
+                      isGithubApp={isGithubApp}
+                    />
+                  )}
+
+                  {tabValue === 'apikeys' && (
+                    <APIKeysSection
+                      apiKeys={account.apiKeys}
+                      onAddAPIKey={onAddAPIKey}
+                      onDeleteKey={(key) => setDeletingAPIKey(key)}
+                      allowedDomains={allowedDomains}
+                      setAllowedDomains={setAllowedDomains}
+                      isReadOnly={isReadOnly}
+                      readOnly={readOnly}
+                    />
+                  )}
+
+                  {tabValue === 'developers' && (
+                    <DevelopersSection
+                      schema={schema}
+                      setSchema={setSchema}
+                      showErrors={showErrors}
                       appId={app.id}
+                      navigate={navigate}
                     />
-                    {knowledgeErrors && showErrors && (
-                      <Alert severity="error" sx={{ mt: 2 }}>
-                        Please specify at least one URL for each knowledge source.
-                      </Alert>
-                    )}
-                  </Box>
-                )}
+                  )}
 
-                {tabValue === 'integrations' && (
-                  <>
-                    <ApiIntegrations
-                      apis={apiAssistants}
-                      onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteApiTool}
-                      isReadOnly={isReadOnly}
-                    />
-
-                    <ZapierIntegrations
-                      zapier={zapierAssistants}
-                      onSaveZapierTool={onSaveZapierTool}
-                      onDeleteZapierTool={onDeleteZapierTool}
-                      isReadOnly={isReadOnly}
-                    />
-                  </>
-                )}
-
-                {tabValue === 'gptscripts' && (
-                  <GPTScriptsSection
-                    app={app}
-                    onAddGptScript={() => {
-                      const newScript: IAssistantGPTScript = {
-                        name: '',
-                        description: '',
-                        content: '',
-                      };
-                      setEditingGptScript({
-                        tool: newScript,
-                        index: gptscriptsAssistants.length
-                      });
-                    }}
-                    onEdit={(tool, index) => setEditingGptScript({tool, index})}
-                    onDeleteGptScript={onDeleteGptScript}
-                    isReadOnly={isReadOnly}
-                    isGithubApp={isGithubApp}
-                  />
-                )}
-
-                {tabValue === 'apikeys' && (
-                  <APIKeysSection
-                    apiKeys={account.apiKeys}
-                    onAddAPIKey={onAddAPIKey}
-                    onDeleteKey={(key) => setDeletingAPIKey(key)}
-                    allowedDomains={allowedDomains}
-                    setAllowedDomains={setAllowedDomains}
-                    isReadOnly={isReadOnly}
-                    readOnly={readOnly}
-                  />
-                )}
-
-                {tabValue === 'developers' && (
-                  <DevelopersSection
-                    schema={schema}
-                    setSchema={setSchema}
-                    showErrors={showErrors}
-                    appId={app.id}
-                    navigate={navigate}
-                  />
-                )}
-
-                {tabValue === 'logs' && (
-                  <Box sx={{ mt: 2 }}>
-                    <AppLogsTable appId={app.id} />
-                  </Box>
-                )}
-              </Box>
-              
-              {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
-                <Box sx={{ mt: 2, pl: 3 }}>
-                  <Button
-                    type="button"
-                    color="secondary"
-                    variant="contained"
-                    onClick={() => onSave(false)}
-                    disabled={isReadOnly && !isGithubApp}
-                  >
-                    Save
-                  </Button>
+                  {tabValue === 'logs' && (
+                    <Box sx={{ mt: 2 }}>
+                      <AppLogsTable appId={app.id} />
+                    </Box>
+                  )}
                 </Box>
+                
+                {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+                  <Box sx={{ mt: 2, pl: 3 }}>
+                    <Button
+                      type="button"
+                      color="secondary"
+                      variant="contained"
+                      onClick={() => onSave(false)}
+                      disabled={isReadOnly && !isGithubApp}
+                    >
+                      Save
+                    </Button>
+                  </Box>
+                )}
+              </Grid>
+              {/* For API keys section show  */}
+              {tabValue === 'apikeys' ? (
+                <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
+              ) : (
+                <PreviewPanel
+                loading={loading}
+                name={name}
+                avatar={avatar}
+                image={image}
+                isSearchMode={isSearchMode}
+                setIsSearchMode={setIsSearchMode}
+                inputValue={inputValue}
+                setInputValue={setInputValue}
+                onInference={onInference}
+                onSearch={onSearch}
+                hasKnowledgeSources={hasKnowledgeSources}
+                searchResults={searchResults}
+                session={session.data}
+                serverConfig={account.serverConfig}
+                themeConfig={themeConfig}
+                snackbar={snackbar}
+                />
               )}
             </Grid>
-            {/* For API keys section show  */}
-            {tabValue === 'apikeys' ? (
-              <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
-            ) : (
-              <PreviewPanel
-              loading={loading}
-              name={name}
-              avatar={avatar}
-              image={image}
-              isSearchMode={isSearchMode}
-              setIsSearchMode={setIsSearchMode}
-              inputValue={inputValue}
-              setInputValue={setInputValue}
-              onInference={onInference}
-              onSearch={onSearch}
-              hasKnowledgeSources={hasKnowledgeSources}
-              searchResults={searchResults}
-              session={session.data}
-              serverConfig={account.serverConfig}
-              themeConfig={themeConfig}
-              snackbar={snackbar}
-              />
-            )}
-          </Grid>
+          </Box>
         </Box>
       </Container>
       {
