@@ -29,11 +29,17 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
 }) => {
   const [sourceType, setSourceType] = useState<'web' | 'filestore'>('web');
   const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = () => {
     if (!name.trim()) {
       setError('Name is required');
+      return;
+    }
+
+    if (sourceType === 'web' && !url.trim()) {
+      setError('URL is required for web sources');
       return;
     }
 
@@ -46,7 +52,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
         ? { filestore: { path: knowledgePath } }
         : {
             web: {
-              urls: [],
+              urls: [url],
               crawler: {
                 enabled: true,
                 max_depth: 1,
@@ -65,16 +71,14 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       },
     };
 
-    console.log(newSource);
-
     onAdd(newSource);
     
-
     handleClose();
   };
 
   const handleClose = () => {
     setName('');
+    setUrl('');
     setError('');
     setSourceType('web');
     onClose();
@@ -95,6 +99,21 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
           </RadioGroup>
         </FormControl>
         
+        {sourceType === 'web' && (
+          <TextField
+            fullWidth
+            label="URLs (comma-separated)"
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setError('');
+            }}
+            error={!!error && !url.trim()}
+            helperText={error && !url.trim() ? 'URL is required' : ''}
+            sx={{ mb: 2 }}
+          />
+        )}
+
         <TextField
           fullWidth
           label="Knowledge name"
@@ -107,6 +126,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
           helperText={error || (sourceType === 'filestore' ? `Files will be uploaded to: apps/${appId}/${name}` : '')}
           sx={{ mb: 2 }}
         />
+
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>

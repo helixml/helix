@@ -545,8 +545,8 @@ export interface IAssistantApi {
   description: string,
   schema: string,
   url: string,
-  headers: Record<string, string>,
-  query: Record<string, string>,
+  headers?: Record<string, string>,
+  query?: Record<string, string>,
   request_prep_template?: string,
   response_success_template?: string,
   response_error_template?: string,
@@ -569,20 +569,20 @@ export interface IAssistantZapier {
 
 export interface IAssistantConfig {
   id?: string;
-  name: string;
-  description: string;
-  avatar: string;
-  image: string;
-  model: string;
-  type: ISessionType;
-  system_prompt: string;
-  rag_source_id: string;
-  lora_id: string;
-  is_actionable_template: string;
-  apis: IAssistantApi[];
-  gptscripts: IAssistantGPTScript[];
+  name?: string;
+  description?: string;
+  avatar?: string;
+  image?: string;
+  model?: string;
+  type?: ISessionType;
+  system_prompt?: string;
+  rag_source_id?: string;
+  lora_id?: string;
+  is_actionable_template?: string;
+  apis?: IAssistantApi[];
+  gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
-  tools: ITool[];
+  tools?: ITool[];
   knowledge?: IKnowledgeSource[];
 }
 
@@ -670,7 +670,7 @@ export interface IAppHelixConfig {
   description: string;
   avatar?: string;
   image?: string;
-  assistants: IAssistantConfig[];
+  assistants?: IAssistantConfig[];
   // TODO: add triggers
   external_url: string;
   // Add any other properties that might be part of the helix config
