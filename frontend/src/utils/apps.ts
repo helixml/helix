@@ -20,8 +20,7 @@ export const getAppDescription = (app: IApp): string => {
 }
 
 export const hasMultipleAssistants = (app: IApp): boolean => {
-  const val = app.config.helix?.assistants && app.config.helix?.assistants.length > 1
-  return val ? val : false
+  return app.config.helix?.assistants && app.config.helix?.assistants.length > 1
 }
 
 // if we have only 1 assistant and it has no metadata then we don't show the assistant picker
