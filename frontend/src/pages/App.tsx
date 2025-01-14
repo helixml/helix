@@ -474,6 +474,18 @@ const App: FC = () => {
     }
   }
 
+  const getDefaultAssistant = (): IAssistantConfig => {
+    return {
+      id: uuidv4(),
+      name: "Default Assistant",
+      description: "",
+      type: SESSION_TYPE_TEXT,
+      system_prompt: systemPrompt,
+      model: model,
+      knowledge: [],
+    }
+  }
+
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
     setApp(prevApp => {
@@ -486,12 +498,7 @@ const App: FC = () => {
       if (currentAssistants.length === 0) {
         // create a default assistant
         updatedAssistants = [{
-          id: uuidv4(),
-          name: "Default Assistant",
-          description: "",
-          type: SESSION_TYPE_TEXT,
-          system_prompt: systemPrompt,
-          model: model,
+          ...getDefaultAssistant(),
           knowledge: updatedKnowledge,
         }];
       } else {
@@ -728,13 +735,21 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
+      let assistants = prevApp.config.helix.assistants || []
+      let isNew = typeof index !== 'number'
+
+      if(index === undefined) {
+        assistants = [getDefaultAssistant()]
+        index = 0
+      }
+
+      const updatedAssistants = assistants.map(assistant => {
         const apis = [...(assistant.apis || [])];
         const targetIndex = typeof index === 'number' ? index : apis.length;
         console.log('App - API tool update:', {
           currentApis: apis,
           targetIndex,
-          isNew: typeof index !== 'number'
+          isNew,
         });
         apis[targetIndex] = tool;
         return {
@@ -742,6 +757,7 @@ const App: FC = () => {
           apis
         };
       });
+
       return {
         ...prevApp,
         config: {
@@ -761,7 +777,15 @@ const App: FC = () => {
     
     setApp(prevApp => {
       if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
+      let assistants = prevApp.config.helix.assistants || []
+      let isNew = typeof index !== 'number'
+
+      if(index === undefined) {
+        assistants = [getDefaultAssistant()]
+        index = 0
+      }
+
+      const updatedAssistants = assistants.map(assistant => {
         const zapier = [...(assistant.zapier || [])];
         const targetIndex = typeof index === 'number' ? index : zapier.length;
         console.log('App - Zapier tool update:', {
@@ -920,7 +944,8 @@ const App: FC = () => {
               <Grid item sm={12} md={6} sx={{ 
                 borderRight: '1px solid #303047',
                 height: '100%',
-                overflow: 'auto'
+                overflow: 'auto',
+                pb: 8 // Add padding at bottom to prevent content being hidden behind fixed bar
               }}>
                 <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                   {tabValue === 'settings' && (
@@ -1039,20 +1064,6 @@ const App: FC = () => {
                     </Box>
                   )}
                 </Box>
-                
-                {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
-                  <Box sx={{ mt: 2, pl: 3 }}>
-                    <Button
-                      type="button"
-                      color="secondary"
-                      variant="contained"
-                      onClick={() => onSave(false)}
-                      disabled={isReadOnly && !isGithubApp}
-                    >
-                      Save
-                    </Button>
-                  </Box>
-                )}
               </Grid>
               {/* For API keys section show  */}
               {tabValue === 'apikeys' ? (
@@ -1081,6 +1092,34 @@ const App: FC = () => {
           </Box>
         </Box>
       </Container>
+
+      {/* Fixed bottom bar with save button */}
+      {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+        <Box sx={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          borderTop: '1px solid #303047',
+          bgcolor: 'background.paper',
+          zIndex: 1000,
+        }}>
+          <Container maxWidth="xl">
+            <Box sx={{ p: 2 }}>
+              <Button
+                type="button"
+                color="secondary"
+                variant="contained"
+                onClick={() => onSave(false)}
+                disabled={isReadOnly && !isGithubApp}
+              >
+                Save
+              </Button>
+            </Box>
+          </Container>
+        </Box>
+      )}
+
       {
         showBigSchema && (
           <Window
