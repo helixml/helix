@@ -31,24 +31,18 @@ const Apps: FC = () => {
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
-  const onCreateNewApp = useCallback(async () => {
+  const onCreateNewApp = useCallback(() => {
     if (!account.user) {
       account.setShowLoginWindow(true)
       return
     }
-    const newApp = await apps.createEmptyHelixApp()
-    if(!newApp) return false
-    apps.loadData()
+
     navigate('app', {
-      app_id: newApp.id,
+      app_id: 'new',
     })
   }, [account.user, account.setShowLoginWindow, navigate])
 
   const onConnectRepo = useCallback(async (repo: string) => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return false
-    }
     const newApp = await apps.createGithubApp(repo)
     if(!newApp) return false
     removeParams(['add_app'])
@@ -73,7 +67,6 @@ const Apps: FC = () => {
     const result = await apps.deleteApp(deletingApp.id)
     if(!result) return
     setDeletingApp(undefined)
-    apps.loadData()
     snackbar.success('app deleted')
   }, [
     deletingApp,
