@@ -29,12 +29,6 @@ check_command "kubectl"
 # Check if helm is installed
 check_command "helm"
 
-# Check that user has TOGETHER_API_KEY set
-if [ -z "${TOGETHER_API_KEY:-}" ]; then
-    echo "TOGETHER_API_KEY is not set. Please set it before proceeding."
-    exit 1
-fi
-
 # Set the cluster name
 CLUSTER_NAME="my-helix-cluster"
 
@@ -57,6 +51,7 @@ kubectl cluster-info --context kind-$CLUSTER_NAME
 
 # Install Keycloak using Helm
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+  --version "24.3.1" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
   --set image.tag="23.0.7" \
@@ -103,7 +98,41 @@ fi
 # Install Helix using Helm
 echo "Installing Helix..."
 export HELIX_VERSION=${HELIX_VERSION:-$(curl -s https://get.helix.ml/latest.txt)}
-helm upgrade --install my-helix-controlplane $CHART \
-  -f $DIR/values-example.yaml \
-  --set image.tag="${HELIX_VERSION}" \
-  --set envVariables.TOGETHER_API_KEY=${TOGETHER_API_KEY}
+
+# Initialize an empty array for dynamic values
+HELM_VALUES=()
+
+# Add base values
+HELM_VALUES+=("-f" "$DIR/values-example.yaml")
+HELM_VALUES+=("--set" "image.tag=${HELIX_VERSION}")
+
+# Add all Helix-specific environment variables
+for env_var in \
+    LOG_LEVEL \
+    APP_URL \
+    POSTGRES_HOST \
+    POSTGRES_USER \
+    POSTGRES_PASSWORD \
+    POSTGRES_DATABASE \
+    RUNNER_TOKEN \
+    INFERENCE_PROVIDER \
+    FINETUNING_PROVIDER \
+    OPENAI_API_KEY \
+    TOGETHER_API_KEY \
+    KEYCLOAK_URL \
+    KEYCLOAK_FRONTEND_URL \
+    KEYCLOAK_USER \
+    KEYCLOAK_PASSWORD \
+    ADMIN_USER_IDS \
+    EVAL_USER_ID \
+    HELIX_API_KEY; do
+    eval value=\${$env_var:-}
+    if [ ! -z "$value" ]; then
+        HELM_VALUES+=("--set" "envVariables.${env_var}=${value}")
+    fi
+done
+
+# Execute helm command with all accumulated values
+helm upgrade --install my-helix-controlplane $CHART "${HELM_VALUES[@]}"
+
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=helix-controlplane --timeout=300s
