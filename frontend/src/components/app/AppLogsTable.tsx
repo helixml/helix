@@ -22,6 +22,8 @@ interface AppLogsTableProps {
   appId: string;
 }
 
+const win = (window as any)
+
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const [llmCalls, setLLMCalls] = useState<PaginatedLLMCalls | null>(null);
@@ -112,8 +114,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {llmCalls.calls.map((call: LLMCall) => (
-              <TableRow key={call.id}>
+            { win.DISABLE_LLM_CALL_LOGGING ? (
+              <TableRow>
+                <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
+              </TableRow>
+            ) : (
+              llmCalls.calls.map((call: LLMCall) => (
+                <TableRow key={call.id}>
                 <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
                 <TableCell>{call.session_id}</TableCell>
                 <TableCell>{call.step || 'n/a'}</TableCell>
@@ -128,8 +135,9 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 <TableCell>
                   <Button onClick={() => handleOpenModal(call.response, call)}>View</Button>
                 </TableCell>
-              </TableRow>
-            ))}
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>
