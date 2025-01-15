@@ -282,19 +282,16 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
 
-	// controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
-	// if err != nil {
-	// 	return err
-	// }
+	var logStores []logger.LogStore
 
-	logStores := []logger.LogStore{
-		store,
-		// TODO: bigquery
+	if !cfg.DisableLLMCallLogging {
+		logStores = []logger.LogStore{
+			store,
+			// TODO: bigquery
+		}
 	}
 
 	providerManager := manager.NewProviderManager(cfg, helixInference, logStores...)
-
-	// controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
 	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
 	if err != nil {

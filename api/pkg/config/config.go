@@ -29,6 +29,8 @@ type ServerConfig struct {
 	Apps               Apps
 	GPTScript          GPTScript
 	Triggers           Triggers
+
+	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
