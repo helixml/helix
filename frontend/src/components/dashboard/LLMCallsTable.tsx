@@ -30,6 +30,8 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
+  const win = (window as any)
+
   const fetchLLMCalls = async () => {
     try {
       const queryParams = new URLSearchParams({
@@ -99,9 +101,14 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {llmCalls.calls.map((call: LLMCall) => (
-              <TableRow key={call.id}>
-                <TableCell>{call.id}</TableCell>
+            { win.DISABLE_LLM_CALL_LOGGING ? (
+              <TableRow>
+                <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
+              </TableRow>
+            ) : (
+              llmCalls.calls.map((call: LLMCall) => (
+                <TableRow key={call.id}>
+                  <TableCell>{call.id}</TableCell>
                 <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
                 <TableCell>{call.session_id}</TableCell>
                 <TableCell>{call.interaction_id}</TableCell>
@@ -120,8 +127,9 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
                 <TableCell>
                   <Button onClick={() => handleOpenModal(call.response)}>View</Button>
                 </TableCell>
-              </TableRow>
-            ))}
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>

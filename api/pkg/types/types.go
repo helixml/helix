@@ -686,6 +686,7 @@ type ServerConfigForFrontend struct {
 	AppsEnabled             bool   `json:"apps_enabled"`
 	RudderStackWriteKey     string `json:"rudderstack_write_key"`
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
+	DisableLLMCallLogging   bool   `json:"disable_llm_call_logging"`
 	Version                 string `json:"version"`
 }
 
