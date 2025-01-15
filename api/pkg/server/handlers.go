@@ -223,11 +223,13 @@ func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, _ *http.Reque
 	}
 	res.Header().Set("Content-Type", "application/javascript")
 	content := fmt.Sprintf(`
+window.DISABLE_LLM_CALL_LOGGING = %t
 window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
 window.RUDDERSTACK_WRITE_KEY = "%s"
 window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 `,
+		config.DisableLLMCallLogging,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
 		config.RudderStackWriteKey,
