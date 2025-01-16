@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/schedulerv2"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -40,13 +41,15 @@ type InternalHelixServer struct {
 	schedulingDecisionsMu sync.Mutex
 	schedulingDecisions   []*types.GlobalSchedulingDecision
 	scheduler             scheduler.Scheduler
+	schedulerv2           *schedulerv2.Scheduler
 }
 
-func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, scheduler scheduler.Scheduler) *InternalHelixServer {
+func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, scheduler scheduler.Scheduler, schedulerv2 *schedulerv2.Scheduler) *InternalHelixServer {
 	return &InternalHelixServer{
-		cfg:       cfg,
-		pubsub:    pubsub,
-		scheduler: scheduler,
+		cfg:         cfg,
+		pubsub:      pubsub,
+		scheduler:   scheduler,
+		schedulerv2: schedulerv2,
 	}
 }
 
@@ -101,7 +104,11 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 	if err != nil {
 		return fmt.Errorf("error creating workload: %w", err)
 	}
-	err = c.scheduler.Enqueue(work)
+	if c.cfg.EnableSchedulerV2 {
+		err = c.schedulerv2.Enqueue(work)
+	} else {
+		err = c.scheduler.Enqueue(work)
+	}
 	if err != nil {
 		return fmt.Errorf("error enqueuing work: %w", err)
 	}

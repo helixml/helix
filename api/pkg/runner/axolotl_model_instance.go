@@ -25,10 +25,6 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-var (
-	_ ModelInstance = &AxolotlModelInstance{}
-)
-
 type TrainingStatusReport struct {
 	Type         string  `json:"type"`
 	Loss         float64 `json:"loss"`

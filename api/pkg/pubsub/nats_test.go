@@ -3,21 +3,79 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/sourcegraph/conc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNatsPubsub(t *testing.T) {
+func setupTestNats(t *testing.T) (*Nats, func()) {
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats-test")
+	require.NoError(t, err)
 
+	cfg := &config.ServerConfig{}
+	cfg.PubSub.StoreDir = tmpDir
+	cfg.PubSub.Server.Host = "0.0.0.0"
+	cfg.PubSub.Server.Port = server.RANDOM_PORT
+	cfg.PubSub.Server.JetStream = true
+	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
+
+	nats, err := NewNats(cfg)
+	require.NoError(t, err)
+
+	cleanup := func() {
+		if nats.embeddedServer != nil {
+			nats.embeddedServer.Shutdown()
+		}
+		if nats.conn != nil {
+			nats.conn.Close()
+		}
+		os.RemoveAll(tmpDir)
+	}
+
+	return nats, cleanup
+}
+
+func setupAuthTestNats(t *testing.T) (*Nats, func()) {
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats-test")
+	require.NoError(t, err)
+
+	cfg := &config.ServerConfig{}
+	cfg.PubSub.StoreDir = tmpDir
+	cfg.PubSub.Server.Host = "0.0.0.0"
+	cfg.PubSub.Server.Port = server.RANDOM_PORT
+	cfg.PubSub.Server.JetStream = true
+	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
+	cfg.PubSub.Server.Token = "test"
+
+	nats, err := NewNats(cfg)
+	require.NoError(t, err)
+
+	cleanup := func() {
+		if nats.embeddedServer != nil {
+			nats.embeddedServer.Shutdown()
+		}
+		if nats.conn != nil {
+			nats.conn.Close()
+		}
+		os.RemoveAll(tmpDir)
+	}
+
+	return nats, cleanup
+}
+
+func TestNatsPubsub(t *testing.T) {
 	t.Run("Subscribe", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
-		require.NoError(t, err)
+		pubsub, cleanup := setupTestNats(t)
+		defer cleanup()
 
 		ctx := context.Background()
 
@@ -28,25 +86,25 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
+		defer consumer.Unsubscribe()
 
+		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
 
-		t.Log("published, waiting")
-
-		result := <-receivedCh
-		require.Equal(t, "hello", result)
-
-		// Unsubscribe
-		err = consumer.Unsubscribe()
-		require.NoError(t, err)
+		select {
+		case result := <-receivedCh:
+			require.Equal(t, "hello", result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
 	})
 
 	t.Run("Subscribe_Wildcard", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
-		require.NoError(t, err)
+		pubsub, cleanup := setupTestNats(t)
+		defer cleanup()
 
 		ctx := context.Background()
 
@@ -57,25 +115,25 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
+		defer consumer.Unsubscribe()
 
+		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
 
 		err = pubsub.Publish(ctx, "test.123", []byte("hello"))
 		require.NoError(t, err)
 
-		t.Log("published, waiting")
-
-		result := <-receivedCh
-		require.Equal(t, "hello", result)
-
-		// Unsubscribe
-		err = consumer.Unsubscribe()
-		require.NoError(t, err)
+		select {
+		case result := <-receivedCh:
+			require.Equal(t, "hello", result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
 	})
 
 	t.Run("Subscribe_Resubscribe", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
-		require.NoError(t, err)
+		pubsub, cleanup := setupTestNats(t)
+		defer cleanup()
 
 		ctx := context.Background()
 
@@ -87,15 +145,18 @@ func TestNatsPubsub(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
 
-		t.Log("published, waiting")
-
-		result := <-receivedCh
-		require.Equal(t, "hello", result)
+		select {
+		case result := <-receivedCh:
+			require.Equal(t, "hello", result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
 
 		// Unsubscribe
 		err = consumer.Unsubscribe()
@@ -108,24 +169,55 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
+		defer consumer.Unsubscribe()
 
+		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
 
-		result = <-receivedCh2
-		require.Equal(t, "hello", result)
+		select {
+		case result := <-receivedCh2:
+			require.Equal(t, "hello", result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
+	})
 
-		// Unsubscribe
-		err = consumer.Unsubscribe()
+	t.Run("Auth_Token", func(t *testing.T) {
+		pubsub, cleanup := setupAuthTestNats(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		receivedCh := make(chan string, 1)
+
+		consumer, err := pubsub.Subscribe(ctx, "test", func(payload []byte) error {
+			receivedCh <- string(payload)
+			return nil
+		})
 		require.NoError(t, err)
+		defer consumer.Unsubscribe()
+
+		// Wait for subscription to be established
+		time.Sleep(100 * time.Millisecond)
+
+		err = pubsub.Publish(ctx, "test", []byte("hello"))
+		require.NoError(t, err)
+
+		select {
+		case result := <-receivedCh:
+			require.Equal(t, "hello", result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
 	})
 }
 
 func TestQueueMultipleSubs(t *testing.T) {
-	pubsub, err := NewInMemoryNats()
-	require.NoError(t, err)
+	pubsub, cleanup := setupTestNats(t)
+	defer cleanup()
 
 	ctx := context.Background()
 
@@ -153,11 +245,7 @@ func TestQueueMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer func() {
-		if err := sub1.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub1.Unsubscribe()
 
 	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -171,14 +259,10 @@ func TestQueueMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer func() {
-		if err := sub2.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub2.Unsubscribe()
 
 	for i := 0; i < 100; i++ {
-		data, err := pubsub.Request(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
+		data, err := pubsub.QueueRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
 		require.NoError(t, err)
 
 		require.Equal(t, "world", string(data))
@@ -200,8 +284,8 @@ func TestQueueMultipleSubs(t *testing.T) {
 
 func TestNatsStreaming(t *testing.T) {
 	t.Run("SubscribeLater", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
-		require.NoError(t, err)
+		pubsub, cleanup := setupTestNats(t)
+		defer cleanup()
 
 		ctx := context.Background()
 
@@ -232,11 +316,7 @@ func TestNatsStreaming(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer func() {
-			if err := sub.Unsubscribe(); err != nil {
-				t.Logf("failed to unsubscribe: %v", err)
-			}
-		}()
+		defer sub.Unsubscribe()
 
 		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -247,11 +327,7 @@ func TestNatsStreaming(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer func() {
-			if err := sub2.Unsubscribe(); err != nil {
-				t.Logf("failed to unsubscribe: %v", err)
-			}
-		}()
+		defer sub2.Unsubscribe()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -273,8 +349,8 @@ func TestNatsStreaming(t *testing.T) {
 }
 
 func TestStreamRetries(t *testing.T) {
-	pubsub, err := NewInMemoryNats()
-	require.NoError(t, err)
+	pubsub, cleanup := setupTestNats(t)
+	defer cleanup()
 
 	ctx := context.Background()
 
@@ -325,11 +401,7 @@ func TestStreamRetries(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub.Unsubscribe()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -352,20 +424,12 @@ func TestStreamRetries(t *testing.T) {
 }
 
 func TestStreamMultipleSubs(t *testing.T) {
-	pubsub, err := NewInMemoryNats()
-	require.NoError(t, err)
-
-	// Leaving a little bit of time to go into inactive state,
-	// this was giving some flakiness in real deployment
-	// vs tests
-	time.Sleep(5 * time.Second)
+	pubsub, cleanup := setupTestNats(t)
+	defer cleanup()
 
 	ctx := context.Background()
 
 	messageCounter := 0
-
-	// Wait a bit before starting the work
-	time.Sleep(1 * time.Second)
 
 	// Start two workers
 	var (
@@ -386,11 +450,7 @@ func TestStreamMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer func() {
-		if err := sub1.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub1.Unsubscribe()
 
 	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -405,11 +465,10 @@ func TestStreamMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer func() {
-		if err := sub2.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub2.Unsubscribe()
+
+	// Wait for subscriptions to be established
+	time.Sleep(1 * time.Second)
 
 	for i := 0; i < 100; i++ {
 		data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
@@ -433,8 +492,8 @@ func TestStreamMultipleSubs(t *testing.T) {
 }
 
 func TestStreamAfterDelay(t *testing.T) {
-	pubsub, err := NewInMemoryNats()
-	require.NoError(t, err)
+	pubsub, cleanup := setupTestNats(t)
+	defer cleanup()
 
 	ctx := context.Background()
 
@@ -444,7 +503,7 @@ func TestStreamAfterDelay(t *testing.T) {
 		wg := conc.NewWaitGroup()
 
 		for i := 0; i < 10; i++ {
-
+			i := i
 			wg.Go(func() {
 				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
 				require.NoError(t, err)
@@ -491,11 +550,7 @@ func TestStreamAfterDelay(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub.Unsubscribe()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -518,8 +573,8 @@ func TestStreamAfterDelay(t *testing.T) {
 }
 
 func TestStreamFailOne(t *testing.T) {
-	pubsub, err := NewInMemoryNats()
-	require.NoError(t, err)
+	pubsub, cleanup := setupTestNats(t)
+	defer cleanup()
 
 	ctx := context.Background()
 
@@ -529,6 +584,7 @@ func TestStreamFailOne(t *testing.T) {
 		wg := conc.NewWaitGroup()
 
 		for i := 0; i < 10; i++ {
+			i := i
 			// Dispatch 10 requests
 			wg.Go(func() {
 				if i == 0 {
@@ -569,12 +625,7 @@ func TestStreamFailOne(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Logf("failed to unsubscribe: %v", err)
-		}
-	}()
+	defer sub.Unsubscribe()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -598,4 +649,44 @@ func TestStreamFailOne(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestStreamingChat(t *testing.T) {
+	pubsub, cleanup := setupTestNats(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create a consumer to handle the chat request
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
+		// Simulate streaming response by sending multiple chunks
+		responses := []string{"Hello", " ", "World", "!"}
+		for _, chunk := range responses {
+			err := pubsub.StreamChatRespond(ctx, msg, []byte(chunk))
+			require.NoError(t, err)
+			time.Sleep(50 * time.Millisecond) // Simulate processing time
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Wait for consumer to be ready
+	time.Sleep(100 * time.Millisecond)
+
+	// Make streaming request
+	responseCh, err := pubsub.StreamChatRequest(ctx, ScriptRunnerStream, AppQueue, []byte("chat request"), map[string]string{
+		"foo": "bar",
+	})
+	require.NoError(t, err)
+
+	// Collect all response chunks
+	var response strings.Builder
+	for chunk := range responseCh {
+		response.Write(chunk)
+	}
+
+	// Verify complete response
+	assert.Equal(t, "Hello World!", response.String())
 }

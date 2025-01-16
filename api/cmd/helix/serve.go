@@ -26,6 +26,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/schedulerv2"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -190,9 +191,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	ps, err := pubsub.New(cfg.PubSub.StoreDir)
+	ps, err := pubsub.New(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create pubsub provider: %w", err)
 	}
 
 	if cfg.WebServer.RunnerToken == "" {
@@ -234,6 +235,31 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
 	default:
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
+	}
+
+	var runnerController *schedulerv2.RunnerController
+	var v2scheduler *schedulerv2.Scheduler
+	if cfg.EnableSchedulerV2 {
+		runnerController, err = schedulerv2.NewRunnerController(ctx, &schedulerv2.RunnerControllerConfig{
+			PubSub: ps,
+		})
+		if err != nil {
+			return err
+		}
+
+		v2scheduler, err = schedulerv2.NewScheduler(ctx, cfg, &schedulerv2.SchedulerParams{
+			RunnerController: runnerController,
+			QueueSize:        100,
+			OnSchedulingErr: func(work *scheduler.Workload, err error) {
+				log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling work")
+			},
+			OnResponseHandler: func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {
+				return nil
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	// Must use the same allocator for both new LLM requests and old sessions
@@ -280,7 +306,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	})
 
-	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
+	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler, v2scheduler)
 
 	var logStores []logger.LogStore
 
@@ -337,6 +363,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
 		Scheduler:            scheduler,
+		SchedulerV2:          v2scheduler,
+		RunnerController:     runnerController,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)

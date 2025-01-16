@@ -668,6 +668,10 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 	return apiServer.Controller.GetDashboardData(req.Context())
 }
 
+func (apiServer *HelixAPIServer) getRunners(_ http.ResponseWriter, req *http.Request) (*types.GetRunnersResponse, error) {
+	return apiServer.Controller.GetRunners(req.Context())
+}
+
 func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {

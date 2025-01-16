@@ -74,7 +74,7 @@ func DeleteMostStaleStrategy(a WorkloadAllocator, runnerID string, runnerMem uin
 		}
 		// Sort the slots by last activity time
 		slices.SortFunc(staleSlots, func(i, j *Slot) int {
-			return int(i.lastActivityTime.Sub(j.lastActivityTime))
+			return int(i.LastActivityTime.Sub(j.LastActivityTime))
 		})
 		if len(staleSlots) == 0 {
 			return fmt.Errorf("unable to find stale slot to replace")

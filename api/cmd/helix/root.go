@@ -3,7 +3,6 @@ package helix
 import (
 	"context"
 	"os"
-	"runtime"
 
 	"github.com/spf13/cobra"
 
@@ -46,11 +45,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(newQapairCommand())
 	RootCmd.AddCommand(newEvalsCommand())
 	RootCmd.AddCommand(NewTestCmd()) // Use the NewTestCmd function from the current package
-
-	// Runner only works on Linux
-	if runtime.GOOS == "linux" {
-		RootCmd.AddCommand(newRunnerCmd())
-	}
+	RootCmd.AddCommand(newRunnerCmd())
 
 	return RootCmd
 }

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -14,9 +15,22 @@ import (
 )
 
 const (
-	scriptStreamName = "SCRIPTS_STREAM"
-	scriptsSubject   = "SCRIPTS.*"
+	scriptStreamName       = "SCRIPTS_STREAM"
+	scriptsSubject         = "SCRIPTS.*"
+	helixNatsReplyHeader   = "helix-reply"
+	helixNatsSubjectHeader = "helix-subject"
 )
+
+// ConnectionStatus represents the current connection state
+type ConnectionStatus string
+
+const (
+	Connected    ConnectionStatus = "connected"
+	Disconnected ConnectionStatus = "disconnected"
+	Reconnecting ConnectionStatus = "reconnecting"
+)
+
+type ConnectionStatusHandler func(status ConnectionStatus)
 
 type Nats struct {
 	conn *nats.Conn
@@ -26,40 +40,107 @@ type Nats struct {
 
 	consumerMu sync.Mutex
 	consumer   jetstream.Consumer
+
+	statusHandlers []ConnectionStatusHandler
+	statusMu       sync.RWMutex
 }
 
-func NewInMemoryNats() (*Nats, error) {
-	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+func (n *Nats) OnConnectionStatus(handler ConnectionStatusHandler) {
+	n.statusMu.Lock()
+	defer n.statusMu.Unlock()
+	n.statusHandlers = append(n.statusHandlers, handler)
+}
+
+func (n *Nats) notifyStatusChange(status ConnectionStatus) {
+	n.statusMu.RLock()
+	defer n.statusMu.RUnlock()
+	for _, handler := range n.statusHandlers {
+		handler(status)
+	}
+}
+
+func setupConnectionHandlers(nc *nats.Conn, n *Nats) {
+	nc.SetDisconnectErrHandler(func(_ *nats.Conn, err error) {
+		log.Warn().Err(err).Msg("nats connection lost")
+		n.notifyStatusChange(Disconnected)
+	})
+
+	nc.SetReconnectHandler(func(_ *nats.Conn) {
+		log.Info().Msg("nats reconnecting")
+		n.notifyStatusChange(Reconnecting)
+	})
+
+	nc.SetClosedHandler(func(_ *nats.Conn) {
+		log.Warn().Msg("nats connection closed")
+		n.notifyStatusChange(Disconnected)
+	})
+
+	nc.SetDiscoveredServersHandler(func(_ *nats.Conn) {
+		log.Debug().Strs("servers", nc.DiscoveredServers()).Msg("discovered nats servers")
+	})
+
+	// Use reconnect handler for connected state since there's no specific connected handler
+	nc.SetReconnectHandler(func(_ *nats.Conn) {
+		log.Info().Msg("nats connected")
+		n.notifyStatusChange(Connected)
+	})
+}
+
+// NewNats creates a new NATS instance with the given configuration
+func NewNats(cfg *config.ServerConfig) (*Nats, error) {
+	var ns *server.Server
+	var err error
+
+	// Falback to runner token if no token is provided
+	if cfg.PubSub.Server.Token == "" {
+		cfg.PubSub.Server.Token = cfg.WebServer.RunnerToken
 	}
 
-	opts := &server.Options{
-		Host:      "127.0.0.1",
-		Port:      server.RANDOM_PORT,
-		NoSigs:    true,
-		JetStream: true,
-		StoreDir:  tmpDir,
-		// Setting payload to 32 MB
-		MaxPayload: 32 * 1024 * 1024,
-	}
+	// Create and start embedded server if we're not connecting to an external one
+	if cfg.PubSub.Server.Host == "0.0.0.0" {
+		opts := &server.Options{
+			Host:          cfg.PubSub.Server.Host,
+			Port:          cfg.PubSub.Server.Port,
+			JetStream:     cfg.PubSub.Server.JetStream,
+			StoreDir:      cfg.PubSub.StoreDir,
+			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
+			Authorization: cfg.PubSub.Server.Token,
+		}
 
-	// Initialize new server with options
-	ns, err := server.NewServer(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create in-memory nats server: %w", err)
-	}
+		// Initialize new server with options
+		ns, err = server.NewServer(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create nats server: %w", err)
+		}
 
-	// Start the server via goroutine
-	go ns.Start()
+		// Start the server via goroutine
+		log.Info().Str("url", ns.ClientURL()).Msg("starting nats server")
+		go ns.Start()
 
-	// Wait for server to be ready for connections
-	if !ns.ReadyForConnections(4 * time.Second) {
-		return nil, fmt.Errorf("failed to start in-memory nats server")
+		// Wait for server to be ready for connections
+		if !ns.ReadyForConnections(4 * time.Second) {
+			return nil, fmt.Errorf("failed to start nats server")
+		}
 	}
 
 	// Connect to server
-	nc, err := nats.Connect(ns.ClientURL())
+	var nc *nats.Conn
+	if ns != nil {
+		// Connect to embedded server
+		opts := []nats.Option{}
+		if cfg.PubSub.Server.Token != "" {
+			opts = append(opts, nats.Token(cfg.PubSub.Server.Token))
+		}
+		nc, err = nats.Connect(ns.ClientURL(), opts...)
+	} else {
+		// Connect to external server
+		serverURL := fmt.Sprintf("nats://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)
+		opts := []nats.Option{}
+		if cfg.PubSub.Server.Token != "" {
+			opts = append(opts, nats.Token(cfg.PubSub.Server.Token))
+		}
+		nc, err = nats.Connect(serverURL, opts...)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
@@ -120,12 +201,76 @@ func NewInMemoryNats() (*Nats, error) {
 		}
 	}()
 
-	return &Nats{
-		conn:     nc,
-		js:       js,
-		stream:   stream,
-		consumer: c,
-	}, nil
+	n := &Nats{
+		conn:           nc,
+		js:             js,
+		stream:         stream,
+		consumer:       c,
+		statusHandlers: make([]ConnectionStatusHandler, 0),
+	}
+
+	// Setup connection monitoring
+	setupConnectionHandlers(nc, n)
+
+	// Initial connection status
+	n.notifyStatusChange(Connected)
+
+	return n, nil
+}
+
+// NewInMemoryNats creates a new in-memory NATS instance for testing
+func NewInMemoryNats() (*Nats, error) {
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
+	cfg := &config.ServerConfig{}
+	cfg.PubSub.StoreDir = tmpDir
+	cfg.PubSub.Server.Host = "0.0.0.0"
+	cfg.PubSub.Server.Port = server.RANDOM_PORT
+	cfg.PubSub.Server.JetStream = true
+	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
+
+	return NewNats(cfg)
+}
+
+func NewNatsClient(url string, token string) (*Nats, error) {
+	opts := []nats.Option{
+		nats.Token(token),
+		nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(-1), // Infinite reconnects
+		nats.ReconnectWait(time.Second * 2),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if err != nil {
+				log.Warn().Err(err).Msg("nats disconnected due to error")
+			}
+		}),
+	}
+
+	nc, err := nats.Connect(url, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to nats: %w", err)
+	}
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create jetstream context: %w", err)
+	}
+
+	n := &Nats{
+		conn:           nc,
+		js:             js,
+		statusHandlers: make([]ConnectionStatusHandler, 0),
+	}
+
+	// Setup connection monitoring
+	setupConnectionHandlers(nc, n)
+
+	// Initial connection status
+	n.notifyStatusChange(Connected)
+
+	return n, nil
 }
 
 func (n *Nats) Subscribe(_ context.Context, topic string, handler func(payload []byte) error) (Subscription, error) {
@@ -142,11 +287,63 @@ func (n *Nats) Subscribe(_ context.Context, topic string, handler func(payload [
 	return sub, nil
 }
 
+func (n *Nats) SubscribeWithCtx(_ context.Context, topic string, handler func(ctx context.Context, msg *nats.Msg) error) (Subscription, error) {
+	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
+		err := handler(context.Background(), msg)
+		if err != nil {
+			log.Err(err).Msg("error handling message")
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sub, nil
+}
+
 func (n *Nats) Publish(_ context.Context, topic string, payload []byte) error {
 	return n.conn.Publish(topic, payload)
 }
 
-func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
+func (n *Nats) PublishWithHeader(_ context.Context, topic string, header map[string]string, payload []byte) error {
+	hdr := nats.Header{}
+
+	for k, v := range header {
+		hdr.Set(k, v)
+	}
+
+	return n.conn.PublishMsg(&nats.Msg{
+		Subject: topic,
+		Data:    payload,
+		Header:  hdr,
+	})
+}
+
+func (n *Nats) Request(ctx context.Context, sub string, header map[string]string, payload []byte, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	hdr := nats.Header{}
+
+	for k, v := range header {
+		hdr.Set(k, v)
+	}
+
+	msg := &nats.Msg{
+		Subject: sub,
+		Data:    payload,
+		Header:  hdr,
+	}
+
+	msg, err := n.conn.RequestMsgWithContext(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request message: %w", err)
+	}
+
+	return msg.Data, nil
+}
+
+func (n *Nats) QueueRequest(ctx context.Context, _, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
 	var dataCh = make(chan []byte)
 
@@ -210,11 +407,6 @@ func (n *Nats) QueueSubscribe(_ context.Context, queue, subject string, handler 
 
 	return sub, nil
 }
-
-const (
-	helixNatsReplyHeader   = "helix-reply"
-	helixNatsSubjectHeader = "helix-subject"
-)
 
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
@@ -344,6 +536,14 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 
 	// Consumer wrapper noop
 	return &consumerWrapper{}, nil
+}
+
+func (n *Nats) NumSubscriptions() int {
+	return n.conn.NumSubscriptions()
+}
+
+func (n *Nats) Close() {
+	n.conn.Close()
 }
 
 type consumerWrapper struct{}

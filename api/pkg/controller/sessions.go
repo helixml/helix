@@ -29,6 +29,8 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
+var runnerResponseTimeout = 180 * time.Second
+
 func (c *Controller) StartSession(ctx context.Context, user *types.User, req types.InternalSessionRequest) (*types.Session, error) {
 	assistantInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
@@ -864,9 +866,93 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 	if err != nil {
 		return fmt.Errorf("error creating workload: %w", err)
 	}
-	err = c.scheduler.Enqueue(work)
-	if err != nil {
-		return fmt.Errorf("error enqueuing work: %w", err)
+	if c.schedulerV2 != nil {
+		lastInteraction, err := data.GetLastInteraction(session)
+		if err != nil {
+			return fmt.Errorf("error getting last interaction: %w", err)
+		}
+		// Create a pubsub subscription to listen for responses to this session
+		sub, err := c.Options.PubSub.Subscribe(c.Ctx, pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID), func(payload []byte) error {
+			log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
+
+			var runnerResp types.RunnerNatsReplyResponse
+			err := json.Unmarshal(payload, &runnerResp)
+			if err != nil {
+				return fmt.Errorf("error unmarshalling runner response: %w", err)
+			}
+
+			log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
+
+			if runnerResp.Error != nil {
+				return fmt.Errorf("runner error: %w", runnerResp.Error)
+			}
+
+			var taskResponse *types.RunnerTaskResponse
+
+			if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
+				// Remove the SSE "data: " prefix from the response
+				response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
+
+				// Parse the openai response
+				var imageGenerationResponse types.HelixImageGenerationUpdate
+				err = json.Unmarshal([]byte(response), &imageGenerationResponse)
+				if err != nil {
+					return fmt.Errorf("error unmarshalling openai response: %w", err)
+				}
+
+				log.Trace().Interface("imageGenerationResponse", imageGenerationResponse).Msg("image generation response")
+
+				files := []string{}
+				for _, image := range imageGenerationResponse.Data {
+					files = append(files, image.URL)
+				}
+
+				// Convert nw Nats response types to old session handler types
+				taskResponse = &types.RunnerTaskResponse{
+					SessionID:     session.ID,
+					InteractionID: lastInteraction.ID,
+					Owner:         session.Owner,
+					Type:          types.WorkerTaskResponseTypeResult,
+					Progress:      imageGenerationResponse.Step,
+					Status:        "generating...",
+				}
+				if imageGenerationResponse.Completed {
+					taskResponse.Status = "done"
+					taskResponse.Done = true
+					taskResponse.Files = files
+				}
+			} else {
+				return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
+			}
+
+			_, err = c.HandleRunnerResponse(c.Ctx, taskResponse)
+			if err != nil {
+				return fmt.Errorf("error handling runner response: %w", err)
+			}
+
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("error subscribing to runner responses queue: %w", err)
+		}
+
+		go func() {
+			ctx, cancel := context.WithTimeout(c.Ctx, runnerResponseTimeout)
+			defer cancel()
+
+			<-ctx.Done()
+			_ = sub.Unsubscribe()
+		}()
+
+		err = c.schedulerV2.Enqueue(work)
+		if err != nil {
+			return fmt.Errorf("error enqueuing work: %w", err)
+		}
+	} else {
+		err = c.scheduler.Enqueue(work)
+		if err != nil {
+			return fmt.Errorf("error enqueuing work: %w", err)
+		}
 	}
 	return nil
 }

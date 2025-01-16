@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/schedulerv2"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -39,6 +40,8 @@ type Options struct {
 	ProviderManager      manager.ProviderManager
 	DataprepOpenAIClient openai.Client
 	Scheduler            scheduler.Scheduler
+	RunnerController     *schedulerv2.RunnerController
+	SchedulerV2          *schedulerv2.Scheduler
 }
 
 type Controller struct {
@@ -63,7 +66,9 @@ type Controller struct {
 	// the current buffer of scheduling decisions
 	schedulingDecisions []*types.GlobalSchedulingDecision
 
-	scheduler scheduler.Scheduler
+	scheduler        scheduler.Scheduler
+	schedulerV2      *schedulerv2.Scheduler
+	runnerController *schedulerv2.RunnerController
 }
 
 func NewController(
@@ -103,6 +108,7 @@ func NewController(
 		activeRunners:       xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 		scheduler:           options.Scheduler,
+		schedulerV2:         options.SchedulerV2,
 	}
 
 	toolsOpenAIClient, err := controller.getClient(ctx, options.Config.Inference.Provider)

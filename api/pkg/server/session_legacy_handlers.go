@@ -344,12 +344,16 @@ func (s *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter, req *h
 
 	doneCh := make(chan struct{})
 
+	log.Trace().Str("session_id", startReq.sessionID).Str("queue", pubsub.GetSessionQueue(user.ID, startReq.sessionID)).Msg("subscribing to session queue")
+
 	sub, err := s.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling websocket event '%s': %w", string(payload), err)
 		}
+
+		log.Trace().Interface("event", event).Msg("received WebsocketEvent")
 
 		// this is a special case where if we are using tools then they will not stream
 		// but the widget only works with streaming responses right now so we have to

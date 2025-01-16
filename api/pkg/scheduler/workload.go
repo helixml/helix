@@ -83,6 +83,31 @@ func (w *Workload) Mode() types.SessionMode {
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }
 
+func (w *Workload) Runtime() types.Runtime {
+	switch w.WorkloadType {
+	case WorkloadTypeLLMInferenceRequest:
+		return types.RuntimeOllama
+	case WorkloadTypeSession:
+		switch w.Mode() {
+		case types.SessionModeInference:
+			switch w.session.Type {
+			case types.SessionTypeText:
+				return types.RuntimeOllama
+			case types.SessionTypeImage:
+				return types.RuntimeDiffusers
+			default:
+				panic(fmt.Sprintf("unknown session type: %s", w.session.Type))
+			}
+		case types.SessionModeFinetune:
+			panic("finetune mode is not supported yet")
+		default:
+			panic(fmt.Sprintf("unknown session mode: %s", w.Mode()))
+		}
+	default:
+		panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
+	}
+}
+
 func (w *Workload) LLMInferenceRequest() *types.RunnerLLMInferenceRequest {
 	if w.WorkloadType != WorkloadTypeLLMInferenceRequest {
 		panic(fmt.Sprintf("workload is not  an LLM inference request: %#v", w))

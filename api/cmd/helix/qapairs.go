@@ -24,12 +24,12 @@ func newQapairCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load server config: %v", err)
 			}
-			ps, err := pubsub.New(serverConfig.PubSub.StoreDir)
+			ps, err := pubsub.New(&serverConfig)
 			if err != nil {
 				return err
 			}
 			scheduler := scheduler.NewScheduler(cmd.Context(), &serverConfig, nil)
-			helixInference := openai.NewInternalHelixServer(&serverConfig, ps, scheduler)
+			helixInference := openai.NewInternalHelixServer(&serverConfig, ps, scheduler, nil)
 			client, err := createDataPrepOpenAIClient(&serverConfig, helixInference)
 			if err != nil {
 				return err

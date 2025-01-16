@@ -170,7 +170,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
-	router.Use(errorLoggingMiddleware)
+	router.Use(ErrorLoggingMiddleware)
 
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
@@ -332,6 +332,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
 	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods(http.MethodPost, http.MethodOptions)
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runners", system.DefaultWrapper(apiServer.getRunners)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
 	// all these routes are secured via runner tokens

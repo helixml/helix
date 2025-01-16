@@ -25,10 +25,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var (
-	_ ModelInstance = &CogModelInstance{}
-)
-
 type CogInferenceRequest struct {
 	Prompt string `json:"prompt"`
 }

@@ -81,6 +81,13 @@ func GetLastInteractions(session *types.Session, limit int) []*types.Interaction
 	return interactions[len(interactions)-limit:]
 }
 
+func GetLastInteraction(session *types.Session) (*types.Interaction, error) {
+	if len(session.Interactions) == 0 {
+		return nil, fmt.Errorf("no interactions found")
+	}
+	return GetLastInteractions(session, 1)[0], nil
+}
+
 func GetLastUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]

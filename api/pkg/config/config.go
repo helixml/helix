@@ -31,6 +31,7 @@ type ServerConfig struct {
 	Triggers           Triggers
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	EnableSchedulerV2     bool `envconfig:"ENABLE_SCHEDULER_V2" default:"false"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -232,6 +233,14 @@ type FileStore struct {
 
 type PubSub struct {
 	StoreDir string `envconfig:"NATS_STORE_DIR" default:"/filestore/nats" description:"The directory to store nats data."`
+	Provider string `envconfig:"PUBSUB_PROVIDER" default:"nats" description:"The pubsub provider to use (nats or inmemory)."`
+	Server   struct {
+		Host       string `envconfig:"NATS_SERVER_HOST" default:"0.0.0.0" description:"The host to bind the NATS server to."`
+		Port       int    `envconfig:"NATS_SERVER_PORT" default:"4222" description:"The port to bind the NATS server to."`
+		Token      string `envconfig:"NATS_SERVER_TOKEN" description:"The authentication token for the NATS server."`
+		MaxPayload int    `envconfig:"NATS_SERVER_MAX_PAYLOAD" default:"33554432" description:"The maximum payload size in bytes (default 32MB)."`
+		JetStream  bool   `envconfig:"NATS_SERVER_JETSTREAM" default:"true" description:"Whether to enable JetStream."`
+	}
 }
 
 type Store struct {

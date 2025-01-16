@@ -141,6 +141,34 @@ func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, 
 	}, nil
 }
 
+func (c *Controller) GetRunners(_ context.Context) (*types.GetRunnersResponse, error) {
+	if c.runnerController == nil {
+		return nil, errors.New("runner controller not initialized")
+	}
+
+	r := c.runnerController.RunnerIDs()
+	runners := make([]types.Runner, 0, len(r))
+	for _, runnerID := range r {
+		slots, err := c.runnerController.Slots(runnerID)
+		if err != nil {
+			return nil, err
+		}
+		runners = append(runners, types.Runner{
+			ID: runnerID,
+			Attributes: types.RunnerAttributes{
+				TotalMemory: c.runnerController.TotalMemory(runnerID),
+				FreeMemory:  c.runnerController.FreeMemory(runnerID),
+				Version:     c.runnerController.Version(runnerID),
+				Slots:       slots,
+			},
+		})
+	}
+
+	return &types.GetRunnersResponse{
+		Runners: runners,
+	}, nil
+}
+
 func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {
 	existingUser, err := c.Options.Store.GetUserMeta(context.Background(), userID)
 	if err != nil || existingUser != nil {

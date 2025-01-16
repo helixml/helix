@@ -14,7 +14,7 @@ type Slot struct {
 	ID               uuid.UUID // An ID representing this unique model on a runner
 	RunnerID         string    // The runner that this slot is assigned to
 	work             *Workload // The work that is currently assigned to this slot
-	lastActivityTime time.Time // Private because I don't want people misinterpreting this
+	LastActivityTime time.Time // Private because I don't want people misinterpreting this
 	isActive         bool      // Private because I don't want people misinterpreting this
 	isScheduled      bool      // Private because I don't want people misinterpreting this
 	mu               *sync.RWMutex
@@ -31,7 +31,7 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 		ID:               uuid.New(),
 		RunnerID:         runnerID,
 		work:             work,
-		lastActivityTime: time.Now(),
+		LastActivityTime: time.Now(),
 		isActive:         false,
 		isScheduled:      false,
 		isNew:            true, // Is new when slot is created
@@ -49,7 +49,7 @@ func (s *Slot) IsStale() bool {
 	// First if the work is active, or is scheduled...
 	if s.isActive || s.isScheduled {
 		// ... then check if the slot has timed out due to an error
-		if s.isErrorFunc(s.RunnerID, s.lastActivityTime) {
+		if s.isErrorFunc(s.RunnerID, s.LastActivityTime) {
 			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out due to an unknown error, releasing slot")
 			s.mu.RUnlock()
 			s.Release()
@@ -70,7 +70,7 @@ func (s *Slot) IsStale() bool {
 	}
 
 	// Now check if the slot is stale
-	return s.isStaleFunc(s.RunnerID, s.lastActivityTime)
+	return s.isStaleFunc(s.RunnerID, s.LastActivityTime)
 }
 
 // True if this slot is currently active with work
@@ -87,7 +87,7 @@ func (s *Slot) Schedule() {
 	defer s.mu.Unlock()
 
 	s.isScheduled = true
-	s.lastActivityTime = time.Now()
+	s.LastActivityTime = time.Now()
 }
 
 // True if work is scheduled on this slot
@@ -105,7 +105,7 @@ func (s *Slot) Release() {
 
 	s.isActive = false
 	s.isScheduled = false
-	s.lastActivityTime = time.Now()
+	s.LastActivityTime = time.Now()
 }
 
 // Marks the work as started
@@ -114,7 +114,7 @@ func (s *Slot) Start() {
 	defer s.mu.Unlock()
 
 	s.isScheduled = false
-	s.lastActivityTime = time.Now()
+	s.LastActivityTime = time.Now()
 	s.isActive = true
 	s.isNew = false
 }
@@ -152,4 +152,11 @@ func (s *Slot) IsNew() bool {
 	defer s.mu.RUnlock()
 
 	return s.isNew
+}
+
+func (s *Slot) Runtime() types.Runtime {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.work.Runtime()
 }

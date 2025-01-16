@@ -46,7 +46,11 @@ func (suite *ControllerSuite) SetupTest() {
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New(suite.T().TempDir())
+	ps, err := pubsub.New(&config.ServerConfig{
+		PubSub: config.PubSub{
+			Provider: string(pubsub.ProviderMemory),
+		},
+	})
 	suite.NoError(err)
 
 	suite.pubsub = ps
