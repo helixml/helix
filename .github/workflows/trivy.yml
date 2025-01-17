@@ -12,7 +12,19 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  image_scan:
+    strategy:
+      matrix:
+        image:
+        - 'registry.helix.ml/helix/controlplane:latest'
+        - 'postgres:12.13-alpine'
+        - 'ankane/pgvector'
+        - 'quay.io/keycloak/keycloak:23.0'
+        - 'registry.helix.ml/helix/llamaindex:latest'
+        - 'registry.helix.ml/helix/gptscript-runner:latest' 
+        - 'apache/tika:2.9.2.1'
+        - 'registry.helix.ml/helix/typesense:latest'
+        - 'ghcr.io/go-rod/rod:v0.115.0'
     permissions:
       contents: read # for actions/checkout to fetch code
       security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
@@ -23,14 +35,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build an image from Dockerfile
-        run: |
-          docker build -t registry.helix.ml/helix/controlplane:${{ github.sha }} .
-
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
+        uses: aquasecurity/trivy-action@0.29.0
         with:
-          image-ref: 'registry.helix.ml/helix/controlplane:${{ github.sha }}'
+          image-ref: ${{ matrix.image }}
           format: 'template'
           template: '@/contrib/sarif.tpl'
           output: 'trivy-results.sarif'
