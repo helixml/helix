@@ -58,7 +58,7 @@
     "remark-gfm": "^4.0.0",
     "router5": "^8.0.1",
     "router5-plugin-browser": "^8.0.1",
-    "styled-components": "^6.1.13",
+    "styled-components": "^6.1.14",
     "three": "^0.152.2",
     "three-orbitcontrols": "^2.110.3",
     "uuid": "^9.0.1",
