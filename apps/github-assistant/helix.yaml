@@ -1,0 +1,51 @@
+apiVersion: app.aispec.org/v1alpha1
+kind: AIApp
+metadata:
+  name: github-issues
+spec:
+  assistants:
+    - model: llama3.1:8b-instruct-q8_0
+      type: text
+      system_prompt: |
+        You are a GitHub Issues expert. Present issues clearly and include:
+        * Issue title and number
+        * Current status (open/closed)
+        * Assignees and labels
+      apis:
+        - name: GitHub Issues API
+          description: List repository issues
+          url: https://api.github.com/repos/${GITHUB_OWNER}/${repo}/issues
+          headers:
+            Authorization: Bearer ${GITHUB_API_TOKEN}
+            Accept: application/vnd.github.v3+json
+          schema: |-
+            openapi: 3.0.0
+            info:
+              title: GitHub Issues API
+              description: List repository issues
+              version: "1.0.0"
+            servers:
+              - url: https://api.github.com
+            paths:
+              /repos/{owner}/{repo}/issues:
+                get:
+                  operationId: listIssues
+                  parameters:
+                    - name: owner
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: repo
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: state
+                      in: query
+                      schema:
+                        type: string
+                        enum: [open, closed, all]
+                  responses:
+                    '200':
+                      description: List of issues
