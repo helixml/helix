@@ -446,6 +446,15 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 		if err != nil {
 			return nil, fmt.Errorf("error reading tar file: %s", err)
 		}
+
+		if header.Name == "." {
+			continue
+		}
+
+		if header.Name == ".." {
+			continue
+		}
+
 		if header.Typeflag == tar.TypeReg {
 			buffer := bytes.NewBuffer(nil)
 			if _, err := io.Copy(buffer, tarReader); err != nil {
