@@ -182,6 +182,10 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 	fullPath := filepath.Join(s.basePath, path)
 
+	if !s.isSafePath(path) {
+		return fmt.Errorf("invalid path: %s", path)
+	}
+
 	if err := os.RemoveAll(fullPath); err != nil {
 		return fmt.Errorf("failed to delete file or directory: %w", err)
 	}
@@ -191,6 +195,10 @@ func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 
 func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
+
+	if !s.isSafePath(path) {
+		return Item{}, fmt.Errorf("invalid path: %s", path)
+	}
 
 	if err := os.MkdirAll(fullPath, os.ModePerm); err != nil {
 		return Item{}, fmt.Errorf("failed to create folder: %w", err)
@@ -202,6 +210,14 @@ func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item
 func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath string) error {
 	fullFromPath := filepath.Join(s.basePath, fromPath)
 	fullToPath := filepath.Join(s.basePath, toPath)
+
+	if !s.isSafePath(fromPath) {
+		return fmt.Errorf("invalid from path: %s", fromPath)
+	}
+
+	if !s.isSafePath(toPath) {
+		return fmt.Errorf("invalid to path: %s", toPath)
+	}
 
 	srcFile, err := os.Open(fullFromPath)
 	if err != nil {
@@ -227,4 +243,12 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 	}
 
 	return nil
+}
+
+func (s *FileSystemStorage) isSafePath(path string) bool {
+	absPath, err := filepath.Abs(filepath.Join(s.basePath, path))
+	if err != nil || !strings.HasPrefix(absPath, s.basePath) {
+		return false
+	}
+	return true
 }
