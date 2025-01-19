@@ -172,11 +172,13 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 	src := filepath.Join(s.basePath, path)
 	dst := filepath.Join(s.basePath, newPath)
 
-	if !s.isSafePath(src) {
+	src, err := s.getSafePath(src)
+	if err != nil {
 		return Item{}, fmt.Errorf("invalid source path: %s", src)
 	}
 
-	if !s.isSafePath(dst) {
+	dst, err = s.getSafePath(dst)
+	if err != nil {
 		return Item{}, fmt.Errorf("invalid destination path: %s", dst)
 	}
 
@@ -190,7 +192,8 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 	fullPath := filepath.Join(s.basePath, path)
 
-	if !s.isSafePath(fullPath) {
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
 		return fmt.Errorf("invalid path: %s", path)
 	}
 
@@ -204,7 +207,8 @@ func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
-	if !s.isSafePath(fullPath) {
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
 		return Item{}, fmt.Errorf("invalid path: %s", path)
 	}
 
@@ -219,11 +223,13 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 	fullFromPath := filepath.Join(s.basePath, fromPath)
 	fullToPath := filepath.Join(s.basePath, toPath)
 
-	if !s.isSafePath(fullFromPath) {
+	fullFromPath, err := s.getSafePath(fullFromPath)
+	if err != nil {
 		return fmt.Errorf("invalid from path: %s", fromPath)
 	}
 
-	if !s.isSafePath(fullToPath) {
+	fullToPath, err = s.getSafePath(fullToPath)
+	if err != nil {
 		return fmt.Errorf("invalid to path: %s", toPath)
 	}
 
@@ -253,10 +259,10 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 	return nil
 }
 
-func (s *FileSystemStorage) isSafePath(path string) bool {
+func (s *FileSystemStorage) getSafePath(path string) (string, error) {
 	absPath, err := filepath.Abs(filepath.Join(s.basePath, path))
 	if err != nil || !strings.HasPrefix(absPath, s.basePath) {
-		return false
+		return "", fmt.Errorf("invalid path: %s", path)
 	}
-	return true
+	return absPath, nil
 }
