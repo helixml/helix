@@ -104,6 +104,14 @@ func ExpandTarBuffer(buf *bytes.Buffer, localPath string) error {
 			return err
 		}
 
+		if header.Name == "." {
+			continue
+		}
+
+		if header.Name == ".." {
+			continue
+		}
+
 		// Prepare file path and create directories if needed
 		target := filepath.Join(localPath, header.Name)
 		dir, _ := filepath.Split(target)
