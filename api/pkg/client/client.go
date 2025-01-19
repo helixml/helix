@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -91,9 +90,6 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 	defer cancel()
 
 	fullURL := c.url + path
-	if os.Getenv("DEBUG") != "" {
-		fmt.Printf("Making request to Helix API: %s %s\n", method, fullURL)
-	}
 
 	// Read and store body content for curl logging
 	var bodyBytes []byte
@@ -114,20 +110,6 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	if os.Getenv("DEBUG") != "" {
-		// Build curl command
-		curlCmd := fmt.Sprintf("curl -X %s '%s'", method, fullURL)
-		for key, values := range req.Header {
-			for _, value := range values {
-				curlCmd += fmt.Sprintf(" -H '%s: %s'", key, value)
-			}
-		}
-		if len(bodyBytes) > 0 {
-			curlCmd += fmt.Sprintf(" --data-raw '%s'", string(bodyBytes))
-		}
-		fmt.Printf("Equivalent curl command:\n%s\n", curlCmd)
-	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
