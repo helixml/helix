@@ -172,6 +172,14 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 	src := filepath.Join(s.basePath, path)
 	dst := filepath.Join(s.basePath, newPath)
 
+	if !s.isSafePath(src) {
+		return Item{}, fmt.Errorf("invalid source path: %s", src)
+	}
+
+	if !s.isSafePath(dst) {
+		return Item{}, fmt.Errorf("invalid destination path: %s", dst)
+	}
+
 	if err := os.Rename(src, dst); err != nil {
 		return Item{}, fmt.Errorf("failed to rename file or directory: %w", err)
 	}
@@ -182,7 +190,7 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 	fullPath := filepath.Join(s.basePath, path)
 
-	if !s.isSafePath(path) {
+	if !s.isSafePath(fullPath) {
 		return fmt.Errorf("invalid path: %s", path)
 	}
 
@@ -196,7 +204,7 @@ func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
-	if !s.isSafePath(path) {
+	if !s.isSafePath(fullPath) {
 		return Item{}, fmt.Errorf("invalid path: %s", path)
 	}
 
@@ -211,11 +219,11 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 	fullFromPath := filepath.Join(s.basePath, fromPath)
 	fullToPath := filepath.Join(s.basePath, toPath)
 
-	if !s.isSafePath(fromPath) {
+	if !s.isSafePath(fullFromPath) {
 		return fmt.Errorf("invalid from path: %s", fromPath)
 	}
 
-	if !s.isSafePath(toPath) {
+	if !s.isSafePath(fullToPath) {
 		return fmt.Errorf("invalid to path: %s", toPath)
 	}
 
