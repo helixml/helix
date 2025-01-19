@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
@@ -151,7 +153,15 @@ func gptscriptServer(_ *cobra.Command) error {
 			repoDir = "/repo"
 		}
 
-		req.FilePath = path.Join(repoDir, req.FilePath)
+		fullRepoPath := path.Join(repoDir, req.FilePath)
+
+		absPath, err := filepath.Abs(filepath.Join(repoDir, fullRepoPath))
+		if err != nil || !strings.HasPrefix(absPath, repoDir) {
+			http.Error(w, "Invalid file name", http.StatusBadRequest)
+			return
+		}
+
+		req.FilePath = absPath
 
 		err = os.Chdir(path.Dir(req.FilePath))
 		if err != nil {
