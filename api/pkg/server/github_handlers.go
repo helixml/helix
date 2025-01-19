@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -262,7 +263,22 @@ func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, req, pageURL, http.StatusFound)
+
+	// replace all backslashes with forward slashes before parsing the URL
+	pageURL = strings.ReplaceAll(pageURL, "\\", "/")
+
+	target, err := url.Parse(pageURL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error parsing pageURL: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	if target.Hostname() == "" {
+		// OK: check that it is a local redirect
+		http.Redirect(w, req, pageURL, http.StatusFound)
+		return
+	}
+	http.Error(w, "invalid redirect URL:"+pageURL, http.StatusBadRequest)
 }
 
 func (apiServer *HelixAPIServer) getGithubClientFromRequest(req *http.Request) (*github.Client, error) {
