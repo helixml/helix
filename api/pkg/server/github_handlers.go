@@ -273,12 +273,25 @@ func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http
 		return
 	}
 
-	if target.Hostname() == "" {
-		// OK: check that it is a local redirect
-		http.Redirect(w, req, pageURL, http.StatusFound)
+	webserverURL, err := url.Parse(apiServer.Cfg.WebServer.URL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error parsing webserver URL: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
-	http.Error(w, "invalid redirect URL:"+pageURL, http.StatusBadRequest)
+
+	// Check if target hostname matches webserver hostname
+	if target.Hostname() != "" && target.Hostname() != webserverURL.Hostname() {
+		http.Error(w, "invalid redirect URL:"+pageURL, http.StatusBadRequest)
+		return
+	}
+
+	// Check that path starts with webserver path
+	if !strings.HasPrefix(target.Path, webserverURL.Path) {
+		http.Error(w, "invalid redirect path:"+pageURL, http.StatusBadRequest)
+		return
+	}
+
+	http.Redirect(w, req, pageURL, http.StatusFound)
 }
 
 func (apiServer *HelixAPIServer) getGithubClientFromRequest(req *http.Request) (*github.Client, error) {
