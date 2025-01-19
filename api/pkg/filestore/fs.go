@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -134,6 +135,10 @@ func (s *FileSystemStorage) UploadFolder(_ context.Context, path string, r io.Re
 		}
 		if err != nil {
 			return fmt.Errorf("failed reading tarball: %w", err)
+		}
+
+		if strings.Contains(header.Name, "..") {
+			return fmt.Errorf("invalid tar file: %s", header.Name)
 		}
 
 		// Determine the full path for the current file
