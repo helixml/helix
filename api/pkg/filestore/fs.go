@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -31,6 +32,12 @@ func NewFileSystemStorage(basePath string, baseURL, secret string) *FileSystemSt
 
 func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, error) {
 	fullPath := filepath.Join(s.basePath, prefix)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return []Item{}, fmt.Errorf("invalid path: %s", prefix)
+	}
+
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
 		return []Item{}, nil
@@ -58,6 +65,12 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 
 func (s *FileSystemStorage) Get(_ context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid path: %s", path)
+	}
+
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return Item{}, fmt.Errorf("error fetching file info: %w", err)
@@ -79,6 +92,11 @@ func (s *FileSystemStorage) SignedURL(_ context.Context, path string) (string, e
 func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Reader) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid path: %s", path)
+	}
+
 	// Create the directory structure if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
 		return Item{}, fmt.Errorf("failed to create directory structure: %w", err)
@@ -99,6 +117,11 @@ func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Rea
 
 func (s *FileSystemStorage) OpenFile(_ context.Context, path string) (io.ReadCloser, error) {
 	fullPath := filepath.Join(s.basePath, path)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %s", path)
+	}
 
 	file, err := os.Open(fullPath)
 	if err != nil {
@@ -136,6 +159,10 @@ func (s *FileSystemStorage) UploadFolder(_ context.Context, path string, r io.Re
 			return fmt.Errorf("failed reading tarball: %w", err)
 		}
 
+		if strings.Contains(header.Name, "..") {
+			return fmt.Errorf("invalid tar file: %s", header.Name)
+		}
+
 		// Determine the full path for the current file
 		targetPath := filepath.Join(fullPath, header.Name)
 
@@ -167,6 +194,16 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 	src := filepath.Join(s.basePath, path)
 	dst := filepath.Join(s.basePath, newPath)
 
+	src, err := s.getSafePath(src)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid source path: %s", src)
+	}
+
+	dst, err = s.getSafePath(dst)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid destination path: %s", dst)
+	}
+
 	if err := os.Rename(src, dst); err != nil {
 		return Item{}, fmt.Errorf("failed to rename file or directory: %w", err)
 	}
@@ -176,6 +213,11 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 
 func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 	fullPath := filepath.Join(s.basePath, path)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return fmt.Errorf("invalid path: %s", path)
+	}
 
 	if err := os.RemoveAll(fullPath); err != nil {
 		return fmt.Errorf("failed to delete file or directory: %w", err)
@@ -187,6 +229,11 @@ func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid path: %s", path)
+	}
+
 	if err := os.MkdirAll(fullPath, os.ModePerm); err != nil {
 		return Item{}, fmt.Errorf("failed to create folder: %w", err)
 	}
@@ -197,6 +244,16 @@ func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item
 func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath string) error {
 	fullFromPath := filepath.Join(s.basePath, fromPath)
 	fullToPath := filepath.Join(s.basePath, toPath)
+
+	fullFromPath, err := s.getSafePath(fullFromPath)
+	if err != nil {
+		return fmt.Errorf("invalid from path: %s", fromPath)
+	}
+
+	fullToPath, err = s.getSafePath(fullToPath)
+	if err != nil {
+		return fmt.Errorf("invalid to path: %s", toPath)
+	}
 
 	srcFile, err := os.Open(fullFromPath)
 	if err != nil {
@@ -222,4 +279,12 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 	}
 
 	return nil
+}
+
+func (s *FileSystemStorage) getSafePath(path string) (string, error) {
+	absPath, err := filepath.Abs(filepath.Join(s.basePath, path))
+	if err != nil || !strings.HasPrefix(absPath, s.basePath) {
+		return "", fmt.Errorf("invalid path: %s", path)
+	}
+	return absPath, nil
 }

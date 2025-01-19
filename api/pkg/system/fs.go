@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func WriteFile(path string, data []byte) error {
@@ -102,6 +103,10 @@ func ExpandTarBuffer(buf *bytes.Buffer, localPath string) error {
 		}
 		if err != nil {
 			return err
+		}
+
+		if strings.Contains(header.Name, "..") {
+			return fmt.Errorf("invalid tar file: %s", header.Name)
 		}
 
 		// Prepare file path and create directories if needed
