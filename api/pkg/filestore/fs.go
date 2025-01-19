@@ -32,6 +32,12 @@ func NewFileSystemStorage(basePath string, baseURL, secret string) *FileSystemSt
 
 func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, error) {
 	fullPath := filepath.Join(s.basePath, prefix)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return []Item{}, fmt.Errorf("invalid path: %s", prefix)
+	}
+
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
 		return []Item{}, nil
@@ -59,6 +65,12 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 
 func (s *FileSystemStorage) Get(_ context.Context, path string) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid path: %s", path)
+	}
+
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return Item{}, fmt.Errorf("error fetching file info: %w", err)
@@ -80,6 +92,11 @@ func (s *FileSystemStorage) SignedURL(_ context.Context, path string) (string, e
 func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Reader) (Item, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return Item{}, fmt.Errorf("invalid path: %s", path)
+	}
+
 	// Create the directory structure if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
 		return Item{}, fmt.Errorf("failed to create directory structure: %w", err)
@@ -100,6 +117,11 @@ func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Rea
 
 func (s *FileSystemStorage) OpenFile(_ context.Context, path string) (io.ReadCloser, error) {
 	fullPath := filepath.Join(s.basePath, path)
+
+	fullPath, err := s.getSafePath(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %s", path)
+	}
 
 	file, err := os.Open(fullPath)
 	if err != nil {
