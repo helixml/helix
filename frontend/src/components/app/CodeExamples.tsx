@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react';
+import React, { FC, useState, memo } from 'react';
 import Box from '@mui/material/Box';
 import Tab from '@mui/material/Tab';
 import Grid from '@mui/material/Grid';
@@ -7,12 +7,14 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { CODE_EXAMPLES } from '../../data/codeExamples';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface CodeExamplesProps {
   apiKey: string;
 }
+
+const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
 const CodeExamples: FC<CodeExamplesProps> = ({ apiKey }) => {
   const [selectedTab, setSelectedTab] = useState(0);
@@ -85,4 +87,4 @@ const CodeExamples: FC<CodeExamplesProps> = ({ apiKey }) => {
   );
 };
 
-export default CodeExamples; 
+export default memo(CodeExamples); 
