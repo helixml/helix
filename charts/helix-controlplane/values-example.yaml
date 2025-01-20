@@ -36,6 +36,7 @@ envVariables:
   KEYCLOAK_PASSWORD: "oh-hallo-insecure-password"
   # Dashboard
   ADMIN_USER_IDS: "all"
+  ADMIN_USER_SOURCE: "env"
   # Evals
   EVAL_USER_ID: ""
   HELIX_API_KEY: "helix_api_key"
