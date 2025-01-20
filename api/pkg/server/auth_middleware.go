@@ -38,12 +38,7 @@ type authMiddlewareConfig struct {
 type authMiddleware struct {
 	authenticator auth.Authenticator
 	store         store.Store
-	adminUserIDs  []string
-	adminUserSrc  config.AdminSrcType
-	runnerToken   string
-	// this means ALL users
-	// if 'all' is included in the list
-	developmentMode bool
+	cfg           authMiddlewareConfig
 }
 
 func newAuthMiddleware(
@@ -52,40 +47,79 @@ func newAuthMiddleware(
 	cfg authMiddlewareConfig,
 ) *authMiddleware {
 	return &authMiddleware{
-		authenticator:   authenticator,
-		store:           store,
-		adminUserIDs:    cfg.adminUserIDs,
-		adminUserSrc:    cfg.adminUserSrc,
-		runnerToken:     cfg.runnerToken,
-		developmentMode: isDevelopmentMode(cfg.adminUserIDs),
+		authenticator: authenticator,
+		store:         store,
+		cfg:           cfg,
 	}
 }
 
-func (auth *authMiddleware) isUserAdmin(userID string, token *jwt.Token) bool {
-	if auth.developmentMode {
-		return true
+type account struct {
+	userID string
+	token  *jwt.Token
+}
+
+type accountType string
+
+const (
+	accountTypeUser    accountType = "user"
+	accountTypeToken   accountType = "token"
+	accountTypeInvalid accountType = "invalid"
+)
+
+func (a *account) Type() accountType {
+	switch {
+	case a.userID != "":
+		return accountTypeUser
+	case a.token != nil:
+		return accountTypeToken
+	}
+	return accountTypeInvalid
+}
+
+func (auth *authMiddleware) isAdmin(acct account) bool {
+	if acct.Type() == accountTypeInvalid {
+		return false
 	}
 
-	switch auth.adminUserSrc {
+	switch auth.cfg.adminUserSrc {
 	case config.AdminSrcTypeEnv:
-		for _, adminID := range auth.adminUserIDs {
-			// development mode everyone is an admin
-			if adminID == "all" {
-				return true
-			}
-			if adminID == userID {
-				return true
-			}
-		}
-	case config.AdminSrcTypeJWT:
-		if token == nil {
+		if acct.Type() != accountTypeUser {
 			return false
 		}
-		mc := token.Claims.(jwt.MapClaims)
-		keycloakAdmin := mc["admin"].(bool)
-		return keycloakAdmin
+		return auth.isUserAdmin(acct.userID)
+	case config.AdminSrcTypeJWT:
+		if acct.Type() != accountTypeToken {
+			return false
+		}
+		return auth.isTokenAdmin(acct.token)
 	}
 	return false
+}
+
+func (auth *authMiddleware) isUserAdmin(userID string) bool {
+	if userID == "" {
+		return false
+	}
+
+	for _, adminID := range auth.cfg.adminUserIDs {
+		// development mode everyone is an admin
+		if adminID == types.AdminAllUsers {
+			return true
+		}
+		if adminID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+func (auth *authMiddleware) isTokenAdmin(token *jwt.Token) bool {
+	if token == nil {
+		return false
+	}
+	mc := token.Claims.(jwt.MapClaims)
+	isAdmin := mc["admin"].(bool)
+	return isAdmin
 }
 
 func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) (*types.User, error) {
@@ -93,7 +127,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return nil, nil
 	}
 
-	if token == auth.runnerToken {
+	if token == auth.cfg.runnerToken {
 		// if the api key is our runner token then we are in runner mode
 		return &types.User{
 			Token:     token,
@@ -120,7 +154,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.TokenType = types.TokenTypeAPIKey
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isUserAdmin(user.ID, nil)
+		user.Admin = auth.isAdmin(account{userID: user.ID})
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -149,7 +183,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	user.TokenType = types.TokenTypeKeycloak
 	user.ID = keycloakUserID
 	user.Type = types.OwnerTypeUser
-	user.Admin = auth.isUserAdmin(user.ID, keycloakJWT)
+	user.Admin = auth.isAdmin(account{token: keycloakJWT})
 
 	return user, nil
 }
