@@ -9,6 +9,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -30,6 +31,7 @@ var (
 
 type authMiddlewareConfig struct {
 	adminUserIDs []string
+	adminUserSrc config.AdminSrcType
 	runnerToken  string
 }
 
@@ -37,9 +39,10 @@ type authMiddleware struct {
 	authenticator auth.Authenticator
 	store         store.Store
 	adminUserIDs  []string
+	adminUserSrc  config.AdminSrcType
 	runnerToken   string
 	// this means ALL users
-	// if '*' is included in the list
+	// if 'all' is included in the list
 	developmentMode bool
 }
 
@@ -52,19 +55,35 @@ func newAuthMiddleware(
 		authenticator:   authenticator,
 		store:           store,
 		adminUserIDs:    cfg.adminUserIDs,
+		adminUserSrc:    cfg.adminUserSrc,
 		runnerToken:     cfg.runnerToken,
 		developmentMode: isDevelopmentMode(cfg.adminUserIDs),
 	}
 }
 
-func (auth *authMiddleware) isUserAdmin(userID string) bool {
+func (auth *authMiddleware) isUserAdmin(userID string, token *jwt.Token) bool {
 	if auth.developmentMode {
 		return true
 	}
-	for _, adminID := range auth.adminUserIDs {
-		if adminID == userID {
-			return true
+
+	switch auth.adminUserSrc {
+	case config.AdminSrcTypeEnv:
+		for _, adminID := range auth.adminUserIDs {
+			// development mode everyone is an admin
+			if adminID == "all" {
+				return true
+			}
+			if adminID == userID {
+				return true
+			}
 		}
+	case config.AdminSrcTypeJWT:
+		if token == nil {
+			return false
+		}
+		mc := token.Claims.(jwt.MapClaims)
+		keycloakAdmin := mc["admin"].(bool)
+		return keycloakAdmin
 	}
 	return false
 }
@@ -101,7 +120,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.TokenType = types.TokenTypeAPIKey
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isUserAdmin(user.ID)
+		user.Admin = auth.isUserAdmin(user.ID, nil)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -130,7 +149,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	user.TokenType = types.TokenTypeKeycloak
 	user.ID = keycloakUserID
 	user.Type = types.OwnerTypeUser
-	user.Admin = auth.isUserAdmin(user.ID)
+	user.Admin = auth.isUserAdmin(user.ID, keycloakJWT)
 
 	return user, nil
 }

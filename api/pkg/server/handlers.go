@@ -3,18 +3,20 @@ package server
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -501,11 +503,6 @@ func (apiServer *HelixAPIServer) retryTextFinetune(_ http.ResponseWriter, req *h
 }
 
 func (apiServer *HelixAPIServer) cloneFinetuneInteraction(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	vars := mux.Vars(req)
-
-	user := getRequestUser(req)
-	ctx := req.Context()
-
 	// clone the session into the eval user account
 	// only admins can do this
 	cloneIntoEvalUser := req.URL.Query().Get("clone_into_eval_user")
@@ -520,6 +517,10 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(_ http.ResponseWriter,
 	if httpError != nil {
 		return nil, httpError
 	}
+
+	vars := mux.Vars(req)
+	user := getRequestUser(req)
+	ctx := req.Context()
 
 	// if we own the session then we don't need to copy all files
 	copyAllFiles := true
@@ -654,16 +655,35 @@ func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *h
 }
 
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
-	user := getRequestUser(req)
-	adminUserIDs := strings.Split(os.Getenv("ADMIN_USER_IDS"), ",")
-	for _, a := range adminUserIDs {
-		// development mode everyone is an admin
-		if a == "all" {
-			return true
+	auth := apiServer.authMiddleware
+	if auth.developmentMode {
+		return true
+	}
+
+	switch auth.adminUserSrc {
+	case config.AdminSrcTypeEnv:
+		user := getRequestUser(req)
+		for _, adminID := range auth.adminUserIDs {
+			// development mode everyone is an admin
+			if adminID == "all" {
+				return true
+			}
+			if adminID == user.ID {
+				return true
+			}
 		}
-		if a == user.ID {
-			return true
+	case config.AdminSrcTypeJWT:
+		token := getRequestToken(req)
+		if token == "" {
+			return false
 		}
+		keycloakJWT, err := auth.authenticator.ValidateUserToken(context.Background(), token)
+		if err != nil {
+			return false
+		}
+		mc := keycloakJWT.Claims.(jwt.MapClaims)
+		keycloakAdmin := mc["admin"].(bool)
+		return keycloakAdmin
 	}
 	return false
 }
