@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -656,34 +655,21 @@ func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *h
 
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	auth := apiServer.authMiddleware
-	if auth.developmentMode {
-		return true
-	}
 
-	switch auth.adminUserSrc {
+	switch auth.cfg.adminUserSrc {
 	case config.AdminSrcTypeEnv:
 		user := getRequestUser(req)
-		for _, adminID := range auth.adminUserIDs {
-			// development mode everyone is an admin
-			if adminID == "all" {
-				return true
-			}
-			if adminID == user.ID {
-				return true
-			}
-		}
+		return auth.isUserAdmin(user.ID)
 	case config.AdminSrcTypeJWT:
 		token := getRequestToken(req)
 		if token == "" {
 			return false
 		}
-		keycloakJWT, err := auth.authenticator.ValidateUserToken(context.Background(), token)
+		jwtToken, err := auth.authenticator.ValidateUserToken(context.Background(), token)
 		if err != nil {
 			return false
 		}
-		mc := keycloakJWT.Claims.(jwt.MapClaims)
-		keycloakAdmin := mc["admin"].(bool)
-		return keycloakAdmin
+		return auth.isTokenAdmin(jwtToken)
 	}
 	return false
 }
