@@ -113,10 +113,89 @@ spec:
                     knowledge:
                       description: Knowledge available to the assistant
                       items:
-                        description: |-
-                          AssistantKnowledge represents knowledge configuration for an assistant
-                          Note: This type wasn't in the original types.go, but was referenced.
-                          You'll need to define its structure based on your requirements
+                        description: AssistantKnowledge represents knowledge configuration
+                          for an assistant
+                        properties:
+                          name:
+                            type: string
+                          rag_settings:
+                            description: RAGSettings contains settings for RAG processing
+                            properties:
+                              chunk_overflow:
+                                type: integer
+                              chunk_size:
+                                type: integer
+                              disable_chunking:
+                                type: boolean
+                              disable_downloading:
+                                type: boolean
+                              results_count:
+                                type: integer
+                              threshold:
+                                type: integer
+                            required:
+                            - chunk_overflow
+                            - chunk_size
+                            - disable_chunking
+                            - disable_downloading
+                            - results_count
+                            - threshold
+                            type: object
+                          refresh_enabled:
+                            type: boolean
+                          refresh_schedule:
+                            type: string
+                          source:
+                            description: KnowledgeSource contains source configuration
+                              for knowledge
+                            properties:
+                              filestore:
+                                description: FilestoreSource represents filestore
+                                  configuration
+                                properties:
+                                  path:
+                                    type: string
+                                required:
+                                - path
+                                type: object
+                              web:
+                                description: WebSource represents web source configuration
+                                properties:
+                                  crawler:
+                                    description: WebCrawlerConfig contains web crawler
+                                      settings
+                                    properties:
+                                      enabled:
+                                        type: boolean
+                                      max_depth:
+                                        type: integer
+                                      max_pages:
+                                        type: integer
+                                      readability:
+                                        type: boolean
+                                    required:
+                                    - enabled
+                                    - max_depth
+                                    - max_pages
+                                    - readability
+                                    type: object
+                                  urls:
+                                    items:
+                                      type: string
+                                    type: array
+                                required:
+                                - crawler
+                                - urls
+                                type: object
+                            required:
+                            - filestore
+                            - web
+                            type: object
+                        required:
+                        - name
+                        - rag_settings
+                        - refresh_enabled
+                        - source
                         type: object
                       type: array
                     lora_id:
