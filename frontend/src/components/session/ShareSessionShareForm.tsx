@@ -1,5 +1,4 @@
 import React, { FC, useState } from 'react'
-import {CopyToClipboard} from 'react-copy-to-clipboard'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -27,6 +26,18 @@ export const ShareSessionShareForm: FC<{
 }) => {
   const snackbar = useSnackbar()
   const url = `${window.location.protocol}//${window.location.hostname}/session/${session.id}`
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(url)
+      .then(() => {
+        snackbar.success('Copied to clipboard')
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error)
+        snackbar.error('Failed to copy to clipboard')
+      })
+  }
+
   return (
     <Box
       sx={{
@@ -98,22 +109,13 @@ export const ShareSessionShareForm: FC<{
                 pb: 3,
               }}
             >
-              <CopyToClipboard
-                text={ url }
-                onCopy={ () => {
-                  snackbar.success('Copied to clipboard')
-                }}
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={handleCopy}
               >
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={ () => {
-                    
-                  }}
-                >
-                  Copy URL
-                </Button>
-              </CopyToClipboard>
+                Copy URL
+              </Button>
             </Cell>
           </Row>
         )

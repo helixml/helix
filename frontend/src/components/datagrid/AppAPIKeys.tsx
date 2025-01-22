@@ -1,6 +1,5 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, useCallback } from 'react'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
-import {CopyToClipboard} from 'react-copy-to-clipboard'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
@@ -22,6 +21,18 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
   onDeleteKey,
 }) => {
   const snackbar = useSnackbar()
+
+  const handleCopy = useCallback((text: string, successMessage: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        snackbar.success(successMessage)
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error)
+        snackbar.error('Failed to copy to clipboard')
+      })
+  }, [snackbar])
+
   const columns = useMemo<IDataGrid2_Column<IApiKey>[]>(() => {
     return [
       {
@@ -52,42 +63,37 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
           textAlign: 'right',
         },
         render: ({ data }) => {
-          return (
-            <Box sx={{
-              width: '100%',
-              textAlign: 'right',
-            }}>
-              <CopyToClipboard
-                text={ `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
+          const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
 <script>
   ChatWidget({
     url: '${window.location.origin}/v1/chat/completions',
     model: 'llama3:instruct',
     bearerToken: '${data.key}',
   })
-</script>` }
-                onCopy={ () => {
-                  snackbar.success('embed code copied to clipboard')
-                }}
-              >
-                <Tooltip title="Copy Embed Code">
-                  <IconButton size="small">
-                    <CodeIcon sx={{width: '16px', height: '16px'}} />
-                  </IconButton>
-                </Tooltip>
-              </CopyToClipboard>
-              <CopyToClipboard
-                text={ data.key }
-                onCopy={ () => {
-                  snackbar.success('api key copied to clipboard')
-                }}
-              >
-                <Tooltip title="Copy API Key">
-                  <IconButton size="small" sx={{ml: 2}}>
-                    <ContentCopyIcon sx={{width: '16px', height: '16px'}} />
-                  </IconButton>
-                </Tooltip>
-              </CopyToClipboard>
+</script>`
+
+          return (
+            <Box sx={{
+              width: '100%',
+              textAlign: 'right',
+            }}>
+              <Tooltip title="Copy Embed Code">
+                <IconButton 
+                  size="small"
+                  onClick={() => handleCopy(embedCode, 'embed code copied to clipboard')}
+                >
+                  <CodeIcon sx={{width: '16px', height: '16px'}} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Copy API Key">
+                <IconButton 
+                  size="small" 
+                  sx={{ml: 2}}
+                  onClick={() => handleCopy(data.key, 'api key copied to clipboard')}
+                >
+                  <ContentCopyIcon sx={{width: '16px', height: '16px'}} />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Delete API Key">
                 <IconButton size="small" sx={{ml: 2}} onClick={() => {
                   onDeleteKey(data.key)
@@ -102,6 +108,7 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
     ]
   }, [
     onDeleteKey,
+    handleCopy,
   ])
 
   return (
