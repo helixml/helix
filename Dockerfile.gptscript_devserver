@@ -17,7 +17,7 @@ WORKDIR /app/api
 # Build the Go app
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 
-FROM alpine:3.17
+FROM alpine:3.21
 RUN apk --update add ca-certificates bash openssh unzip wget sqlite
 
 COPY --from=go-build-env /helix /helix
