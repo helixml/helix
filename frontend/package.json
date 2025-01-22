@@ -17,7 +17,7 @@
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.6.0",
     "@helixml/chat-widget": "0.2.0",
-    "@hookform/resolvers": "^2.8.8",
+    "@hookform/resolvers": "^3.10.0",
     "@inovua/reactdatagrid-community": "^5.10.2",
     "@mui/icons-material": "^5.3.1",
     "@mui/material": "^5.3.1",
