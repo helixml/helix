@@ -61,7 +61,7 @@
     "styled-components": "^6.1.13",
     "three": "^0.152.2",
     "three-orbitcontrols": "^2.110.3",
-    "uuid": "^9.0.1",
+    "uuid": "^11.0.5",
     "yaml": "^2.5.0",
     "yup": "^1.1.1"
   },
