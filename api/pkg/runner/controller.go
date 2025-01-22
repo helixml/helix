@@ -99,6 +99,7 @@ type Runner struct {
 	websocketEventChannel chan *types.WebsocketEvent          // how we write web sockets messages to the api server
 	slots                 map[uuid.UUID]*Slot                 // A map recording the slots running on this runner
 	slotFactory           SlotFactory                         // A factory to create new slots. Required for testing since we don't actually want to spin up ollama on each test
+	lastPollSlots         time.Time                           // The time of the last pollSlots call
 }
 
 func NewRunner(
@@ -144,6 +145,7 @@ func NewRunner(
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 		slots:                 make(map[uuid.UUID]*Slot),
 		slotFactory:           options.RuntimeFactory,
+		lastPollSlots:         time.Now(),
 	}
 	return runner, nil
 }
@@ -182,6 +184,7 @@ func (r *Runner) Run() {
 		log.Info().Msg("🟢 warmup inference complete")
 	}
 
+	go r.startWatchdog()
 	go r.startTaskLoop()
 	go r.startReportStateLoop()
 }
@@ -201,6 +204,19 @@ func (r *Runner) startTaskLoop() {
 	}
 }
 
+func (r *Runner) startWatchdog() {
+	for {
+		select {
+		case <-r.Ctx.Done():
+			return
+		case <-time.After(time.Second * 1):
+			if time.Since(r.lastPollSlots) > time.Second*90 {
+				panic("No slots polled in the last 90 seconds, restarting runner")
+			}
+		}
+	}
+}
+
 func (r *Runner) pollSlots(_ context.Context) error {
 	// TODO(PHIL): The old warmup code was sketchy. It had two paths (V1/V2 thing). And mostly just
 	// called the old llama:instruct model. Ideally the warmup should be orchestrated from the
@@ -210,6 +226,8 @@ func (r *Runner) pollSlots(_ context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	r.lastPollSlots = time.Now()
 
 	l := log.With().
 		Str("runner_id", r.Options.ID).
