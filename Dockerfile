@@ -60,7 +60,7 @@ RUN yarn build
 
 ### Production Image ###
 #-----------------------
-FROM alpine:3.20
+FROM alpine:3.21
 RUN apk --update add --no-cache ca-certificates
 
 COPY --from=api-build-env /helix /helix
