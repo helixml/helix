@@ -64,9 +64,6 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.4 /uv /bin/uv
 COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
 ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
 
-# Copy the cog wrapper, cog and cog-sdxl is installed in the base image, this is just the cog server
-COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py
-
 # So that the runner can function when run as non-root, symlink some stuff into
 # locations in /tmp (needed for locked down OpenShift support)
 RUN mkdir -p /tmp/helix/ollama /tmp/helix/src /tmp/helix/cache /tmp/helix/root-cache /tmp/helix/config /workspace/axolotl/dataset_cache && \
@@ -75,7 +72,7 @@ RUN mkdir -p /tmp/helix/ollama /tmp/helix/src /tmp/helix/cache /tmp/helix/root-c
     rm -rf /.config && ln -s /tmp/helix/config /.config && \
     rm -rf /src && ln -s /tmp/helix/src /src && \
     rm -rf /.ollama && ln -s /tmp/helix/ollama /.ollama && \
-    chmod -R 0777 /tmp/helix && chmod 0777 /root /workspace/cog-sdxl /workspace/axolotl /workspace/axolotl/dataset_cache
+    chmod -R 0777 /tmp/helix && chmod 0777 /root /workspace/axolotl /workspace/axolotl/dataset_cache
 
 COPY --from=go-build-env /helix /workspace/helix/helix
 
