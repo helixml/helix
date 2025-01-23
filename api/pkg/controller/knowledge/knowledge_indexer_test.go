@@ -172,6 +172,64 @@ func (suite *IndexerSuite) TestIndex() {
 	suite.reconciler.wg.Wait()
 }
 
+func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
+	knowledge := &types.Knowledge{
+		ID: "knowledge_id",
+		RAGSettings: types.RAGSettings{
+			TextSplitter: types.TextSplitterTypeText,
+			ChunkSize:    2048,
+		},
+		Source: types.KnowledgeSource{
+			Filestore: &types.KnowledgeSourceHelixFilestore{
+				Path: "/test",
+			},
+		},
+	}
+
+	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State)
+			suite.Equal("", k.Message)
+			suite.Equal("", k.Version, "version should be empty when we start indexing")
+
+			return knowledge, nil
+		},
+	)
+
+	// Check filestore
+	suite.filestore.EXPECT().List(gomock.Any(), gomock.Any()).Return([]filestore.Item{}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateError, k.State)
+			suite.Equal("failed to get indexing data, error: no files found in filestore", k.Message)
+			return knowledge, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
+			// suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
+			suite.Equal(types.KnowledgeStateError, k.State, "knowledge should be error")
+			suite.Equal("failed to get indexing data, error: no files found in filestore", k.Message)
+			suite.Equal(knowledge.ID, k.KnowledgeID, "knowledge id should be set")
+
+			return k, nil
+		},
+	)
+
+	// Start indexing
+	err := suite.reconciler.index(suite.ctx)
+	suite.NoError(err)
+
+	// Wait for the goroutines to finish
+	suite.reconciler.wg.Wait()
+}
+
 func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	suite.cfg.RAG.Crawler.MaxPages = 50
 	suite.cfg.RAG.Crawler.MaxDepth = 3
