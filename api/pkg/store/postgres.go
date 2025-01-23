@@ -470,7 +470,7 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 			sqlDB.SetConnMaxIdleTime(time.Hour)
 			sqlDB.SetConnMaxLifetime(time.Minute)
 
-			log.Info().Str("dsn", dsn).Msg("sql store connected")
+			log.Info().Msg("sql store connected")
 
 			// success
 			return db, nil
