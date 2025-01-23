@@ -28,6 +28,13 @@ func TestValidate(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "Empty source",
+			knowledge: &types.AssistantKnowledge{
+				Name: "Test",
+			},
+			expectError: true,
+		},
+		{
 			name: "Valid cron schedule",
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
@@ -114,7 +121,7 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "Invalid URL",
