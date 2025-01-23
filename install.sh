@@ -65,7 +65,7 @@ check_docker_sudo() {
         if timeout 10 sudo docker ps >/dev/null 2>&1; then
             echo "true"
         else
-            echo "Docker is not running or not installed"
+            echo "Docker is not running or not installed. Please start Docker!" >&2
             exit 1
         fi
     fi
