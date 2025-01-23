@@ -230,6 +230,54 @@ func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
 	suite.reconciler.wg.Wait()
 }
 
+func (suite *IndexerSuite) TestIndex_RetryRecent_ErrorNoFiles() {
+	knowledge := &types.Knowledge{
+		ID:      "knowledge_id",
+		Created: time.Now().Add(-1 * time.Minute),
+		RAGSettings: types.RAGSettings{
+			TextSplitter: types.TextSplitterTypeText,
+			ChunkSize:    2048,
+		},
+		Source: types.KnowledgeSource{
+			Filestore: &types.KnowledgeSourceHelixFilestore{
+				Path: "/test",
+			},
+		},
+	}
+
+	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State)
+			suite.Equal("", k.Message)
+			suite.Equal("", k.Version, "version should be empty when we start indexing")
+
+			return knowledge, nil
+		},
+	)
+
+	// Check filestore
+	suite.filestore.EXPECT().List(gomock.Any(), gomock.Any()).Return([]filestore.Item{}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStatePending, k.State)
+			suite.Equal("waiting for files to be uploaded", k.Message)
+			return knowledge, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Start indexing
+	err := suite.reconciler.index(suite.ctx)
+	suite.NoError(err)
+
+	// Wait for the goroutines to finish
+	suite.reconciler.wg.Wait()
+}
+
 func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	suite.cfg.RAG.Crawler.MaxPages = 50
 	suite.cfg.RAG.Crawler.MaxDepth = 3
