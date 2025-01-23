@@ -196,7 +196,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Running action",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit run action step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit run action step info")
 	}
 
 	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API)
@@ -206,7 +206,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 			Type:    types.StepInfoTypeToolUse,
 			Message: fmt.Sprintf("Action failed: %s", err),
 		}); emitErr != nil {
-			return nil, false, fmt.Errorf("failed to perform action: %w: additionally emit step failed: %v", emitErr, err)
+			log.Debug().Err(err).Msg("failed to emit run action step info")
 		}
 
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
@@ -217,7 +217,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Action completed",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit action completed step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit run action step info")
 	}
 
 	return &openai.ChatCompletionResponse{
@@ -253,7 +253,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Running action",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API)
@@ -269,7 +269,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 			Type:    types.StepInfoTypeToolUse,
 			Message: fmt.Sprintf("Action failed: %s", err),
 		}); emitErr != nil {
-			return nil, false, fmt.Errorf("failed to perform action: %w: additionally emit step failed: %v", emitErr, err)
+			log.Debug().Err(err).Msg("failed to emit step info")
 		}
 
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
@@ -280,7 +280,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Action completed",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
 	return stream, true, nil
@@ -325,7 +325,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Checking if we should use tools",
 	}); err != nil {
-		return nil, nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
@@ -340,7 +340,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 			Type:    types.StepInfoTypeToolUse,
 			Message: "Message is not actionable",
 		}); err != nil {
-			return nil, nil, false, fmt.Errorf("failed to emit step info: %w", err)
+			log.Debug().Err(err).Msg("failed to emit step info")
 		}
 
 		return nil, nil, false, nil
@@ -561,7 +561,7 @@ func (c *Controller) evaluateKnowledge(
 				Type:    types.StepInfoTypeRAG,
 				Message: "Searching for knowledge",
 			}); err != nil {
-				return nil, nil, fmt.Errorf("failed to emit step info: %w", err)
+				log.Debug().Err(err).Msg("failed to emit step info")
 			}
 
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
@@ -580,7 +580,7 @@ func (c *Controller) evaluateKnowledge(
 				Type:    types.StepInfoTypeRAG,
 				Message: fmt.Sprintf("Found %d results", len(ragResults)),
 			}); err != nil {
-				return nil, nil, fmt.Errorf("failed to emit step info: %w", err)
+				log.Debug().Err(err).Msg("failed to emit step info")
 			}
 
 			for _, result := range ragResults {
