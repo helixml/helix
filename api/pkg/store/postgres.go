@@ -450,7 +450,7 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
 			dialector = postgres.Open(dsn)
 
-			log.Info().Str("dsn", dsn).Msg("sql store connecting to DB")
+			log.Info().Msg("sql store connecting to DB")
 
 			db, err := gorm.Open(dialector, &gorm.Config{})
 			if err != nil {
