@@ -41,7 +41,7 @@
     "lodash": "^4.17.21",
     "mobx": "^6.13.5",
     "pretty-bytes": "^6.0.0",
-    "puppeteer": "^22.10.0",
+    "puppeteer": "^24.1.0",
     "react": "^17.0.2",
     "react-beautiful-dnd": "^13.1.1",
     "react-copy-to-clipboard": "^5.1.0",
