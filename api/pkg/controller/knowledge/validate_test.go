@@ -19,6 +19,11 @@ func TestValidate(t *testing.T) {
 			name: "Empty name",
 			knowledge: &types.AssistantKnowledge{
 				Name: "",
+				Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: true,
 		},
@@ -27,6 +32,11 @@ func TestValidate(t *testing.T) {
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
 				RefreshSchedule: "0 0 * * *", // Every 24 hours
+				Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: false,
 		},
@@ -35,6 +45,11 @@ func TestValidate(t *testing.T) {
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
 				RefreshSchedule: "*/5 * * * *", // Every 5 minutes
+				Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: true,
 		},
@@ -43,6 +58,11 @@ func TestValidate(t *testing.T) {
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
 				RefreshSchedule: "@every 5m",
+				Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: true,
 		},
@@ -51,6 +71,11 @@ func TestValidate(t *testing.T) {
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
 				RefreshSchedule: "@every 15m",
+				Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: false,
 		},
@@ -59,6 +84,11 @@ func TestValidate(t *testing.T) {
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
 				RefreshSchedule: "invalid cron",
+				Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: true,
 		},
@@ -66,11 +96,50 @@ func TestValidate(t *testing.T) {
 			name: "Empty schedule",
 			knowledge: &types.AssistantKnowledge{
 				Name:            "Test",
-				RefreshSchedule: "",
+				RefreshSchedule: "", Source: types.KnowledgeSource{
+					Filestore: &types.KnowledgeSourceHelixFilestore{
+						Path: "/test",
+					},
+				},
 			},
 			expectError: false,
 		},
-		// Add more test cases for web source validation if needed
+		{
+			name: "Valid URL",
+			knowledge: &types.AssistantKnowledge{
+				Name: "Test",
+				Source: types.KnowledgeSource{
+					Web: &types.KnowledgeSourceWeb{
+						URLs: []string{"https://foo.com"},
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid URL",
+			knowledge: &types.AssistantKnowledge{
+				Name: "Test",
+				Source: types.KnowledgeSource{
+					Web: &types.KnowledgeSourceWeb{
+						URLs: []string{"invalid-url"},
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid URL starts with https://",
+			knowledge: &types.AssistantKnowledge{
+				Name: "Test",
+				Source: types.KnowledgeSource{
+					Web: &types.KnowledgeSourceWeb{
+						URLs: []string{"https://foo.com https://bar.com"},
+					},
+				},
+			},
+			expectError: true,
+		},
 	}
 
 	serverConfig := config.ServerConfig{}
