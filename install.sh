@@ -59,10 +59,12 @@ fi
 
 # Function to check if docker works without sudo
 check_docker_sudo() {
-    if timeout 10 docker ps >/dev/null 2>&1; then
+    # Try without sudo first
+    if docker ps >/dev/null 2>&1; then
         echo "false"
     else
-        if timeout 10 sudo docker ps >/dev/null 2>&1; then
+        # Try with sudo
+        if sudo docker ps >/dev/null 2>&1; then
             echo "true"
         else
             echo "Docker is not running or not installed. Please start Docker!" >&2
@@ -262,7 +264,7 @@ fi
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
@@ -271,15 +273,15 @@ check_nvidia_gpu() {
 
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
-    # Check localhost
-    if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
+    # Check localhost with a short read timeout using curl
+    if curl -s --connect-timeout 2 -o /dev/null -w "%{http_code}" http://localhost:11434/v1/models >/dev/null; then
         return 0
     fi
 
     # Check Docker bridge IP
     DOCKER_BRIDGE_IP=$($DOCKER_CMD network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
     if [ -n "$DOCKER_BRIDGE_IP" ]; then
-        if curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
+        if curl -s --connect-timeout 2 -o /dev/null -w "%{http_code}" "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
             return 0
         fi
     fi
