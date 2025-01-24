@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,6 +29,9 @@ import (
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 
+	"crypto/tls"
+	"crypto/x509"
+	"net"
 	_ "net/http/pprof" // enable profiling
 )
 
@@ -377,7 +382,71 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 	// Strip path prefix, otherwise we would have to use /auth/auth/realms/helix/protocol/openid-connect/token
 	u.Path = ""
 
-	router.PathPrefix("/auth").Handler(httputil.NewSingleHostReverseProxy(u))
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	// Create transport with custom CA support
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// Load system cert pool
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		rootCAs = x509.NewCertPool()
+	}
+
+	// Check for custom CA cert file
+	if certFile := os.Getenv("SSL_CERT_FILE"); certFile != "" {
+		cert, err := os.ReadFile(certFile)
+		if err != nil {
+			log.Error().Err(err).Str("file", certFile).Msg("Error reading custom CA cert file")
+		} else if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
+			log.Error().Str("file", certFile).Msg("Failed to append custom CA cert to pool")
+		} else {
+			log.Info().Str("file", certFile).Msg("Added custom CA cert")
+		}
+	}
+
+	// Check for custom CA cert directory
+	if certDir := os.Getenv("SSL_CERT_DIR"); certDir != "" {
+		files, err := os.ReadDir(certDir)
+		if err != nil {
+			log.Error().Err(err).Str("dir", certDir).Msg("Error reading cert directory")
+		} else {
+			for _, file := range files {
+				if !file.IsDir() {
+					certPath := filepath.Join(certDir, file.Name())
+					cert, err := os.ReadFile(certPath)
+					if err != nil {
+						log.Error().Err(err).Str("file", certPath).Msg("Error reading cert file")
+						continue
+					}
+					if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
+						log.Error().Str("file", certPath).Msg("Failed to append cert to pool")
+					} else {
+						log.Info().Str("file", certPath).Msg("Added cert")
+					}
+				}
+			}
+		}
+	}
+
+	transport.TLSClientConfig = &tls.Config{
+		RootCAs: rootCAs,
+	}
+
+	proxy.Transport = transport
+
+	router.PathPrefix("/auth").Handler(proxy)
 }
 
 // Static files router
