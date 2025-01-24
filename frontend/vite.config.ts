@@ -12,7 +12,6 @@ export default defineConfig({
   publicDir: 'assets',
   build: {
     rollupOptions: {
-      external: ['#minpath', '#minproc', '#minurl'],
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
@@ -22,9 +21,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '#minpath': 'path',
-      '#minproc': 'process',
-      '#minurl': 'url'
+      '#minpath': path.resolve(__dirname, 'src/polyfills/path.js'),
+      '#minproc': path.resolve(__dirname, 'src/polyfills/process.js'),
+      '#minurl': path.resolve(__dirname, 'src/polyfills/url.js')
     },
   },
 })
