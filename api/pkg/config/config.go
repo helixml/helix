@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -257,8 +258,11 @@ type WebServer struct {
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
 	// a list of keycloak ids that are considered admins
-	// if the string '*' is included it means ALL users
+	// if the string 'all' is included it means ALL users
 	AdminIDs []string `envconfig:"ADMIN_USER_IDS" description:"Keycloak admin IDs."`
+	// Specifies the source of the Admin user IDs.
+	// By default AdminSrc is set to env.
+	AdminSrc AdminSrcType `envconfig:"ADMIN_USER_SOURCE" default:"env" description:"Source of admin IDs"`
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string `envconfig:"EVAL_USER_ID" description:""`
@@ -269,6 +273,27 @@ type WebServer struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+}
+
+// AdminSrcType is an enum specifyin the type of Admin ID source.
+// It currently supports only two sources:
+// * env: ADMIN_USER_IDS env var
+// * jwt: admin JWT token claim
+type AdminSrcType string
+
+const (
+	AdminSrcTypeEnv AdminSrcType = "env"
+	AdminSrcTypeJWT AdminSrcType = "jwt"
+)
+
+// Decode implements envconfig.Decoder for value validation.
+func (a *AdminSrcType) Decode(value string) error {
+	switch value {
+	case string(AdminSrcTypeEnv), string(AdminSrcTypeJWT):
+		return nil
+	default:
+		return fmt.Errorf("invalid source of admin IDs: %q", value)
+	}
 }
 
 type SubscriptionQuotas struct {

@@ -562,7 +562,8 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	user := getRequestUser(r)
 	id := getID(r)
 
-	deleteKnowledge := r.URL.Query().Get("knowledge") == "true"
+	// Users need to specify if they want to keep the knowledge, by default - deleting
+	keepKnowledge := r.URL.Query().Get("keep_knowledge") == "true"
 
 	existing, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
@@ -582,7 +583,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
-	if deleteKnowledge {
+	if !keepKnowledge {
 		knowledge, err := s.Store.ListKnowledge(r.Context(), &store.ListKnowledgeQuery{
 			AppID: id,
 		})

@@ -2,7 +2,6 @@ import React, { FC } from 'react'
 import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
 import CloseIcon from '@mui/icons-material/Close'
-import {CopyToClipboard} from 'react-copy-to-clipboard'
 import Button from '@mui/material/Button'
 import JsonView from './JsonView'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -27,6 +26,18 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
   const snackbar = useSnackbar()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+
+  const handleCopy = () => {
+    const textToCopy = typeof(data) === 'string' ? data : JSON.stringify(data, null, 4)
+    navigator.clipboard.writeText(textToCopy)
+      .then(() => {
+        snackbar.success('Copied to clipboard')
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error)
+        snackbar.error('Failed to copy to clipboard')
+      })
+  }
 
   return (
     <>
@@ -101,25 +112,18 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
             backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
           }}
         >
-          <CopyToClipboard
-            text={typeof(data) == 'string' ? data : JSON.stringify(data, null, 4)}
-            onCopy={() => {
-              snackbar.success('Copied to clipboard')
+          <Button
+            color="secondary"
+            variant="text"
+            endIcon={<ContentCopyIcon />}
+            onClick={handleCopy}
+            sx={{
+              fontSize: '1.2em',
+              color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText,
             }}
           >
-            <Button
-              color="secondary"
-              variant="text"
-              endIcon={<ContentCopyIcon />}
-              sx={{
-                fontSize: '1.2em',
-                color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText,
-                
-              }}
-            >
-              Copy to clipboard
-            </Button>
-          </CopyToClipboard>
+            Copy to clipboard
+          </Button>
         </Box>
       </Drawer>
     </>

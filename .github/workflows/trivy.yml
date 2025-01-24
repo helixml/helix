@@ -18,9 +18,7 @@ jobs:
         image:
         - 'registry.helix.ml/helix/controlplane:latest'
         - 'postgres:12.13-alpine'
-        - 'ankane/pgvector'
         - 'quay.io/keycloak/keycloak:23.0'
-        - 'registry.helix.ml/helix/llamaindex:latest'
         - 'registry.helix.ml/helix/gptscript-runner:latest' 
         - 'apache/tika:2.9.2.1'
         - 'registry.helix.ml/helix/typesense:latest'

@@ -349,6 +349,7 @@ func TestScheduler_RunnerWithWrongModel(t *testing.T) {
 
 func TestScheduler_SlotTimeoutTest(t *testing.T) {
 	config, _ := config.LoadServerConfig()
+	config.Providers.Helix.RunnerTTL = 30 * time.Second
 	config.Providers.Helix.SlotTTL = 1 * time.Microsecond
 	config.Providers.Helix.ModelTTL = 1 * time.Microsecond
 	scheduler := NewScheduler(context.Background(), &config, nil)
@@ -363,7 +364,7 @@ func TestScheduler_SlotTimeoutTest(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Wait for the model to timeout
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	// Since the model has timed out, the slot should be stale
 	err = createTestSession(scheduler, "test-request-2", model.ModelOllamaLlama38b, "")

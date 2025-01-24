@@ -1,5 +1,4 @@
 import React, { FC, useState } from 'react'
-import {CopyToClipboard} from 'react-copy-to-clipboard'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -28,6 +27,19 @@ export const ShareSessionBotForm: FC<{
 }) => {
   const snackbar = useSnackbar()
   const [ botName, setBotName ] = useState( bot ? bot.name : generateAmusingName() )
+
+  const handleCopy = () => {
+    const url = `${window.location.protocol}//${window.location.hostname}/bot/${botName}`
+    navigator.clipboard.writeText(url)
+      .then(() => {
+        snackbar.success('Copied to clipboard')
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error)
+        snackbar.error('Failed to copy to clipboard')
+      })
+  }
+
   return (
     <Box
       sx={{
@@ -69,22 +81,13 @@ export const ShareSessionBotForm: FC<{
             pb: 3,
           }}
         >
-          <CopyToClipboard
-            text={`${window.location.protocol}//${window.location.hostname}/bot/${botName}`}
-            onCopy={ () => {
-              snackbar.success('Copied to clipboard')
-            }}
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={handleCopy}
           >
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={ () => {
-                
-              }}
-            >
-              Copy URL
-            </Button>
-          </CopyToClipboard>
+            Copy URL
+          </Button>
         </Cell>
       </Row>
     </Box>
