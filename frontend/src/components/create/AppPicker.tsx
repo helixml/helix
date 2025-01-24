@@ -1,48 +1,43 @@
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
-import ExtensionIcon from '@mui/icons-material/Extension'
+import WebAssetIcon from '@mui/icons-material/WebAsset'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
-import React, { FC, useContext, useState, useMemo } from 'react'
-import { AccountContext } from '../../contexts/account'
-import useIsBigScreen from '../../hooks/useIsBigScreen'
+import React, { FC, useState } from 'react'
 import useLightTheme from '../../hooks/useLightTheme'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
+import { IApp } from '../../types'
 
-const ModelPicker: FC<{
-  type: string,
-  model: string,
-  onSetModel: (model: string) => void,
+const AppPicker: FC<{
+  apps: IApp[],
+  selectedApp?: IApp,
+  onSelectApp: (app: IApp | undefined) => void,
 }> = ({
-  type,
-  model,
-  onSetModel
+  apps,
+  selectedApp,
+  onSelectApp,
 }) => {
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
-  const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
-  const { models } = useContext(AccountContext)
+  const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement>()
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setModelMenuAnchorEl(event.currentTarget)
+    setMenuAnchorEl(event.currentTarget)
   }
 
   const handleCloseMenu = () => {
-    setModelMenuAnchorEl(undefined)
+    setMenuAnchorEl(undefined)
   }
 
-  const modelData = models.find(m => m.id === model) || models[0];
-
-  const filteredModels = useMemo(() => {
-    return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
-  }, [models, type])
+  // Only show the picker if there are apps
+  if (apps.length === 0) return null
 
   return (
     <>
       {isBigScreen ? (
         <Typography
-          className="inferenceTitle"
           component="h1"
           variant="h6"
           color="inherit"
@@ -59,7 +54,7 @@ const ModelPicker: FC<{
             },
           }}
         >
-          {modelData?.name || 'Default Model'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+          {selectedApp?.config.helix.name || 'Default App'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
         </Typography>
       ) : (
         <IconButton
@@ -68,13 +63,13 @@ const ModelPicker: FC<{
             color: 'text.primary',
           }}
         >
-          <ExtensionIcon />
+          <WebAssetIcon />
         </IconButton>
       )}
       <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
         <Menu
-          anchorEl={modelMenuAnchorEl}
-          open={Boolean(modelMenuAnchorEl)}
+          anchorEl={menuAnchorEl}
+          open={Boolean(menuAnchorEl)}
           onClose={handleCloseMenu}
           sx={{marginTop: isBigScreen ? "50px" : "0px"}}
           anchorOrigin={{
@@ -86,24 +81,32 @@ const ModelPicker: FC<{
             horizontal: 'left',
           }}
         >
-          {
-            filteredModels.map(model => (
-              <MenuItem
-                key={model.id}
-                sx={{fontSize: "large"}}
-                onClick={() => {
-                  onSetModel(model.id)
-                  handleCloseMenu()
-                }}
-              >
-                {model.name} {model.description && <>&nbsp; <small>({model.description})</small></>}
-              </MenuItem>
-            ))
-          }
+          <MenuItem
+            key="default"
+            sx={{fontSize: "large"}}
+            onClick={() => {
+              onSelectApp(undefined)
+              handleCloseMenu()
+            }}
+          >
+            Default App
+          </MenuItem>
+          {apps.map(app => (
+            <MenuItem
+              key={app.id}
+              sx={{fontSize: "large"}}
+              onClick={() => {
+                onSelectApp(app)
+                handleCloseMenu()
+              }}
+            >
+              {app.config.helix.name} {app.config.helix.description && <>&nbsp; <small>({app.config.helix.description})</small></>}
+            </MenuItem>
+          ))}
         </Menu>
       </Box>
     </>
   )
 }
 
-export default ModelPicker
+export default AppPicker 
