@@ -528,9 +528,9 @@ const App: FC = () => {
     if(!app) return
     
     // Save the app before sending the message
-    const updatedApp = await onSave(true);
+    const savedApp = await onSave(true);
 
-    if (!updatedApp || updatedApp.id === "new") {
+    if (!savedApp || savedApp.id === "new") {
       console.error('App not saved or ID not updated');
       snackbar.error('Failed to save app before inference');
       return;
@@ -541,8 +541,9 @@ const App: FC = () => {
       setInputValue('');
       const newSessionData = await NewInference({
         message: inputValue,
-        appId: updatedApp.id,
+        appId: savedApp.id,
         type: SESSION_TYPE_TEXT,
+        modelName: model,
       });
       console.log('about to load session', newSessionData.id);
       await session.loadSession(newSessionData.id);
