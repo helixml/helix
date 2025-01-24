@@ -58,7 +58,7 @@ const CreateToolbar: FC<{
 
   return (
     <Row>
-      {!appRequested && apps.length > 0 && (
+      {!appRequested && apps.length > 0 && mode == SESSION_MODE_INFERENCE && (
         <Cell>
           <AppPicker
             apps={apps}
