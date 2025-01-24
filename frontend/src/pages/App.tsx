@@ -310,7 +310,7 @@ const App: FC = () => {
   
   const validate = useCallback(() => {
     if (!app) return false;
-    if (!name) {
+    if (!name && (!app.config.helix.name || app.config.helix.name !== app.id)) {
       setTabValue('settings');
       return false;
     }
@@ -377,7 +377,7 @@ const App: FC = () => {
           ...app.config,
           helix: {
             ...app.config.helix,
-            name,
+            name: name || app.id,
             description,
             external_url: app.config.helix.external_url,
             avatar,
