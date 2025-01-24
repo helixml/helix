@@ -3,7 +3,7 @@ import Box from '@mui/material/Box'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
-import React, { FC, useContext, useEffect, useState } from 'react'
+import React, { FC, useContext, useState, useMemo } from 'react'
 import { AccountContext } from '../../contexts/account'
 import useLightTheme from '../../hooks/useLightTheme'
 
@@ -30,15 +30,10 @@ const ModelPicker: FC<{
 
   const modelData = models.find(m => m.id === model) || models[0];
 
-  const filteredModels = models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
+  const filteredModels = useMemo(() => {
+    return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
+  }, [models, type])
 
-  useEffect(() => {
-    // Set the first model as default if current model is not set or not in the list
-    if (filteredModels.length > 0 && (!model || model === '' || !filteredModels.some(m => m.id === model))) {
-      onSetModel(filteredModels[0].id);
-    }
-  }, [filteredModels, model, onSetModel])
-  
   return (
     <>
       <Typography
