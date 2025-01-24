@@ -91,7 +91,7 @@ type Tools struct {
 // Keycloak is used for authentication. You can find keycloak documentation
 // at https://www.keycloak.org/guides
 type Keycloak struct {
-	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
+	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://localhost:8080/auth"`
 	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8080/auth"`
 	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	APIClientID         string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
