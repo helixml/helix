@@ -57,6 +57,21 @@ elif [ "$OS" = "darwin" ]; then
     INSTALL_DIR="$HOME/HelixML"
 fi
 
+# Function to check if docker works without sudo
+check_docker_sudo() {
+    # Try without sudo first
+    if docker ps >/dev/null 2>&1; then
+        echo "false"
+    else
+        # Try with sudo
+        if sudo docker ps >/dev/null 2>&1; then
+            echo "true"
+        else
+            echo "Docker is not running or not installed. Please start Docker!" >&2
+            exit 1
+        fi
+    fi
+}
 
 # Function to display help message
 display_help() {
@@ -223,6 +238,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# default docker command
+DOCKER_CMD="docker"
+
+# Only check docker sudo if we need docker (i.e., not CLI-only installation)
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ]; then
+    NEED_SUDO="false"
+else
+    # Determine if we need sudo for docker commands
+    NEED_SUDO=$(check_docker_sudo)
+    if [ "$NEED_SUDO" = "true" ]; then
+        DOCKER_CMD="sudo docker"
+    fi
+fi
+
 # Determine version to install
 if [ -n "$HELIX_VERSION" ]; then
     LATEST_RELEASE="$HELIX_VERSION"
@@ -232,29 +261,27 @@ else
     echo "Using latest Helix version: $LATEST_RELEASE"
 fi
 
-
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
     fi
 }
 
-
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
-    # Check localhost
-    if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
+    # Check localhost with a short read timeout using curl
+    if curl -s --connect-timeout 2 -o /dev/null -w "%{http_code}" http://localhost:11434/v1/models >/dev/null; then
         return 0
     fi
 
     # Check Docker bridge IP
-    DOCKER_BRIDGE_IP=$(sudo docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
+    DOCKER_BRIDGE_IP=$($DOCKER_CMD network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
     if [ -n "$DOCKER_BRIDGE_IP" ]; then
-        if curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
+        if curl -s --connect-timeout 2 -o /dev/null -w "%{http_code}" "http://${DOCKER_BRIDGE_IP}:11434/v1/models" >/dev/null; then
             return 0
         fi
     fi
@@ -266,26 +293,39 @@ check_ollama() {
 if [ "$AUTO" = true ]; then
     CLI=true
     CONTROLPLANE=true
-    if check_nvidia_gpu; then
-        RUNNER=true
-    fi
-    echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
-    if check_nvidia_gpu; then
-        echo "🚀 NVIDIA GPU detected. Runner will be installed locally."
-        echo
-    elif check_ollama; then
-        echo "🦙 Ollama detected. Using local Ollama for inference provider."
+
+    # If user specified an LLM provider, don't auto-detect
+    if [ -n "$OPENAI_API_KEY" ] || [ -n "$TOGETHER_API_KEY" ]; then
+        echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
+        if [ -n "$OPENAI_API_KEY" ]; then
+            echo "Using OpenAI-compatible API for inference."
+        else
+            echo "Using Together.ai for inference."
+        fi
         echo
     else
-        echo "No NVIDIA GPU or Ollama detected. Ensure Ollama is running if you want to "
-        echo "use it for inference. Otherwise, you need to point a DNS name at this server "
-        echo "and set --api-host (e.g. --api-host https://helix.mycompany.com) and then "
-        echo "connect a separate GPU node to this controlplane."
-        echo
-        echo "Command will be printed at the end to install runner separately on a GPU node, "
-        echo "or pass --together-api-key to connect to together.ai for LLM inference."
-        echo "See --help for more options."
-        echo
+        # Only auto-detect if no LLM provider was specified
+        if check_nvidia_gpu; then
+            RUNNER=true
+        fi
+        echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
+        if check_nvidia_gpu; then
+            echo "🚀 NVIDIA GPU detected. Runner will be installed locally."
+            echo
+        elif check_ollama; then
+            echo "🦙 Ollama detected. Using local Ollama for inference provider."
+            echo
+        else
+            echo "No NVIDIA GPU or Ollama detected. Ensure Ollama is running if you want to "
+            echo "use it for inference. Otherwise, you need to point a DNS name at this server "
+            echo "and set --api-host (e.g. --api-host https://helix.mycompany.com) and then "
+            echo "connect a separate GPU node to this controlplane."
+            echo
+            echo "Command will be printed at the end to install runner separately on a GPU node, "
+            echo "or pass --together-api-key to connect to together.ai for LLM inference."
+            echo "See --help for more options."
+            echo
+        fi
     fi
 fi
 
@@ -433,7 +473,7 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! sudo docker info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
+    if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -721,7 +761,11 @@ EOF"
     echo "│ Start the Helix services by running:"
     echo "│"
     echo "│ cd $INSTALL_DIR"
-    echo "│ sudo docker compose up -d --remove-orphans"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│ sudo docker compose up -d --remove-orphans"
+    else
+        echo "│ docker compose up -d --remove-orphans"
+    fi
     if [ "$CADDY" = true ]; then
         echo "│ sudo systemctl restart caddy"
     fi
@@ -802,21 +846,21 @@ else
 fi
 
 # Check if api-1 container is running
-if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
     API_HOST="http://api:80"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
 # Check if helix_default network exists, create it if it doesn't
-if ! sudo docker network inspect helix_default >/dev/null 2>&1; then
+if ! docker network inspect helix_default >/dev/null 2>&1; then
     echo "Creating helix_default network..."
-    sudo docker network create helix_default
+    docker network create helix_default
 else
     echo "helix_default network already exists."
 fi
 
 # Run the docker container
-sudo docker run --privileged --gpus all --shm-size=10g \\
+docker run --privileged --gpus all --shm-size=10g \\
     --restart=always -d \\
     --name helix-runner --ipc=host --ulimit memlock=-1 \\
     --ulimit stack=67108864 \\
@@ -837,7 +881,11 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ To start the runner, run:"
     echo "│"
-    echo "│   sudo $INSTALL_DIR/runner.sh"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   sudo $INSTALL_DIR/runner.sh"
+    else
+        echo "│   $INSTALL_DIR/runner.sh"
+    fi
     echo "│"
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi

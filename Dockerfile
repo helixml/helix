@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -buil
 
 ### Frontend Base ###
 #--------------------
-FROM node:21-alpine AS ui-base
+FROM node:23-alpine AS ui-base
 WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
@@ -60,7 +60,7 @@ RUN yarn build
 
 ### Production Image ###
 #-----------------------
-FROM alpine:3.20
+FROM alpine:3.21
 RUN apk --update add --no-cache ca-certificates
 
 COPY --from=api-build-env /helix /helix

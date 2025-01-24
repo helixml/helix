@@ -10,4 +10,21 @@ export default defineConfig({
     port: 8081,
   },
   publicDir: 'assets',
+  build: {
+    rollupOptions: {
+      external: ['#minpath', '#minproc', '#minurl'],
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
+  resolve: {
+    alias: {
+      '#minpath': 'path',
+      '#minproc': 'process',
+      '#minurl': 'url'
+    },
+  },
 })

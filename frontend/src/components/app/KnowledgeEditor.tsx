@@ -234,7 +234,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       <>
         {sourceType === 'filestore' ? (
           <TextField
-            fullWidth
+            fullWidth            
             label="Filestore Path"
             value={source.source.filestore?.path || ''}
             onChange={(e) => {
@@ -244,7 +244,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 } 
               });
             }}
-            disabled={disabled}
+            disabled={true}
             sx={{ mb: 2 }}
           />
         ) : (

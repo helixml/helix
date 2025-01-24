@@ -1,5 +1,4 @@
 import React, { FC, useEffect, useCallback } from 'react'
-import {CopyToClipboard} from 'react-copy-to-clipboard'
 import Container from '@mui/material/Container'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
@@ -24,6 +23,17 @@ const Account: FC = () => {
   const account = useAccount()
   const api = useApi()
   const snackbar = useSnackbar()
+
+  const handleCopy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        snackbar.success('Copied to clipboard')
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error)
+        snackbar.error('Failed to copy to clipboard')
+      })
+  }, [snackbar])
 
   const handleDeleteApiKey = useCallback(async (key: string) => {
     await api.delete(`/api/v1/api_keys`, {
@@ -178,11 +188,14 @@ export HELIX_API_KEY=${apiKey}
                       <ListItem key={apiKey.key}>
                         <ListItemText primary={apiKey.name} secondary={apiKey.key} />
                         <ListItemSecondaryAction>
-                          <CopyToClipboard text={apiKey.key} onCopy={() => snackbar.success('Copied to clipboard')}>
-                            <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
-                              <CopyIcon />
-                            </IconButton>
-                          </CopyToClipboard>
+                          <IconButton 
+                            edge="end" 
+                            aria-label="copy" 
+                            sx={{ mr: 2 }}
+                            onClick={() => handleCopy(apiKey.key)}
+                          >
+                            <CopyIcon />
+                          </IconButton>
                           <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteApiKey(apiKey.key)}>
                             <DeleteIcon />
                           </IconButton>
@@ -213,11 +226,14 @@ export HELIX_API_KEY=${apiKey}
                         {cliInstall}                  
                       </Typography>
                       <ListItemSecondaryAction>
-                        <CopyToClipboard text={cliInstall} onCopy={() => snackbar.success('Copied to clipboard')}>
-                          <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
-                            <CopyIcon />
-                          </IconButton>
-                        </CopyToClipboard>                          
+                        <IconButton 
+                          edge="end" 
+                          aria-label="copy" 
+                          sx={{ mr: 2 }}
+                          onClick={() => handleCopy(cliInstall)}
+                        >
+                          <CopyIcon />
+                        </IconButton>                          
                       </ListItemSecondaryAction>
                     </ListItem>
 
@@ -240,11 +256,14 @@ export HELIX_API_KEY=${apiKey}
                           {cliLogin}                  
                         </Typography>
                         <ListItemSecondaryAction>
-                          <CopyToClipboard text={cliLogin} onCopy={() => snackbar.success('Copied to clipboard')}>
-                            <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
-                              <CopyIcon />
-                            </IconButton>
-                          </CopyToClipboard>                          
+                          <IconButton 
+                            edge="end" 
+                            aria-label="copy" 
+                            sx={{ mr: 2 }}
+                            onClick={() => handleCopy(cliLogin)}
+                          >
+                            <CopyIcon />
+                          </IconButton>                          
                         </ListItemSecondaryAction>
                       </ListItem>
                     ))}
@@ -261,11 +280,13 @@ export HELIX_API_KEY=${apiKey}
                       secondary={'Provides an easy way to set system prompt, fine-tuning adapters. Supply session_id to continue existing session.'} />
                     
                     <ListItemSecondaryAction sx={{ pr: 4 }}>
-                      <CopyToClipboard text={curlExample} onCopy={() => snackbar.success('Copied to clipboard')}>
-                        <IconButton edge="end" aria-label="copy">
-                          <CopyIcon />
-                        </IconButton>
-                      </CopyToClipboard>
+                      <IconButton 
+                        edge="end" 
+                        aria-label="copy"
+                        onClick={() => handleCopy(curlExample)}
+                      >
+                        <CopyIcon />
+                      </IconButton>
                     </ListItemSecondaryAction>
 
                   </ListItem>
@@ -288,11 +309,13 @@ export HELIX_API_KEY=${apiKey}
                         primary={'OpenAI chat'} 
                         secondary={'Each API call creates a new Helix session, provide multiple messages to keep the context.'} />
                       <ListItemSecondaryAction sx={{ pr: 4 }}>
-                        <CopyToClipboard text={openAICurlExample} onCopy={() => snackbar.success('Copied to clipboard')}>
-                          <IconButton edge="end" aria-label="copy">
-                            <CopyIcon />
-                          </IconButton>
-                        </CopyToClipboard>
+                        <IconButton 
+                          edge="end" 
+                          aria-label="copy"
+                          onClick={() => handleCopy(openAICurlExample)}
+                        >
+                          <CopyIcon />
+                        </IconButton>
                       </ListItemSecondaryAction>
                     </ListItem>
                   </List>
@@ -316,11 +339,13 @@ export HELIX_API_KEY=${apiKey}
                         primary={'OpenAI SDK compatibility'} 
                         secondary={'Use any OpenAI SDK or tool with the following environment variables or settings to connect to Helix.'} />
                       <ListItemSecondaryAction sx={{ pr: 4 }}>
-                        <CopyToClipboard text={openAIAzureEnvVars} onCopy={() => snackbar.success('Copied to clipboard')}>
-                          <IconButton edge="end" aria-label="copy">
-                            <CopyIcon />
-                          </IconButton>
-                        </CopyToClipboard>
+                        <IconButton 
+                          edge="end" 
+                          aria-label="copy"
+                          onClick={() => handleCopy(openAIAzureEnvVars)}
+                        >
+                          <CopyIcon />
+                        </IconButton>
                       </ListItemSecondaryAction>
                     </ListItem>
                   </List>
