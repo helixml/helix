@@ -18,7 +18,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
-      - KEYCLOAK_URL=http://keycloak:8080/auth
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -28,7 +27,8 @@ services:
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
       - FRONTEND_URL=http://frontend:8081
       # this is an insecure development key do not use!
-      - KEYCLOAK_USER=admin
+      - KEYCLOAK_URL=http://keycloak:8080/auth
+      - KEYCLOAK_USER=${KEYCLOAK_ADMIN_USER-admin}
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
       # lock down dashboard in production
@@ -106,18 +106,22 @@ services:
       - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
       - KC_DB_USERNAME=postgres
       - KC_DB_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN_USER-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-      # - KC_PROXY_HEADERS=xforwarded
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+      - KC_HTTP_ENABLED=true
       - KC_HEALTH_ENABLED=true
-      - KC_HOSTNAME=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-      - KC_HOSTNAME_ADMIN=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e 'GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;"]
-      start_period: 10s
-      interval: 5s
-      retries: 30
-      timeout: 5s
+      - KC_HOSTNAME_STRICT=false
+      - KC_PROXY_HEADERS=xforwarded
+      - KC_HOSTNAME=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth}
+      - KC_HOSTNAME_ADMIN=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth}
+      - KC_HTTP_RELATIVE_PATH=/auth
+    # healthcheck:
+    #   test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e 'GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;"]
+    #   start_period: 10s
+    #   interval: 5s
+    #   retries: 30
+    #   timeout: 5s
     command: ["start-dev"]
   webhook_relay_stripe:
     image: webhookrelay/webhookrelayd
