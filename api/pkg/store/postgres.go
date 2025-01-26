@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	reflect "reflect"
 	"strings"
 	"time"
@@ -49,7 +48,7 @@ func NewPostgresStore(
 
 	// Read SSL setting from environment
 	sslSettings := "sslmode=disable"
-	if os.Getenv(EnvPostgresSSL) == "true" {
+	if cfg.SSL {
 		sslSettings = "sslmode=require"
 	}
 
@@ -425,7 +424,7 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 // Available DB types
 const (
 	DatabaseTypePostgres = "postgres"
-	EnvPostgresSSL       = "HELIX_POSTGRES_SSL"
+	// EnvPostgresSSL       = "HELIX_POSTGRES_SSL"
 )
 
 func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
@@ -442,7 +441,7 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 
 			// Read SSL setting from environment
 			sslSettings := "sslmode=disable"
-			if os.Getenv(EnvPostgresSSL) == "true" {
+			if cfg.SSL {
 				sslSettings = "sslmode=require"
 			}
 
