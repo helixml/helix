@@ -4,7 +4,7 @@ name: zapier-email-app
 description: App example that integrates with Gmail using Zapier NLP Actions
 assistants:
 - name: Email integration
-  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  model: llama3.1:8b-instruct-q8_0
   zapier:
   - name: email_reader
     description: Can read emails
