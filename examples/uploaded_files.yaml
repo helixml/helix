@@ -2,7 +2,7 @@ name: uploaded-knowledge
 assistants:
 - name: Helix
   description: Know
-  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  model: llama3.1:8b-instruct-q8_0
   knowledge:
   - name: Honda hornet CB750 manual
     source:

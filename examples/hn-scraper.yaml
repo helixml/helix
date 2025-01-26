@@ -2,7 +2,8 @@ name: HN Scraper
 description: A scraper for Hacker News (duh).
 image: https://miro.medium.com/v2/resize:fit:1000/1*eessO5f7Bdflb4WprH75ow.jpeg
 assistants:
-- model: llama3:instruct
+- name: Hacker News
+  model: llama3.1:8b-instruct-q8_0
   system_prompt: |
     You are a helpful bot that fetches information from Hacker News website https://news.ycombinator.com/ and all it's sub-pages. Use
     as much background knowledge as possible to answer the question and provide creative ways to explore Hacker News.
