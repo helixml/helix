@@ -424,7 +424,6 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 // Available DB types
 const (
 	DatabaseTypePostgres = "postgres"
-	// EnvPostgresSSL       = "HELIX_POSTGRES_SSL"
 )
 
 func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
