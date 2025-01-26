@@ -405,7 +405,7 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 	}
 
 	// Check for custom CA cert file
-	if certFile := os.Getenv("SSL_CERT_FILE"); certFile != "" {
+	if certFile := apiServer.Cfg.SSL.SSLCertFile; certFile != "" {
 		cert, err := os.ReadFile(certFile)
 		if err != nil {
 			log.Error().Err(err).Str("file", certFile).Msg("Error reading custom CA cert file")
@@ -417,7 +417,7 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 	}
 
 	// Check for custom CA cert directory
-	if certDir := os.Getenv("SSL_CERT_DIR"); certDir != "" {
+	if certDir := apiServer.Cfg.SSL.SSLCertDir; certDir != "" {
 		files, err := os.ReadDir(certDir)
 		if err != nil {
 			log.Error().Err(err).Str("dir", certDir).Msg("Error reading cert directory")
