@@ -241,6 +241,7 @@ type Store struct {
 	Database string `envconfig:"POSTGRES_DATABASE" default:"helix" description:"The database to connect to the postgres server."`
 	Username string `envconfig:"POSTGRES_USER" description:"The username to connect to the postgres server."`
 	Password string `envconfig:"POSTGRES_PASSWORD" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"POSTGRES_SSL" default:"false"`
 
 	AutoMigrate     bool          `envconfig:"DATABASE_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
 	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
