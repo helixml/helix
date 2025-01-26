@@ -405,26 +405,26 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 	}
 
 	// Check for custom CA cert file
-	if certFile := apiServer.Cfg.SSL.SSLCertFile; certFile != "" {
-		cert, err := os.ReadFile(certFile)
+	if apiServer.Cfg.SSL.SSLCertFile != "" {
+		cert, err := os.ReadFile(apiServer.Cfg.SSL.SSLCertFile)
 		if err != nil {
-			log.Error().Err(err).Str("file", certFile).Msg("Error reading custom CA cert file")
+			log.Error().Err(err).Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Error reading custom CA cert file")
 		} else if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
-			log.Error().Str("file", certFile).Msg("Failed to append custom CA cert to pool")
+			log.Error().Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Failed to append custom CA cert to pool")
 		} else {
-			log.Info().Str("file", certFile).Msg("Added custom CA cert")
+			log.Info().Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Added custom CA cert")
 		}
 	}
 
 	// Check for custom CA cert directory
-	if certDir := apiServer.Cfg.SSL.SSLCertDir; certDir != "" {
-		files, err := os.ReadDir(certDir)
+	if apiServer.Cfg.SSL.SSLCertDir != "" {
+		files, err := os.ReadDir(apiServer.Cfg.SSL.SSLCertDir)
 		if err != nil {
-			log.Error().Err(err).Str("dir", certDir).Msg("Error reading cert directory")
+			log.Error().Err(err).Str("dir", apiServer.Cfg.SSL.SSLCertDir).Msg("Error reading cert directory")
 		} else {
 			for _, file := range files {
 				if !file.IsDir() {
-					certPath := filepath.Join(certDir, file.Name())
+					certPath := filepath.Join(apiServer.Cfg.SSL.SSLCertDir, file.Name())
 					cert, err := os.ReadFile(certPath)
 					if err != nil {
 						log.Error().Err(err).Str("file", certPath).Msg("Error reading cert file")
