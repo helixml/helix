@@ -10,6 +10,8 @@ import (
 )
 
 func TestValidate(t *testing.T) {
+	basicContent := "Hello, world!"
+
 	tests := []struct {
 		name        string
 		knowledge   *types.AssistantKnowledge
@@ -146,6 +148,16 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			expectError: true,
+		},
+		{
+			name: "Valid content",
+			knowledge: &types.AssistantKnowledge{
+				Name: "Test",
+				Source: types.KnowledgeSource{
+					Content: &basicContent,
+				},
+			},
+			expectError: false,
 		},
 	}
 
