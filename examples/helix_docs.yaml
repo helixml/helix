@@ -4,7 +4,7 @@ description: |
   A simple app that demonstrates how to setup Helix with knowledge from the Helix docs
 assistants:
 - name: Helix
-  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  model: llama3.1:8b-instruct-q8_0
   system_prompt: |
     You are an expert at answering questions about the website https://docs.helix.ml/ and how to
     run the Helix platform. Make sure your answers are very detailed and comprehensive. Use
