@@ -269,10 +269,10 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 			if err != nil {
 				return nil, err
 			}
-			sqlDB.SetMaxIdleConns(50)
-			sqlDB.SetMaxOpenConns(25) // TODO: maybe subtract what pool uses
-			sqlDB.SetConnMaxIdleTime(time.Hour)
-			sqlDB.SetConnMaxLifetime(time.Minute)
+			sqlDB.SetMaxIdleConns(cfg.IdleConns)
+			sqlDB.SetMaxOpenConns(cfg.MaxConns)
+			sqlDB.SetConnMaxIdleTime(cfg.MaxConnIdleTime)
+			sqlDB.SetConnMaxLifetime(cfg.MaxConnLifetime)
 
 			log.Info().Msg("sql store connected")
 
