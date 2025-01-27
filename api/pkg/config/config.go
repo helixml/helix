@@ -30,6 +30,7 @@ type ServerConfig struct {
 	Apps               Apps
 	GPTScript          GPTScript
 	Triggers           Triggers
+	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 }
@@ -241,6 +242,7 @@ type Store struct {
 	Database string `envconfig:"POSTGRES_DATABASE" default:"helix" description:"The database to connect to the postgres server."`
 	Username string `envconfig:"POSTGRES_USER" description:"The username to connect to the postgres server."`
 	Password string `envconfig:"POSTGRES_PASSWORD" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"POSTGRES_SSL" default:"false"`
 
 	AutoMigrate     bool          `envconfig:"DATABASE_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
 	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
@@ -361,4 +363,16 @@ type Discord struct {
 
 type Cron struct {
 	Enabled bool `envconfig:"CRON_ENABLED" default:"true"`
+}
+
+type SSL struct {
+	// certFileEnv is the environment variable which identifies where to locate
+	// the SSL certificate file. If set this overrides the system default.
+	SSLCertFile string `envconfig:"SSL_CERT_FILE"`
+
+	// certDirEnv is the environment variable which identifies which directory
+	// to check for SSL certificate files. If set this overrides the system default.
+	// It is a colon separated list of directories.
+	// See https://www.openssl.org/docs/man1.0.2/man1/c_rehash.html.
+	SSLCertDir string `envconfig:"SSL_CERT_DIR"`
 }
