@@ -46,11 +46,6 @@ func NewPostgresStore(
 	}
 
 	if cfg.AutoMigrate {
-		err = store.MigrateUp()
-		if err != nil {
-			return nil, fmt.Errorf("there was an error doing the migration: %s", err.Error())
-		}
-
 		err = store.autoMigrate()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
