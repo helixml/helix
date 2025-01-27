@@ -13,13 +13,14 @@ import (
 
 func BrowseToAppsPage(t *testing.T, page *rod.Page) {
 	LogStep(t, "Browsing to the apps page")
-	page.MustElement("button[aria-controls='menu-appbar']").MustClick()
-	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustClick()
+	page.MustElement("button[aria-controls='menu-appbar']").MustWaitInteractable().MustClick()
+	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustWaitInteractable().MustClick()
+	page.MustElement("[data-testid='DeveloperBoardIcon']").MustWaitInteractable() // Old session list is loaded when apps are loaded
 }
 
 func CreateNewApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Creating a new app")
-	page.MustElement("#new-app-button").MustClick()
+	page.MustElement("#new-app-button").MustWaitInteractable().MustClick()
 	page.MustWaitStable()
 	random := rand.Intn(1000000)
 	appName := "smoke-" + time.Now().Format("20060102150405") + "-" + strconv.Itoa(random)
