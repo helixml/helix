@@ -230,6 +230,11 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("sql store startup deadline exceeded")
 		default:
+			log.Info().
+				Str("host", cfg.Host).
+				Int("port", cfg.Port).
+				Str("database", cfg.Database).
+				Msg("connecting to DB")
 
 			var (
 				err       error
@@ -244,9 +249,8 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
 				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
-			dialector = postgres.Open(dsn)
 
-			log.Info().Msg("sql store connecting to DB")
+			dialector = postgres.Open(dsn)
 
 			gormConfig := &gorm.Config{}
 
