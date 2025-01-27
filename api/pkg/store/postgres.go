@@ -61,6 +61,14 @@ type MigrationScript struct {
 }
 
 func (s *PostgresStore) autoMigrate() error {
+	// If schema is specified, check if it exists and if not - create it
+	if s.cfg.Schema != "" {
+		err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error
+		if err != nil {
+			return err
+		}
+	}
+
 	err := s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.UserMeta{},
 		&types.Session{},
