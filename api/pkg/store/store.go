@@ -92,10 +92,6 @@ type Store interface {
 	ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
 
-	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
-	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)
-	DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error
-
 	// apps
 	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
 	UpdateApp(ctx context.Context, tool *types.App) (*types.App, error)
