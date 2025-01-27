@@ -39,6 +39,7 @@ func TestHelixCLIApply(t *testing.T) {
 	cliInstallPath := InstallHelixCLI(t, tmpDir)
 
 	repoDir := helper.DownloadRepository(t, tmpDir)
+	// repoDir := "/Users/phil/code/helixml/helix"
 
 	for _, fileName := range []string{
 		"api_tools.yaml",
@@ -89,9 +90,10 @@ func TestHelixCLIApply(t *testing.T) {
 
 		// Check that the app is working
 		page.MustNavigate(helper.GetServerURL() + "/app/" + appID)
-		helper.LogStep(t, fmt.Sprintf("Testing the app: %s", appName))
-		page.MustElement("#textEntry").MustInput("What do you think of the snow in Yorkshire at the moment?")
-		page.MustElement("#sendButton").MustClick()
+
+		helper.LogStep(t, "Testing the app")
+		page.MustElementX(`//textarea[@id='textEntry']`).MustWaitInteractable().MustInput("What do you think of the snow in Yorkshire at the moment?")
+		page.MustElementX(`//button[@id='sendButton']`).MustWaitInteractable().MustClick()
 
 		helper.WaitForHelixResponse(ctx, t, page)
 	}
