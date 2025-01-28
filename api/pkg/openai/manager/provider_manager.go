@@ -3,7 +3,10 @@ package manager
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -32,6 +35,8 @@ type providerClient struct {
 }
 
 type MultiClientManager struct {
+	cfg       *config.ServerConfig
+	logStores []logger.LogStore
 	clients   map[types.Provider]*providerClient
 	clientsMu *sync.RWMutex
 }
@@ -74,8 +79,71 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 	clients[types.ProviderHelix] = &providerClient{client: loggedClient}
 
 	return &MultiClientManager{
+		cfg:       cfg,
+		logStores: logStores,
 		clients:   clients,
 		clientsMu: &sync.RWMutex{},
+	}
+}
+
+func (m *MultiClientManager) StartRefresh(ctx context.Context) {
+	if m.cfg.Providers.OpenAI.APIKeyFromFile != "" {
+		go func() {
+			err := m.watchAndUpdateClient(ctx, types.ProviderOpenAI, m.cfg.Providers.OpenAI.APIKeyRefreshInterval, m.cfg.Providers.OpenAI.BaseURL, m.cfg.Providers.OpenAI.APIKeyFromFile)
+			if err != nil {
+				log.Error().Err(err).Msg("error watching and updating OpenAI client")
+			}
+		}()
+	}
+
+	if m.cfg.Providers.TogetherAI.APIKeyFromFile != "" {
+		go func() {
+			err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
+			if err != nil {
+				log.Error().Err(err).Msg("error watching and updating TogetherAI client")
+			}
+		}()
+	}
+
+	<-ctx.Done()
+}
+
+func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider types.Provider, interval time.Duration, baseURL, keyFile string) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var apiKey string
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			bts, err := os.ReadFile(keyFile)
+			if err != nil {
+				log.Error().
+					Str("file", keyFile).
+					Err(err).
+					Msg("error reading API key file")
+				continue
+			}
+
+			newKey := strings.TrimSpace(string(bts))
+			if newKey == apiKey {
+				continue
+			}
+
+			// Recreate the client with the new key
+			openaiClient := openai.New(newKey, baseURL)
+
+			loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.logStores...)
+
+			m.clientsMu.Lock()
+			m.clients[provider] = &providerClient{client: loggedClient}
+			m.clientsMu.Unlock()
+
+			apiKey = newKey
+		}
 	}
 }
 
