@@ -56,13 +56,13 @@ type Providers struct {
 }
 
 type OpenAI struct {
-	APIKey  string `envconfig:"OPENAI_API_KEY"`
 	BaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	APIKey  string `envconfig:"OPENAI_API_KEY"`
 }
 
 type TogetherAI struct {
-	APIKey  string `envconfig:"TOGETHER_API_KEY"`
 	BaseURL string `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	APIKey  string `envconfig:"TOGETHER_API_KEY"`
 }
 
 type Helix struct {
