@@ -506,7 +506,7 @@ type InferenceRequestFilter struct {
 	Older     time.Duration `json:"older"`
 }
 
-type APIKey struct {
+type ApiKey struct {
 	Created   time.Time       `json:"created"`
 	Owner     string          `json:"owner"`
 	OwnerType OwnerType       `json:"owner_type"`
@@ -514,10 +514,6 @@ type APIKey struct {
 	Name      string          `json:"name"`
 	Type      APIKeyType      `json:"type" gorm:"default:api"`
 	AppID     *sql.NullString `json:"app_id"`
-}
-
-func (APIKey) TableName() string {
-	return "api_key"
 }
 
 type OwnerContext struct {
@@ -567,10 +563,6 @@ func (UserConfig) GormDataType() string {
 type UserMeta struct {
 	ID     string     `json:"id"`
 	Config UserConfig `json:"config" gorm:"type:json"`
-}
-
-func (u UserMeta) TableName() string {
-	return "usermeta"
 }
 
 // this is given to the frontend as user context
