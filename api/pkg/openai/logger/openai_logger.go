@@ -47,6 +47,10 @@ func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, 
 	}
 }
 
+func (m *LoggingMiddleware) APIKey() string {
+	return m.client.APIKey()
+}
+
 func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 	return m.client.ListModels(ctx)
 }
