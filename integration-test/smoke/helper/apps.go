@@ -21,18 +21,15 @@ func BrowseToAppsPage(t *testing.T, page *rod.Page) {
 func CreateNewApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Creating a new app")
 	page.MustElement("#new-app-button").MustWaitInteractable().MustClick()
-	page.MustWaitStable()
 	random := rand.Intn(1000000)
 	appName := "smoke-" + time.Now().Format("20060102150405") + "-" + strconv.Itoa(random)
-	page.MustElement("#app-name").MustInput(appName)
-	page.MustWaitStable()
+	page.MustElement("#app-name").MustWaitInteractable().MustInput(appName)
 	SaveApp(t, page)
 }
 
 func SaveApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Saving app")
-	page.MustElementX(`//button[text() = 'Save']`).MustClick()
-	page.MustWaitStable()
+	page.MustElementX(`//button[text() = 'Save']`).MustWaitInteractable().MustClick()
 }
 
 // This function checks to see if Helix has responded. It doesn't check the text.
