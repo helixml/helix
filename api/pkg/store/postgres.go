@@ -18,14 +18,14 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 type PostgresStore struct {
-	cfg              config.Store
-	connectionString string
+	cfg config.Store
 
 	gdb *gorm.DB
 }
@@ -46,6 +46,11 @@ func NewPostgresStore(
 	}
 
 	if cfg.AutoMigrate {
+		err := store.MigrateUp()
+		if err != nil {
+			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
+		}
+
 		err = store.autoMigrate()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
@@ -69,11 +74,16 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
+	// err := s.runMigrationScripts(MigrationScripts)
+	// if err != nil {
+	// 	return fmt.Errorf("there was an error running the migration scripts: %s", err.Error())
+	// }
+
 	err := s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.UserMeta{},
 		&types.Session{},
 		&types.App{},
-		&types.APIKey{},
+		&types.ApiKey{},
 		&types.Tool{},
 		&types.Knowledge{},
 		&types.KnowledgeVersion{},
@@ -87,7 +97,7 @@ func (s *PostgresStore) autoMigrate() error {
 		return err
 	}
 
-	if err := createFK(s.gdb, types.APIKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.ApiKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
@@ -99,7 +109,7 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	return s.runMigrationScripts(MigrationScripts)
+	return nil
 }
 
 // loop over each migration script and run it only if it's not already been run
@@ -216,10 +226,31 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Read SSL setting from environment
+	sqlSettings := "sslmode=disable"
+	if s.cfg.SSL {
+		sqlSettings = "sslmode=require"
+	}
+
+	if s.cfg.Schema != "" {
+		sqlSettings += fmt.Sprintf("&search_path=%s", s.cfg.Schema)
+	}
+
+	connectionString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?%s",
+		s.cfg.Username,
+		s.cfg.Password,
+		s.cfg.Host,
+		s.cfg.Port,
+		s.cfg.Database,
+		sqlSettings,
+	)
+
 	migrations, err := migrate.NewWithSourceInstance(
 		"iofs",
 		files,
-		fmt.Sprintf("%s&&x-migrations-table=helix_schema_migrations", s.connectionString),
+		fmt.Sprintf("%s&&x-migrations-table=helix_schema_migrations", connectionString),
 	)
 	if err != nil {
 		return nil, err
