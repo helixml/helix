@@ -73,7 +73,7 @@ func (s *PostgresStore) autoMigrate() error {
 	// ref: https://github.com/golang-migrate/migrate
 	err := s.MigrateUp()
 	if err != nil {
-		return fmt.Errorf("there was an error doing the automigration: %s", err.Error())
+		log.Err(err).Msg("there was an error doing the automigration, some functionality may not work")
 	}
 
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
