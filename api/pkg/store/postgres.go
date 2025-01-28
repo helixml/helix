@@ -109,30 +109,6 @@ func (s *PostgresStore) autoMigrate() error {
 	return nil
 }
 
-// loop over each migration script and run it only if it's not already been run
-func (s *PostgresStore) runMigrationScripts(migrationScripts map[string]func(*gorm.DB) error) error {
-	for name, script := range migrationScripts {
-		var ms MigrationScript
-		result := s.gdb.First(&ms, "name = ?", name)
-		if result.Error == gorm.ErrRecordNotFound {
-			if err := script(s.gdb); err != nil {
-				return err
-			}
-			ms.Name = name
-			ms.HasRun = true
-			if err := s.gdb.Create(&ms).Error; err != nil {
-				return err
-			}
-			log.Printf("Migration script '%s' executed and logged.", name)
-		} else if result.Error != nil {
-			return result.Error
-		} else {
-			log.Printf("Migration script '%s' already executed.", name)
-		}
-	}
-	return nil
-}
-
 type namedTable interface {
 	TableName() string
 }
