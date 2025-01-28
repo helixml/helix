@@ -224,6 +224,22 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Hide:          false,
 		},
 		{
+			ID:            "deepseek-r1:8b-llama-distill-q8_0",
+			Name:          "Deepseek-R1 8B"
+			Memory:        GB * 9,
+			ContextLength: 131072,
+			Description:   "Small reasoning model (Llama based) - 8bit quantized, 128K context",
+			Hide:          false,
+		},
+		{
+			ID:            "deepseek-r1:32b-qwen-distill-q8_0",
+			Name:          "Deepseek-R1 32B",
+			Memory:        GB * 35,
+			ContextLength: 131072,
+			Description:   "Medium reasoning model (Qwen based) - 8bit quantized, 128K context",
+			Hide:          false,
+		},
+		{
 			ID:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
 			Name:          "Phi 3.5 3.8B",
 			Memory:        GB * 35,
