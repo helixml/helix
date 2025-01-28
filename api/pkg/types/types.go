@@ -386,10 +386,6 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
-func (s Session) TableName() string {
-	return "session"
-}
-
 type Interactions []*Interaction
 
 func (m Interactions) Value() (driver.Value, error) {
