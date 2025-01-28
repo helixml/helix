@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *PostgresStore) CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error) {
+func (s *PostgresStore) CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error) {
 	if apiKey.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
@@ -29,8 +29,8 @@ func (s *PostgresStore) CreateAPIKey(ctx context.Context, apiKey *types.APIKey) 
 	return s.GetAPIKey(ctx, apiKey.Key)
 }
 
-func (s *PostgresStore) GetAPIKey(ctx context.Context, key string) (*types.APIKey, error) {
-	var apiKey types.APIKey
+func (s *PostgresStore) GetAPIKey(ctx context.Context, key string) (*types.ApiKey, error) {
+	var apiKey types.ApiKey
 	err := s.gdb.WithContext(ctx).Where("key = ?", key).First(&apiKey).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -41,9 +41,9 @@ func (s *PostgresStore) GetAPIKey(ctx context.Context, key string) (*types.APIKe
 	return &apiKey, nil
 }
 
-func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListAPIKeysQuery) ([]*types.APIKey, error) {
-	var apiKeys []*types.APIKey
-	queryAPIKey := &types.APIKey{
+func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListAPIKeysQuery) ([]*types.ApiKey, error) {
+	var apiKeys []*types.ApiKey
+	queryAPIKey := &types.ApiKey{
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
 	}
@@ -64,7 +64,7 @@ func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListAPIKeysQuery) ([
 }
 
 func (s *PostgresStore) DeleteAPIKey(ctx context.Context, key string) error {
-	err := s.gdb.WithContext(ctx).Delete(&types.APIKey{
+	err := s.gdb.WithContext(ctx).Delete(&types.ApiKey{
 		Key: key,
 	}).Error
 	if err != nil {

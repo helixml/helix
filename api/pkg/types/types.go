@@ -386,10 +386,6 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
-func (s Session) TableName() string {
-	return "session"
-}
-
 type Interactions []*Interaction
 
 func (m Interactions) Value() (driver.Value, error) {
@@ -506,7 +502,7 @@ type InferenceRequestFilter struct {
 	Older     time.Duration `json:"older"`
 }
 
-type APIKey struct {
+type ApiKey struct { //nolint:revive
 	Created   time.Time       `json:"created"`
 	Owner     string          `json:"owner"`
 	OwnerType OwnerType       `json:"owner_type"`
@@ -514,10 +510,6 @@ type APIKey struct {
 	Name      string          `json:"name"`
 	Type      APIKeyType      `json:"type" gorm:"default:api"`
 	AppID     *sql.NullString `json:"app_id"`
-}
-
-func (APIKey) TableName() string {
-	return "api_key"
 }
 
 type OwnerContext struct {
@@ -539,12 +531,34 @@ type UserConfig struct {
 	StripeSubscriptionID     string `json:"stripe_subscription_id"`
 }
 
+func (u UserConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(u)
+	return j, err
+}
+
+func (u *UserConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed")
+	}
+	var result UserConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*u = result
+	return nil
+}
+
+func (UserConfig) GormDataType() string {
+	return "json"
+}
+
 // this lives in the database
 // the ID is the keycloak user ID
 // there might not be a record for every user
 type UserMeta struct {
 	ID     string     `json:"id"`
-	Config UserConfig `json:"config"`
+	Config UserConfig `json:"config" gorm:"type:json"`
 }
 
 // this is given to the frontend as user context
@@ -946,14 +960,6 @@ type ToolZapierConfig struct {
 	APIKey        string `json:"api_key"`
 	Model         string `json:"model"`
 	MaxIterations int    `json:"max_iterations"`
-}
-
-// SessionToolBinding used to add tools to sessions
-type SessionToolBinding struct {
-	SessionID string `gorm:"primaryKey;index"`
-	ToolID    string `gorm:"primaryKey"`
-	Created   time.Time
-	Updated   time.Time
 }
 
 type AppSource string
