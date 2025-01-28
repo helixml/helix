@@ -133,6 +133,10 @@ func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider 
 				continue
 			}
 
+			log.Info().
+				Str("provider", string(provider)).
+				Msg("API key updated, recreating OpenAI compatible client")
+
 			// Recreate the client with the new key
 			openaiClient := openai.New(newKey, baseURL)
 
