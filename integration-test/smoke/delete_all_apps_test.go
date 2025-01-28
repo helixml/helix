@@ -44,18 +44,28 @@ func TestDeleteAllApps(t *testing.T) {
 	}
 
 	helper.LogStep(t, "Deleting all apps, please wait...")
-	// Get all private rows
-	rows := page.MustElementsX(`//tbody//tr//p[contains(text(), 'Private')]`)
-	for i, row := range rows {
-		helper.LogStep(t, fmt.Sprintf("Deleting app %d of %d", i+1, len(rows)))
-		deleteButton := row.MustElementX(`//*[name()='svg' and @data-testid='DeleteIcon']`)
+	for {
+		// Get current private rows - refresh on each iteration
+		rows := page.MustElementsX(`//tbody//tr//p[contains(text(), 'Private')]`)
+		if len(rows) == 0 {
+			break
+		}
 
-		wait := page.MustWaitRequestIdle()
-		deleteButton.MustWaitInteractable().MustClick()
+		rod.Try(func() {
+			// Always work with the first row since previous ones get deleted
+			row := rows[0]
+			helper.LogStep(t, fmt.Sprintf("Deleting app (remaining: %d)", len(rows)))
+			deleteButton := row.MustElementX(`//*[name()='svg' and @data-testid='DeleteIcon']`)
 
-		// Wait for and type delete into the modal
-		page.MustElementX(`//input[@type='text']`).MustWaitInteractable().MustInput("delete")
-		page.MustElementX(`//button[text() = 'Confirm']`).MustWaitInteractable().MustClick()
-		wait()
+			wait := page.MustWaitRequestIdle()
+			deleteButton.MustWaitInteractable().MustClick()
+
+			// Wait for and type delete into the modal
+			page.MustElementX(`//input[@type='text']`).MustWaitInteractable().MustInput("delete")
+			page.MustElementX(`//button[text() = 'Confirm']`).MustWaitInteractable().MustClick()
+			wait()
+
+			page.MustWaitIdle()
+		})
 	}
 }
