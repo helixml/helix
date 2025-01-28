@@ -46,11 +46,6 @@ func NewPostgresStore(
 	}
 
 	if cfg.AutoMigrate {
-		err := store.MigrateUp()
-		if err != nil {
-			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
-		}
-
 		err = store.autoMigrate()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
@@ -74,12 +69,14 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
-	// err := s.runMigrationScripts(MigrationScripts)
-	// if err != nil {
-	// 	return fmt.Errorf("there was an error running the migration scripts: %s", err.Error())
-	// }
+	// Running migrations from ./migrations directory,
+	// ref: https://github.com/golang-migrate/migrate
+	err := s.MigrateUp()
+	if err != nil {
+		return fmt.Errorf("there was an error doing the automigration: %s", err.Error())
+	}
 
-	err := s.gdb.WithContext(context.Background()).AutoMigrate(
+	err = s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.UserMeta{},
 		&types.Session{},
 		&types.App{},
