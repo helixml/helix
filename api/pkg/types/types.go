@@ -502,7 +502,7 @@ type InferenceRequestFilter struct {
 	Older     time.Duration `json:"older"`
 }
 
-type ApiKey struct {
+type ApiKey struct { //nolint:revive
 	Created   time.Time       `json:"created"`
 	Owner     string          `json:"owner"`
 	OwnerType OwnerType       `json:"owner_type"`
