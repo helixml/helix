@@ -42,10 +42,10 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 }
 
 // CreateAPIKey mocks base method.
-func (m *MockStore) CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error) {
+func (m *MockStore) CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateAPIKey", ctx, apiKey)
-	ret0, _ := ret[0].(*types.APIKey)
+	ret0, _ := ret[0].(*types.ApiKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -377,10 +377,10 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 }
 
 // GetAPIKey mocks base method.
-func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
+func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAPIKey", ctx, apiKey)
-	ret0, _ := ret[0].(*types.APIKey)
+	ret0, _ := ret[0].(*types.ApiKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -557,10 +557,10 @@ func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id any) *gomock.Call {
 }
 
 // ListAPIKeys mocks base method.
-func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.APIKey, error) {
+func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListAPIKeys", ctx, query)
-	ret0, _ := ret[0].([]*types.APIKey)
+	ret0, _ := ret[0].([]*types.ApiKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

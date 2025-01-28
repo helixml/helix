@@ -74,9 +74,9 @@ type Store interface {
 	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 
 	// api keys
-	CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error)
-	GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error)
-	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.APIKey, error)
+	CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error)
+	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 
 	// tools
@@ -91,10 +91,6 @@ type Store interface {
 	GetSecret(ctx context.Context, id string) (*types.Secret, error)
 	ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
-
-	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
-	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)
-	DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error
 
 	// apps
 	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
