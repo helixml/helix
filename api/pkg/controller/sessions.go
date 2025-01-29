@@ -887,8 +887,6 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 				return fmt.Errorf("runner error: %w", runnerResp.Error)
 			}
 
-			var taskResponse *types.RunnerTaskResponse
-
 			if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
 				// Remove the SSE "data: " prefix from the response
 				response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
@@ -907,27 +905,26 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 					files = append(files, image.URL)
 				}
 
-				// Convert nw Nats response types to old session handler types
-				taskResponse = &types.RunnerTaskResponse{
-					SessionID:     session.ID,
-					InteractionID: lastInteraction.ID,
-					Owner:         session.Owner,
-					Type:          types.WorkerTaskResponseTypeResult,
-					Progress:      imageGenerationResponse.Step,
-					Status:        "generating...",
-				}
 				if imageGenerationResponse.Completed {
-					taskResponse.Status = "done"
-					taskResponse.Done = true
-					taskResponse.Files = files
+					c.BroadcastProgress(c.Ctx, session, 100, "done")
+					_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
+						Type:          types.WorkerTaskResponseTypeResult,
+						SessionID:     session.ID,
+						InteractionID: lastInteraction.ID,
+						Owner:         session.Owner,
+						Progress:      imageGenerationResponse.Step,
+						Status:        "done",
+						Done:          true,
+						Files:         files,
+					})
+					if err != nil {
+						return fmt.Errorf("error handling runner response: %w", err)
+					}
+				} else {
+					c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
 				}
 			} else {
 				return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
-			}
-
-			_, err = c.HandleRunnerResponse(c.Ctx, taskResponse)
-			if err != nil {
-				return fmt.Errorf("error handling runner response: %w", err)
 			}
 
 			return nil
