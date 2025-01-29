@@ -42,6 +42,20 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 	return m.recorder
 }
 
+// APIKey mocks base method.
+func (m *MockClient) APIKey() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "APIKey")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// APIKey indicates an expected call of APIKey.
+func (mr *MockClientMockRecorder) APIKey() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "APIKey", reflect.TypeOf((*MockClient)(nil).APIKey))
+}
+
 // CreateChatCompletion mocks base method.
 func (m *MockClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	m.ctrl.T.Helper()
