@@ -44,14 +44,14 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start watching the file with a short interval
 	interval := 20 * time.Millisecond
-	go func() {
-		err := manager.watchAndUpdateClient(ctx, types.ProviderOpenAI, interval, "https://api.openai.com/v1", keyFile)
-		suite.NoError(err)
-	}()
+
+	err = manager.watchAndUpdateClient(ctx, types.ProviderOpenAI, interval, "https://api.openai.com/v1", keyFile)
+	suite.NoError(err)
+
+	defer manager.wg.Wait()
 
 	// Write new keys to the file
 	expectedKeys := []string{"key1", "key2", "key3"}
@@ -75,4 +75,6 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 
 		suite.Equal(key, openaiClient.APIKey())
 	}
+
+	cancel()
 }
