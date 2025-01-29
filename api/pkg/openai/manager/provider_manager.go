@@ -107,9 +107,6 @@ func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 
 func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider types.Provider, interval time.Duration, baseURL, keyFile string) error {
 
-	log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("starting to watch and update client")
-	defer log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("stopped watching and updating client")
-
 	// Initialize the client
 	err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
 	if err != nil {
@@ -122,6 +119,9 @@ func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider 
 	// Start watching for changes
 	go func() {
 		defer m.wg.Done()
+
+		log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("starting to watch and update client")
+		defer log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("stopped watching and updating client")
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
