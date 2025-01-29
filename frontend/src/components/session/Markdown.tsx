@@ -34,6 +34,18 @@ export const InteractionMarkdown: FC<{
     // Fix code block indentation
     let processed = text.replace(/^\s*```/gm, '```');
 
+    // Replace "---" with "</think>" if there's an unclosed think tag
+    let openCount = 0;
+    processed = processed.split('\n').map(line => {
+      if (line.includes('<think>')) openCount++;
+      if (line.includes('</think>')) openCount--;
+      if (line.trim() === '---' && openCount > 0) {
+        openCount--;
+        return '</think>';
+      }
+      return line;
+    }).join('\n');
+
     // Check if there's an unclosed think tag
     const openTagCount = (processed.match(/<think>/g) || []).length;
     const closeTagCount = (processed.match(/<\/think>/g) || []).length;
