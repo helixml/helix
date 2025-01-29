@@ -158,10 +158,18 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 		return nil
 	}
 
-	log.Info().
-		Str("provider", string(provider)).
-		Str("path", keyFile).
-		Msg("API key updated, recreating OpenAI compatible client")
+	// Log if we're creating a new client or updating an existing one
+	if client == nil {
+		log.Info().
+			Str("provider", string(provider)).
+			Str("path", keyFile).
+			Msg("creating new OpenAI compatible client")
+	} else {
+		log.Info().
+			Str("provider", string(provider)).
+			Str("path", keyFile).
+			Msg("API key updated, recreating OpenAI compatible client")
+	}
 
 	// Recreate the client with the new key
 	openaiClient := openai.New(newKey, baseURL)
