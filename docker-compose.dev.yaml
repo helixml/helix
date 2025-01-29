@@ -57,6 +57,7 @@ services:
       - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
