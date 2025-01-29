@@ -39,6 +39,7 @@ type MultiClientManager struct {
 	logStores []logger.LogStore
 	clients   map[types.Provider]*providerClient
 	clientsMu *sync.RWMutex
+	wg        sync.WaitGroup
 }
 
 func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
@@ -78,39 +79,33 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 
 	clients[types.ProviderHelix] = &providerClient{client: loggedClient}
 
-	return &MultiClientManager{
+	mcm := &MultiClientManager{
 		cfg:       cfg,
 		logStores: logStores,
 		clients:   clients,
 		clientsMu: &sync.RWMutex{},
 	}
+
+	return mcm
 }
 
 func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 	if m.cfg.Providers.OpenAI.APIKeyFromFile != "" {
-		go func() {
-			err := m.watchAndUpdateClient(ctx, types.ProviderOpenAI, m.cfg.Providers.OpenAI.APIKeyRefreshInterval, m.cfg.Providers.OpenAI.BaseURL, m.cfg.Providers.OpenAI.APIKeyFromFile)
-			if err != nil {
-				log.Error().Err(err).Msg("error watching and updating OpenAI client")
-			}
-		}()
+		err := m.watchAndUpdateClient(ctx, types.ProviderOpenAI, m.cfg.Providers.OpenAI.APIKeyRefreshInterval, m.cfg.Providers.OpenAI.BaseURL, m.cfg.Providers.OpenAI.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating OpenAI client")
+		}
 	}
 
 	if m.cfg.Providers.TogetherAI.APIKeyFromFile != "" {
-		go func() {
-			err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
-			if err != nil {
-				log.Error().Err(err).Msg("error watching and updating TogetherAI client")
-			}
-		}()
+		err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating TogetherAI client")
+		}
 	}
-
-	<-ctx.Done()
 }
 
 func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider types.Provider, interval time.Duration, baseURL, keyFile string) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 
 	log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("starting to watch and update client")
 	defer log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("stopped watching and updating client")
@@ -122,19 +117,30 @@ func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider 
 		return err
 	}
 
+	m.wg.Add(1)
+
 	// Start watching for changes
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
-			if err != nil {
-				log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
-				continue
+	go func() {
+		defer m.wg.Done()
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
+				if err != nil {
+					log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
+					continue
+				}
 			}
 		}
-	}
+	}()
+
+	return nil
 }
 
 func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider, baseURL, keyFile string) error {

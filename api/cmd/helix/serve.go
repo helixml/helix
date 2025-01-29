@@ -293,7 +293,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	providerManager := manager.NewProviderManager(cfg, helixInference, logStores...)
 
-	go providerManager.StartRefresh(ctx)
+	// Will run async and watch for changes in the API keys, non-blocking
+	providerManager.StartRefresh(ctx)
 
 	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
 	if err != nil {
