@@ -64,10 +64,6 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 		return
 	}
 
-	// TODO(Phil)
-	// Just use the standard openai image generation for now, because I haven't implemented
-	// streaming in the python code yet.
-
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

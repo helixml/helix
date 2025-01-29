@@ -234,18 +234,49 @@ func (s *Scheduler) start(work *scheduler.Workload) error {
 		return fmt.Errorf("session mode isn't set")
 	}
 
-	// TODO(Phil): When runners restart, their slots are lost. But the control plane still has it in
-	// memory. So we need some way to reconcile this.
+	// Try to find warm warmSlots, which are ready to take new work.
+	warmSlots := s.warmSlots(work)
 
-	// Try to find warm slots, which are ready to take new work.
-	slots := s.warmSlots(work)
+	// If warm slots are available, select one from the least loaded runner.
+	if len(warmSlots) > 0 {
+		// Slots grouped by runner
+		runnerSlots := make(map[string][]*scheduler.Slot)
+		for _, slot := range warmSlots {
+			runnerSlots[slot.RunnerID] = append(runnerSlots[slot.RunnerID], slot)
+		}
 
-	// If warm slots are available, select a random one.
-	if len(slots) > 0 {
-		// TODO(PHIL): This doesn't use the scheduling strategy. That is only used for new models.
-		// I should probably refactor this to use the strategy for all scheduling.
-		// Randomly select one warm slot from the available warm slots.
-		slot := slots[rand.Intn(len(slots))]
+		// Map of ALL active slots per runner (not just warm ones)
+		activeSlots := make(map[string]int)
+		// Get ALL slots from controller, not just warm ones
+		for _, slot := range s.slots {
+			if slot.IsActive() {
+				activeSlots[slot.RunnerID]++
+			}
+		}
+
+		// List of runners
+		runnerIDs := make([]string, 0, len(runnerSlots))
+		for runnerID := range runnerSlots {
+			runnerIDs = append(runnerIDs, runnerID)
+		}
+
+		// Sort runners by:
+		// 1. Active slot count (ascending)
+		// 2. Number of warm slots available (descending)
+		// 3. Random shuffle for ties
+		slices.SortFunc(runnerIDs, func(a, b string) int {
+			if activeSlots[a] != activeSlots[b] {
+				return activeSlots[a] - activeSlots[b]
+			}
+			if len(runnerSlots[b]) != len(runnerSlots[a]) {
+				return len(runnerSlots[b]) - len(runnerSlots[a])
+			}
+			return rand.Intn(3) - 1 // Introduces random shuffle for true ties
+		})
+
+		// Pick a random warm slot from the least loaded runner
+		leastLoadedRunnerSlots := runnerSlots[runnerIDs[0]]
+		slot := leastLoadedRunnerSlots[rand.Intn(len(leastLoadedRunnerSlots))]
 
 		err := s.allocateSlot(slot.ID, work)
 		if err != nil {
@@ -255,21 +286,52 @@ func (s *Scheduler) start(work *scheduler.Workload) error {
 	} else {
 		// If no warm slots are available, pick a runner to allocate a slot to.
 
-		// TODO(Phil): Test to see if the model can fit in ANY runner
-		// TODO(Phil): Implement strategy
-		// For now, pick a random runner
+		// Take time to find the best runner here, since it's not on the hot path.
+		// Reach out to each runner and get an update on their current load.
+		// Pick the first runner that has the least load and has enough memory to allocate the new
+		// workload.
+
+		// First get a list of all runners
 		allRunners := s.controller.RunnerIDs()
-		if len(allRunners) == 0 {
+
+		// Reach out to each runner and get their total memory
+		runnerMemory := make(map[string]uint64)
+		for _, runnerID := range allRunners {
+			runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
+		}
+
+		// Filter out runners that don't have enough memory to allocate the new workload
+		filteredRunners := make([]string, 0)
+		for runnerID, memory := range runnerMemory {
+			if memory >= work.Model().GetMemoryRequirements(work.Mode()) {
+				filteredRunners = append(filteredRunners, runnerID)
+			}
+		}
+
+		// Reach out to the remaining runners and get their current load
+		runnerLoad := make(map[string]uint64)
+		for _, runnerID := range filteredRunners {
+			runnerLoad[runnerID] = s.controller.FreeMemory(runnerID)
+		}
+
+		// Sort the runners by load, increasing, with a random shuffle for ties
+		slices.SortFunc(filteredRunners, func(a, b string) int {
+			if runnerLoad[a] != runnerLoad[b] {
+				return int(runnerLoad[a] - runnerLoad[b])
+			}
+			return rand.Intn(3) - 1 // Introduces random shuffle for true ties
+		})
+
+		// Error if there are no runners left
+		if len(filteredRunners) == 0 {
 			return fmt.Errorf("no runners available")
 		}
-		bestRunnerID := allRunners[rand.Intn(len(allRunners))]
+
+		// Pick the first runner
+		bestRunnerID := filteredRunners[0]
 		log.Trace().Str("runner_id", bestRunnerID).Msg("chosen best runner")
 
-		// TODO(Phil): Deletion doesn't appear to be working. Create instance. Run. Restart control
-		// plane, says can't find stale slot.
-
-		// Figure out if we have to kill a slot to make room for the new one.
-		log.Trace().Str("runner_id", bestRunnerID).Uint64("memory_required", work.Model().GetMemoryRequirements(work.Mode())).Msg("deleting stale slots")
+		// While there isn't enough free memory, delete the most stale slot.
 		err := s.deleteMostStaleStrategy(bestRunnerID, work.Model().GetMemoryRequirements(work.Mode()))
 		if err != nil {
 			return fmt.Errorf("unable to delete stale slots: %w", err)
@@ -288,7 +350,6 @@ func (s *Scheduler) start(work *scheduler.Workload) error {
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload.
-// TODO(Phil): implement
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64) error {
 	for {
 		var allSlots []*scheduler.Slot
@@ -313,6 +374,10 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 		}
 		// Then delete the most stale slot
 		log.Debug().Str("slot_id", staleSlots[0].ID.String()).Msg("deleting stale slot")
+		err := s.controller.DeleteSlot(runnerID, staleSlots[0].ID)
+		if err != nil {
+			return fmt.Errorf("unable to delete stale slot: %w", err)
+		}
 		delete(s.slots, staleSlots[0].ID)
 	}
 	return nil
