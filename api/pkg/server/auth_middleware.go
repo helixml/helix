@@ -53,9 +53,14 @@ func newAuthMiddleware(
 	}
 }
 
+type tokenAcct struct {
+	jwt    *jwt.Token
+	userID string
+}
+
 type account struct {
 	userID string
-	token  *jwt.Token
+	token  *tokenAcct
 }
 
 type accountType string
@@ -83,15 +88,15 @@ func (auth *authMiddleware) isAdmin(acct account) bool {
 
 	switch auth.cfg.adminUserSrc {
 	case config.AdminSrcTypeEnv:
-		if acct.Type() != accountTypeUser {
-			return false
+		if acct.Type() == accountTypeUser {
+			return auth.isUserAdmin(acct.userID)
 		}
-		return auth.isUserAdmin(acct.userID)
+		return auth.isUserAdmin(acct.token.userID)
 	case config.AdminSrcTypeJWT:
 		if acct.Type() != accountTypeToken {
 			return false
 		}
-		return auth.isTokenAdmin(acct.token)
+		return auth.isTokenAdmin(acct.token.jwt)
 	}
 	return false
 }
@@ -183,7 +188,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	user.TokenType = types.TokenTypeKeycloak
 	user.ID = keycloakUserID
 	user.Type = types.OwnerTypeUser
-	user.Admin = auth.isAdmin(account{token: keycloakJWT})
+	user.Admin = auth.isAdmin(account{
+		token: &tokenAcct{jwt: keycloakJWT, userID: user.ID},
+	})
 
 	return user, nil
 }
