@@ -74,6 +74,7 @@ func (s *PostgresStore) autoMigrate() error {
 	err := s.MigrateUp()
 	if err != nil {
 		log.Err(err).Msg("there was an error doing the automigration, some functionality may not work")
+		return fmt.Errorf("failed to run version migrations: %w", err)
 	}
 
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
@@ -172,6 +173,7 @@ func (s *PostgresStore) MigrateUp() error {
 	if err != nil {
 		return err
 	}
+
 	err = migrations.Up()
 	if err != migrate.ErrNoChange {
 		return err
@@ -223,7 +225,7 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	migrations, err := migrate.NewWithSourceInstance(
 		"iofs",
 		files,
-		fmt.Sprintf("%s&&x-migrations-table=helix_schema_migrations", connectionString),
+		fmt.Sprintf("%s&&x-migrations-table=helix_migrations", connectionString),
 	)
 	if err != nil {
 		return nil, err
