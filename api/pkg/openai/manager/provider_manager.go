@@ -3,7 +3,10 @@ package manager
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -32,8 +35,11 @@ type providerClient struct {
 }
 
 type MultiClientManager struct {
+	cfg       *config.ServerConfig
+	logStores []logger.LogStore
 	clients   map[types.Provider]*providerClient
 	clientsMu *sync.RWMutex
+	wg        sync.WaitGroup
 }
 
 func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
@@ -73,10 +79,114 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 
 	clients[types.ProviderHelix] = &providerClient{client: loggedClient}
 
-	return &MultiClientManager{
+	mcm := &MultiClientManager{
+		cfg:       cfg,
+		logStores: logStores,
 		clients:   clients,
 		clientsMu: &sync.RWMutex{},
 	}
+
+	return mcm
+}
+
+func (m *MultiClientManager) StartRefresh(ctx context.Context) {
+	if m.cfg.Providers.OpenAI.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderOpenAI, m.cfg.Providers.OpenAI.APIKeyRefreshInterval, m.cfg.Providers.OpenAI.BaseURL, m.cfg.Providers.OpenAI.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating OpenAI client")
+		}
+	}
+
+	if m.cfg.Providers.TogetherAI.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating TogetherAI client")
+		}
+	}
+}
+
+func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider types.Provider, interval time.Duration, baseURL, keyFile string) error {
+
+	// Initialize the client
+	err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
+	if err != nil {
+		log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
+		return err
+	}
+
+	m.wg.Add(1)
+
+	// Start watching for changes
+	go func() {
+		defer m.wg.Done()
+
+		log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("starting to watch and update client")
+		defer log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("stopped watching and updating client")
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
+				if err != nil {
+					log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
+					continue
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider, baseURL, keyFile string) error {
+	bts, err := os.ReadFile(keyFile)
+	if err != nil {
+		log.Error().
+			Str("file", keyFile).
+			Err(err).
+			Msg("error reading API key file")
+		return fmt.Errorf("error reading API key file '%s': %w", keyFile, err)
+	}
+
+	newKey := strings.TrimSpace(string(bts))
+
+	m.clientsMu.RLock()
+	client, ok := m.clients[provider]
+	m.clientsMu.RUnlock()
+
+	if ok && client.client.APIKey() == newKey {
+		// Nothing to do
+		return nil
+	}
+
+	// Log if we're creating a new client or updating an existing one
+	if client == nil {
+		log.Info().
+			Str("provider", string(provider)).
+			Str("path", keyFile).
+			Msg("creating new OpenAI compatible client")
+	} else {
+		log.Info().
+			Str("provider", string(provider)).
+			Str("path", keyFile).
+			Msg("API key updated, recreating OpenAI compatible client")
+	}
+
+	// Recreate the client with the new key
+	openaiClient := openai.New(newKey, baseURL)
+
+	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.logStores...)
+
+	m.clientsMu.Lock()
+	m.clients[provider] = &providerClient{client: loggedClient}
+	m.clientsMu.Unlock()
+
+	return nil
 }
 
 func (m *MultiClientManager) ListProviders(_ context.Context) ([]types.Provider, error) {

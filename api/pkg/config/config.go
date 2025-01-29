@@ -56,13 +56,17 @@ type Providers struct {
 }
 
 type OpenAI struct {
-	APIKey  string `envconfig:"OPENAI_API_KEY"`
-	BaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	BaseURL               string        `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	APIKey                string        `envconfig:"OPENAI_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type TogetherAI struct {
-	APIKey  string `envconfig:"TOGETHER_API_KEY"`
-	BaseURL string `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	BaseURL               string        `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	APIKey                string        `envconfig:"TOGETHER_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type Helix struct {

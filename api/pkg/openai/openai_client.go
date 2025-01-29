@@ -28,6 +28,8 @@ type Client interface {
 	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 
 	ListModels(ctx context.Context) ([]model.OpenAIModel, error)
+
+	APIKey() string
 }
 
 func New(apiKey string, baseURL string) *RetryableClient {
@@ -50,6 +52,11 @@ type RetryableClient struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
+}
+
+// APIKey - returns the API key used by the client, used for testing
+func (c *RetryableClient) APIKey() string {
+	return c.apiKey
 }
 
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
