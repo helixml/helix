@@ -446,6 +446,11 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 		if err != nil {
 			return nil, fmt.Errorf("error reading tar file: %s", err)
 		}
+
+		if strings.Contains(header.Name, "..") {
+			return nil, fmt.Errorf("invalid tar file: %s", header.Name)
+		}
+
 		if header.Typeflag == tar.TypeReg {
 			buffer := bytes.NewBuffer(nil)
 			if _, err := io.Copy(buffer, tarReader); err != nil {
@@ -682,7 +687,7 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 }
 
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
-	newAPIKey := &types.APIKey{}
+	newAPIKey := &types.ApiKey{}
 	name := req.URL.Query().Get("name")
 
 	user := getRequestUser(req)
@@ -744,7 +749,7 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
-func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
+func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
@@ -761,7 +766,7 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		includeAllTypes = true
 	}
 
-	filteredAPIKeys := []*types.APIKey{}
+	filteredAPIKeys := []*types.ApiKey{}
 	for _, key := range apiKeys {
 		if !includeAllTypes && !containsType(string(key.Type), typesParam) {
 			continue
@@ -788,7 +793,7 @@ func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.R
 }
 
 // TODO: verify if this is actually used
-func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
+func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
 	ctx := req.Context()
 
 	apiKey := req.URL.Query().Get("key")

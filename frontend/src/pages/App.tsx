@@ -310,7 +310,7 @@ const App: FC = () => {
   
   const validate = useCallback(() => {
     if (!app) return false;
-    if (!name) {
+    if (!name && (!app.config.helix.name || app.config.helix.name !== app.id)) {
       setTabValue('settings');
       return false;
     }
@@ -377,7 +377,7 @@ const App: FC = () => {
           ...app.config,
           helix: {
             ...app.config.helix,
-            name,
+            name: name || app.id,
             description,
             external_url: app.config.helix.external_url,
             avatar,
@@ -528,9 +528,9 @@ const App: FC = () => {
     if(!app) return
     
     // Save the app before sending the message
-    const updatedApp = await onSave(true);
+    const savedApp = await onSave(true);
 
-    if (!updatedApp || updatedApp.id === "new") {
+    if (!savedApp || savedApp.id === "new") {
       console.error('App not saved or ID not updated');
       snackbar.error('Failed to save app before inference');
       return;
@@ -541,8 +541,9 @@ const App: FC = () => {
       setInputValue('');
       const newSessionData = await NewInference({
         message: inputValue,
-        appId: updatedApp.id,
+        appId: savedApp.id,
         type: SESSION_TYPE_TEXT,
+        modelName: model,
       });
       console.log('about to load session', newSessionData.id);
       await session.loadSession(newSessionData.id);
@@ -584,32 +585,64 @@ const App: FC = () => {
     account.user,
   ])
 
-  useEffect(() => {
-    if (!app) return;
-    if (hasInitialised) return
-    setHasInitialised(true)
-    setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
-    setDescription(app.config.helix.description || '');
-    // Use the updated helper function here
-    let cleanedConfig = removeEmptyValues(app.config.helix);
-    const name = cleanedConfig.name
-    delete cleanedConfig.name
+  const getUpdatedSchema = useCallback(() => {
+    if (!app) return '';
+    // Create a temporary app state with current form values
+    const currentConfig = {
+      ...app.config.helix,
+      name: name || app.id,
+      description,
+      avatar,
+      image,
+      assistants: (app.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        system_prompt: systemPrompt,
+        knowledge: knowledgeSources,
+        model: model,
+      })),
+    };
+
+    // Remove empty values and format as YAML
+    let cleanedConfig = removeEmptyValues(currentConfig);
+    const configName = cleanedConfig.name;
+    delete cleanedConfig.name;
     cleanedConfig = {
       "apiVersion": "app.aispec.org/v1alpha1",
       "kind": "AIApp",
       "metadata": {
-        "name": name
+        "name": configName
       },
       "spec": cleanedConfig
-    }
-    setSchema(stringifyYaml(cleanedConfig, { indent: 2 }));
+    };
+    return stringifyYaml(cleanedConfig, { indent: 2 });
+  }, [app, name, description, avatar, image, systemPrompt, knowledgeSources, model]);
+
+  // Update schema whenever relevant form fields change
+  useEffect(() => {
+    if (!hasInitialised) return;
+    setSchema(getUpdatedSchema());
+  }, [
+    hasInitialised,
+    getUpdatedSchema,
+    name,
+    description,
+    avatar,
+    image,
+    systemPrompt,
+    knowledgeSources,
+    model,
+  ]);
+
+  useEffect(() => {
+    if (!app) return;
+    if (hasInitialised) return;
+    setHasInitialised(true);
+    setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
+    setDescription(app.config.helix.description || '');
     setSecrets(app.config.secrets || {});
     setAllowedDomains(app.config.allowed_domains || []);
     setShared(app.shared ? true : false);
     setGlobal(app.global ? true : false);
-    // TODO: the golang types have changed to "omitempty" for the helix config fields that are arrays or objects
-    // this is the correct behavior but the frontend codebase needs updating to reflect the optional nature of these fields
-    // then can get rid of the monstrosity of the following ternary operators
     setSystemPrompt(app.config.helix.assistants ? app.config.helix.assistants[0]?.system_prompt || '' : '');
     setAvatar(app.config.helix.avatar || '');
     setImage(app.config.helix.image || '');

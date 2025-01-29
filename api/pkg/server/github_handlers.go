@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -182,7 +183,7 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(ctx context.Context, use
 			}
 		}
 	}
-	_, err = apiServer.Store.CreateAPIKey(ctx, &types.APIKey{
+	_, err = apiServer.Store.CreateAPIKey(ctx, &types.ApiKey{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 		Name:      "github-oauth",
@@ -262,6 +263,34 @@ func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// replace all backslashes with forward slashes before parsing the URL
+	pageURL = strings.ReplaceAll(pageURL, "\\", "/")
+
+	target, err := url.Parse(pageURL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error parsing pageURL: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	webserverURL, err := url.Parse(apiServer.Cfg.WebServer.URL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error parsing webserver URL: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// Check if target hostname matches webserver hostname
+	if target.Hostname() != "" && target.Hostname() != webserverURL.Hostname() {
+		http.Error(w, "invalid redirect URL:"+pageURL, http.StatusBadRequest)
+		return
+	}
+
+	// Check that path starts with webserver path
+	if !strings.HasPrefix(target.Path, webserverURL.Path) {
+		http.Error(w, "invalid redirect path:"+pageURL, http.StatusBadRequest)
+		return
+	}
+
 	http.Redirect(w, req, pageURL, http.StatusFound)
 }
 

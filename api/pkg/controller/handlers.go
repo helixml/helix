@@ -27,7 +27,7 @@ func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.Use
 	}, nil
 }
 
-func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey *types.APIKey) (*types.APIKey, error) {
+func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey *types.ApiKey) (*types.ApiKey, error) {
 	key, err := system.GenerateAPIKey()
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey 
 	return c.Options.Store.CreateAPIKey(ctx, apiKey)
 }
 
-func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types.APIKey, error) {
+func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types.ApiKey, error) {
 	apiKeys, err := c.Options.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
@@ -52,7 +52,7 @@ func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types
 		return nil, err
 	}
 	if len(apiKeys) == 0 {
-		_, err := c.CreateAPIKey(ctx, user, &types.APIKey{
+		_, err := c.CreateAPIKey(ctx, user, &types.ApiKey{
 			Name: "default",
 			Type: types.APIkeytypeAPI,
 		})
@@ -91,7 +91,7 @@ func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey 
 	return nil
 }
 
-func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
+func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
 	key, err := c.Options.Store.GetAPIKey(ctx, apiKey)
 	if err != nil {
 		return nil, err

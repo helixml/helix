@@ -3,6 +3,7 @@ description: This is a test Helix app
 assistants:
 - name: My Example Assistant
   description: This is an example assistant with custom prompts
+  model: llama3.1:8b-instruct-q8_0
   is_actionable_template: |
     CUSTOM PROMPT
     You are an AI that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. 

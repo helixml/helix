@@ -29,6 +29,7 @@ type ServerConfig struct {
 	Apps               Apps
 	GPTScript          GPTScript
 	Triggers           Triggers
+	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	EnableSchedulerV2     bool `envconfig:"ENABLE_SCHEDULER_V2" default:"false"`
@@ -55,13 +56,17 @@ type Providers struct {
 }
 
 type OpenAI struct {
-	APIKey  string `envconfig:"OPENAI_API_KEY"`
-	BaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	BaseURL               string        `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	APIKey                string        `envconfig:"OPENAI_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type TogetherAI struct {
-	APIKey  string `envconfig:"TOGETHER_API_KEY"`
-	BaseURL string `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	BaseURL               string        `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	APIKey                string        `envconfig:"TOGETHER_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type Helix struct {
@@ -249,6 +254,8 @@ type Store struct {
 	Database string `envconfig:"POSTGRES_DATABASE" default:"helix" description:"The database to connect to the postgres server."`
 	Username string `envconfig:"POSTGRES_USER" description:"The username to connect to the postgres server."`
 	Password string `envconfig:"POSTGRES_PASSWORD" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"POSTGRES_SSL" default:"false"`
+	Schema   string `envconfig:"POSTGRES_SCHEMA"` // Defaults to public
 
 	AutoMigrate     bool          `envconfig:"DATABASE_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
 	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
@@ -345,4 +352,16 @@ type Discord struct {
 
 type Cron struct {
 	Enabled bool `envconfig:"CRON_ENABLED" default:"true"`
+}
+
+type SSL struct {
+	// certFileEnv is the environment variable which identifies where to locate
+	// the SSL certificate file. If set this overrides the system default.
+	SSLCertFile string `envconfig:"SSL_CERT_FILE"`
+
+	// certDirEnv is the environment variable which identifies which directory
+	// to check for SSL certificate files. If set this overrides the system default.
+	// It is a colon separated list of directories.
+	// See https://www.openssl.org/docs/man1.0.2/man1/c_rehash.html.
+	SSLCertDir string `envconfig:"SSL_CERT_DIR"`
 }

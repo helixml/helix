@@ -108,7 +108,9 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         backgroundPosition: 'top',
         backgroundRepeat: 'no-repeat',
         backgroundSize: image ? 'cover' : 'auto',
-        p: 2,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
         borderRight: '1px solid #303047',
         borderBottom: '1px solid #303047',
       }}
@@ -126,14 +128,17 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           }}
         />
       )}
+      {/* Fixed Preview Bar */}
       <Box
         sx={{
-          mb: 3,
+          p: 2,
+          flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           position: 'relative',
           zIndex: 2,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
         }}
       >
         <Typography variant="h6" sx={{mb: 2, color: 'white'}}>
@@ -213,12 +218,15 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           )}
         </Box>
       </Box>
+      {/* Scrollable Results Area */}
       <Box
         sx={{
           position: 'relative',
           zIndex: 2,
+          flexGrow: 1,
           overflowY: 'auto',
-          maxHeight: 'calc(100vh - 300px)',
+          p: 2,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
         }}
       >
         {isSearchMode ? (

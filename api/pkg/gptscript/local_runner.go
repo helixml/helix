@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gptscript-ai/gptscript/pkg/cache"
@@ -204,7 +206,15 @@ func RunGPTAppScript(ctx context.Context, app *types.GptScriptGithubApp) (*types
 
 	app.Script.FilePath = path.Join(repoDir, app.Script.FilePath)
 
-	err = os.Chdir(path.Dir(app.Script.FilePath))
+	workDir := path.Dir(app.Script.FilePath)
+
+	// Ensure that the resolved path is within the safe directory
+	absPath, err := filepath.Abs(filepath.Join(repoDir, workDir))
+	if err != nil || !strings.HasPrefix(absPath, repoDir) {
+		return nil, fmt.Errorf("invalid file name: %s", workDir)
+	}
+
+	err = os.Chdir(absPath)
 	if err != nil {
 		return nil, err
 	}

@@ -66,7 +66,7 @@ func PerformLogin(t *testing.T, page *rod.Page) error {
 
 func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	LogStep(t, "Looking for login button")
-	loginBtn := page.MustElement("button[id='login-button']")
+	loginBtn := page.MustElement("button[id='login-button']").MustWaitInteractable()
 	err := loginBtn.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
 		LogStep(t, "Login button not found, must be already logged in")
@@ -78,9 +78,10 @@ func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	password := GetHelixPassword()
 
 	LogStep(t, "Filling in username and password")
-	page.MustElement("input[type='text']").MustInput(username)
-	page.MustElement("input[type='password']").MustInput(password)
-	page.MustElement("input[type='submit']").MustClick()
+	page.MustElementX("//input[@type='text']").MustWaitInteractable().MustInput(username)
+	page.MustElementX("//input[@type='password']").MustWaitInteractable().MustInput(password)
+	time.Sleep(100 * time.Millisecond)
+	page.MustElementX("//input[@type='submit']").MustWaitInteractable().MustClick()
 
 	return nil
 }

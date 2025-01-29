@@ -13,25 +13,23 @@ import (
 
 func BrowseToAppsPage(t *testing.T, page *rod.Page) {
 	LogStep(t, "Browsing to the apps page")
-	page.MustElement("button[aria-controls='menu-appbar']").MustClick()
-	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustClick()
+	page.MustElement("button[aria-controls='menu-appbar']").MustWaitInteractable().MustClick()
+	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustWaitInteractable().MustClick()
+	page.MustElement("[data-testid='DeveloperBoardIcon']").MustWaitInteractable() // Old session list is loaded when apps are loaded
 }
 
 func CreateNewApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Creating a new app")
-	page.MustElement("#new-app-button").MustClick()
-	page.MustWaitStable()
+	page.MustElement("#new-app-button").MustWaitInteractable().MustClick()
 	random := rand.Intn(1000000)
 	appName := "smoke-" + time.Now().Format("20060102150405") + "-" + strconv.Itoa(random)
-	page.MustElement("#app-name").MustInput(appName)
-	page.MustWaitStable()
+	page.MustElement("#app-name").MustWaitInteractable().MustInput(appName)
 	SaveApp(t, page)
 }
 
 func SaveApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Saving app")
-	page.MustElementX(`//button[text() = 'Save']`).MustClick()
-	page.MustWaitStable()
+	page.MustElementX(`//button[text() = 'Save']`).MustWaitInteractable().MustClick()
 }
 
 // This function checks to see if Helix has responded. It doesn't check the text.

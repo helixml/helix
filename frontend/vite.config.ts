@@ -10,4 +10,20 @@ export default defineConfig({
     port: 8081,
   },
   publicDir: 'assets',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
+  resolve: {
+    alias: {
+      '#minpath': path.resolve(__dirname, 'src/polyfills/path.js'),
+      '#minproc': path.resolve(__dirname, 'src/polyfills/process.js'),
+      '#minurl': path.resolve(__dirname, 'src/polyfills/url.js')
+    },
+  },
 })

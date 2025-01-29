@@ -21,6 +21,10 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+const (
+	knowledgeUploadWaitTime = 10 * time.Minute
+)
+
 func (r *Reconciler) index(ctx context.Context) error {
 	data, err := r.store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
 		State: types.KnowledgeStatePending,
@@ -68,7 +72,10 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Str("knowledge_id", knowledge.ID).
 					Msg("failed to index knowledge")
 
-				if errors.Is(err, ErrNoFilesFound) {
+				// If it's just recently created record, we can retry. If it's older than 10 minutes
+				// then leave it as error.
+				// Note: only applicable to filestore sources!
+				if errors.Is(err, ErrNoFilesFound) && knowledge.Source.Filestore != nil && time.Since(knowledge.Created) < knowledgeUploadWaitTime {
 					k.State = types.KnowledgeStatePending
 					k.Message = "waiting for files to be uploaded"
 					_, _ = r.store.UpdateKnowledge(ctx, k)

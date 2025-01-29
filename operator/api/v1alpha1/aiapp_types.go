@@ -118,11 +118,48 @@ type TestStep struct {
 	ExpectedOutput string `json:"expected_output"`
 }
 
+// RAGSettings contains settings for RAG processing
+type RAGSettings struct {
+	Threshold          int  `json:"threshold"`
+	ResultsCount       int  `json:"results_count"`
+	ChunkSize          int  `json:"chunk_size"`
+	ChunkOverflow      int  `json:"chunk_overflow"`
+	DisableChunking    bool `json:"disable_chunking"`
+	DisableDownloading bool `json:"disable_downloading"`
+}
+
+// FilestoreSource represents filestore configuration
+type FilestoreSource struct {
+	Path string `json:"path"`
+}
+
+// WebCrawlerConfig contains web crawler settings
+type WebCrawlerConfig struct {
+	Enabled     bool `json:"enabled"`
+	MaxDepth    int  `json:"max_depth"`
+	MaxPages    int  `json:"max_pages"`
+	Readability bool `json:"readability"`
+}
+
+// WebSource represents web source configuration
+type WebSource struct {
+	URLs    []string         `json:"urls"`
+	Crawler WebCrawlerConfig `json:"crawler"`
+}
+
+// KnowledgeSource contains source configuration for knowledge
+type KnowledgeSource struct {
+	Filestore FilestoreSource `json:"filestore"`
+	Web       WebSource       `json:"web"`
+}
+
 // AssistantKnowledge represents knowledge configuration for an assistant
-// Note: This type wasn't in the original types.go, but was referenced.
-// You'll need to define its structure based on your requirements
 type AssistantKnowledge struct {
-	// Add fields as needed
+	Name            string          `json:"name"`
+	RAGSettings     RAGSettings     `json:"rag_settings"`
+	Source          KnowledgeSource `json:"source"`
+	RefreshEnabled  bool            `json:"refresh_enabled"`
+	RefreshSchedule string          `json:"refresh_schedule,omitempty"`
 }
 
 // ToolApiConfig represents API tool configuration

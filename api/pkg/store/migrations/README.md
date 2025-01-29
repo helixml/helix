@@ -1,3 +1,12 @@
+# How to use migrations
+
+Migrations are used to edit existing tables and help with existing Helix installations. Use sparingly, avoid if possible.
+
+## DO NOT USE THIS
+
+Do not create tables or add columns through migrations, we use gorm to do this.
+
+```sql
 create table bot (
   id varchar(255) PRIMARY KEY,
   -- this is a global namespace
@@ -10,8 +19,12 @@ create table bot (
   owner_type varchar(255) NOT NULL,
   config json not null
 );
+```
 
-ALTER TABLE session
-RENAME COLUMN parent_app TO child_bot;
-ALTER TABLE session
-RENAME COLUMN child_app TO child_bot;
+## DO THIS
+
+For example renaming the table from `session` to `sessions`:
+
+```sql
+ALTER TABLE session RENAME TO sessions;
+```
