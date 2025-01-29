@@ -82,7 +82,6 @@ func (a *account) Type() accountType {
 }
 
 func (auth *authMiddleware) isAdmin(acct account) bool {
-	fmt.Println("is user admin")
 	if acct.Type() == accountTypeInvalid {
 		return false
 	}
@@ -129,15 +128,11 @@ func (auth *authMiddleware) isTokenAdmin(token *jwt.Token) bool {
 }
 
 func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) (*types.User, error) {
-	fmt.Println("getting user from token")
-	fmt.Println("auth MW config:", auth.cfg.adminUserSrc)
 	if token == "" {
-		fmt.Println("nil token")
 		return nil, nil
 	}
 
 	if token == auth.cfg.runnerToken {
-		fmt.Println("runner token")
 		// if the api key is our runner token then we are in runner mode
 		return &types.User{
 			Token:     token,
@@ -146,7 +141,6 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
-		fmt.Println("API prefix")
 		// we have an API key - we should load it from the database and construct our user that way
 		apiKey, err := auth.store.GetAPIKey(ctx, token)
 		if err != nil {
@@ -173,7 +167,6 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return user, nil
 	}
 
-	fmt.Println("validating JWT token")
 	// otherwise we try to decode the token with keycloak
 	keycloakJWT, err := auth.authenticator.ValidateUserToken(ctx, token)
 	if err != nil {
