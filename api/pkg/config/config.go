@@ -41,8 +41,6 @@ func LoadServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return ServerConfig{}, err
 	}
-	fmt.Printf("Config: %v\n", cfg.WebServer)
-	fmt.Printf("ADMIN_USER_SOURCE: %v\n", cfg.WebServer.AdminSrc)
 	return cfg, nil
 }
 

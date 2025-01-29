@@ -656,8 +656,6 @@ func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *h
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	auth := apiServer.authMiddleware
 
-	fmt.Println("is ADMIN check API server")
-
 	switch auth.cfg.adminUserSrc {
 	case config.AdminSrcTypeEnv:
 		user := getRequestUser(req)
