@@ -112,43 +112,67 @@ func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	var apiKey string
+	log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("starting to watch and update client")
+	defer log.Info().Str("provider", string(provider)).Str("path", keyFile).Msg("stopped watching and updating client")
 
+	// Initialize the client
+	err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
+	if err != nil {
+		log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
+		return err
+	}
+
+	// Start watching for changes
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			bts, err := os.ReadFile(keyFile)
+			err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
 			if err != nil {
-				log.Error().
-					Str("file", keyFile).
-					Err(err).
-					Msg("error reading API key file")
+				log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
 				continue
 			}
-
-			newKey := strings.TrimSpace(string(bts))
-			if newKey == apiKey {
-				continue
-			}
-
-			log.Info().
-				Str("provider", string(provider)).
-				Msg("API key updated, recreating OpenAI compatible client")
-
-			// Recreate the client with the new key
-			openaiClient := openai.New(newKey, baseURL)
-
-			loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.logStores...)
-
-			m.clientsMu.Lock()
-			m.clients[provider] = &providerClient{client: loggedClient}
-			m.clientsMu.Unlock()
-
-			apiKey = newKey
 		}
 	}
+}
+
+func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider, baseURL, keyFile string) error {
+	bts, err := os.ReadFile(keyFile)
+	if err != nil {
+		log.Error().
+			Str("file", keyFile).
+			Err(err).
+			Msg("error reading API key file")
+		return fmt.Errorf("error reading API key file '%s': %w", keyFile, err)
+	}
+
+	newKey := strings.TrimSpace(string(bts))
+
+	m.clientsMu.RLock()
+	client, ok := m.clients[provider]
+	m.clientsMu.RUnlock()
+
+	if ok && client.client.APIKey() == newKey {
+		// Nothing to do
+		return nil
+	}
+
+	log.Info().
+		Str("provider", string(provider)).
+		Str("path", keyFile).
+		Msg("API key updated, recreating OpenAI compatible client")
+
+	// Recreate the client with the new key
+	openaiClient := openai.New(newKey, baseURL)
+
+	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.logStores...)
+
+	m.clientsMu.Lock()
+	m.clients[provider] = &providerClient{client: loggedClient}
+	m.clientsMu.Unlock()
+
+	return nil
 }
 
 func (m *MultiClientManager) ListProviders(_ context.Context) ([]types.Provider, error) {
