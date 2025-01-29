@@ -9,7 +9,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/helixml/helix/api/pkg/auth"
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -31,14 +30,17 @@ var (
 
 type authMiddlewareConfig struct {
 	adminUserIDs []string
-	adminUserSrc config.AdminSrcType
 	runnerToken  string
 }
 
 type authMiddleware struct {
 	authenticator auth.Authenticator
 	store         store.Store
-	cfg           authMiddlewareConfig
+	adminUserIDs  []string
+	runnerToken   string
+	// this means ALL users
+	// if '*' is included in the list
+	developmentMode bool
 }
 
 func newAuthMiddleware(
@@ -47,65 +49,19 @@ func newAuthMiddleware(
 	cfg authMiddlewareConfig,
 ) *authMiddleware {
 	return &authMiddleware{
-		authenticator: authenticator,
-		store:         store,
-		cfg:           cfg,
+		authenticator:   authenticator,
+		store:           store,
+		adminUserIDs:    cfg.adminUserIDs,
+		runnerToken:     cfg.runnerToken,
+		developmentMode: isDevelopmentMode(cfg.adminUserIDs),
 	}
-}
-
-type account struct {
-	userID string
-	token  *jwt.Token
-}
-
-type accountType string
-
-const (
-	accountTypeUser    accountType = "user"
-	accountTypeToken   accountType = "token"
-	accountTypeInvalid accountType = "invalid"
-)
-
-func (a *account) Type() accountType {
-	switch {
-	case a.userID != "":
-		return accountTypeUser
-	case a.token != nil:
-		return accountTypeToken
-	}
-	return accountTypeInvalid
-}
-
-func (auth *authMiddleware) isAdmin(acct account) bool {
-	if acct.Type() == accountTypeInvalid {
-		return false
-	}
-
-	switch auth.cfg.adminUserSrc {
-	case config.AdminSrcTypeEnv:
-		if acct.Type() != accountTypeUser {
-			return false
-		}
-		return auth.isUserAdmin(acct.userID)
-	case config.AdminSrcTypeJWT:
-		if acct.Type() != accountTypeToken {
-			return false
-		}
-		return auth.isTokenAdmin(acct.token)
-	}
-	return false
 }
 
 func (auth *authMiddleware) isUserAdmin(userID string) bool {
-	if userID == "" {
-		return false
+	if auth.developmentMode {
+		return true
 	}
-
-	for _, adminID := range auth.cfg.adminUserIDs {
-		// development mode everyone is an admin
-		if adminID == types.AdminAllUsers {
-			return true
-		}
+	for _, adminID := range auth.adminUserIDs {
 		if adminID == userID {
 			return true
 		}
@@ -113,21 +69,12 @@ func (auth *authMiddleware) isUserAdmin(userID string) bool {
 	return false
 }
 
-func (auth *authMiddleware) isTokenAdmin(token *jwt.Token) bool {
-	if token == nil {
-		return false
-	}
-	mc := token.Claims.(jwt.MapClaims)
-	isAdmin := mc["admin"].(bool)
-	return isAdmin
-}
-
 func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) (*types.User, error) {
 	if token == "" {
 		return nil, nil
 	}
 
-	if token == auth.cfg.runnerToken {
+	if token == auth.runnerToken {
 		// if the api key is our runner token then we are in runner mode
 		return &types.User{
 			Token:     token,
@@ -154,7 +101,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.TokenType = types.TokenTypeAPIKey
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isAdmin(account{userID: user.ID})
+		user.Admin = auth.isUserAdmin(user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -183,7 +130,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	user.TokenType = types.TokenTypeKeycloak
 	user.ID = keycloakUserID
 	user.Type = types.OwnerTypeUser
-	user.Admin = auth.isAdmin(account{token: keycloakJWT})
+	user.Admin = auth.isUserAdmin(user.ID)
 
 	return user, nil
 }
