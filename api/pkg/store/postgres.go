@@ -173,6 +173,7 @@ func (s *PostgresStore) MigrateUp() error {
 	if err != nil {
 		return err
 	}
+
 	err = migrations.Up()
 	if err != migrate.ErrNoChange {
 		return err
