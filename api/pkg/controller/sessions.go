@@ -899,6 +899,7 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 		err := c.pubsubHandler(session, payload)
 		if err != nil {
 			log.Error().Err(err).Msg("error handling runner response")
+			cancel()
 		}
 		return err
 	})
@@ -908,6 +909,7 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 
 	go func() {
 		<-subCtx.Done()
+		log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("unsubscribing from runner responses queue")
 		_ = sub.Unsubscribe()
 	}()
 
