@@ -126,12 +126,10 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 	w.Header().Set("Connection", "keep-alive")
 
 	timeoutCtx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
 
 	// Now keep track of that job id and stream the events back to the control plane
-	ch := make(chan struct{})
 	go func() {
-		defer close(ch)
+		defer cancel()
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
@@ -232,5 +230,5 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 	}()
 
 	// Wait for the goroutine to finish
-	<-ch
+	<-timeoutCtx.Done()
 }
