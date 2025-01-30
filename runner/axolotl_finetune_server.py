@@ -361,6 +361,20 @@ async def chat_completions(request: CompletionRequest):
     )
 
 
+class Model(BaseModel):
+    CreatedAt: int
+    ID: str
+    Object: str
+    OwnedBy: str
+    Permission: List[str]
+    Root: str
+    Parent: str
+
+
+class ListModelsResponse(BaseModel):
+    models: List[Model]
+
+
 @app.get("/v1/models", response_model=ListModelsResponse)
 async def list_models():
     return ListModelsResponse(
