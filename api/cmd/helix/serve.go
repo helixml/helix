@@ -3,7 +3,6 @@ package helix
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -26,7 +25,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
-	"github.com/helixml/helix/api/pkg/schedulerv2"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -237,76 +235,28 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
 	}
 
-	var runnerController *schedulerv2.RunnerController
-	var v2scheduler *schedulerv2.Scheduler
-	if cfg.EnableSchedulerV2 {
-		runnerController, err = schedulerv2.NewRunnerController(ctx, &schedulerv2.RunnerControllerConfig{
-			PubSub: ps,
-		})
-		if err != nil {
-			return err
-		}
-
-		v2scheduler, err = schedulerv2.NewScheduler(ctx, cfg, &schedulerv2.SchedulerParams{
-			RunnerController: runnerController,
-			QueueSize:        100,
-			OnSchedulingErr: func(work *scheduler.Workload, err error) {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling work")
-			},
-			OnResponseHandler: func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {
-				return nil
-			},
-		})
-		if err != nil {
-			return err
-		}
+	runnerController, err := scheduler.NewRunnerController(ctx, &scheduler.RunnerControllerConfig{
+		PubSub: ps,
+	})
+	if err != nil {
+		return err
 	}
 
-	// Must use the same allocator for both new LLM requests and old sessions
-	scheduler := scheduler.NewScheduler(ctx, cfg, func(work *scheduler.Workload, err error) {
-		// This function describes what happens when errors occur in jobs.
-		// Each request type (session vs. LLM requests) has a differeht code path handling results,
-		// hence for now we need to separate cases to handle errors.
-		switch work.WorkloadType {
-		case scheduler.WorkloadTypeLLMInferenceRequest:
-			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work, removing from queue")
-			req := work.LLMInferenceRequest()
-			resp := &types.RunnerLLMInferenceResponse{
-				RequestID:     req.RequestID,
-				OwnerID:       req.OwnerID,
-				SessionID:     req.SessionID,
-				InteractionID: req.InteractionID,
-				Error:         err.Error(),
-				Done:          true,
-			}
-			bts, err := json.Marshal(resp)
-			if err != nil {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
-			}
-
-			err = ps.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
-			if err != nil {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
-			}
-		case scheduler.WorkloadTypeSession:
-			// If we can't retry, write an error to the request and continue so it takes it off
-			// the queue
-			errSession := work.Session()
-			errSession.Interactions = append(errSession.Interactions, &types.Interaction{
-				Creator: types.CreatorTypeSystem,
-				Error:   err.Error(),
-				Message: "Error scheduling session",
-			})
-			_, err = store.UpdateSession(ctx, *errSession)
-			if err != nil {
-				log.Error().Err(err).Msg("error updating session")
-			}
-		default:
-			log.Error().Str("workload_type", string(work.WorkloadType)).Msg("unknown workload type")
-		}
+	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.SchedulerParams{
+		RunnerController: runnerController,
+		QueueSize:        100,
+		OnSchedulingErr: func(work *scheduler.Workload, err error) {
+			log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling work")
+		},
+		OnResponseHandler: func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {
+			return nil
+		},
 	})
+	if err != nil {
+		return err
+	}
 
-	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler, v2scheduler)
+	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
 
 	var logStores []logger.LogStore
 
@@ -366,7 +316,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
 		Scheduler:            scheduler,
-		SchedulerV2:          v2scheduler,
 		RunnerController:     runnerController,
 	}
 
@@ -379,8 +328,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if err != nil {
 		return err
 	}
-
-	go appController.Start(ctx)
 
 	// Initialize browser pool
 	browserPool, err := browser.New(cfg)

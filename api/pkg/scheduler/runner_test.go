@@ -1,4 +1,4 @@
-package schedulerv2
+package scheduler
 
 import (
 	"context"

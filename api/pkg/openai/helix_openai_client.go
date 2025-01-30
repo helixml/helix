@@ -137,29 +137,13 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 	select {
 	case <-doneCh:
 	case <-requestCtx.Done():
-		// If this happens, the request has been cancelled, release the allocation
-		err := c.scheduler.Release(requestID)
-		if err != nil {
-			log.Error().Err(err).Msg("error releasing allocation")
-		}
 		return openai.ChatCompletionResponse{}, fmt.Errorf("request was cancelled")
 	case <-ctx.Done():
 		// If this happens, we have timed out
-		log.Warn().
-			Str("request_id", requestID).
-			Msg("timeout waiting for runner response, releasing allocation")
-		err := c.scheduler.Release(requestID)
-		if err != nil {
-			log.Error().Err(err).Msg("error releasing allocation")
-		}
 		return openai.ChatCompletionResponse{}, fmt.Errorf("timeout waiting for runner response")
 	}
 
 	if respError != nil {
-		err := c.scheduler.Release(requestID)
-		if err != nil {
-			log.Error().Err(err).Msg("error releasing allocation")
-		}
 		return openai.ChatCompletionResponse{}, respError
 	}
 

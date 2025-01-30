@@ -33,8 +33,9 @@ const (
 type ConnectionStatusHandler func(status ConnectionStatus)
 
 type Nats struct {
-	conn *nats.Conn
-	js   jetstream.JetStream
+	conn           *nats.Conn
+	js             jetstream.JetStream
+	embeddedServer *server.Server
 
 	stream jetstream.Stream
 
@@ -203,6 +204,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 
 	n := &Nats{
 		conn:           nc,
+		embeddedServer: ns,
 		js:             js,
 		stream:         stream,
 		consumer:       c,

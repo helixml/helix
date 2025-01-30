@@ -232,23 +232,6 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 }
 
 func (c *Controller) RestartSession(ctx context.Context, session *types.Session) (*types.Session, error) {
-	// let's see if this session is currently active as far as runners are aware
-	activeSessions := map[string]bool{}
-	c.activeRunners.Range(func(_ string, metrics *types.RunnerState) bool {
-		for _, modelInstance := range metrics.ModelInstances {
-			if modelInstance.CurrentSession == nil {
-				continue
-			}
-			activeSessions[modelInstance.CurrentSession.SessionID] = true
-		}
-		return true
-	})
-
-	_, ok := activeSessions[session.ID]
-	if ok {
-		return nil, fmt.Errorf("session is currently active")
-	}
-
 	session, err := data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
 		assistantInteraction.Error = ""
 		assistantInteraction.Finished = false
@@ -793,10 +776,6 @@ func (c *Controller) BroadcastProgress(
 	progress int,
 	status string,
 ) {
-	err := c.scheduler.Begin(session.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("request_id", session.ID).Msg("error beginning allocation, continuing...")
-	}
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventWorkerTaskResponse,
 		SessionID: session.ID,
@@ -866,100 +845,89 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 	if err != nil {
 		return fmt.Errorf("error creating workload: %w", err)
 	}
-	if c.schedulerV2 != nil {
-		lastInteraction, err := data.GetLastInteraction(session)
+	lastInteraction, err := data.GetLastInteraction(session)
+	if err != nil {
+		return fmt.Errorf("error getting last interaction: %w", err)
+	}
+	// Create a pubsub subscription to listen for responses to this session
+	sub, err := c.Options.PubSub.Subscribe(c.Ctx, pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID), func(payload []byte) error {
+		log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
+
+		var runnerResp types.RunnerNatsReplyResponse
+		err := json.Unmarshal(payload, &runnerResp)
 		if err != nil {
-			return fmt.Errorf("error getting last interaction: %w", err)
+			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
-		// Create a pubsub subscription to listen for responses to this session
-		sub, err := c.Options.PubSub.Subscribe(c.Ctx, pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID), func(payload []byte) error {
-			log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
 
-			var runnerResp types.RunnerNatsReplyResponse
-			err := json.Unmarshal(payload, &runnerResp)
+		log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
+
+		if runnerResp.Error != nil {
+			return fmt.Errorf("runner error: %w", runnerResp.Error)
+		}
+
+		if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
+			// Remove the SSE "data: " prefix from the response
+			response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
+
+			// Parse the openai response
+			var imageGenerationResponse types.HelixImageGenerationUpdate
+			err = json.Unmarshal([]byte(response), &imageGenerationResponse)
 			if err != nil {
-				return fmt.Errorf("error unmarshalling runner response: %w", err)
+				return fmt.Errorf("error unmarshalling openai response: %w", err)
 			}
 
-			log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
+			log.Trace().Interface("imageGenerationResponse", imageGenerationResponse).Msg("image generation response")
 
-			if runnerResp.Error != nil {
-				return fmt.Errorf("runner error: %w", runnerResp.Error)
+			files := []string{}
+			for _, image := range imageGenerationResponse.Data {
+				files = append(files, image.URL)
 			}
 
-			if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
-				// Remove the SSE "data: " prefix from the response
-				response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
-
-				// Parse the openai response
-				var imageGenerationResponse types.HelixImageGenerationUpdate
-				err = json.Unmarshal([]byte(response), &imageGenerationResponse)
+			if imageGenerationResponse.Completed {
+				c.BroadcastProgress(c.Ctx, session, 100, "done")
+				_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
+					Type:          types.WorkerTaskResponseTypeResult,
+					SessionID:     session.ID,
+					InteractionID: lastInteraction.ID,
+					Owner:         session.Owner,
+					Progress:      imageGenerationResponse.Step,
+					Status:        "done",
+					Done:          true,
+					Files:         files,
+				})
 				if err != nil {
-					return fmt.Errorf("error unmarshalling openai response: %w", err)
-				}
-
-				log.Trace().Interface("imageGenerationResponse", imageGenerationResponse).Msg("image generation response")
-
-				files := []string{}
-				for _, image := range imageGenerationResponse.Data {
-					files = append(files, image.URL)
-				}
-
-				if imageGenerationResponse.Completed {
-					c.BroadcastProgress(c.Ctx, session, 100, "done")
-					_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
-						Type:          types.WorkerTaskResponseTypeResult,
-						SessionID:     session.ID,
-						InteractionID: lastInteraction.ID,
-						Owner:         session.Owner,
-						Progress:      imageGenerationResponse.Step,
-						Status:        "done",
-						Done:          true,
-						Files:         files,
-					})
-					if err != nil {
-						return fmt.Errorf("error handling runner response: %w", err)
-					}
-				} else {
-					c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
+					return fmt.Errorf("error handling runner response: %w", err)
 				}
 			} else {
-				return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
+				c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
 			}
-
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("error subscribing to runner responses queue: %w", err)
+		} else {
+			return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
 		}
 
-		go func() {
-			ctx, cancel := context.WithTimeout(c.Ctx, runnerResponseTimeout)
-			defer cancel()
-
-			<-ctx.Done()
-			_ = sub.Unsubscribe()
-		}()
-
-		err = c.schedulerV2.Enqueue(work)
-		if err != nil {
-			return fmt.Errorf("error enqueuing work: %w", err)
-		}
-	} else {
-		err = c.scheduler.Enqueue(work)
-		if err != nil {
-			return fmt.Errorf("error enqueuing work: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("error subscribing to runner responses queue: %w", err)
 	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(c.Ctx, runnerResponseTimeout)
+		defer cancel()
+
+		<-ctx.Done()
+		_ = sub.Unsubscribe()
+	}()
+
+	err = c.scheduler.Enqueue(work)
+	if err != nil {
+		return fmt.Errorf("error enqueuing work: %w", err)
+	}
+
 	return nil
 }
 
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
-	err := c.scheduler.Release(taskResponse.SessionID)
-	if err != nil {
-		log.Error().Err(err).Msgf("error releasing session: %s", taskResponse.SessionID)
-	}
-
 	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
 		return nil, err

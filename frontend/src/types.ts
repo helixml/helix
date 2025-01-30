@@ -304,15 +304,15 @@ export interface IModelInstanceState {
   status?: string,
 }
 
-export interface IRunnerState {
+export interface IRunnerStatus {
   id: string,
   created: string,
+  updated: string,
+  version?: string,
   total_memory: number,
   free_memory: number,
   labels: Record<string, string>,
-  model_instances: IModelInstanceState[],
-  scheduling_decisions: string[],
-  version?: string,
+  slots: ISlot[],
 }
 
 export interface ISessionFilterModel {
@@ -341,26 +341,15 @@ export interface  IGlobalSchedulingDecision {
 }
 
 export interface IDashboardData {
-  session_queue: ISessionSummary[],
-  runners: IRunnerState[],
-  global_scheduling_decisions: IGlobalSchedulingDecision[],
-  desired_slots: ISlot[],
+  queue: ISessionSummary[],
+  runners: IRunnerStatus[],
 }
 
 export interface ISlot {
   id: string,
-  data: ISlotData[],
-}
-
-export interface ISlotData {
-  id: string,
-  attributes: ISlotAttributes,
-}
-
-export interface ISlotAttributes {
+  runtime: string,
   model: string,
-  mode: ISessionMode,
-  workload: ISlotAttributesWorkload,
+  version: string,
 }
 
 export interface LLMInferenceRequest {
@@ -383,20 +372,21 @@ export interface ISlotAttributesWorkload {
 }
 
 export interface ISessionSummary {
-  created: string,
-  updated: string,
-  scheduled: string,
-  completed: string,
-  session_id: string,
-  name: string,
-  interaction_id: string,
-  model_name: string,
-  mode: ISessionMode,
-  type: ISessionType,
-  owner: string,
-  lora_dir?: string,
-  summary: string,
-  app_id?: string,
+  id: string,
+  created_at: string,
+  updated_at: string,
+  // scheduled_at: string,
+  // completed_at: string,
+  // session_id: string,
+  // name: string,
+  // interaction_id: string,
+  // model_name: string,
+  // mode: ISessionMode,
+  // type: ISessionType,
+  // owner: string,
+  // lora_dir?: string,
+  // summary: string,
+  // app_id?: string,
 }
 
 export interface ISessionMetaUpdate {

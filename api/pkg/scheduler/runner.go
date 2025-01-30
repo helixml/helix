@@ -1,4 +1,4 @@
-package schedulerv2
+package scheduler
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
@@ -123,7 +122,7 @@ func (c *RunnerController) Version(runnerID string) string {
 	return status.Version
 }
 
-func (c *RunnerController) Slots(runnerID string) ([]types.RunnerSlot, error) {
+func (c *RunnerController) Slots(runnerID string) ([]*types.RunnerSlot, error) {
 	// Get the slots from the runner.
 	slots, err := c.getSlots(runnerID)
 	if err != nil {
@@ -132,7 +131,7 @@ func (c *RunnerController) Slots(runnerID string) ([]types.RunnerSlot, error) {
 	return slots.Slots, nil
 }
 
-func (c *RunnerController) SubmitChatCompletionRequest(slot *scheduler.Slot, req *types.RunnerLLMInferenceRequest) error {
+func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
 
@@ -168,7 +167,7 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *scheduler.Slot, req
 	return nil
 }
 
-func (c *RunnerController) SubmitImageGenerationRequest(slot *scheduler.Slot, session *types.Session) error {
+func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
 	lastInteraction, err := data.GetLastInteraction(session)
 	if err != nil {
 		return fmt.Errorf("no last interaction found: %w", err)
@@ -231,7 +230,7 @@ func (c *RunnerController) SubmitImageGenerationRequest(slot *scheduler.Slot, se
 	return nil
 }
 
-func (c *RunnerController) CreateSlot(slot *scheduler.Slot) error {
+func (c *RunnerController) CreateSlot(slot *Slot) error {
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{

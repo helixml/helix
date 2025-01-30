@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
@@ -142,6 +143,26 @@ func (w *Workload) ToRunnerWorkload() *types.RunnerWorkload {
 		return &types.RunnerWorkload{
 			Session: w.session,
 		}
+	}
+	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
+}
+
+func (w *Workload) Created() time.Time {
+	switch w.WorkloadType {
+	case WorkloadTypeLLMInferenceRequest:
+		return w.llmInfereceRequest.CreatedAt
+	case WorkloadTypeSession:
+		return w.session.Created
+	}
+	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
+}
+
+func (w *Workload) Updated() time.Time {
+	switch w.WorkloadType {
+	case WorkloadTypeLLMInferenceRequest:
+		return w.llmInfereceRequest.CreatedAt
+	case WorkloadTypeSession:
+		return w.session.Updated
 	}
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
 }

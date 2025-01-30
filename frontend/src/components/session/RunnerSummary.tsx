@@ -8,11 +8,11 @@ import Row from '../widgets/Row'
 import ModelInstanceSummary from './ModelInstanceSummary'
 
 import {
-  IRunnerState,
+  IRunnerStatus
 } from '../../types'
 
 export const RunnerSummary: FC<{
-  runner: IRunnerState,
+  runner: IRunnerStatus,
   onViewSession: {
     (id: string): void,
   }
@@ -21,6 +21,7 @@ export const RunnerSummary: FC<{
   onViewSession,
 }) => {
   const using_memory = runner.total_memory - runner.free_memory
+
   return (
     <Box
       sx={{
@@ -53,13 +54,13 @@ export const RunnerSummary: FC<{
         </Cell>
       </Row>
       {
-        runner.model_instances
-          ?.sort((a, b) => a.model_name.localeCompare(b.model_name))
-          .map(modelInstance => {
+        runner.slots
+          ?.sort((a, b) => a.id.localeCompare(b.id))
+          .map(slot => {
           return (
             <ModelInstanceSummary
-              key={ modelInstance.id }
-              modelInstance={ modelInstance }
+              key={ slot.id }
+              slot={ slot }
               onViewSession={ onViewSession }
             />
           )

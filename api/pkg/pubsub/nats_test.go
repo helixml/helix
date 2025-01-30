@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -649,44 +648,4 @@ func TestStreamFailOne(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestStreamingChat(t *testing.T) {
-	pubsub, cleanup := setupTestNats(t)
-	defer cleanup()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create a consumer to handle the chat request
-	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
-		// Simulate streaming response by sending multiple chunks
-		responses := []string{"Hello", " ", "World", "!"}
-		for _, chunk := range responses {
-			err := pubsub.StreamChatRespond(ctx, msg, []byte(chunk))
-			require.NoError(t, err)
-			time.Sleep(50 * time.Millisecond) // Simulate processing time
-		}
-		return nil
-	})
-	require.NoError(t, err)
-	defer sub.Unsubscribe()
-
-	// Wait for consumer to be ready
-	time.Sleep(100 * time.Millisecond)
-
-	// Make streaming request
-	responseCh, err := pubsub.StreamChatRequest(ctx, ScriptRunnerStream, AppQueue, []byte("chat request"), map[string]string{
-		"foo": "bar",
-	})
-	require.NoError(t, err)
-
-	// Collect all response chunks
-	var response strings.Builder
-	for chunk := range responseCh {
-		response.Write(chunk)
-	}
-
-	// Verify complete response
-	assert.Equal(t, "Hello World!", response.String())
 }

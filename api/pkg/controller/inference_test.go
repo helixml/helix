@@ -74,7 +74,8 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
-	scheduler := scheduler.NewScheduler(suite.ctx, cfg, nil)
+	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, nil)
+	suite.NoError(err)
 
 	c, err := NewController(context.Background(), Options{
 		Config:          cfg,

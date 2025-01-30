@@ -69,10 +69,10 @@ type HelixAPIServer struct {
 	pubsub            pubsub.PubSub
 	providerManager   manager.ProviderManager
 	gptScriptExecutor gptscript.Executor
-	inferenceServer   openai.HelixServer // Helix OpenAI server
+	inferenceServer   *openai.InternalHelixServer // Helix OpenAI server
 	knowledgeManager  knowledge.Manager
 	router            *mux.Router
-	scheduler         scheduler.Scheduler
+	scheduler         *scheduler.Scheduler
 }
 
 func NewServer(
@@ -81,13 +81,13 @@ func NewServer(
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
 	providerManager manager.ProviderManager,
-	inferenceServer openai.HelixServer,
+	inferenceServer *openai.InternalHelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
-	scheduler scheduler.Scheduler,
+	scheduler *scheduler.Scheduler,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -337,21 +337,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
 	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods(http.MethodPost, http.MethodOptions)
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
-	adminRouter.HandleFunc("/runners", system.DefaultWrapper(apiServer.getRunners)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
 	// all these routes are secured via runner tokens
-	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.DefaultWrapper(apiServer.handleRunnerResponse)).Methods(http.MethodPost)
-	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.DefaultWrapper(apiServer.handleRunnerMetrics)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
-
-	runnerRouter.HandleFunc("/runner/{runnerid}/llm-inference-request", system.DefaultWrapper(apiServer.runnerLLMInferenceRequestHandler)).Methods(http.MethodGet)
-
-	runnerRouter.HandleFunc("/runner/{runnerid}/slots", system.DefaultWrapper(apiServer.getDesiredRunnerSlots)).Methods(http.MethodGet)
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)

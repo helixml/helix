@@ -75,7 +75,11 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New(suite.T().TempDir())
+	ps, err := pubsub.New(&config.ServerConfig{
+		PubSub: config.PubSub{
+			StoreDir: suite.T().TempDir(),
+		},
+	})
 	suite.NoError(err)
 
 	suite.openAiClient = openai.NewMockClient(ctrl)
@@ -92,6 +96,8 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	providerManager := manager.NewMockProviderManager(ctrl)
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
 
+	scheduler, err := scheduler.NewScheduler(context.Background(), cfg, nil)
+	suite.NoError(err)
 	c, err := controller.NewController(context.Background(), controller.Options{
 		Config:          cfg,
 		Store:           suite.store,
@@ -100,7 +106,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
-		Scheduler:       scheduler.NewScheduler(context.Background(), cfg, nil),
+		Scheduler:       scheduler,
 		PubSub:          suite.pubsub,
 	})
 	suite.NoError(err)

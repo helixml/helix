@@ -62,7 +62,7 @@ type RunnerSlot struct {
 }
 
 type ListRunnerSlotsResponse struct {
-	Slots []RunnerSlot `json:"slots"`
+	Slots []*RunnerSlot `json:"slots"`
 }
 
 // A generic helix type to support nats reply requests, based upon RunnerLLMInferenceRequest

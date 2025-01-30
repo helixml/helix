@@ -169,9 +169,9 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 	apiServer.slotsMtx.RLock()
 	defer apiServer.slotsMtx.RUnlock()
 
-	slotList := make([]types.RunnerSlot, 0, len(apiServer.slots))
+	slotList := make([]*types.RunnerSlot, 0, len(apiServer.slots))
 	for id, slot := range apiServer.slots {
-		slotList = append(slotList, types.RunnerSlot{
+		slotList = append(slotList, &types.RunnerSlot{
 			ID:      id,
 			Runtime: slot.Runtime.Runtime(),
 			Version: slot.Runtime.Version(),
