@@ -99,6 +99,7 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs/{job_id}", apiServer.retrieveFinetuningJob).Methods(http.MethodGet, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs", apiServer.createFinetuningJob).Methods(http.MethodPost, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs/{job_id}/events", apiServer.listFinetuningJobEvents).Methods(http.MethodGet, http.MethodOptions)
+	subRouter.HandleFunc("/slots/{slot_id}/v1/helix/fine_tuning/jobs", apiServer.createHelixFinetuningJob).Methods(http.MethodPost, http.MethodOptions)
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)

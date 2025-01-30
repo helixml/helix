@@ -97,3 +97,12 @@ type HelixImageGenerationUpdate struct {
 	Completed bool                            `json:"completed"`
 	Data      []openai.ImageResponseDataInner `json:"data"`
 }
+
+// Define a type for the streaming fine-tuning data
+type HelixFineTuningUpdate struct {
+	Created   int64  `json:"created"`
+	Error     string `json:"error"`
+	Completed bool   `json:"completed"`
+	Progress  int    `json:"progress"`
+	LoraDir   string `json:"lora_dir"`
+}

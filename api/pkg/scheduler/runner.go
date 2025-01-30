@@ -310,6 +310,7 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 
 	headers := map[string]string{}
 	headers[types.SessionIDHeader] = session.ID
+	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(session.Owner, session.ID)
 
 	// TODO(Phil): the old code had some complicated logic around merging multiple jsonl files.
 	// I'll just use the jsonl files from the last interaction for now.
@@ -367,7 +368,7 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 	}
 	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
 		Method: "POST",
-		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/fine_tuning/jobs", slot.ID),
+		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/helix/fine_tuning/jobs", slot.ID),
 		Body:   body,
 	})
 	if err != nil {

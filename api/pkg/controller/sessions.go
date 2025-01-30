@@ -942,6 +942,37 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 			} else {
 				c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
 			}
+		} else if session.Mode == types.SessionModeFinetune && session.Type == types.SessionTypeText {
+			// Remove the SSE "data: " prefix from the response
+			response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
+
+			// Parse the openai response
+			var fineTuningResponse types.HelixFineTuningUpdate
+			err = json.Unmarshal([]byte(response), &fineTuningResponse)
+			if err != nil {
+				return fmt.Errorf("error unmarshalling openai response: %w", err)
+			}
+
+			log.Trace().Interface("fineTuningResponse", fineTuningResponse).Msg("fine tuning response")
+
+			if fineTuningResponse.Completed {
+				c.BroadcastProgress(c.Ctx, session, 100, "done")
+				_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
+					Type:          types.WorkerTaskResponseTypeResult,
+					SessionID:     session.ID,
+					InteractionID: lastInteraction.ID,
+					Owner:         session.Owner,
+					Progress:      100,
+					Status:        "done",
+					Done:          true,
+					LoraDir:       fineTuningResponse.LoraDir,
+				})
+				if err != nil {
+					return fmt.Errorf("error handling runner response: %w", err)
+				}
+			} else {
+				c.BroadcastProgress(c.Ctx, session, fineTuningResponse.Progress, "fine-tuning...")
+			}
 		} else {
 			return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
 		}
