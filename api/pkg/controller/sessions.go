@@ -891,110 +891,122 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 		return fmt.Errorf("error getting last interaction: %w", err)
 	}
 	// Create a pubsub subscription to listen for responses to this session
+
+	subCtx, cancel := context.WithTimeout(c.Ctx, runnerResponseTimeout)
+	defer cancel()
 	log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("subscribing to runner responses queue")
-	sub, err := c.Options.PubSub.Subscribe(c.Ctx, pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID), func(payload []byte) error {
-		log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
-
-		var runnerResp types.RunnerNatsReplyResponse
-		err := json.Unmarshal(payload, &runnerResp)
+	sub, err := c.Options.PubSub.Subscribe(subCtx, pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID), func(payload []byte) error {
+		err := c.pubsubHandler(session, payload)
 		if err != nil {
-			return fmt.Errorf("error unmarshalling runner response: %w", err)
+			log.Error().Err(err).Msg("error handling runner response")
 		}
-
-		log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
-
-		if runnerResp.Error != nil {
-			return fmt.Errorf("runner error: %w", runnerResp.Error)
-		}
-
-		if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
-			// Remove the SSE "data: " prefix from the response
-			response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
-
-			// Parse the openai response
-			var imageGenerationResponse types.HelixImageGenerationUpdate
-			err = json.Unmarshal([]byte(response), &imageGenerationResponse)
-			if err != nil {
-				return fmt.Errorf("error unmarshalling openai response: %w", err)
-			}
-
-			log.Trace().Interface("imageGenerationResponse", imageGenerationResponse).Msg("image generation response")
-
-			files := []string{}
-			for _, image := range imageGenerationResponse.Data {
-				files = append(files, image.URL)
-			}
-
-			if imageGenerationResponse.Completed {
-				c.BroadcastProgress(c.Ctx, session, 100, "done")
-				_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
-					Type:          types.WorkerTaskResponseTypeResult,
-					SessionID:     session.ID,
-					InteractionID: lastInteraction.ID,
-					Owner:         session.Owner,
-					Progress:      imageGenerationResponse.Step,
-					Status:        "done",
-					Done:          true,
-					Files:         files,
-				})
-				if err != nil {
-					return fmt.Errorf("error handling runner response: %w", err)
-				}
-			} else {
-				c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
-			}
-		} else if session.Mode == types.SessionModeFinetune && session.Type == types.SessionTypeText {
-			// Remove the SSE "data: " prefix from the response
-			response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
-
-			// Parse the openai response
-			var fineTuningResponse types.HelixFineTuningUpdate
-			err = json.Unmarshal([]byte(response), &fineTuningResponse)
-			if err != nil {
-				return fmt.Errorf("error unmarshalling openai response: %w", err)
-			}
-
-			log.Trace().Interface("fineTuningResponse", fineTuningResponse).Msg("fine tuning response")
-
-			if fineTuningResponse.Completed {
-				c.BroadcastProgress(c.Ctx, session, 100, "done")
-				_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
-					Type:          types.WorkerTaskResponseTypeResult,
-					SessionID:     session.ID,
-					InteractionID: lastInteraction.ID,
-					Owner:         session.Owner,
-					Progress:      100,
-					Status:        "done",
-					Done:          true,
-					LoraDir:       fineTuningResponse.LoraDir,
-				})
-				if err != nil {
-					return fmt.Errorf("error handling runner response: %w", err)
-				}
-			} else {
-				c.BroadcastProgress(c.Ctx, session, fineTuningResponse.Progress, "fine-tuning...")
-			}
-		} else {
-			return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
-		}
-
-		return nil
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("error subscribing to runner responses queue: %w", err)
 	}
 
 	go func() {
-		ctx, cancel := context.WithTimeout(c.Ctx, runnerResponseTimeout)
-		defer cancel()
-
-		<-ctx.Done()
+		<-subCtx.Done()
 		_ = sub.Unsubscribe()
 	}()
 
 	err = c.scheduler.Enqueue(work)
 	if err != nil {
 		return fmt.Errorf("error enqueuing work: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Controller) pubsubHandler(session *types.Session, payload []byte) error {
+	lastInteraction, err := data.GetLastInteraction(session)
+	if err != nil {
+		return fmt.Errorf("error getting last interaction: %w", err)
+	}
+	log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
+
+	var runnerResp types.RunnerNatsReplyResponse
+	err = json.Unmarshal(payload, &runnerResp)
+	if err != nil {
+		return fmt.Errorf("error unmarshalling runner response: %w", err)
+	}
+
+	log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
+
+	if runnerResp.Error != nil {
+		return fmt.Errorf("runner error: %w", runnerResp.Error)
+	}
+
+	if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
+		// Remove the SSE "data: " prefix from the response
+		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
+
+		// Parse the openai response
+		var imageGenerationResponse types.HelixImageGenerationUpdate
+		err = json.Unmarshal([]byte(response), &imageGenerationResponse)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling openai response: %w", err)
+		}
+
+		log.Trace().Interface("imageGenerationResponse", imageGenerationResponse).Msg("image generation response")
+
+		files := []string{}
+		for _, image := range imageGenerationResponse.Data {
+			files = append(files, image.URL)
+		}
+
+		if imageGenerationResponse.Completed {
+			c.BroadcastProgress(c.Ctx, session, 100, "done")
+			_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
+				Type:          types.WorkerTaskResponseTypeResult,
+				SessionID:     session.ID,
+				InteractionID: lastInteraction.ID,
+				Owner:         session.Owner,
+				Progress:      imageGenerationResponse.Step,
+				Status:        "done",
+				Done:          true,
+				Files:         files,
+			})
+			if err != nil {
+				return fmt.Errorf("error handling runner response: %w", err)
+			}
+		} else {
+			c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
+		}
+	} else if session.Mode == types.SessionModeFinetune && session.Type == types.SessionTypeText {
+		// Remove the SSE "data: " prefix from the response
+		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
+
+		// Parse the openai response
+		var fineTuningResponse types.HelixFineTuningUpdate
+		err = json.Unmarshal([]byte(response), &fineTuningResponse)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling openai response: %w", err)
+		}
+
+		log.Trace().Interface("fineTuningResponse", fineTuningResponse).Msg("fine tuning response")
+
+		if fineTuningResponse.Completed {
+			c.BroadcastProgress(c.Ctx, session, 100, "done")
+			_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
+				Type:          types.WorkerTaskResponseTypeResult,
+				SessionID:     session.ID,
+				InteractionID: lastInteraction.ID,
+				Owner:         session.Owner,
+				Progress:      100,
+				Status:        "done",
+				Done:          true,
+				LoraDir:       fineTuningResponse.LoraDir,
+			})
+			if err != nil {
+				return fmt.Errorf("error handling runner response: %w", err)
+			}
+		} else {
+			c.BroadcastProgress(c.Ctx, session, fineTuningResponse.Progress, "fine-tuning...")
+		}
+	} else {
+		return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
 	}
 
 	return nil

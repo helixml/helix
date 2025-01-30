@@ -475,7 +475,7 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 
 		// If it doesn't have the right LoraDir then skip
 		if slot.LoraDir() != req.LoraDir() {
-			l.Trace().Msg("skipping warm slot, LoraDir mismatch")
+			l.Trace().Str("slot_lora_dir", slot.LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
 			continue
 		}
 
