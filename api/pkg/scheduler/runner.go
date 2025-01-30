@@ -328,11 +328,11 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 	if len(finetuneInteractions) == 0 {
 		return fmt.Errorf("no finetune interactions found")
 	}
-	lastInteraction := finetuneInteractions[len(finetuneInteractions)-1]
-	if len(lastInteraction.Files) != 1 {
+	lastFinetuneInteraction := finetuneInteractions[len(finetuneInteractions)-1]
+	if len(lastFinetuneInteraction.Files) != 1 {
 		return fmt.Errorf("last interaction should have exactly one file")
 	}
-	combinedFile := lastInteraction.Files[0]
+	combinedFile := lastFinetuneInteraction.Files[0]
 
 	// Check that combined file size is not zero
 	fi, err := c.fs.Get(c.ctx, combinedFile)
