@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/nats-io/nats.go"
@@ -25,16 +25,19 @@ type RunnerController struct {
 	mu      *sync.RWMutex
 	ps      pubsub.PubSub
 	ctx     context.Context
+	fs      filestore.FileStore
 }
 
 type RunnerControllerConfig struct {
 	PubSub pubsub.PubSub
+	FS     filestore.FileStore
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
 		ctx:     ctx,
 		ps:      cfg.PubSub,
+		fs:      cfg.FS,
 		runners: []string{},
 		mu:      &sync.RWMutex{},
 	}
@@ -328,15 +331,15 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 	combinedFile := lastInteraction.Files[0]
 
 	// Check that combined file size is not zero
-	fi, err := os.Stat(combinedFile)
+	fi, err := c.fs.Get(c.ctx, combinedFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("error checking jsonl file: %w", err)
 	}
-	if fi.Size() <= 1 {
+	if fi.Size <= 1 {
 		// Check for 1 byte to account for just a newline character
 		return fmt.Errorf("training data file is empty")
 	}
-	log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
+	log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size).Msgf("combined file size")
 
 	req := openai.FineTuningJobRequest{
 		Model:          session.ModelName,

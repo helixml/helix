@@ -523,6 +523,7 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	case WorkloadTypeLLMInferenceRequest:
 		err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
 		if err != nil {
+			// TODO(Phil): Need to pass on the error to the session for all these cases
 			log.Error().Err(err).Msg("error submitting chat completion request")
 		}
 	case WorkloadTypeSession:
