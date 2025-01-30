@@ -361,6 +361,22 @@ async def chat_completions(request: CompletionRequest):
     )
 
 
+@app.get("/v1/models", response_model=ListModelsResponse)
+async def list_models():
+    return ListModelsResponse(
+        models=[
+            Model(
+                CreatedAt=0,
+                ID="mistralai/Mistral-7B-Instruct-v0.1",
+                Object="model",
+                OwnedBy="helix",
+                Permission=[],
+                Root="",
+                Parent="",
+            )
+        ]
+    )
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
