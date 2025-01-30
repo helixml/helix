@@ -151,7 +151,7 @@ def run_fine_tuning(
         fine_tuning_jobs[job_id].status = "running"
         add_fine_tuning_event(job_id, "info", "Fine-tuning job started.")
 
-        parsed_cfg = unified_config(job_id, training_file, "")
+        parsed_cfg = unified_config(job_id, training_file, "", hyperparameters.n_epochs)
 
         cli_args = TrainerCliArgs()
         dataset_meta = load_datasets(cfg=parsed_cfg, cli_args=cli_args)
@@ -400,11 +400,12 @@ async def version():
     # __version__ wasn't added until recently
 
 
-def unified_config(job_id="", training_file="", lora_dir=""):
+def unified_config(job_id="", training_file="", lora_dir="", num_epochs=10):
     print("unified_content")
     parsed_cfg = load_cfg("helix-llama3.2-instruct-1b-v1.yml")
     parsed_cfg["sample_packing"] = False
-
+    parsed_cfg["num_epochs"] = num_epochs
+    
     if training_file != "":
         parsed_cfg["datasets"][0]["path"] = training_file
         parsed_cfg["datasets"][0]["type"] = "chat_template"
