@@ -118,6 +118,7 @@ func NewServer(
 			store,
 			authMiddlewareConfig{
 				adminUserIDs: cfg.WebServer.AdminIDs,
+				adminUserSrc: cfg.WebServer.AdminSrc,
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
