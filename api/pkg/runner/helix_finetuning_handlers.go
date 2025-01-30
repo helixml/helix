@@ -229,6 +229,7 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 		}
 	}()
 
-	// Wait for the goroutine to finish
+	// Block until the timeout context is done
 	<-timeoutCtx.Done()
+	log.Info().Msg("finetuning job completed")
 }
