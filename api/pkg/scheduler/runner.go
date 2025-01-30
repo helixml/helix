@@ -63,14 +63,14 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	return controller, nil
 }
 
-func (r *RunnerController) Send(ctx context.Context, runnerId string, headers map[string]string, req *types.Request) (*types.Response, error) {
+func (r *RunnerController) Send(ctx context.Context, runnerId string, headers map[string]string, req *types.Request, timeout time.Duration) (*types.Response, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling request: %w", err)
 	}
 
 	// Publish the task to the "tasks" subject
-	response, err := r.ps.Request(ctx, pubsub.GetRunnerQueue(runnerId), headers, data, 5*time.Minute) // TODO(phil): some requests are long running, so we need to make this configurable
+	response, err := r.ps.Request(ctx, pubsub.GetRunnerQueue(runnerId), headers, data, timeout) // TODO(phil): some requests are long running, so we need to make this configurable
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
@@ -160,7 +160,7 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 		Method: "POST",
 		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/chat/completions", slot.ID),
 		Body:   body,
-	})
+	}, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *typ
 		Method: "POST",
 		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/helix/images/generations", slot.ID),
 		Body:   body,
-	})
+	}, 30*time.Second)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Method: "POST",
 		URL:    "/api/v1/slots",
 		Body:   body,
-	})
+	}, 1*time.Minute)
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,7 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "DELETE",
 		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	})
+	}, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -282,7 +282,7 @@ func (c *RunnerController) getStatus(runnerID string) (*types.RunnerStatus, erro
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "GET",
 		URL:    "/api/v1/status",
-	})
+	}, 1*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "GET",
 		URL:    "/api/v1/slots",
-	})
+	}, 1*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +350,7 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 		TrainingFile:   combinedFile,
 		ValidationFile: "",
 		Hyperparameters: &openai.Hyperparameters{
-			Epochs:                 20, // TODO: connect this up to the finetuning API when it is ready
+			Epochs:                 1,
 			LearningRateMultiplier: 0.0002,
 			BatchSize:              6,
 		},
@@ -377,7 +377,7 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 		Method: "POST",
 		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/helix/fine_tuning/jobs", slot.ID),
 		Body:   body,
-	})
+	}, 10*time.Minute)
 	if err != nil {
 		return err
 	}
