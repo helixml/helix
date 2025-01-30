@@ -111,14 +111,6 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	diffusersClient, err := NewDiffusersClient(r.Context(), slot.Runtime.URL())
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create diffusers client: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	// Create finetuning job
-
 	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
