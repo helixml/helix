@@ -40,6 +40,7 @@ type Runtime string
 const (
 	RuntimeOllama    Runtime = "ollama"
 	RuntimeDiffusers Runtime = "diffusers"
+	RuntimeAxolotl   Runtime = "axolotl"
 )
 
 type CreateRunnerSlotAttributes struct {

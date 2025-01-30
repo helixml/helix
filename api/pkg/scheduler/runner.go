@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -302,4 +303,79 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 		return nil, err
 	}
 	return &slots, nil
+}
+
+func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Session) error {
+	log.Info().Str("session_id", session.ID).Msg("processing fine-tuning interaction")
+
+	headers := map[string]string{}
+	headers[types.SessionIDHeader] = session.ID
+
+	// TODO(Phil): the old code had some complicated logic around merging multiple jsonl files.
+	// I'll just use the jsonl files from the last interaction for now.
+
+	// and append them to one large JSONL file
+	userInteractions := data.FilterUserInteractions(session.Interactions)
+	finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
+	if len(finetuneInteractions) == 0 {
+		return fmt.Errorf("no finetune interactions found")
+	}
+	lastInteraction := finetuneInteractions[len(finetuneInteractions)-1]
+	if len(lastInteraction.Files) != 1 {
+		return fmt.Errorf("last interaction should have exactly one file")
+	}
+	combinedFile := lastInteraction.Files[0]
+
+	// Check that combined file size is not zero
+	fi, err := os.Stat(combinedFile)
+	if err != nil {
+		return err
+	}
+	if fi.Size() <= 1 {
+		// Check for 1 byte to account for just a newline character
+		return fmt.Errorf("training data file is empty")
+	}
+	log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
+
+	req := openai.FineTuningJobRequest{
+		Model:          session.ModelName,
+		TrainingFile:   combinedFile,
+		ValidationFile: "",
+		Hyperparameters: &openai.Hyperparameters{
+			Epochs:                 20, // TODO: connect this up to the finetuning API when it is ready
+			LearningRateMultiplier: 0.0002,
+			BatchSize:              6,
+		},
+		Suffix: session.ID, // Use the suffix to identify the session and the final directory for the LORA
+	}
+
+	requestBytes, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	natsReq := &types.RunnerNatsReplyRequest{
+		RequestID:     lastInteraction.ID, // Use the last interaction ID as the request ID for sessions, it's important that this kept in sync with the receiver code
+		CreatedAt:     time.Now(),
+		OwnerID:       session.Owner,
+		SessionID:     session.ID,
+		InteractionID: lastInteraction.ID,
+		Request:       requestBytes,
+	}
+	body, err := json.Marshal(natsReq)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
+		Method: "POST",
+		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/fine_tuning/jobs", slot.ID),
+		Body:   body,
+	})
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("error submitting finetuning request: %s", resp.Body)
+	}
+
+	return nil
 }

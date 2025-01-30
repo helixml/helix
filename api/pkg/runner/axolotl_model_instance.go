@@ -543,55 +543,55 @@ package runner
 // func (i *AxolotlModelInstance) processInteraction(session *types.Session) error {
 // 	switch session.Mode {
 // 	case types.SessionModeFinetune:
-// 		log.Info().Str("session_id", session.ID).Msg("processing fine-tuning interaction")
-// 		// accumulate all JSONL files across all interactions
-// 		// and append them to one large JSONL file
-// 		fileManager := i.getSessionFileHander(session)
-// 		userInteractions := data.FilterUserInteractions(session.Interactions)
-// 		finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
-// 		jsonLFiles := []string{}
-// 		for _, interaction := range finetuneInteractions {
-// 			for _, file := range interaction.Files {
-// 				if path.Base(file) == types.TextDataPrepQuestionsFile {
-// 					localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
-// 					localPath := path.Join(fileManager.GetFolder(), localFilename)
-// 					err := fileManager.DownloadFile(file, localPath)
-// 					if err != nil {
-// 						return err
-// 					}
-// 					jsonLFiles = append(jsonLFiles, localPath)
-// 				}
+// log.Info().Str("session_id", session.ID).Msg("processing fine-tuning interaction")
+// // accumulate all JSONL files across all interactions
+// // and append them to one large JSONL file
+// fileManager := i.getSessionFileHander(session)
+// userInteractions := data.FilterUserInteractions(session.Interactions)
+// finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
+// jsonLFiles := []string{}
+// for _, interaction := range finetuneInteractions {
+// 	for _, file := range interaction.Files {
+// 		if path.Base(file) == types.TextDataPrepQuestionsFile {
+// 			localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
+// 			localPath := path.Join(fileManager.GetFolder(), localFilename)
+// 			err := fileManager.DownloadFile(file, localPath)
+// 			if err != nil {
+// 				return err
 // 			}
+// 			jsonLFiles = append(jsonLFiles, localPath)
 // 		}
+// 	}
+// }
 
-// 		combinedFile := path.Join(fileManager.GetFolder(), types.TextDataPrepQuestionsFile)
-// 		err := system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
-// 		if err != nil {
-// 			return err
-// 		}
+// combinedFile := path.Join(fileManager.GetFolder(), types.TextDataPrepQuestionsFile)
+// err := system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
+// if err != nil {
+// 	return err
+// }
 
-// 		// Check that combined file size is not zero
-// 		fi, err := os.Stat(combinedFile)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if fi.Size() <= 1 {
-// 			// Check for 1 byte to account for just a newline character
-// 			return fmt.Errorf("training data file is empty")
-// 		}
-// 		log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
+// // Check that combined file size is not zero
+// fi, err := os.Stat(combinedFile)
+// if err != nil {
+// 	return err
+// }
+// if fi.Size() <= 1 {
+// 	// Check for 1 byte to account for just a newline character
+// 	return fmt.Errorf("training data file is empty")
+// }
+// log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size()).Msgf("combined file size")
 
-// 		req := openai.FineTuningJobRequest{
-// 			Model:          session.ModelName,
-// 			TrainingFile:   combinedFile,
-// 			ValidationFile: "",
-// 			Hyperparameters: &openai.Hyperparameters{
-// 				Epochs:                 20, // TODO: connect this up to the finetuning API when it is ready
-// 				LearningRateMultiplier: 0.0002,
-// 				BatchSize:              6,
-// 			},
-// 			Suffix: session.ID, // Use the suffix to identify the session and the final directory for the LORA
-// 		}
+// req := openai.FineTuningJobRequest{
+// 	Model:          session.ModelName,
+// 	TrainingFile:   combinedFile,
+// 	ValidationFile: "",
+// 	Hyperparameters: &openai.Hyperparameters{
+// 		Epochs:                 20, // TODO: connect this up to the finetuning API when it is ready
+// 		LearningRateMultiplier: 0.0002,
+// 		BatchSize:              6,
+// 	},
+// 	Suffix: session.ID, // Use the suffix to identify the session and the final directory for the LORA
+// }
 
 // 		job, err := i.client.CreateFineTuningJob(i.ctx, req)
 // 		if err != nil {

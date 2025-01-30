@@ -495,6 +495,12 @@ func (c *Controller) convertChunksToQuestions(ctx context.Context, session *type
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
 
+	log.Info().
+		Str("user_id", session.Owner).
+		Str("session_id", session.ID).
+		Str("status", initialMessage).
+		Msg("PHIL updating interaction status")
+
 	// Validate quotas
 	if c.Options.Config.SubscriptionQuotas.Enabled {
 
@@ -554,6 +560,12 @@ func (c *Controller) convertChunksToQuestions(ctx context.Context, session *type
 
 					assistantInteraction.DataPrepLimited = true
 					assistantInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+
+					log.Info().
+						Str("user_id", session.Owner).
+						Str("session_id", session.ID).
+						Str("status", msg).
+						Msg("PHIL fail too many chunks")
 
 					session = c.WriteInteraction(ctx, session, assistantInteraction)
 					c.BroadcastProgress(ctx, session, 1, initialMessage)

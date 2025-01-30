@@ -50,6 +50,8 @@ type FileHandler struct {
 	eventHandler      func(res *types.RunnerTaskResponse)
 }
 
+// TODO(Phil): We should flip this around. The runner should host a file server and the control
+// plane should download files from it. Leaving this here for now as it works.
 func NewFileHandler(
 	runnerID string,
 	clientOptions system.ClientOptions,

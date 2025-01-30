@@ -365,6 +365,10 @@ async def chat_completions(request: CompletionRequest):
 async def healthz():
     return {"status": "ok"}
 
+@app.get("/version")
+async def version():
+    return {"version": axolotl.__version__}
+
 
 def unified_config(job_id="", training_file="", lora_dir=""):
     print("unified_content")

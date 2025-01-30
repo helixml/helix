@@ -55,6 +55,11 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 		if err != nil {
 			return nil, err
 		}
+	case types.RuntimeAxolotl:
+		r, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{}) // TODO(phil): Add params
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unknown runtime: %s", params.Runtime)
 	}

@@ -537,6 +537,16 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			default:
 				panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
 			}
+		case types.SessionModeFinetune:
+			switch req.Session().Type {
+			case types.SessionTypeText:
+				err := s.controller.SubmitFinetuningRequest(slot, req.Session())
+				if err != nil {
+					log.Error().Err(err).Msg("error submitting finetuning request")
+				}
+			default:
+				panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+			}
 		default:
 			panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
 		}

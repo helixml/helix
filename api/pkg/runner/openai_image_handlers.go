@@ -53,4 +53,5 @@ func (s *HelixRunnerAPIServer) createImageGeneration(w http.ResponseWriter, r *h
 		return
 	}
 
+	// TODO: Implement image generation
 }

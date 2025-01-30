@@ -100,7 +100,12 @@ func (w *Workload) Runtime() types.Runtime {
 				panic(fmt.Sprintf("unknown session type: %s", w.session.Type))
 			}
 		case types.SessionModeFinetune:
-			panic("finetune mode is not supported yet")
+			switch w.session.Type {
+			case types.SessionTypeText:
+				return types.RuntimeAxolotl
+			default:
+				panic(fmt.Sprintf("unknown session type: %s", w.session.Type))
+			}
 		default:
 			panic(fmt.Sprintf("unknown session mode: %s", w.Mode()))
 		}
