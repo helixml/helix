@@ -161,6 +161,7 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	cmd.Dir = "runner"
 
 	cmd.Env = append(cmd.Env,
+		"PYTHONPATH=/workspace/axolotl/src",
 		// Add the APP_FOLDER environment variable which is required by the old code
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join("..", "..", "axolotl"))),
 		// Set python to be unbuffered so we get logs in real time
