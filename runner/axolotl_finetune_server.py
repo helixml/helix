@@ -367,7 +367,9 @@ async def healthz():
 
 @app.get("/version")
 async def version():
-    return {"version": axolotl.__version__}
+    return {"version": "main-20241008-py3.11-cu124-2.4.0"}
+    # https://github.com/axolotl-ai-cloud/axolotl/commit/34d3c8dcfb3db152fce6b7eae7e9f6a60be14ce3
+    # __version__ wasn't added until recently
 
 
 def unified_config(job_id="", training_file="", lora_dir=""):
