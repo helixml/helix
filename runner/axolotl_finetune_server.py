@@ -117,11 +117,8 @@ class HelixCallback(callbacks.TrainerCallback):
         **kwargs,
     ):
         loss, grad_norm, learning_rate, epoch, progress = 0.0, 0.0, 0.0, 0.0, 0
-        if state.epoch:
-            epoch = state.epoch
-            print("state", state)
-            if state.num_train_epochs:
-                progress = int(100.0 * (state.epoch / state.num_train_epochs))
+        epoch = state.epoch
+        progress = int(100.0 * (state.epoch / state.num_train_epochs))
         if len(state.log_history) > 0:
             hist = state.log_history[-1]
             if "loss" in hist:
