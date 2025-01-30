@@ -891,6 +891,7 @@ func (c *Controller) AddSessionToQueue(session *types.Session) error {
 		return fmt.Errorf("error getting last interaction: %w", err)
 	}
 	// Create a pubsub subscription to listen for responses to this session
+	log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("subscribing to runner responses queue")
 	sub, err := c.Options.PubSub.Subscribe(c.Ctx, pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID), func(payload []byte) error {
 		log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
 

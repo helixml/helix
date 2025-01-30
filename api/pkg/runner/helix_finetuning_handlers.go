@@ -46,7 +46,7 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 		http.Error(w, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Msg("create helix image generation")
+	log.Trace().Str("slot_id", slot_id).Msg("create helix finetuning job")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {
@@ -107,10 +107,6 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 
 	finetuningRequest.TrainingFile = localPath
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
 	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
@@ -134,104 +130,102 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 
 	// Now keep track of that job id and stream the events back to the control plane
 
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-timeoutCtx.Done():
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			return
+		case <-ticker.C:
+			events, err := openAIClient.ListFineTuningJobEvents(timeoutCtx, job.ID)
+			if err != nil {
+				if strings.Contains(err.Error(), "connection refused") {
+					continue
+				}
+				log.Error().Err(err).Msg("error listing fine-tuning job events")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
-			case <-ticker.C:
-				events, err := openAIClient.ListFineTuningJobEvents(timeoutCtx, job.ID)
-				if err != nil {
-					if strings.Contains(err.Error(), "connection refused") {
-						continue
-					}
-					log.Error().Err(err).Msg("error listing fine-tuning job events")
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
+			}
+
+			status, err := openAIClient.RetrieveFineTuningJob(timeoutCtx, job.ID)
+			if err != nil {
+				if strings.Contains(err.Error(), "connection refused") {
+					continue
 				}
+				log.Error().Err(err).Msg("error retrieving fine-tuning job")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 
-				status, err := openAIClient.RetrieveFineTuningJob(timeoutCtx, job.ID)
-				if err != nil {
-					if strings.Contains(err.Error(), "connection refused") {
-						continue
+			// Get latest training report
+			var report TrainingStatusReport
+			for _, event := range events.Data {
+				// ignore errors, just capture latest whatever we can
+				var newReport TrainingStatusReport
+				err := json.Unmarshal([]byte(event.Message), &newReport)
+				if err == nil {
+					if newReport.Type == "training_progress_report" {
+						report = newReport
 					}
-					log.Error().Err(err).Msg("error retrieving fine-tuning job")
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				// Get latest training report
-				var report TrainingStatusReport
-				for _, event := range events.Data {
-					// ignore errors, just capture latest whatever we can
-					var newReport TrainingStatusReport
-					err := json.Unmarshal([]byte(event.Message), &newReport)
-					if err == nil {
-						if newReport.Type == "training_progress_report" {
-							report = newReport
-						}
-					}
-				}
-
-				switch status.Status {
-				case "running":
-					finalResponse := types.HelixFineTuningUpdate{
-						Created:   status.CreatedAt,
-						Error:     "",
-						Progress:  report.Progress,
-						Completed: false,
-					}
-					bts, err := json.Marshal(finalResponse)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-					}
-
-					if err := writeChunk(w, bts); err != nil {
-						log.Error().Msgf("failed to write completion chunk: %v", err)
-					}
-				case "succeeded":
-					if len(status.ResultFiles) < 1 {
-						log.Error().Msg("fine-tuning succeeded but no result files")
-						http.Error(w, "fine-tuning succeeded but no result files", http.StatusInternalServerError)
-						return
-					}
-
-					// TODO(Phil): Probably need to upload the files to the control plane
-					finalResponse := types.HelixFineTuningUpdate{
-						Created:   status.CreatedAt,
-						Error:     "",
-						Progress:  100,
-						Completed: true,
-						LoraDir:   status.ResultFiles[0],
-					}
-					bts, err := json.Marshal(finalResponse)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-					}
-
-					if err := writeChunk(w, bts); err != nil {
-						log.Error().Msgf("failed to write completion chunk: %v", err)
-					}
-					return
-				case string(openai.RunStatusFailed):
-					if len(events.Data) > 0 {
-						log.Error().Msgf("fine-tuning failed: %s", events.Data[len(events.Data)-1].Message)
-						http.Error(w, events.Data[len(events.Data)-1].Message, http.StatusInternalServerError)
-						return
-					}
-					log.Error().Msg("fine-tuning failed with no events")
-					http.Error(w, "fine-tuning failed with no events", http.StatusInternalServerError)
-					return
-				default:
-					log.Error().Msgf("unknown fine-tuning status: %s", status.Status)
-					http.Error(w, fmt.Sprintf("unknown fine-tuning status: %s", status.Status), http.StatusInternalServerError)
-					return
 				}
 			}
+
+			switch status.Status {
+			case "running":
+				finalResponse := types.HelixFineTuningUpdate{
+					Created:   status.CreatedAt,
+					Error:     "",
+					Progress:  report.Progress,
+					Completed: false,
+				}
+				bts, err := json.Marshal(finalResponse)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+
+				if err := writeChunk(w, bts); err != nil {
+					log.Error().Msgf("failed to write completion chunk: %v", err)
+				}
+			case "succeeded":
+				if len(status.ResultFiles) < 1 {
+					log.Error().Msg("fine-tuning succeeded but no result files")
+					http.Error(w, "fine-tuning succeeded but no result files", http.StatusInternalServerError)
+					return
+				}
+
+				// TODO(Phil): Probably need to upload the files to the control plane
+				finalResponse := types.HelixFineTuningUpdate{
+					Created:   status.CreatedAt,
+					Error:     "",
+					Progress:  100,
+					Completed: true,
+					LoraDir:   status.ResultFiles[0],
+				}
+				bts, err := json.Marshal(finalResponse)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+
+				if err := writeChunk(w, bts); err != nil {
+					log.Error().Msgf("failed to write completion chunk: %v", err)
+				}
+				return
+			case string(openai.RunStatusFailed):
+				if len(events.Data) > 0 {
+					log.Error().Msgf("fine-tuning failed: %s", events.Data[len(events.Data)-1].Message)
+					http.Error(w, events.Data[len(events.Data)-1].Message, http.StatusInternalServerError)
+					return
+				}
+				log.Error().Msg("fine-tuning failed with no events")
+				http.Error(w, "fine-tuning failed with no events", http.StatusInternalServerError)
+				return
+			default:
+				log.Error().Msgf("unknown fine-tuning status: %s", status.Status)
+				http.Error(w, fmt.Sprintf("unknown fine-tuning status: %s", status.Status), http.StatusInternalServerError)
+				return
+			}
 		}
-	}()
+	}
 
 }

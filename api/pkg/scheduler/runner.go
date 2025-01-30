@@ -311,9 +311,13 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Session) error {
 	log.Info().Str("session_id", session.ID).Msg("processing fine-tuning interaction")
 
+	lastInteraction, err := data.GetLastInteraction(session)
+	if err != nil {
+		return fmt.Errorf("error getting last interaction: %w", err)
+	}
 	headers := map[string]string{}
 	headers[types.SessionIDHeader] = session.ID
-	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(session.Owner, session.ID)
+	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID)
 
 	// TODO(Phil): the old code had some complicated logic around merging multiple jsonl files.
 	// I'll just use the jsonl files from the last interaction for now.
