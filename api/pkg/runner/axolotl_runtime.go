@@ -96,17 +96,17 @@ func (d *AxolotlRuntime) Start(ctx context.Context) error {
 	}
 
 	// Wait for axolotl to be ready
-	log.Debug().Str("url", url.String()).Dur("timeout", d.startTimeout).Msg("Waiting for diffusers to start")
+	log.Debug().Str("url", url.String()).Dur("timeout", d.startTimeout).Msg("Waiting for axolotl to start")
 	err = d.waitUntilReady(ctx)
 	if err != nil {
-		return fmt.Errorf("error waiting for diffusers to start: %s", err.Error())
+		return fmt.Errorf("error waiting for axolotl to start: %s", err.Error())
 	}
-	log.Info().Msg("diffusers has started")
+	log.Info().Msg("axolotl has started")
 
 	// Set the version
 	version, err := d.axolotlClient.Version(ctx)
 	if err != nil {
-		return fmt.Errorf("error getting diffusers info: %w", err)
+		return fmt.Errorf("error getting axolotl info: %w", err)
 	}
 	d.version = version
 
@@ -117,13 +117,13 @@ func (d *AxolotlRuntime) Stop() error {
 	if d.cmd == nil {
 		return nil
 	}
-	log.Info().Msg("Stopping Diffusers runtime")
+	log.Info().Msg("Stopping axolotl runtime")
 	if err := killProcessTree(d.cmd.Process.Pid); err != nil {
-		log.Error().Msgf("error stopping Diffusers model process: %s", err.Error())
+		log.Error().Msgf("error stopping axolotl model process: %s", err.Error())
 		return err
 	}
 	d.cancel()
-	log.Info().Msg("Diffusers runtime stopped")
+	log.Info().Msg("axolotl runtime stopped")
 
 	return nil
 }
@@ -133,7 +133,7 @@ func (d *AxolotlRuntime) URL() string {
 }
 
 func (d *AxolotlRuntime) Runtime() types.Runtime {
-	return types.RuntimeDiffusers
+	return types.RuntimeAxolotl
 }
 
 func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress func(PullProgress) error) error {
@@ -150,8 +150,7 @@ func (d *AxolotlRuntime) Version() string {
 
 func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.Cmd, error) {
 	log.Trace().Msg("Preparing Axolotl command")
-	var cmd *exec.Cmd
-	cmd = commander.CommandContext(
+	cmd := commander.CommandContext(
 		ctx,
 		"uvicorn", "axolotl_finetune_server:app",
 		"--host", "0.0.0.0",
@@ -161,10 +160,6 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	// Set the working directory to the runner dir (which makes relative path stuff easier)
 	cmd.Dir = "runner"
 
-	// Inherit all the parent environment variables
-	cmd.Env = append(cmd.Env,
-		os.Environ()...,
-	)
 	cmd.Env = append(cmd.Env,
 		// Add the APP_FOLDER environment variable which is required by the old code
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join("..", "..", "axolotl"))),
@@ -173,7 +168,7 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 		// Set the log level, which is a name, but must be uppercased
 		fmt.Sprintf("LOG_LEVEL=%s", strings.ToUpper(os.Getenv("LOG_LEVEL"))),
 	)
-	log.Trace().Interface("env", cmd.Env).Msg("Diffusers serve command")
+	log.Trace().Interface("env", cmd.Env).Msg("axolotl serve command")
 
 	// Prepare stdout and stderr
 	log.Trace().Msg("Preparing stdout and stderr")
@@ -195,15 +190,15 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	log.Trace().Msg("Starting Diffusers")
+	log.Trace().Msg("Starting axolotl")
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("error starting Diffusers: %w", err)
+		return nil, fmt.Errorf("error starting axolotl: %w", err)
 	}
 
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			errMsg := string(stderrBuf.Bytes())
-			log.Error().Err(err).Str("stderr", errMsg).Int("exit_code", cmd.ProcessState.ExitCode()).Msg("Diffusers exited with error")
+			log.Error().Err(err).Str("stderr", errMsg).Int("exit_code", cmd.ProcessState.ExitCode()).Msg("axolotl exited with error")
 
 			return
 		}
