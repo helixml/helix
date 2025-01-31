@@ -238,6 +238,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Function to check if running on WSL2 (don't auto-install docker in that case)
+check_wsl2_docker() {
+    if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
+        echo "Detected WSL2 (Windows) environment."
+        echo "Please install Docker Desktop for Windows from https://docs.docker.com/desktop/windows/install/"
+        exit 1
+    fi
+}
+
 # Function to install Docker and Docker Compose plugin
 install_docker() {
     if ! command -v docker &> /dev/null; then
@@ -459,15 +468,6 @@ fi
 # Function to generate random alphanumeric password
 generate_password() {
     openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
-}
-
-# Function to check if running on WSL2 (don't auto-install docker in that case)
-check_wsl2_docker() {
-    if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
-        echo "Detected WSL2 (Windows) environment."
-        echo "Please install Docker Desktop for Windows from https://docs.docker.com/desktop/windows/install/"
-        exit 1
-    fi
 }
 
 # Function to install NVIDIA Docker runtime
