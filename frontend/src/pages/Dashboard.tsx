@@ -254,8 +254,8 @@ const Dashboard: FC = () => {
       >
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="Dashboard" />
             <Tab label="LLM Calls" />
+            <Tab label="Dashboard" />
           </Tabs>
         </Box>
 
