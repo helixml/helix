@@ -1,5 +1,5 @@
 **HELIXML INC. DATA PROCESSING AGREEMENT**
-Last updated August 27th 2024
+Last updated January 30th 2025
 
 This Data Processing Agreement for HelixML Inc. Services (“DPA”) forms a part of the software subscription agreement or other written agreement between HelixML Inc. (“Helix”) and Customer (“Agreement”) regarding Helix’s subscriptions and/or products or services provided by Helix and ordered by Customer (the “Service”) in accordance with the Agreement. All contacts regarding this DPA must be made to: founders@helix.ml.
 
@@ -62,4 +62,10 @@ Capitalized terms shall have the meaning set out below. Any capitalized terms no
 ### 5. SUB-PROCESSORS
 5.1. Customer acknowledges and agrees that Helix may engage Sub-Processor(s) in the performance of the Service(s) on Customer’s behalf. All Sub-Processors to whom Helix transfers Personal Data are bound by substantially the same material obligations as Helix undertakes under this DPA and provide adequate guarantees of security and compliance. Helix will be liable for the acts and omissions of its Sub-Processors to the same extent that Helix would be liable if performing the Service directly, under the terms of the Agreement.
 
-5.2. The current Sub-Processors are listed as per Section 4.2 above. Helix may use new Sub-Processors provided it notifies the Customer in advance of any changes to the list of Sub-Processors in place on the effective date. If Customer has a legitimate reason, Customer may object to Helix’s use of a Sub-Processor, by notifying Helix in writing
+5.2. The current Sub-Processors are listed as per Section 4.2 above. Helix may use new Sub-Processors provided it notifies the Customer in advance of any changes to the list of Sub-Processors in place on the effective date. If Customer has a legitimate reason, Customer may object to Helix’s use of a Sub-Processor, by notifying Helix in writing within thirty (30) days after Helix's notification. Upon receiving such objection, Helix will work with Customer in good faith to find a mutually acceptable resolution.
+
+### 6. LIABILITY
+6.1 Each party's liability arising out of or related to this DPA is subject to the limitations of liability set forth in the Agreement.
+
+### 7. MODIFICATIONS
+7.1 Helix may modify this DPA from time to time. A list of modifications can be provided upon request. If Customer objects to any such modifications, Customer shall notify Helix within thirty (30) days of being notified of the modifications. Customer's continued use of the Service following notification of any modifications to this DPA shall constitute Customer's acceptance of such modifications.
