@@ -110,8 +110,7 @@ func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider 
 	// Initialize the client
 	err := m.updateClientAPIKeyFromFile(provider, baseURL, keyFile)
 	if err != nil {
-		log.Error().Str("provider", string(provider)).Err(err).Msg("error updating client API key")
-		return err
+		log.Warn().Str("provider", string(provider)).Err(err).Msg("error getting client API key from file, provider will not be available until it's available")
 	}
 
 	m.wg.Add(1)
@@ -146,10 +145,6 @@ func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider 
 func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider, baseURL, keyFile string) error {
 	bts, err := os.ReadFile(keyFile)
 	if err != nil {
-		log.Error().
-			Str("file", keyFile).
-			Err(err).
-			Msg("error reading API key file")
 		return fmt.Errorf("error reading API key file '%s': %w", keyFile, err)
 	}
 
