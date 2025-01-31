@@ -12,24 +12,24 @@ import (
 )
 
 func BrowseToAppsPage(t *testing.T, page *rod.Page) {
-	LogStep(t, "Browsing to the apps page")
-	page.MustElement("button[aria-controls='menu-appbar']").MustWaitInteractable().MustClick()
-	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustWaitInteractable().MustClick()
-	page.MustElement("[data-testid='DeveloperBoardIcon']").MustWaitInteractable() // Old session list is loaded when apps are loaded
+	LogStep(t, "Browsing to the apps page, this sometimes struggles a bit... if it keeps happening then we should just browse to the apps page directly")
+	page.MustElementX(`//button[@aria-controls='menu-appbar']`).MustWaitVisible().MustClick()
+	page.MustElementX(`//li[contains(text(), 'Your Apps')]`).MustWaitVisible().MustClick()
+	page.MustElementX(`//*[@data-testid='DeveloperBoardIcon']`).MustWaitVisible() // Old session list is loaded when apps are loaded
 }
 
 func CreateNewApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Creating a new app")
-	page.MustElement("#new-app-button").MustWaitInteractable().MustClick()
+	page.MustElementX(`//*[@id="new-app-button"]`).MustWaitVisible().MustClick()
 	random := rand.Intn(1000000)
 	appName := "smoke-" + time.Now().Format("20060102150405") + "-" + strconv.Itoa(random)
-	page.MustElement("#app-name").MustWaitInteractable().MustInput(appName)
+	page.MustElementX(`//*[@id="app-name"]`).MustWaitVisible().MustInput(appName)
 	SaveApp(t, page)
 }
 
 func SaveApp(t *testing.T, page *rod.Page) {
 	LogStep(t, "Saving app")
-	page.MustElementX(`//button[text() = 'Save']`).MustWaitInteractable().MustClick()
+	page.MustElementX(`//button[text() = 'Save']`).MustClick()
 }
 
 // This function checks to see if Helix has responded. It doesn't check the text.
@@ -56,4 +56,12 @@ func WaitForHelixResponse(ctx context.Context, t *testing.T, page *rod.Page) {
 			return
 		}
 	}
+}
+
+func TestApp(ctx context.Context, t *testing.T, page *rod.Page, question string) {
+	LogStep(t, "Testing the app")
+	page.MustElementX(`//textarea[@id='textEntry']`).MustInput(question)
+	page.MustElementX(`//button[@id='sendButton']`).MustClick()
+
+	WaitForHelixResponse(ctx, t, page)
 }

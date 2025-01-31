@@ -52,7 +52,8 @@ func TestHelixCLIApply(t *testing.T) {
 		// "hn-scraper.yaml", // Global app, can't update
 		"marvin_paranoid_bot.yaml",
 		"override_prompts.yaml",
-		"uploaded_files.yaml",
+		// "uploaded_files.yaml", // For this one we need to check that the file has been indexed
+		// before testing TODO(Phil)
 		// "using_secrets.yaml",
 		// "website_custom_rag.yaml", // This doesn't work
 		"website_knowledge.yaml",
@@ -91,10 +92,6 @@ func TestHelixCLIApply(t *testing.T) {
 		// Check that the app is working
 		page.MustNavigate(helper.GetServerURL() + "/app/" + appID)
 
-		helper.LogStep(t, "Testing the app")
-		page.MustElementX(`//textarea[@id='textEntry']`).MustWaitInteractable().MustInput("What do you think of the snow in Yorkshire at the moment?")
-		page.MustElementX(`//button[@id='sendButton']`).MustWaitInteractable().MustClick()
-
-		helper.WaitForHelixResponse(ctx, t, page)
+		helper.TestApp(ctx, t, page, "What do you think of the snow in Yorkshire at the moment?")
 	}
 }
