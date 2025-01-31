@@ -29,25 +29,24 @@ func TestCreateIntegrationApp(t *testing.T) {
 	helper.CreateNewApp(t, page)
 
 	helper.LogStep(t, "Clicking on the Integrations tab")
-	page.MustElementX(`//button[text() = 'Integrations']`).MustClick()
+	page.MustElementX(`//button[text() = 'Integrations']`).MustWaitVisible().MustClick()
 
 	helper.LogStep(t, "Adding API Tool")
-	page.MustElementX(`//button[text() = 'Add API Tool']`).MustWaitInteractable().MustClick()
+	page.MustElementX(`//button[text() = 'Add API Tool']`).MustWaitVisible().MustClick()
+	page.MustWaitStable()
 
 	helper.LogStep(t, "Selecting example Schema")
-	page.MustElementX(`//label[text() = 'Example Schemas']/..`).MustWaitInteractable().MustClick()
+	page.MustElementX(`//label[text() = 'Example Schemas']/..`).MustWaitVisible().MustClick()
+	page.MustWaitStable()
 
 	helper.LogStep(t, "Selecting Exchange Rates Schema")
-	page.MustElementX(`//li[text() = 'Exchange Rates']`).MustWaitInteractable().MustClick()
+	page.MustElementX(`//li[text() = 'Exchange Rates']`).MustWaitVisible().MustClick()
+	page.MustWaitStable()
 
 	helper.LogStep(t, "Clicking on Save button")
-	page.MustElementX(`//button[@id = 'submitButton' and text() = 'Save']`).MustWaitInteractable().MustClick()
+	page.MustElementX(`//button[@id = 'submitButton' and text() = 'Save']`).MustWaitVisible().MustClick()
 
 	helper.SaveApp(t, page)
 
-	helper.LogStep(t, "Testing the app")
-	page.MustElementX(`//textarea[@id='textEntry']`).MustWaitInteractable().MustInput("what is the USD GBP rate")
-	page.MustElementX(`//button[@id='sendButton']`).MustWaitInteractable().MustClick()
-
-	helper.WaitForHelixResponse(ctx, t, page)
+	helper.TestApp(ctx, t, page, "what is the USD GBP rate")
 }
