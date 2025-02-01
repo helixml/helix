@@ -7,12 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"sync/atomic"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
-	"github.com/sourcegraph/conc/pool"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -41,11 +39,6 @@ func (r *Reconciler) index(ctx context.Context) error {
 
 		// Sanity check the limits
 		if k.Source.Web != nil && k.Source.Web.Crawler != nil {
-			if r.config.RAG.Crawler.MaxPages > 0 && k.Source.Web.Crawler.MaxPages > r.config.RAG.Crawler.MaxPages {
-				log.Warn().Msg("knowledge 'max pages' limit is above the server config, updating")
-				k.Source.Web.Crawler.MaxPages = r.config.RAG.Crawler.MaxPages
-			}
-
 			if r.config.RAG.Crawler.MaxDepth > 0 && k.Source.Web.Crawler.MaxDepth > r.config.RAG.Crawler.MaxDepth {
 				log.Warn().Msg("knowledge 'max depth' limit is above the server config, updating")
 				k.Source.Web.Crawler.MaxDepth = r.config.RAG.Crawler.MaxDepth
@@ -117,7 +110,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	start := time.Now()
 
-	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing", 0); err != nil {
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing"); err != nil {
 		return fmt.Errorf("failed to update progress when retrieving data: %v", err)
 	}
 
@@ -142,10 +135,17 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Msg("indexing data loaded")
 
 	k.Message = "indexing data"
-	k.ProgressPercent = 0
 	k.CrawledSources = &types.CrawledSources{
 		URLs: crawledSources,
 	}
+
+	r.updateKnowledgeProgress(k.ID, types.KnowledgeProgress{
+		Step:           "Indexing",
+		Progress:       0,
+		ElapsedSeconds: int(elapsed.Seconds()),
+		Message:        fmt.Sprintf("indexing data loaded in %s", elapsed),
+		StartedAt:      start,
+	})
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
@@ -157,7 +157,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	start = time.Now()
 
-	err = r.indexData(ctx, k, version, data)
+	err = r.indexData(ctx, k, version, data, start)
 	if err != nil {
 		return fmt.Errorf("indexing failed, error: %w", err)
 	}
@@ -167,6 +167,9 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Str("new_version", version).
 		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("data indexed")
+
+	// Reset the progress
+	r.resetKnowledgeProgress(k.ID)
 
 	k.State = types.KnowledgeStateReady
 	k.Size = getSize(data)
@@ -291,14 +294,14 @@ func (r *Reconciler) getRagClient(k *types.Knowledge) rag.RAG {
 	return r.ragClient
 }
 
-func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
+func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, version string, data []*indexerData, startedAt time.Time) error {
 	if k.RAGSettings.DisableChunking {
-		return r.indexDataDirectly(ctx, k, version, data)
+		return r.indexDataDirectly(ctx, k, version, data, startedAt)
 	}
-	return r.indexDataWithChunking(ctx, k, version, data)
+	return r.indexDataWithChunking(ctx, k, version, data, startedAt)
 }
 
-func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
+func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, version string, data []*indexerData, startedAt time.Time) error {
 	ragClient := r.getRagClient(k)
 
 	log.Info().
@@ -306,72 +309,43 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		Int("payloads", len(data)).
 		Msg("submitting raw data into the rag server")
 
-	pool := pool.New().
-		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
-		WithErrors()
-
-	progress := atomic.Int32{}
-	totalItems := int32(len(data))
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-
-		var lastProgress int
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				current := int(progress.Load())
-				percentage := int(float32(current) / float32(totalItems) * 100)
-
-				// If we have progress, update the progress
-				if percentage != lastProgress {
-					msg := fmt.Sprintf("indexing data %d/%d", current, totalItems)
-					if err := r.updateProgress(k, types.KnowledgeStateIndexing, msg, percentage); err != nil {
-						log.Error().Err(err).Msg("failed updating data indexing progress")
-					}
-					lastProgress = percentage
-				}
-			}
-		}
-	}()
-
-	for _, d := range data {
+	for idx, d := range data {
 		d := d
 
-		pool.Go(func() error {
-			defer progress.Add(1)
+		percentage := int(float32(idx) / float32(len(data)) * 100)
 
-			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-				DataEntityID:    types.GetDataEntityID(k.ID, version),
-				Filename:        d.Source,
-				Source:          d.Source,
-				DocumentID:      getDocumentID(d.Data),
-				DocumentGroupID: getDocumentGroupID(d.Source),
-				ContentOffset:   0,
-				Content:         string(d.Data),
-			})
-			if err != nil {
-				return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
-			}
-
-			return nil
+		r.updateKnowledgeProgress(k.ID, types.KnowledgeProgress{
+			Step:           "Indexing",
+			Progress:       percentage,
+			ElapsedSeconds: int(time.Since(startedAt).Seconds()),
+			Message:        fmt.Sprintf("indexing data %d/%d", idx+1, len(data)),
+			StartedAt:      startedAt,
 		})
-	}
 
-	err := pool.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to index data, error: %w", err)
+		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
+			DataEntityID:    types.GetDataEntityID(k.ID, version),
+			Filename:        d.Source,
+			Source:          d.Source,
+			DocumentID:      getDocumentID(d.Data),
+			DocumentGroupID: getDocumentGroupID(d.Source),
+			ContentOffset:   0,
+			Content:         string(d.Data),
+		})
+		if err != nil {
+			// return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Str("source", d.Source).
+				Msg("failed to index data chunk")
+		}
 	}
 
 	// Ensure we update to 100% when done
-	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100); err != nil {
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed"); err != nil {
 		return fmt.Errorf("failed to update progress when completed data retrieval: %v", err)
 	}
 
@@ -381,7 +355,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 // indexDataWithChunking we expect to be operating on text data, first we split,
 // then index with the rag server
-func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
+func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, version string, data []*indexerData, startedAt time.Time) error {
 	chunks, err := splitData(k, data)
 	if err != nil {
 		return fmt.Errorf("failed to split data, error: %w", err)
@@ -395,45 +369,24 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		Str("size", humanize.Bytes(uint64(getSize(data)))).
 		Msg("submitting chunks into the rag server")
 
-	progress := atomic.Int32{}
-	totalItems := int32(len(chunks))
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+	batches := convertChunksIntoBatches(chunks, 50)
 
-		var lastProgress int
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				current := int(progress.Load())
-				percentage := int(float32(current) / float32(len(chunks)) * 100)
-
-				// If we have progress, update the progress
-				if percentage != lastProgress {
-					msg := fmt.Sprintf("indexing data %d/%d chunks", current, totalItems)
-					if err := r.updateProgress(k, types.KnowledgeStateIndexing, msg, percentage); err != nil {
-						log.Error().Err(err).Msg("failed to update data chunk indexing progress")
-					}
-					lastProgress = percentage
-				}
-			}
-		}
-	}()
-
-	batches := convertChunksIntoBatches(chunks, 100)
-
-	for _, batch := range batches {
-		defer progress.Add(int32(len(batch)))
-
+	for idx, batch := range batches {
 		// Convert the chunks into index chunks
 		indexChunks := convertTextSplitterChunks(k, version, batch)
+
+		percentage := int(float32(idx) / float32(len(batches)) * 100)
+
+		r.updateKnowledgeProgress(k.ID, types.KnowledgeProgress{
+			Step:           "Indexing",
+			Progress:       percentage,
+			ElapsedSeconds: int(time.Since(startedAt).Seconds()),
+			Message:        fmt.Sprintf("indexing data %d/%d chunks", idx+1, len(batches)),
+			StartedAt:      startedAt,
+		})
 
 		// Index the chunks batch
 		err := ragClient.Index(ctx, indexChunks...)
@@ -443,15 +396,15 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 	}
 
 	// Ensure we update to 100% when done
-	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100); err != nil {
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed"); err != nil {
 		return fmt.Errorf("failed to update progress when completed data indexing: %v", err)
 	}
 
 	return nil
 }
 
-func (r *Reconciler) updateProgress(k *types.Knowledge, state types.KnowledgeState, message string, percent int) error {
-	return r.store.UpdateKnowledgeState(context.Background(), k.ID, state, message, percent)
+func (r *Reconciler) updateProgress(k *types.Knowledge, state types.KnowledgeState, message string) error {
+	return r.store.UpdateKnowledgeState(context.Background(), k.ID, state, message)
 }
 
 func getDocumentID(contents []byte) string {
