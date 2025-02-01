@@ -27,7 +27,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	for idx, knowledge := range knowledges {
-		knowledge.Progress = s.knowledgeManager.GetStatus(ctx, knowledge.ID)
+		knowledge.Progress = s.knowledgeManager.GetStatus(knowledge.ID)
 
 		if knowledge.RefreshEnabled && knowledge.RefreshSchedule != "" {
 			nextRun, err := s.knowledgeManager.NextRun(ctx, knowledge.ID)
@@ -58,7 +58,7 @@ func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	// Ephemeral progress from the knowledge manager
-	existing.Progress = s.knowledgeManager.GetStatus(r.Context(), id)
+	existing.Progress = s.knowledgeManager.GetStatus(id)
 
 	return existing, nil
 }
