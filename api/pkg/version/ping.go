@@ -3,6 +3,8 @@ package version
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,14 +20,16 @@ type PingService struct {
 	launchpadHost string
 	ticker        *time.Ticker
 	done          chan bool
+	licenseKey    string
 }
 
-func NewPingService(db *store.PostgresStore) *PingService {
+func NewPingService(db *store.PostgresStore, licenseKey string) *PingService {
 	return &PingService{
 		db:            db,
 		launchpadHost: "https://deploy.helix.ml",
 		ticker:        time.NewTicker(1 * time.Hour),
 		done:          make(chan bool),
+		licenseKey:    licenseKey,
 	}
 }
 
@@ -67,11 +71,17 @@ func (s *PingService) sendPing() {
 		return
 	}
 
+	// Generate deployment ID from license key
+	hasher := sha256.New()
+	hasher.Write([]byte(s.licenseKey)) // Use license key for deployment ID
+	deploymentID := hex.EncodeToString(hasher.Sum(nil))
+
 	// Prepare ping data
 	pingData := map[string]interface{}{
-		"version":     data.Version,
-		"apps_count":  appCount,
-		"users_count": userCount,
+		"version":       data.Version,
+		"apps_count":    appCount,
+		"users_count":   userCount,
+		"deployment_id": deploymentID,
 	}
 
 	// Send ping to launchpad
