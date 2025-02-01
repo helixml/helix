@@ -33,6 +33,7 @@ type ServerConfig struct {
 	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
