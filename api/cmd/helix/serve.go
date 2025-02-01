@@ -390,10 +390,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 
-	// Initialize ping service
-	pingService := version.NewPingService(store)
-	pingService.Start(ctx)
-	defer pingService.Stop()
+	// Initialize ping service if not disabled
+	if !cfg.DisableVersionPing {
+		pingService := version.NewPingService(store)
+		pingService.Start(ctx)
+		defer pingService.Stop()
+	}
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)
