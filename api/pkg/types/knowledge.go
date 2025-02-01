@@ -42,9 +42,8 @@ type Knowledge struct {
 	Owner     string    `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType `json:"owner_type"`         // e.g. user, system, org
 
-	State           KnowledgeState `json:"state"`
-	Message         string         `json:"message"` // Set if something wrong happens
-	ProgressPercent int            `json:"progress_percent"`
+	State   KnowledgeState `json:"state"`
+	Message string         `json:"message"` // Set if something wrong happens
 
 	Progress KnowledgeProgress `json:"progress" gorm:"-"` // Ephemeral state from knowledge controller
 
