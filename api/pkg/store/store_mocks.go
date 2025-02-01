@@ -176,20 +176,6 @@ func (mr *MockStoreMockRecorder) CreateSession(ctx, session any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSession", reflect.TypeOf((*MockStore)(nil).CreateSession), ctx, session)
 }
 
-// CreateSessionToolBinding mocks base method.
-func (m *MockStore) CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateSessionToolBinding", ctx, sessionID, toolID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateSessionToolBinding indicates an expected call of CreateSessionToolBinding.
-func (mr *MockStoreMockRecorder) CreateSessionToolBinding(ctx, sessionID, toolID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSessionToolBinding", reflect.TypeOf((*MockStore)(nil).CreateSessionToolBinding), ctx, sessionID, toolID)
-}
-
 // CreateTool mocks base method.
 func (m *MockStore) CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
 	m.ctrl.T.Helper()
@@ -331,20 +317,6 @@ func (m *MockStore) DeleteSession(ctx context.Context, id string) (*types.Sessio
 func (mr *MockStoreMockRecorder) DeleteSession(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSession", reflect.TypeOf((*MockStore)(nil).DeleteSession), ctx, id)
-}
-
-// DeleteSessionToolBinding mocks base method.
-func (m *MockStore) DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteSessionToolBinding", ctx, sessionID, toolID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteSessionToolBinding indicates an expected call of DeleteSessionToolBinding.
-func (mr *MockStoreMockRecorder) DeleteSessionToolBinding(ctx, sessionID, toolID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSessionToolBinding", reflect.TypeOf((*MockStore)(nil).DeleteSessionToolBinding), ctx, sessionID, toolID)
 }
 
 // DeleteTool mocks base method.
@@ -677,21 +649,6 @@ func (mr *MockStoreMockRecorder) ListSecrets(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecrets", reflect.TypeOf((*MockStore)(nil).ListSecrets), ctx, q)
 }
 
-// ListSessionTools mocks base method.
-func (m *MockStore) ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListSessionTools", ctx, sessionID)
-	ret0, _ := ret[0].([]*types.Tool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListSessionTools indicates an expected call of ListSessionTools.
-func (mr *MockStoreMockRecorder) ListSessionTools(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionTools", reflect.TypeOf((*MockStore)(nil).ListSessionTools), ctx, sessionID)
-}
-
 // ListTools mocks base method.
 func (m *MockStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error) {
 	m.ctrl.T.Helper()
@@ -768,17 +725,17 @@ func (mr *MockStoreMockRecorder) UpdateKnowledge(ctx, knowledge any) *gomock.Cal
 }
 
 // UpdateKnowledgeState mocks base method.
-func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string, percent int) error {
+func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateKnowledgeState", ctx, id, state, message, percent)
+	ret := m.ctrl.Call(m, "UpdateKnowledgeState", ctx, id, state, message)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateKnowledgeState indicates an expected call of UpdateKnowledgeState.
-func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message, percent any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message, percent)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message)
 }
 
 // UpdateSecret mocks base method.
