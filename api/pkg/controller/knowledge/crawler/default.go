@@ -56,12 +56,6 @@ func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress fun
 	return crawler, nil
 }
 
-// func (d *Default) setProgress(progress types.KnowledgeProgress) {
-// 	d.progressMu.Lock()
-// 	defer d.progressMu.Unlock()
-// 	d.progress = progress
-// }
-
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	var domains []string
 	for _, u := range d.knowledge.Source.Web.URLs {
@@ -197,6 +191,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			Progress:       0, // We don't know the progress here
 			ElapsedSeconds: int(time.Since(started).Seconds()),
 			Message:        fmt.Sprintf("Visited %d pages", visited),
+			StartedAt:      started,
 		})
 	})
 

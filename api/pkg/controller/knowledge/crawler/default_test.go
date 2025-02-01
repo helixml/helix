@@ -21,7 +21,8 @@ func TestDefault_Crawl(t *testing.T) {
 			Web: &types.KnowledgeSourceWeb{
 				URLs: []string{"https://docs.helix.ml/helix"},
 				Crawler: &types.WebsiteCrawler{
-					Enabled: true,
+					Enabled:  true,
+					MaxDepth: 50,
 				},
 				Excludes: []string{"searchbot/*"},
 			},
