@@ -166,6 +166,8 @@ type WebsiteCrawler struct {
 	MaxPages    int    `json:"max_pages" yaml:"max_pages"` // Limit number of pages to crawl to avoid infinite crawling (max 500 by default)
 	UserAgent   string `json:"user_agent" yaml:"user_agent"`
 	Readability bool   `json:"readability" yaml:"readability"` // Apply readability middleware to the HTML content
+
+	IgnoreRobotsTxt bool `json:"ignore_robots_txt" yaml:"ignore_robots_txt"`
 }
 
 type Firecrawl struct {
