@@ -37,6 +37,8 @@ type ServerConfig struct {
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
+	// Launchpad URL for version pings
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
