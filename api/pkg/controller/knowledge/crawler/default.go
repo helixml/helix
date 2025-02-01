@@ -126,7 +126,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		if err := collector.Limit(&colly.LimitRule{
 			DomainGlob:  fmt.Sprintf("*%s*", domain),
 			Parallelism: defaultParallelism,
-			RandomDelay: 1 * time.Second,
+			// RandomDelay: 1 * time.Second,
 		}); err != nil {
 			log.Warn().
 				Str("domain_glob", fmt.Sprintf("*%s*", domain)).
@@ -142,13 +142,13 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	crawledURLs := make(map[string]bool)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		crawledMu.Lock()
-		alreadyCrawled := crawledURLs[e.Request.URL.String()]
-		crawledMu.Unlock()
+		// crawledMu.Lock()
+		// alreadyCrawled := crawledURLs[e.Request.URL.String()]
+		// crawledMu.Unlock()
 
-		if alreadyCrawled {
-			return
-		}
+		// if alreadyCrawled {
+		// 	return
+		// }
 
 		visited := pageQueueCounter.Load()
 
@@ -157,9 +157,9 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			Int32("visited_pages", visited).
 			Str("url", e.Request.URL.String()).Msg("visiting link")
 
-		crawledMu.Lock()
-		crawledURLs[e.Request.URL.String()] = true
-		crawledMu.Unlock()
+		// crawledMu.Lock()
+		// crawledURLs[e.Request.URL.String()] = true
+		// crawledMu.Unlock()
 
 		// TODO: get more URLs from the browser too, it can render
 		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
@@ -207,12 +207,34 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			return
 		}
 
+		crawledMu.Lock()
+		alreadyCrawled := crawledURLs[link]
+		crawledMu.Unlock()
+
+		// This link has been seen, nothing to do
+		if alreadyCrawled {
+			return
+		}
+
 		// Increment the page queue counter
 		pageQueueCounter.Add(1)
+
+		// Add link to the seen list
+		crawledMu.Lock()
+		crawledURLs[link] = true
+		crawledMu.Unlock()
 
 		// Schedule the link to be crawled
 		err := e.Request.Visit(e.Request.AbsoluteURL(link))
 		if err != nil {
+			if strings.Contains(err.Error(), "URL already visited") {
+				// Common error if duplicate URLs are visited
+				return
+			}
+			if strings.Contains(err.Error(), "Forbidden domain") {
+				// Common error when domain links to another domain (we can ignore these)
+				return
+			}
 			log.Warn().
 				Err(err).
 				Str("url", e.Request.URL.String()).
