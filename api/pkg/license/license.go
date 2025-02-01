@@ -59,7 +59,7 @@ func (l *License) Expired() bool {
 	return time.Now().After(l.ValidUntil)
 }
 
-type LicenseValidator interface {
+type Validator interface {
 	Validate(license string) (*License, error)
 }
 
@@ -95,9 +95,15 @@ TJL92t5P4ec0aXW6MrX/QZan1RHjHHVA3/JbSvk0Z8G3Z190UqfVcIi3ag==
 }
 
 func (v *DefaultValidator) Validate(licenseStr string) (*License, error) {
+	// Decode base64 encoded license string
+	decodedStr, err := base64.StdEncoding.DecodeString(licenseStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid license encoding: %w", err)
+	}
+
 	// Parse the envelope containing the license and signature
 	var envelope Envelope
-	if err := json.Unmarshal([]byte(licenseStr), &envelope); err != nil {
+	if err := json.Unmarshal(decodedStr, &envelope); err != nil {
 		return nil, fmt.Errorf("invalid license format: %w", err)
 	}
 
