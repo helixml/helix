@@ -34,6 +34,9 @@ type ServerConfig struct {
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// License key for deployment identification
+	LicenseKey string `envconfig:"LICENSE_KEY"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {

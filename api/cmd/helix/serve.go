@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
@@ -170,16 +171,42 @@ func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.File
 }
 
 func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
+	// Validate license key if provided
+	var userLicense *license.License
+	if cfg.LicenseKey != "" {
+		validator := license.NewLicenseValidator()
+		var err error
+		userLicense, err = validator.Validate(cfg.LicenseKey)
+		if err != nil {
+			return fmt.Errorf("invalid license key: %w", err)
+		}
+	}
+
 	system.SetupLogging()
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
 	defer cm.Cleanup(cmd.Context())
-	ctx := cmd.Context()
+
+	// Create a cancellable context for license checks
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	// Create license manager
+	lm := license.NewLicenseManager(userLicense)
+
+	// Run background license checks
+	go func() {
+		err := lm.Run(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("license is not valid anymore")
+			cancel() // Cancel context when license becomes invalid
+		}
+	}()
 
 	// Context ensures main goroutine waits until killed with ctrl+c:
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
-	defer cancel()
+	ctx, signalCancel := signal.NotifyContext(ctx, os.Interrupt)
+	defer signalCancel()
 
 	fs, err := getFilestore(ctx, cfg)
 	if err != nil {
@@ -392,7 +419,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	// Initialize ping service if not disabled
 	if !cfg.DisableVersionPing {
-		pingService := version.NewPingService(store)
+		pingService := version.NewPingService(store, cfg.LicenseKey)
 		pingService.Start(ctx)
 		defer pingService.Stop()
 	}
