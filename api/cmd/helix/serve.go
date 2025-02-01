@@ -32,6 +32,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/version"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -388,6 +389,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
+
+	// Initialize ping service
+	pingService := version.NewPingService(store)
+	pingService.Start(ctx)
+	defer pingService.Stop()
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)
