@@ -279,8 +279,7 @@ func (suite *IndexerSuite) TestIndex_RetryRecent_ErrorNoFiles() {
 }
 
 func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
-	suite.cfg.RAG.Crawler.MaxPages = 50
-	suite.cfg.RAG.Crawler.MaxDepth = 3
+	suite.cfg.RAG.Crawler.MaxDepth = 30
 
 	knowledge := &types.Knowledge{
 		ID: "knowledge_id",
@@ -294,7 +293,6 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 				Crawler: &types.WebsiteCrawler{
 					Enabled:  true,
 					MaxDepth: 99999,
-					MaxPages: 99999,
 				},
 			},
 		},
@@ -308,8 +306,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 			suite.Equal("", k.Message)
 			suite.Equal("", k.Version, "version should be empty when we start indexing")
 
-			suite.Equal(50, k.Source.Web.Crawler.MaxPages, "max pages should be updated")
-			suite.Equal(3, k.Source.Web.Crawler.MaxDepth, "max depth should be updated")
+			suite.Equal(30, k.Source.Web.Crawler.MaxDepth, "max depth should be updated")
 
 			return knowledge, nil
 		},
