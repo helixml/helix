@@ -581,13 +581,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 </Typography>
                 {knowledge?.state === 'indexing' && (
                   <>
-                    {knowledge?.progress_percent && knowledge.progress_percent > 0 ? (
+                    {knowledge?.progress?.step && knowledge?.progress?.step !== '' ? (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        Progress: {knowledge.progress_percent}% {knowledge.message ? `(${knowledge.message})` : ''}
+                        {knowledge.progress.step} {knowledge.progress.progress}% {knowledge.progress.elapsed_seconds}s
                       </Typography>
                     ) : (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        Fetching data...
+                        Pending...
                       </Typography>
                     )}
                   </>
