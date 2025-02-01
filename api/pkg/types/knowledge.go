@@ -46,6 +46,8 @@ type Knowledge struct {
 	Message         string         `json:"message"` // Set if something wrong happens
 	ProgressPercent int            `json:"progress_percent"`
 
+	Progress KnowledgeProgress `json:"progress" gorm:"-"` // Ephemeral state from knowledge controller
+
 	// AppID through which the knowledge was created
 	AppID string `json:"app_id" gorm:"index"`
 
@@ -253,4 +255,10 @@ type CrawledURL struct {
 	StatusCode int    `json:"status_code"`
 	Message    string `json:"message"`
 	DurationMs int64  `json:"duration_ms"`
+}
+
+type KnowledgeProgress struct {
+	Step           string `json:"step"`
+	Progress       int    `json:"progress"`
+	ElapsedSeconds int    `json:"elapsed_seconds"`
 }
