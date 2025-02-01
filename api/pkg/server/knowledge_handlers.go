@@ -52,7 +52,7 @@ func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	if existing.Owner != user.ID {
-		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
+		return nil, system.NewHTTPError403("you do not have permission to view this knowledge")
 	}
 
 	return existing, nil
