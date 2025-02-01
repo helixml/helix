@@ -144,6 +144,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Progress:       0,
 		ElapsedSeconds: int(elapsed.Seconds()),
 		Message:        fmt.Sprintf("indexing data loaded in %s", elapsed),
+		StartedAt:      start,
 	})
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
@@ -321,6 +322,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			Progress:       percentage,
 			ElapsedSeconds: int(time.Since(startedAt).Seconds()),
 			Message:        fmt.Sprintf("indexing data %d/%d", idx+1, len(data)),
+			StartedAt:      startedAt,
 		})
 
 		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
@@ -383,6 +385,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 			Progress:       percentage,
 			ElapsedSeconds: int(time.Since(startedAt).Seconds()),
 			Message:        fmt.Sprintf("indexing data %d/%d chunks", idx+1, len(batches)),
+			StartedAt:      startedAt,
 		})
 
 		// Index the chunks batch
