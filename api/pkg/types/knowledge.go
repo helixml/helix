@@ -257,8 +257,9 @@ type CrawledURL struct {
 }
 
 type KnowledgeProgress struct {
-	Step           string `json:"step"`
-	Progress       int    `json:"progress"`
-	ElapsedSeconds int    `json:"elapsed_seconds"`
-	Message        string `json:"message"`
+	Step           string    `json:"step"`
+	Progress       int       `json:"progress"`
+	StartedAt      time.Time `json:"started_at"`
+	ElapsedSeconds int       `json:"elapsed_seconds"`
+	Message        string    `json:"message"`
 }

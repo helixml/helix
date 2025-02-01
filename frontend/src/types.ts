@@ -591,6 +591,7 @@ export interface IKnowledgeProgress {
   progress: number;
   elapsed_seconds: number;
   message?: string;
+  started_at?: Date;
 }
 
 export interface IKnowledgeSource {
