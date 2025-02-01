@@ -605,7 +605,6 @@ export interface IKnowledgeSource {
   };
   state: string;
   message?: string;
-  progress_percent?: number;
   progress?: IKnowledgeProgress;
   crawled_sources?: ICrawledSources;
   source: {
