@@ -39,19 +39,28 @@ type Default struct {
 	browser *browser.Browser
 
 	pageTimeout time.Duration
+
+	updateProgress func(progress types.KnowledgeProgress)
 }
 
-func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
+func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress func(progress types.KnowledgeProgress)) (*Default, error) {
 	crawler := &Default{
-		knowledge:   k,
-		converter:   md.NewConverter("", true, nil),
-		parser:      readability.NewParser(),
-		browser:     browser,
-		pageTimeout: 15 * time.Second,
+		knowledge:      k,
+		converter:      md.NewConverter("", true, nil),
+		parser:         readability.NewParser(),
+		browser:        browser,
+		pageTimeout:    15 * time.Second,
+		updateProgress: updateProgress,
 	}
 
 	return crawler, nil
 }
+
+// func (d *Default) setProgress(progress types.KnowledgeProgress) {
+// 	d.progressMu.Lock()
+// 	defer d.progressMu.Unlock()
+// 	d.progress = progress
+// }
 
 func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	var domains []string
@@ -62,6 +71,8 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		}
 		domains = append(domains, parsedURL.Host)
 	}
+
+	started := time.Now()
 
 	var (
 		maxPages  int32
@@ -180,6 +191,13 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		crawledMu.Lock()
 		crawledDocs = append(crawledDocs, doc)
 		crawledMu.Unlock()
+
+		d.updateProgress(types.KnowledgeProgress{
+			Step:           "Crawling",
+			Progress:       0, // We don't know the progress here
+			ElapsedSeconds: int(time.Since(started).Seconds()),
+			Message:        fmt.Sprintf("Visited %d pages", visited),
+		})
 	})
 
 	// Add this new OnHTML callback to find and visit links
