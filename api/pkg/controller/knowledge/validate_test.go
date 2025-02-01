@@ -163,8 +163,7 @@ func TestValidate(t *testing.T) {
 
 	serverConfig := config.ServerConfig{}
 	serverConfig.RAG.Crawler.MaxFrequency = 10 * time.Minute
-	serverConfig.RAG.Crawler.MaxPages = 50
-	serverConfig.RAG.Crawler.MaxDepth = 3
+	serverConfig.RAG.Crawler.MaxDepth = 30
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
