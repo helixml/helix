@@ -147,7 +147,7 @@ func (suite *IndexerSuite) TestIndex() {
 		},
 	)
 
-	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
@@ -209,7 +209,7 @@ func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
 		},
 	)
 
-	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
@@ -268,7 +268,7 @@ func (suite *IndexerSuite) TestIndex_RetryRecent_ErrorNoFiles() {
 		},
 	)
 
-	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Start indexing
 	err := suite.reconciler.index(suite.ctx)
@@ -361,7 +361,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 		},
 	)
 
-	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
