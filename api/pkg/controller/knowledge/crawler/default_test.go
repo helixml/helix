@@ -34,7 +34,11 @@ func TestDefault_Crawl(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -90,7 +94,11 @@ func TestDefault_CrawlSingle(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -117,7 +125,11 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	// Setting very short timeout to force the page to timeout
@@ -150,7 +162,11 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile("../readability/testdata/example_code_block.html")
@@ -184,7 +200,11 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	ctx := context.Background()
