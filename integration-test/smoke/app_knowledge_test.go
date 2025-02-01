@@ -32,10 +32,11 @@ func TestCreateRagApp(t *testing.T) {
 	page.MustElementX(`//button[text() = 'Knowledge']`).MustClick()
 
 	helper.LogStep(t, "Adding knowledge source")
-	page.MustElementX(`//button[text() = 'Add Knowledge Source']`).MustWaitInteractable().MustClick()
-	page.MustElementX(`//input[@value = 'filestore']`).MustWaitInteractable().MustClick()
-	page.MustElementX(`//input[@type = 'text']`).MustWaitInteractable().MustInput("test hr-guide.pdf")
-	page.MustElementX(`//button[text() = 'Add']`).MustWaitInteractable().MustClick()
+	page.MustWaitStable()
+	page.MustElementX(`//button[text() = 'Add Knowledge Source']`).MustWaitVisible().MustClick()
+	page.MustElementX(`//input[@value = 'filestore']`).MustWaitVisible().MustClick()
+	page.MustElementX(`//input[@type = 'text']`).MustWaitVisible().MustInput("test hr-guide.pdf")
+	page.MustElementX(`//button[text() = 'Add']`).MustWaitVisible().MustClick()
 
 	helper.LogStep(t, "Getting the upload file input")
 	upload := page.MustElementX("//input[@type = 'file']")
@@ -53,9 +54,5 @@ func TestCreateRagApp(t *testing.T) {
 	helper.LogStep(t, "Waiting for knowledge source to be ready")
 	page.MustElementX(`//span[contains(text(), 'ready')]`)
 
-	helper.LogStep(t, "Testing the app")
-	page.MustElementX(`//textarea[@id='textEntry']`).MustWaitInteractable().MustInput("do you have a shoe policy")
-	page.MustElementX(`//button[@id='sendButton']`).MustWaitInteractable().MustClick()
-
-	helper.WaitForHelixResponse(ctx, t, page)
+	helper.TestApp(ctx, t, page, "do you have a shoe policy")
 }
