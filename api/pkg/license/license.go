@@ -2,12 +2,39 @@ package license
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"time"
 )
+
+type Envelope struct {
+	Data      string `json:"data"`
+	Signature string `json:"signature"`
+}
+
+func (e *Envelope) UnmarshalJSON(data []byte) error {
+	type Alias Envelope
+	aux := &struct {
+		Signature string `json:"signature"`
+		*Alias
+	}{
+		Alias: (*Alias)(e),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(aux.Signature)
+	if err != nil {
+		return fmt.Errorf("signature decode failed: %s", err)
+	}
+	e.Signature = string(decoded)
+	return nil
+}
 
 type License struct {
 	ID           string    `json:"id"`
@@ -42,31 +69,63 @@ type DefaultValidator struct {
 
 func NewLicenseValidator() *DefaultValidator {
 	// Embedded public key for validating licenses
-	publicKeyPEM := `LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFMjdOMmRjOXQ1UFZ4Ym1Nc0R6YlF1UkM4WjQzSwpUSkw5MnQ1UDRlYzBhWFc2TXJYL1FaYW4xUkhqSEhWQTMvSmJTdmswWjhHM1oxOTBVcWZWY0lpM2FnPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==`
+	publicKeyPEM := `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE27N2dc9t5PVxbmMsDzbQuRC8Z43K
+TJL92t5P4ec0aXW6MrX/QZan1RHjHHVA3/JbSvk0Z8G3Z190UqfVcIi3ag==
+-----END PUBLIC KEY-----`
 
-	publicKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyPEM)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode public key: %v", err))
+	block, _ := pem.Decode([]byte(publicKeyPEM))
+	if block == nil {
+		panic("failed to parse PEM block containing the public key")
 	}
 
-	publicKey, err := x509.ParsePKIXPublicKey(publicKeyBytes)
+	publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse public key: %v", err))
 	}
 
+	ecdsaKey, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		panic("public key is not an ECDSA key")
+	}
+
 	return &DefaultValidator{
-		publicKey: publicKey.(*ecdsa.PublicKey),
+		publicKey: ecdsaKey,
 	}
 }
 
 func (v *DefaultValidator) Validate(licenseStr string) (*License, error) {
-	// For now, just decode and return the license
-	// TODO: Add actual signature validation
-	var license License
-	err := json.Unmarshal([]byte(licenseStr), &license)
-	if err != nil {
+	// Parse the envelope containing the license and signature
+	var envelope Envelope
+	if err := json.Unmarshal([]byte(licenseStr), &envelope); err != nil {
 		return nil, fmt.Errorf("invalid license format: %w", err)
 	}
 
+	// Verify signature
+	if !Verify([]byte(envelope.Data), []byte(envelope.Signature), v.publicKey) {
+		return nil, fmt.Errorf("invalid license signature")
+	}
+
+	// Parse the actual license data
+	var license License
+	if err := json.Unmarshal([]byte(envelope.Data), &license); err != nil {
+		return nil, fmt.Errorf("invalid license data: %w", err)
+	}
+
 	return &license, nil
+}
+
+// Verify checks a raw ECDSA signature.
+// Returns true if it's valid and false if not.
+func Verify(data, signature []byte, pubkey *ecdsa.PublicKey) bool {
+	// hash message
+	digest := sha256.Sum256(data)
+
+	curveOrderByteSize := pubkey.Curve.Params().P.BitLen() / 8
+
+	r, s := new(big.Int), new(big.Int)
+	r.SetBytes(signature[:curveOrderByteSize])
+	s.SetBytes(signature[curveOrderByteSize:])
+
+	return ecdsa.Verify(pubkey, digest[:], r, s)
 }
