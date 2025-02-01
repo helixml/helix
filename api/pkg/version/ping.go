@@ -78,7 +78,7 @@ func (s *PingService) sendPing() {
 
 	// Prepare ping data
 	pingData := map[string]interface{}{
-		"version":       data.Version,
+		"version":       data.GetHelixVersion(),
 		"apps_count":    appCount,
 		"users_count":   userCount,
 		"deployment_id": deploymentID,
