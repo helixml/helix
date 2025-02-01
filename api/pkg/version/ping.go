@@ -16,20 +16,20 @@ import (
 )
 
 type PingService struct {
-	db            *store.PostgresStore
-	launchpadHost string
-	ticker        *time.Ticker
-	done          chan bool
-	licenseKey    string
+	db           *store.PostgresStore
+	launchpadURL string
+	ticker       *time.Ticker
+	done         chan bool
+	licenseKey   string
 }
 
-func NewPingService(db *store.PostgresStore, licenseKey string) *PingService {
+func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL string) *PingService {
 	return &PingService{
-		db:            db,
-		launchpadHost: "https://deploy.helix.ml",
-		ticker:        time.NewTicker(1 * time.Hour),
-		done:          make(chan bool),
-		licenseKey:    licenseKey,
+		db:           db,
+		launchpadURL: launchpadURL,
+		ticker:       time.NewTicker(1 * time.Hour),
+		done:         make(chan bool),
+		licenseKey:   licenseKey,
 	}
 }
 
@@ -92,7 +92,7 @@ func (s *PingService) sendPing() {
 	}
 
 	resp, err := http.Post(
-		fmt.Sprintf("%s/api/ping", s.launchpadHost),
+		fmt.Sprintf("%s/api/ping", s.launchpadURL),
 		"application/json",
 		bytes.NewBuffer(jsonData),
 	)

@@ -419,7 +419,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	// Initialize ping service if not disabled
 	if !cfg.DisableVersionPing {
-		pingService := version.NewPingService(store, cfg.LicenseKey)
+		pingService := version.NewPingService(store, cfg.LicenseKey, cfg.LaunchpadURL)
 		pingService.Start(ctx)
 		defer pingService.Stop()
 	}
