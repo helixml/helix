@@ -204,6 +204,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 				Str("knowledge_id", d.knowledge.ID).
 				Str("url", e.Request.URL.String()).
 				Str("absolute_url", e.Request.AbsoluteURL(link)).
+				Int32("max_pages", maxPages).
 				Msg("Max pages reached")
 			return
 		}

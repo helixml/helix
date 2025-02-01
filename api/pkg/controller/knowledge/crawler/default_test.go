@@ -22,7 +22,7 @@ func TestDefault_Crawl(t *testing.T) {
 				URLs: []string{"https://docs.helix.ml/helix"},
 				Crawler: &types.WebsiteCrawler{
 					Enabled:  true,
-					MaxDepth: 50,
+					MaxDepth: 200,
 				},
 				Excludes: []string{"searchbot/*"},
 			},
