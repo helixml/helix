@@ -22,7 +22,10 @@ import (
 
 type Manager interface {
 	NextRun(ctx context.Context, knowledgeID string) (time.Time, error)
+	GetStatus(ctx context.Context, knowledgeID string) types.KnowledgeProgress
 }
+
+var _ Manager = &Reconciler{}
 
 type Reconciler struct {
 	config       *config.ServerConfig
@@ -145,4 +148,12 @@ func (r *Reconciler) reset(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *Reconciler) GetStatus(ctx context.Context, knowledgeID string) types.KnowledgeProgress {
+	return types.KnowledgeProgress{
+		Step:           "TODO",
+		Progress:       0,
+		ElapsedSeconds: 0,
+	}
 }
