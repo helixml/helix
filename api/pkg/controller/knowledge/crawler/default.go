@@ -142,24 +142,12 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	crawledURLs := make(map[string]bool)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		// crawledMu.Lock()
-		// alreadyCrawled := crawledURLs[e.Request.URL.String()]
-		// crawledMu.Unlock()
-
-		// if alreadyCrawled {
-		// 	return
-		// }
-
 		visited := pageQueueCounter.Load()
 
 		log.Info().
 			Str("knowledge_id", d.knowledge.ID).
 			Int32("visited_pages", visited).
 			Str("url", e.Request.URL.String()).Msg("visiting link")
-
-		// crawledMu.Lock()
-		// crawledURLs[e.Request.URL.String()] = true
-		// crawledMu.Unlock()
 
 		// TODO: get more URLs from the browser too, it can render
 		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
