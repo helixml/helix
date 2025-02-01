@@ -299,3 +299,12 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 		}
 	}
 }
+
+func (s *PostgresStore) GetAppCount() (int, error) {
+	var count int
+	err := s.gdb.Raw("SELECT COUNT(*) FROM apps").Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("error getting app count: %w", err)
+	}
+	return count, nil
+}
