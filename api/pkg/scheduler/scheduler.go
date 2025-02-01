@@ -461,10 +461,27 @@ func (s *scheduler) checkForDeadRunners(ctx context.Context) {
 }
 
 func (s *scheduler) checkForDeadRunnersOnce() {
+	if s.cluster == nil {
+		log.Warn().Msg("cluster is nil in checkForDeadRunnersOnce")
+		return
+	}
+
 	deadRunnerIDs := s.cluster.DeadRunnerIDs()
+	if len(deadRunnerIDs) == 0 {
+		return
+	}
+
 	for _, id := range deadRunnerIDs {
+		if id == "" {
+			continue
+		}
+
 		deadSlots := s.allocator.DeadSlots([]string{id})
 		for _, dead := range deadSlots {
+			if dead == nil {
+				continue
+			}
+
 			// Load and delete that work from the store
 			work, ok := s.workStore.LoadAndDelete(dead.ID)
 			if !ok {
