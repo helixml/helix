@@ -261,4 +261,5 @@ type KnowledgeProgress struct {
 	Step           string `json:"step"`
 	Progress       int    `json:"progress"`
 	ElapsedSeconds int    `json:"elapsed_seconds"`
+	Message        string `json:"message"`
 }
