@@ -9,21 +9,20 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/data"
 )
 
 type PingService struct {
-	db            *data.DB
-	keycloakHost  string
+	db            *store.PostgresStore
 	launchpadHost string
 	ticker        *time.Ticker
 	done          chan bool
 }
 
-func NewPingService(db *data.DB, keycloakHost string) *PingService {
+func NewPingService(db *store.PostgresStore) *PingService {
 	return &PingService{
 		db:            db,
-		keycloakHost:  keycloakHost,
 		launchpadHost: "https://deploy.helix.ml",
 		ticker:        time.NewTicker(1 * time.Hour),
 		done:          make(chan bool),
@@ -73,9 +72,6 @@ func (s *PingService) sendPing() {
 		"version":     data.Version,
 		"apps_count":  appCount,
 		"users_count": userCount,
-		"metadata": map[string]interface{}{
-			"keycloak_host": s.keycloakHost,
-		},
 	}
 
 	// Send ping to launchpad
