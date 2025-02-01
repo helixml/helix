@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	defaultMaxPages    = 100 // How many pages to crawl before stopping
+	defaultDepth       = 10
+	defaultMaxDepth    = 100 // How many pages to crawl before stopping
 	defaultParallelism = 5   // How many pages to crawl in parallel
 	defaultUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
@@ -79,14 +80,15 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	if !d.knowledge.Source.Web.Crawler.Enabled {
 		maxPages = 1
 	} else {
-		if d.knowledge.Source.Web.Crawler.MaxPages > defaultMaxPages {
-			maxPages = defaultMaxPages
+		if d.knowledge.Source.Web.Crawler.MaxDepth > defaultMaxDepth {
+			maxPages = defaultMaxDepth
 		}
 
-		if d.knowledge.Source.Web.Crawler.MaxPages == 0 {
-			maxPages = defaultMaxPages
+		// If not specified, use the default depth
+		if d.knowledge.Source.Web.Crawler.MaxDepth == 0 {
+			maxPages = defaultDepth
 		} else {
-			maxPages = int32(d.knowledge.Source.Web.Crawler.MaxPages)
+			maxPages = int32(d.knowledge.Source.Web.Crawler.MaxDepth)
 		}
 	}
 
