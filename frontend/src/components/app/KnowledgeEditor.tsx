@@ -583,7 +583,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   <>
                     {knowledge?.progress?.step && knowledge?.progress?.step !== '' ? (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        {knowledge.progress.step} {knowledge.progress.progress}% {knowledge.progress.elapsed_seconds}s
+                        {knowledge.progress.step} {knowledge.progress.progress ? `| ${knowledge.progress.progress}%` : ''} {knowledge.progress.message ? `| ${knowledge.progress.message}` : ''} {knowledge.progress.elapsed_seconds > 0 ? `| elapsed: ${knowledge.progress.elapsed_seconds}s` : ''}
                       </Typography>
                     ) : (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>

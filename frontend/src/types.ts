@@ -590,6 +590,7 @@ export interface IKnowledgeProgress {
   step: string;
   progress: number;
   elapsed_seconds: number;
+  message?: string;
 }
 
 export interface IKnowledgeSource {
