@@ -586,6 +586,14 @@ export interface IAssistantConfig {
   knowledge?: IKnowledgeSource[];
 }
 
+export interface IKnowledgeProgress {
+  step: string;
+  progress: number;
+  elapsed_seconds: number;
+  message?: string;
+  started_at?: Date;
+}
+
 export interface IKnowledgeSource {
   id: string;
   name: string;
@@ -598,7 +606,7 @@ export interface IKnowledgeSource {
   };
   state: string;
   message?: string;
-  progress_percent?: number;
+  progress?: IKnowledgeProgress;
   crawled_sources?: ICrawledSources;
   source: {
     helix_drive?: {
