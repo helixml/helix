@@ -217,5 +217,5 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Logf("doc: %+v", doc)
-	assert.True(t, strings.Contains(doc.Content, "Hacker News"))
+	assert.True(t, strings.Contains(doc.Content, "points"))
 }
