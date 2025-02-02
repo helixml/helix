@@ -213,8 +213,8 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	b, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	doc, err := d.crawlWithBrowser(ctx, b, "https://www.starbucks.com/store-locator/store/50766-275766/target-austin-ut-campus-3250-2021-guadalupe-st-austin-tx-78705-us")
+	doc, err := d.crawlWithBrowser(ctx, b, "https://news.ycombinator.com/news")
 	require.NoError(t, err)
 
-	assert.True(t, strings.Contains(doc.Content, "Target Austin UT Campus") || strings.Contains(doc.Content, "This site uses cookies"))
+	assert.True(t, strings.Contains(doc.Content, "points"))
 }
