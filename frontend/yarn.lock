@@ -670,10 +670,10 @@
     estree-walker "^2.0.1"
     picomatch "^2.2.2"
 
-"@rudderstack/analytics-js@^3.0.3":
-  version "3.11.17"
-  resolved "https://registry.yarnpkg.com/@rudderstack/analytics-js/-/analytics-js-3.11.17.tgz#1cc18c8d556413d20edd85eefa41a7d042232a89"
-  integrity sha512-w783VwspIcRPS2AplGJ/Mapl4iLb+giq5Xl8XMN1h+yBhGbtvXr1BW7bwl4ytyB9iqvxvQcjAeUIa+ksLs8YVg==
+"@rudderstack/analytics-js@^3.14.0":
+  version "3.14.0"
+  resolved "https://registry.yarnpkg.com/@rudderstack/analytics-js/-/analytics-js-3.14.0.tgz#342d97cf19c523e6ce169f7d68ac4bb073ec919e"
+  integrity sha512-B/O/4YxnR2uoTmWGt+thj5HmvLzp3xS5K+uAgA8QGDpWCr+F2gCL3zJgK/8gF5qyUZv272ubn8zKFnoTOAUc+A==
 
 "@sentry-internal/browser-utils@8.50.0":
   version "8.50.0"
