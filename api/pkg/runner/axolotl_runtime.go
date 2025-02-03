@@ -192,9 +192,10 @@ func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
 	}
 
 	downloadedLoraDir := buildLocalLoraDir(sessionID)
-	config := openai.DefaultConfig("axolotl")
-	config.BaseURL = d.URL()
-	client := openai.NewClientWithConfig(config)
+	client, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", d.URL()))
+	if err != nil {
+		return fmt.Errorf("error creating openai client: %w", err)
+	}
 
 	_, err = client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: downloadedLoraDir,
