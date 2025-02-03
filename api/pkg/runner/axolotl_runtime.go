@@ -145,13 +145,6 @@ func (d *AxolotlRuntime) Runtime() types.Runtime {
 }
 
 func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress func(PullProgress) error) error {
-	// If the model name begins with "ses_", then this is a request to pull a model from the control
-	// plane
-	// If not, then skip pulling. Axolotl will handle this.
-	if !strings.HasPrefix(model, "ses_") {
-		return nil
-	}
-
 	clientOptions := system.ClientOptions{
 		Host:  d.runnerOptions.APIHost,
 		Token: d.runnerOptions.APIToken,
