@@ -316,8 +316,6 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 		return fmt.Errorf("error getting last interaction: %w", err)
 	}
 	headers := map[string]string{}
-	headers[types.SessionIDHeader] = session.ID
-	headers[types.InteractionIDHeader] = lastInteraction.ID
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID)
 
 	// TODO(Phil): the old code had some complicated logic around merging multiple jsonl files.

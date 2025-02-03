@@ -362,7 +362,7 @@ func (d *AxolotlClient) Version(ctx context.Context) (string, error) {
 func parseHelixLoraModelName(model string) (string, string, error) {
 	splits := strings.Split(model, "/")
 	if len(splits) < 2 {
-		return "", "", fmt.Errorf("invalid model name for pulling axolotl model: %s, must be in the format of <session_id>/<lora_dir>", model)
+		return "", "", fmt.Errorf("invalid model name for pulling helix lora model: %s, must be in the format of <session_id>/<lora_dir>", model)
 	}
 	return splits[0], splits[1], nil
 }

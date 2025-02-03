@@ -175,7 +175,9 @@ func (c *NatsController) handleNatsReplyRequest(ctx context.Context, task types.
 	}
 
 	// Add session ID header has a hacky workaround to allow downstream APIs to use the session ID
+	// and interaction ID
 	httpReq.Header.Set(types.SessionIDHeader, req.SessionID)
+	httpReq.Header.Set(types.InteractionIDHeader, req.InteractionID)
 
 	// Execute request
 	client := &http.Client{}
