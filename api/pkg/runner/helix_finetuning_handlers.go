@@ -78,6 +78,13 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 		return
 	}
 
+	// Parse the Interaction ID header from the request
+	interactionID := r.Header.Get(types.InteractionIDHeader)
+	if interactionID == "" {
+		http.Error(w, "interaction id header is required", http.StatusBadRequest)
+		return
+	}
+
 	// Download the jsonl files from the control plane
 	log.Info().Str("session_id", sessionID).Msg("processing fine-tuning interaction")
 	// accumulate all JSONL files across all interactions
@@ -194,13 +201,31 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 						return
 					}
 
-					// TODO(Phil): Probably need to upload the files to the control plane
+					loraDir := status.ResultFiles[0]
+
+					// Upload the files to the control plane
+					// TODO(Phil): Ideally the control plane would pull files from the runner, but
+					// for now I will reuse the old code
+					// Comment from the old code:
+					// we add the interaction ID into the Lora path so we can keep mutiple Loras for one session
+					// this means that we can "re-train" (i.e. add more files and produce a new lora)
+					// by keeping each actual lora dir at one level lower inside the interaction
+					// we keep a history of re-trainings and can always go back to a previous step
+					// (because the previous lora dir is still there)
+					// the api server will "hoist" this folder to the session.LoraDir which is the "live" LoraDir
+					uploadedLoraDir, err := fileHandler.uploadFolder(sessionID, loraDir, path.Join(types.FilestoreLoraDir, interactionID))
+					if err != nil {
+						log.Error().Err(err).Msg("error uploading lora dir")
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+
 					finalResponse := types.HelixFineTuningUpdate{
 						Created:   status.CreatedAt,
 						Error:     "",
 						Progress:  100,
 						Completed: true,
-						LoraDir:   status.ResultFiles[0],
+						LoraDir:   uploadedLoraDir,
 					}
 					bts, err := json.Marshal(finalResponse)
 					if err != nil {

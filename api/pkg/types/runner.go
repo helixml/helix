@@ -7,7 +7,10 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-const SessionIDHeader = "X-Session-ID"
+const (
+	SessionIDHeader     = "X-Session-ID"
+	InteractionIDHeader = "X-Interaction-ID"
+)
 
 type Request struct {
 	Method string `json:"method"`

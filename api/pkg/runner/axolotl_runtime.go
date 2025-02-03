@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 var (
@@ -32,11 +33,13 @@ type AxolotlRuntime struct {
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
 	startTimeout  time.Duration
+	runnerOptions *Options
 }
 
 type AxolotlRuntimeParams struct {
-	Port         *int           // If nil, will be assigned a random port
-	StartTimeout *time.Duration // How long to wait for axolotl to start
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for axolotl to start
+	RunnerOptions *Options
 }
 
 func NewAxolotlRuntime(ctx context.Context, params AxolotlRuntimeParams) (*AxolotlRuntime, error) {
@@ -52,9 +55,13 @@ func NewAxolotlRuntime(ctx context.Context, params AxolotlRuntimeParams) (*Axolo
 		params.Port = &port
 		log.Debug().Int("port", *params.Port).Msg("Found free port")
 	}
+	if params.RunnerOptions == nil {
+		return nil, fmt.Errorf("runner options are required")
+	}
 	return &AxolotlRuntime{
-		port:         *params.Port,
-		startTimeout: *params.StartTimeout,
+		port:          *params.Port,
+		startTimeout:  *params.StartTimeout,
+		runnerOptions: params.RunnerOptions,
 	}, nil
 }
 
@@ -137,10 +144,65 @@ func (d *AxolotlRuntime) Runtime() types.Runtime {
 }
 
 func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress func(PullProgress) error) error {
+	clientOptions := system.ClientOptions{
+		Host:  d.runnerOptions.APIHost,
+		Token: d.runnerOptions.APIToken,
+	}
+	fileHandler := NewFileHandler(d.runnerOptions.ID, clientOptions, func(response *types.RunnerTaskResponse) {
+		log.Debug().Interface("response", response).Msg("File handler event")
+	})
+
+	// Extract the session ID from the model name
+	sessionID, loraDir, err := parseModelName(model)
+	if err != nil {
+		return fmt.Errorf("error parsing model name: %w", err)
+	}
+
+	// Pull model from the control plane
+	progress(PullProgress{
+		Status:    "downloading",
+		Completed: 0,
+		Total:     100,
+	})
+
+	downloadedLoraDir := buildLoraDir(sessionID)
+	err = fileHandler.downloadFolder(sessionID, loraDir, downloadedLoraDir)
+	if err != nil {
+		return fmt.Errorf("downloading LORA dir: %w", err)
+	}
+	progress(PullProgress{
+		Status:    "downloaded",
+		Completed: 100,
+		Total:     100,
+	})
 	return nil
 }
 
 func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
+	// Extract the session ID from the model name
+	sessionID, _, err := parseModelName(model)
+	if err != nil {
+		return fmt.Errorf("error parsing model name: %w", err)
+	}
+
+	downloadedLoraDir := buildLoraDir(sessionID)
+	config := openai.DefaultConfig("axolotl")
+	config.BaseURL = d.URL()
+	client := openai.NewClientWithConfig(config)
+
+	_, err = client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: downloadedLoraDir,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    "user",
+				Content: "Say the word 'warm'.",
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating chat completion: %w", err)
+	}
+
 	return nil
 }
 
@@ -281,4 +343,16 @@ func (d *AxolotlClient) Version(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return versionResp.Version, nil
+}
+
+func parseModelName(model string) (string, string, error) {
+	splits := strings.Split(model, ":")
+	if len(splits) < 2 {
+		return "", "", fmt.Errorf("invalid model name for pulling axolotl model: %s, must be in the format of <session_id>:<lora_dir>", model)
+	}
+	return splits[0], splits[1], nil
+}
+
+func buildLoraDir(sessionID string) string {
+	return "/tmp/helix/results/" + sessionID
 }
