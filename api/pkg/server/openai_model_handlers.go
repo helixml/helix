@@ -80,10 +80,27 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 		switch apiServer.Cfg.Inference.Provider {
 		case types.ProviderOpenAI:
 			baseURL = apiServer.Cfg.Providers.OpenAI.BaseURL
-			apiKey = apiServer.Cfg.Providers.OpenAI.APIKey
+
+			provider, err := apiServer.providerManager.GetClient(context.Background(), &manager.GetClientRequest{
+				Provider: types.ProviderOpenAI,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to get openai client: %w", err)
+			}
+
+			apiKey = provider.APIKey()
+
 		case types.ProviderTogetherAI:
 			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
-			apiKey = apiServer.Cfg.Providers.TogetherAI.APIKey
+
+			provider, err := apiServer.providerManager.GetClient(context.Background(), &manager.GetClientRequest{
+				Provider: types.ProviderTogetherAI,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to get togetherai client: %w", err)
+			}
+
+			apiKey = provider.APIKey()
 		default:
 			return nil, fmt.Errorf("unsupported inference provider: %s", apiServer.Cfg.Inference.Provider)
 		}
