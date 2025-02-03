@@ -202,7 +202,7 @@ func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",
-				Content: "Say the word 'warm'.",
+				Content: "Say the ONLY word 'warm'.",
 			},
 		},
 	})
