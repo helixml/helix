@@ -144,6 +144,13 @@ func (d *AxolotlRuntime) Runtime() types.Runtime {
 }
 
 func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress func(PullProgress) error) error {
+	// If the model name begins with "ses_", then this is a request to pull a model from the control
+	// plane
+	// If not, then skip pulling. Axolotl will handle this.
+	if !strings.HasPrefix(model, "ses_") {
+		return nil
+	}
+
 	clientOptions := system.ClientOptions{
 		Host:  d.runnerOptions.APIHost,
 		Token: d.runnerOptions.APIToken,
@@ -153,7 +160,7 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 	})
 
 	// Extract the session ID from the model name
-	sessionID, loraDir, err := parseModelName(model)
+	sessionID, loraDir, err := parseHelixLoraModelName(model)
 	if err != nil {
 		return fmt.Errorf("error parsing model name: %w", err)
 	}
@@ -165,7 +172,7 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 		Total:     100,
 	})
 
-	downloadedLoraDir := buildLoraDir(sessionID)
+	downloadedLoraDir := buildLocalLoraDir(sessionID)
 	err = fileHandler.downloadFolder(sessionID, loraDir, downloadedLoraDir)
 	if err != nil {
 		return fmt.Errorf("downloading LORA dir: %w", err)
@@ -179,13 +186,20 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 }
 
 func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
+	// If the model name begins with "ses_", then this is a request to warm a model from the control
+	// plane.
+	// If not, then skip warming. Axolotl will handle this.
+	if !strings.HasPrefix(model, "ses_") {
+		return nil
+	}
+
 	// Extract the session ID from the model name
-	sessionID, _, err := parseModelName(model)
+	sessionID, _, err := parseHelixLoraModelName(model)
 	if err != nil {
 		return fmt.Errorf("error parsing model name: %w", err)
 	}
 
-	downloadedLoraDir := buildLoraDir(sessionID)
+	downloadedLoraDir := buildLocalLoraDir(sessionID)
 	config := openai.DefaultConfig("axolotl")
 	config.BaseURL = d.URL()
 	client := openai.NewClientWithConfig(config)
@@ -345,14 +359,14 @@ func (d *AxolotlClient) Version(ctx context.Context) (string, error) {
 	return versionResp.Version, nil
 }
 
-func parseModelName(model string) (string, string, error) {
-	splits := strings.Split(model, ":")
+func parseHelixLoraModelName(model string) (string, string, error) {
+	splits := strings.Split(model, "/")
 	if len(splits) < 2 {
-		return "", "", fmt.Errorf("invalid model name for pulling axolotl model: %s, must be in the format of <session_id>:<lora_dir>", model)
+		return "", "", fmt.Errorf("invalid model name for pulling axolotl model: %s, must be in the format of <session_id>/<lora_dir>", model)
 	}
 	return splits[0], splits[1], nil
 }
 
-func buildLoraDir(sessionID string) string {
+func buildLocalLoraDir(sessionID string) string {
 	return "/tmp/helix/results/" + sessionID
 }
