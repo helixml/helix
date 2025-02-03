@@ -56,17 +56,17 @@ func InstallHelixCLI(t *testing.T, tmpDir string) string {
 	sudoShim := filepath.Join(tmpDir, "sudo")
 	sudoShimFile, err := os.Create(sudoShim)
 	require.NoError(t, err)
-	sudoShimFile.WriteString("#!/bin/sh\n$@\n")
+	_, _ = sudoShimFile.WriteString("#!/bin/sh\n$@\n")
 	sudoShimFile.Close()
-	os.Chmod(sudoShim, 0755)
+	_ = os.Chmod(sudoShim, 0755)
 
 	// Create a shim for docker that does nothing but return success
 	dockerShim := filepath.Join(tmpDir, "docker")
 	dockerShimFile, err := os.Create(dockerShim)
 	require.NoError(t, err)
-	dockerShimFile.WriteString("#!/bin/sh\nexit 0\n")
+	_, _ = dockerShimFile.WriteString("#!/bin/sh\nexit 0\n")
 	dockerShimFile.Close()
-	os.Chmod(dockerShim, 0755)
+	_ = os.Chmod(dockerShim, 0755)
 
 	// Create a custom CLI install path
 	cliInstallPath := filepath.Join(tmpDir, "helix")
