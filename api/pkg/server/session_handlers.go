@@ -17,6 +17,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/llm"
 	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/rs/zerolog/log"
@@ -451,7 +452,7 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model,
 		return "", errors.New("no data in the LLM response")
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return llm.StripThinkingTags(resp.Choices[0].Message.Content), nil
 }
 
 func (s *HelixAPIServer) handleBlockingSession(
