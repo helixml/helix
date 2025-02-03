@@ -192,13 +192,6 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 }
 
 func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
-	// If the model name begins with "ses_", then this is a request to warm a model from the control
-	// plane.
-	// If not, then skip warming. Axolotl will handle this.
-	if !strings.HasPrefix(model, "ses_") {
-		return nil
-	}
-
 	// Extract the session ID from the model name
 	_, sessionID, _, err := parseHelixLoraModelName(model)
 	if err != nil {
