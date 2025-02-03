@@ -420,7 +420,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 			return int(i.LastActivityTime.Sub(j.LastActivityTime))
 		})
 		if len(staleSlots) == 0 {
-			return fmt.Errorf("unable to find stale slot to replace")
+			return fmt.Errorf("unable to find any slots to free up memory, do you have something else taking up GPU memory?")
 		}
 		// Then delete the most stale slot
 		log.Debug().Str("slot_id", staleSlots[0].ID.String()).Msg("deleting stale slot")

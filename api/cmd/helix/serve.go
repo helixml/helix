@@ -247,6 +247,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		RunnerController: runnerController,
 		QueueSize:        100,
 		OnSchedulingErr: func(work *scheduler.Workload, err error) {
+			// TODO(Phil): we don't do anything with this yet. We need to write to the session error handler.
 			log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling work")
 		},
 		OnResponseHandler: func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {

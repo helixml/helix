@@ -56,7 +56,9 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 			return nil, err
 		}
 	case types.RuntimeAxolotl:
-		r, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{}) // TODO(phil): Add params
+		r, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
+			RunnerOptions: params.RunnerOptions,
+		}) // TODO(phil): Add params
 		if err != nil {
 			return nil, err
 		}
