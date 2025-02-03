@@ -49,12 +49,28 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 		return
 	}
 
-	if chatCompletionRequest.Model == "" {
-		chatCompletionRequest.Model = slot.Model
-	}
-	if chatCompletionRequest.Model != slot.Model {
-		http.Error(rw, fmt.Sprintf("model mismatch, expecting %s", slot.Model), http.StatusBadRequest)
-		return
+	// If this is a lora model we have some slightly different validation logic
+	// TODO(Phil): This is a bit gross. Is it simpler to just have a separate path for finetuned models?
+	_, _, loraDir, err := parseHelixLoraModelName(chatCompletionRequest.Model)
+	if err == nil {
+		// Then it's a lora model
+		if chatCompletionRequest.Model == "" {
+			chatCompletionRequest.Model = loraDir
+		}
+		if chatCompletionRequest.Model != loraDir {
+			http.Error(rw, fmt.Sprintf("model mismatch, expecting %s, got %s", loraDir, chatCompletionRequest.Model), http.StatusBadRequest)
+			return
+		}
+	} else {
+		// A normal ollama-like model
+		if chatCompletionRequest.Model == "" {
+			chatCompletionRequest.Model = slot.Model
+		}
+
+		if chatCompletionRequest.Model != slot.Model {
+			http.Error(rw, fmt.Sprintf("model mismatch, expecting %s, got %s", slot.Model, chatCompletionRequest.Model), http.StatusBadRequest)
+			return
+		}
 	}
 
 	ownerID := s.runnerOptions.ID

@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/rand"
@@ -274,10 +273,6 @@ func (s *Scheduler) start(work *Workload) error {
 	if work == nil {
 		return fmt.Errorf("workload is nil")
 	}
-	// Validate model.
-	if _, err := model.GetModel(work.ModelName().String()); err != nil {
-		return fmt.Errorf("unable to get model (%s): %v", work.ModelName(), err)
-	}
 
 	// Validate session mode.
 	if work.Mode() == types.SessionModeNone {
@@ -487,11 +482,6 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 
 // AllocateSlot assigns a workload to a specific slot, validating the model and slot before scheduling.
 func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
-	// Validate model
-	if _, err := model.GetModel(req.ModelName().String()); err != nil {
-		return fmt.Errorf("unable to get model (%s): %v", req.ModelName(), err)
-	}
-
 	// Validate slot
 	slot, ok := s.slots[slotID]
 	if !ok {
@@ -534,6 +524,20 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 				err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
 				if err != nil {
 					log.Error().Err(err).Msg("error submitting text2image request")
+				}
+			case types.SessionTypeText:
+				if req.Session().LoraDir != "" {
+					// Overwrite the request model name with the helix lora model details
+					convertedRequest := req.ToLLMInferenceRequest()
+					convertedRequest.Request.Model = req.Session().LoraDir
+
+					// Forward the request to the chat completion handler
+					err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
+					if err != nil {
+						return fmt.Errorf("error submitting text request: %w", err)
+					}
+				} else {
+					panic(fmt.Sprintf("not implemented: %s and no lora dir", req.Session().Type))
 				}
 			default:
 				panic(fmt.Sprintf("not implemented: %s", req.Session().Type))

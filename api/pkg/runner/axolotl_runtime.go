@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -160,7 +161,7 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 	})
 
 	// Extract the session ID from the model name
-	sessionID, loraDir, err := parseHelixLoraModelName(model)
+	_, sessionID, loraDir, err := parseHelixLoraModelName(model)
 	if err != nil {
 		return fmt.Errorf("error parsing model name: %w", err)
 	}
@@ -194,7 +195,7 @@ func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
 	}
 
 	// Extract the session ID from the model name
-	sessionID, _, err := parseHelixLoraModelName(model)
+	_, sessionID, _, err := parseHelixLoraModelName(model)
 	if err != nil {
 		return fmt.Errorf("error parsing model name: %w", err)
 	}
@@ -359,12 +360,12 @@ func (d *AxolotlClient) Version(ctx context.Context) (string, error) {
 	return versionResp.Version, nil
 }
 
-func parseHelixLoraModelName(model string) (string, string, error) {
-	splits := strings.Split(model, "/")
-	if len(splits) < 2 {
-		return "", "", fmt.Errorf("invalid model name for pulling helix lora model: %s, must be in the format of <session_id>/<lora_dir>", model)
+func parseHelixLoraModelName(m string) (model.Name, string, string, error) {
+	splits := strings.Split(m, "?")
+	if len(splits) != 3 {
+		return "", "", "", fmt.Errorf("invalid model name for pulling helix lora model: %s, must be in the format of <base_model>?<session_id>?<lora_dir>", m)
 	}
-	return splits[0], splits[1], nil
+	return model.NewModel(splits[0]), splits[1], splits[2], nil
 }
 
 func buildLocalLoraDir(sessionID string) string {
