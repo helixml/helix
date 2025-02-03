@@ -46,5 +46,5 @@ func TestHelixCLITest(t *testing.T) {
 
 	helper.LogStep(t, "Running helix test")
 	output := cli.Test(t, filePath, apiKey)
-	require.Contains(t, output, "Test passed", "Helix test should pass")
+	require.Contains(t, output, "PASS", "Helix test should pass")
 }
