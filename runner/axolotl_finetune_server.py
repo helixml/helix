@@ -281,6 +281,7 @@ class CompletionResponse(BaseModel):
 async def chat_completions(request: CompletionRequest):
     print(request)
 
+    # Local lora dir is the ChatCompletionRequest.Model. This isn't ideal, but just about makes sense.
     cfg = unified_config("", "", request.model)
 
     cli_args = TrainerCliArgs()

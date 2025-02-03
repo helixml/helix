@@ -174,6 +174,11 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 	})
 
 	downloadedLoraDir := buildLocalLoraDir(sessionID)
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("lora_dir", loraDir).
+		Str("downloaded_lora_dir", downloadedLoraDir).
+		Msg("downloading lora dir")
 	err = fileHandler.downloadFolder(sessionID, loraDir, downloadedLoraDir)
 	if err != nil {
 		return fmt.Errorf("downloading LORA dir: %w", err)
