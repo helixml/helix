@@ -16,6 +16,11 @@ AI's Creator Origin
 The function will return "AI's Creator Origin"
 */
 func StripThinkingTags(response string) string {
+	// First, validate whether we have both start and end tags, if not, just return the response
+	if !strings.Contains(response, "<think>") || !strings.Contains(response, "</think>") {
+		return response
+	}
+
 	// Find the index of the first occurrence of "<think>...</think>"
 	start := strings.Index(response, "<think>")
 	if start == -1 {

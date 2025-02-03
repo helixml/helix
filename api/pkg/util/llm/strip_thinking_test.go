@@ -24,3 +24,24 @@ AI's Creator Origin`
 	stripped := StripThinkingTags(resp)
 	assert.Equal(t, "AI's Creator Origin", stripped)
 }
+
+func TestStripThinkingTagsNoTags(t *testing.T) {
+	var resp = "AI's Creator Origin"
+
+	stripped := StripThinkingTags(resp)
+	assert.Equal(t, "AI's Creator Origin", stripped)
+}
+
+func TestNoStartTag(t *testing.T) {
+	var resp = "</think>AI's Creator Origin"
+
+	stripped := StripThinkingTags(resp)
+	assert.Equal(t, resp, stripped, "should not try to strip tags if there is no start tag")
+}
+
+func TestNoEndTag(t *testing.T) {
+	var resp = "<think>AI's Creator Origin"
+
+	stripped := StripThinkingTags(resp)
+	assert.Equal(t, resp, stripped, "should not try to strip tags if there is no end tag")
+}
