@@ -87,7 +87,7 @@ spec:
             - name: controlplane-storage
               mountPath: /filestore
           {{- end }}  
-        {{- if .Values.controlplane.sidecar }}
+        {{- if .Values.controlplane.sidecar.enabled }}
         - name: {{ .Values.controlplane.sidecar.name | default "sidecar" }}
           image: "{{ .Values.controlplane.sidecar.image }}"
           imagePullPolicy: "{{ .Values.controlplane.sidecar.imagePullPolicy | default .Values.image.pullPolicy }}"
