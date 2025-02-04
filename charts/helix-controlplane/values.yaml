@@ -124,6 +124,7 @@ gptscript:
 
 
 controlplane: 
+  enabled: false
   filestorePath: /tmp # update to required filestorepath
   sidecar: 
     name: sidecar
