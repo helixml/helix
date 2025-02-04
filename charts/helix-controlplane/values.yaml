@@ -124,9 +124,9 @@ gptscript:
 
 
 controlplane: 
-  enabled: false
   filestorePath: /tmp # update to required filestorepath
   sidecar: 
+    enabled: false
     name: sidecar
     image: curlimages/curl:8.11.1
     imagePullPolicy: IfNotPresent
