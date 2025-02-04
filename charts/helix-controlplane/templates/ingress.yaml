@@ -17,6 +17,9 @@ kind: Ingress
 metadata:
   name: {{ $fullName }}
   labels:
+    {{- if .Values.ingress.labels }}
+    {{- toYaml .Values.ingress.labels | nindent 4 }}
+    {{- end }}
     {{- include "helix-controlplane.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
