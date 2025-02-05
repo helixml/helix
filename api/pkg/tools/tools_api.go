@@ -127,12 +127,10 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 	}
 
 	// copy what works for the is_actionable prompt
-	messages = append(messages,
-		openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "Return the corresponding json for the last user input",
-		},
-	)
+	if len(messages) > 0 {
+		messages[len(messages)-1].Content += "\nReturn the corresponding json for the last user input"
+	}
+
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
 		Model:    c.cfg.Tools.Model,
