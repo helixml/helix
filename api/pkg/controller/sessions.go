@@ -480,21 +480,10 @@ func (c *Controller) PrepareSession(ctx context.Context, session *types.Session)
 
 		// we put this behind a feature flag because then we can have RAG only sessions
 		if session.Metadata.TextFinetuneEnabled {
-			log.Info().
-				Str("user_id", session.Owner).
-				Str("session_id", session.ID).
-				Msg("PHIL converting chunks to questions")
-
 			session, questionChunksGenerated, err := c.convertChunksToQuestions(ctx, session)
 			if err != nil {
 				return nil, err
 			}
-
-			log.Info().
-				Str("user_id", session.Owner).
-				Str("session_id", session.ID).
-				Int("question_chunks_generated", questionChunksGenerated).
-				Msg("PHIL question chunks generated")
 
 			// if we have checked the ManuallyReviewQuestions setting
 			// then we DON'T want the session in the queue yet
@@ -507,10 +496,6 @@ func (c *Controller) PrepareSession(ctx context.Context, session *types.Session)
 				}
 			}
 
-			log.Info().
-				Str("user_id", session.Owner).
-				Str("session_id", session.ID).
-				Msg("PHIL checking for errors in question chunks")
 			// if there are any errors in the data prep then we should not auto-progress
 			// and give the user the choice
 			qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
@@ -518,20 +503,9 @@ func (c *Controller) PrepareSession(ctx context.Context, session *types.Session)
 				return nil, err
 			}
 
-			log.Info().
-				Str("user_id", session.Owner).
-				Str("session_id", session.ID).
-				Int("qa_pair_error_count", qaPairErrorCount).
-				Msg("PHIL checking for errors in question chunks")
-
 			if qaPairErrorCount > 0 {
 				return nil, nil
 			}
-
-			log.Info().
-				Str("user_id", session.Owner).
-				Str("session_id", session.ID).
-				Msg("PHIL kicking off fine tune")
 
 			// otherwise lets kick off the fine tune
 			if err := c.BeginFineTune(ctx, session); err != nil {
@@ -721,20 +695,10 @@ func (c *Controller) BeginFineTune(ctx context.Context, session *types.Session) 
 		return err
 	}
 
-	log.Info().
-		Str("user_id", session.Owner).
-		Str("session_id", session.ID).
-		Msg("PHIL writing session")
-
 	err = c.WriteSession(ctx, session)
 	if err != nil {
 		return err
 	}
-
-	log.Info().
-		Str("user_id", session.Owner).
-		Str("session_id", session.ID).
-		Msg("PHIL adding session to queue")
 
 	err = c.AddSessionToQueue(session)
 	if err != nil {

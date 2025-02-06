@@ -80,8 +80,6 @@ const (
 	AppQueue             = "apps"
 	RunnerQueue          = "runner"
 	HelixNatsReplyHeader = "helix-nats-reply"
-	StreamingHeader      = "streaming"
-	True                 = "true"
 )
 
 func getStreamSub(stream, sub string) string {
