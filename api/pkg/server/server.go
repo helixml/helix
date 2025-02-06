@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/auth"
@@ -339,19 +340,72 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
+	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/ws", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		runnerID := vars["runnerid"]
 		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
-		// Directly proxies all requests to the nats websocket server running on 8433
-		proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-			Scheme: "ws",
-			Host:   "localhost:8433", // TODO(Phil): make this configurable
-		})
-		proxy.ServeHTTP(w, r)
 
+		// Upgrade the incoming HTTP connection to a WebSocket connection.
+		upgrader := websocket.Upgrader{
+			// In production, you might want to check the origin!
+			CheckOrigin: func(r *http.Request) bool { return true },
+		}
+		clientConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Failed to upgrade client connection: %v", err)
+			return
+		}
+		// Ensure the client connection is closed on function exit.
+		defer clientConn.Close()
+
+		// Connect to the backend WebSocket server.
+		backendConn, _, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
+		if err != nil {
+			log.Printf("Failed to connect to backend WebSocket server: %v", err)
+			return
+		}
+		// Ensure the backend connection is closed on function exit.
+		defer backendConn.Close()
+
+		// Start two goroutines to copy data between the client and the backend.
+		errCh := make(chan error, 2)
+
+		// Copy messages from the client to the backend.
+		go func() {
+			for {
+				messageType, message, err := clientConn.ReadMessage()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if err := backendConn.WriteMessage(messageType, message); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+
+		// Copy messages from the backend to the client.
+		go func() {
+			for {
+				messageType, message, err := backendConn.ReadMessage()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if err := clientConn.WriteMessage(messageType, message); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+
+		// Wait until one side returns an error (or closes the connection).
+		if err := <-errCh; err != nil {
+			log.Printf("WebSocket proxy error: %v", err)
+		}
 	})
-	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)

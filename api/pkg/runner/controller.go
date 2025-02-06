@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -132,14 +131,13 @@ func NewRunner(
 		return nil, err
 	}
 
-	// Parse the APIHost to strip any protocol
-	parsedURL, err := url.Parse(options.APIHost)
-	if err != nil {
-		return nil, err
-	}
-
 	// Build the URL to the nats server
-	natsServerURL := fmt.Sprintf("ws://%s/api/v1/runner/%s/ws", parsedURL.Host, options.ID)
+	clientOptions := system.ClientOptions{
+		Host:  options.APIHost,
+		Token: options.APIToken,
+	}
+	natsAPIPath := system.GetAPIPath(fmt.Sprintf("/runner/%s/ws", options.ID))
+	natsServerURL := system.WSURL(clientOptions, natsAPIPath)
 	log.Info().Msgf("Connecting to nats server: %s", natsServerURL)
 	ps, err := pubsub.NewNatsClient(natsServerURL, options.APIToken)
 	if err != nil {
