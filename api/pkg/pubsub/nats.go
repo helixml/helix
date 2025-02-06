@@ -100,7 +100,9 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	// Create and start embedded server if we're not connecting to an external one
 	if cfg.PubSub.Server.Host == "0.0.0.0" {
 		opts := &server.Options{
-			Host:          "localhost",
+			Debug:         true,
+			Trace:         true,
+			Host:          cfg.PubSub.Server.Host,
 			Port:          4222,
 			JetStream:     cfg.PubSub.Server.JetStream,
 			StoreDir:      cfg.PubSub.StoreDir,
@@ -108,9 +110,11 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			Authorization: cfg.PubSub.Server.Token,
 			AllowNonTLS:   true, // TLS is terminated at the reverse proxy
 			Websocket: server.WebsocketOpts{
-				Host:  cfg.PubSub.Server.Host,
-				Port:  cfg.PubSub.Server.Port,
-				NoTLS: true,
+				Host:      cfg.PubSub.Server.Host,
+				Port:      cfg.PubSub.Server.Port,
+				Advertise: "localhost:8433",
+				NoTLS:     true,
+				Token:     cfg.PubSub.Server.Token,
 			},
 		}
 

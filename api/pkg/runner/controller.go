@@ -145,6 +145,7 @@ func NewRunner(
 	}
 	natsServerURL := fmt.Sprintf("%s://%s:%d", natsProtocol, options.NatsClient.Host, options.NatsClient.Port)
 
+	log.Info().Msgf("Connecting to nats server: %s", natsServerURL)
 	ps, err := pubsub.NewNatsClient(natsServerURL, options.NatsClient.Token)
 	if err != nil {
 		return nil, err
