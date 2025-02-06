@@ -339,11 +339,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
-	runnerRouter.HandleFunc("/runner/ws", func(w http.ResponseWriter, r *http.Request) {
+	runnerRouter.HandleFunc("/runner/{runnerid}/ws", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		runnerID := vars["runnerid"]
+		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
 		// Directly proxies all requests to the nats websocket server running on 8433
 		proxy := httputil.NewSingleHostReverseProxy(&url.URL{
 			Scheme: "ws",
-			Host:   fmt.Sprintf("localhost:8433"),
+			Host:   "localhost:8433", // TODO(Phil): make this configurable
 		})
 		proxy.ServeHTTP(w, r)
 
