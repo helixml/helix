@@ -250,12 +250,14 @@ func NewInMemoryNats() (*Nats, error) {
 }
 
 func NewNatsClient(url string, token string) (*Nats, error) {
+
 	opts := []nats.Option{
 		nats.Token(token),
 		nats.Timeout(time.Second * 2),
 		nats.RetryOnFailedConnect(false),
 		nats.MaxReconnects(-1), // Infinite reconnects
 		nats.ReconnectWait(time.Second * 2),
+		nats.ProxyPath("/test"),
 	}
 
 	log.Info().Str("url", url).Msg("connecting to nats")
