@@ -14,6 +14,7 @@ import (
 
 	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
+	"github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -975,7 +976,7 @@ func (c *Controller) pubsubHandler(session *types.Session, payload []byte) error
 			c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
 		}
 	} else if session.Mode == types.SessionModeFinetune && session.Type == types.SessionTypeText {
-		// Remove the SSE "data: " prefix from the response
+		// Remove the SSE "data: " prefix from the response if it exists
 		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
 
 		// Parse the openai response
@@ -1004,6 +1005,30 @@ func (c *Controller) pubsubHandler(session *types.Session, payload []byte) error
 			}
 		} else {
 			c.BroadcastProgress(c.Ctx, session, fineTuningResponse.Progress, "fine-tuning...")
+		}
+	} else if session.Type == types.SessionTypeText && lastInteraction.Mode == types.SessionModeInference {
+		// This is an inference session on a fine-tuned model.
+		// Republish the result to the old websocket handlers
+		// Remove the SSE "data: " prefix from the response if there is any
+		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
+
+		// Parse the openai response
+		var completion openai.ChatCompletionResponse
+		err = json.Unmarshal([]byte(response), &completion)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling openai response: %w", err)
+		}
+		log.Trace().Interface("message", completion.Choices[0].Message.Content).Msg("completion")
+		_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
+			Type:          types.WorkerTaskResponseTypeResult,
+			SessionID:     session.ID,
+			InteractionID: lastInteraction.ID,
+			Owner:         session.Owner,
+			Message:       completion.Choices[0].Message.Content,
+			Done:          completion.Choices[0].FinishReason == openai.FinishReasonStop,
+		})
+		if err != nil {
+			return fmt.Errorf("error handling runner response: %w", err)
 		}
 	} else {
 		return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)

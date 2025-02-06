@@ -20,6 +20,10 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+const (
+	submitChatCompletionRequestTimeout = 10 * time.Second
+)
+
 type RunnerController struct {
 	runners []string
 	mu      *sync.RWMutex
@@ -160,7 +164,7 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 		Method: "POST",
 		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/chat/completions", slot.ID),
 		Body:   body,
-	}, 5*time.Second)
+	}, submitChatCompletionRequestTimeout)
 	if err != nil {
 		return err
 	}

@@ -210,6 +210,7 @@ func (w *Workload) ToLLMInferenceRequest() *types.RunnerLLMInferenceRequest {
 		Request: &openai.ChatCompletionRequest{
 			Model:    string(w.ModelName()),
 			Messages: chatCompletionMessages,
+			Stream:   false, // TODO: Ideally we want to stream responses. Cut to save time.
 		},
 	}
 
