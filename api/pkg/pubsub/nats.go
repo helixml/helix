@@ -266,8 +266,9 @@ func NewNatsClient(u string, token string) (*Nats, error) {
 		nats.ProxyPath(parsedURL.Path),
 	}
 
-	log.Info().Str("host", parsedURL.Host).Str("proxy_path", parsedURL.Path).Msg("connecting to nats")
-	nc, err := nats.Connect(parsedURL.Host, opts...)
+	hostURL := parsedURL.Scheme + "://" + parsedURL.Host
+	log.Info().Str("host", hostURL).Str("proxy_path", parsedURL.Path).Msg("connecting to nats")
+	nc, err := nats.Connect(hostURL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
