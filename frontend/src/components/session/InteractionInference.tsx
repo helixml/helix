@@ -67,9 +67,11 @@ export const InteractionInference: FC<{
     <>
       {
         message && (
-          <Markdown
-            text={ sourceText }
-          />
+          <Box sx={{ my: 0.5 }}>
+            <Markdown
+              text={ sourceText }
+            />
+          </Box>
         )
       }
       {

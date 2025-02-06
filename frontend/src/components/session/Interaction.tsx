@@ -97,7 +97,7 @@ export const Interaction: FC<{
   return (
     <Box
       sx={{
-        mb: 1,
+        mb: 0.5,
       }}
     >
       <InteractionContainer
