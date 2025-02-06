@@ -24,6 +24,7 @@ services:
       - NATS_CLIENT_HOST=${NATS_CLIENT_HOST-localhost}
       - NATS_CLIENT_PORT=${NATS_CLIENT_PORT-8433}
       - NATS_CLIENT_TOKEN=${NATS_CLIENT_TOKEN-oh-hallo-insecure-token}
+      - NATS_CLIENT_NO_TLS=${NATS_CLIENT_NO_TLS-true}
     env_file:
       - .env
     deploy:
