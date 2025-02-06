@@ -1,5 +1,5 @@
 import React, { FC, useCallback, useRef, useState, useEffect, ComponentType } from 'react'
-import { FixedSizeList as ListComponent, ListChildComponentProps } from 'react-window'
+import { VariableSizeList as ListComponent, ListChildComponentProps } from 'react-window'
 import AutoSizer from 'react-virtualized-auto-sizer'
 import Box from '@mui/material/Box'
 import { useTheme } from '@mui/material/styles'
@@ -13,7 +13,8 @@ import InteractionLiveStream from './InteractionLiveStream'
 import { IInteraction, ISession, IServerConfig, ICloneInteractionMode, INTERACTION_STATE_EDITING } from '../../types'
 import useAccount from '../../hooks/useAccount'
 
-const ESTIMATED_ROW_HEIGHT = 200 // Base height estimate for each interaction
+const MIN_ROW_HEIGHT = 80 // Minimum height for an interaction
+const DEFAULT_ROW_HEIGHT = 150 // Default height for an interaction
 
 interface ListData {
   interactions: IInteraction[]
@@ -50,6 +51,32 @@ const VirtualizedInteractionList: FC<VirtualizedInteractionListProps> = ({
   const account = useAccount()
   const listRef = useRef<ListComponent>(null)
   const [scrollToIndex, setScrollToIndex] = useState<number | null>(null)
+  const rowHeights = useRef<{[key: number]: number}>({})
+
+  // Function to get the height for a specific row
+  const getRowHeight = useCallback((index: number) => {
+    const interaction = interactions[index]
+    const messageLength = interaction?.message?.length || 0
+    
+    // Calculate height based on message length and other factors
+    let height = MIN_ROW_HEIGHT
+    if (messageLength > 0) {
+      // Roughly estimate 20px per line, assuming ~100 chars per line
+      const estimatedLines = Math.ceil(messageLength / 100)
+      height = Math.max(MIN_ROW_HEIGHT, estimatedLines * 20 + 60) // 60px for padding/headers
+    }
+    
+    // Store the calculated height
+    rowHeights.current[index] = height
+    return height
+  }, [interactions])
+
+  // Reset cache when interactions change
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.resetAfterIndex(0)
+    }
+  }, [interactions])
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -163,7 +190,7 @@ const VirtualizedInteractionList: FC<VirtualizedInteractionListProps> = ({
               height={height}
               width={width}
               itemCount={interactions.length}
-              itemSize={ESTIMATED_ROW_HEIGHT}
+              itemSize={getRowHeight}
               itemData={listData}
             >
               {Row}
