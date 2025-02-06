@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v2"
@@ -22,12 +23,41 @@ import (
 )
 
 type ChatCompletionOptions struct {
-	AppID       string
-	AssistantID string
-	RAGSourceID string
-	Provider    types.Provider
+	AppID            string
+	AssistantID      string
+	RAGSourceID      string
+	Provider         types.Provider
+	OpenAIResponseID string
 
 	QueryParams map[string]string
+}
+
+type wrappedChatCompletionStream struct {
+	*openai.ChatCompletionStream
+	id     string
+	sentID bool
+}
+
+func wrapStream(stream *openai.ChatCompletionStream, id string) *wrappedChatCompletionStream {
+	return &wrappedChatCompletionStream{
+		ChatCompletionStream: stream,
+		id:                   id,
+	}
+}
+
+func (w *wrappedChatCompletionStream) Recv() (openai.ChatCompletionStreamResponse, error) {
+	response, err := w.ChatCompletionStream.Recv()
+	if err != nil {
+		return response, err
+	}
+
+	// Inject the ID into the first message only
+	if !w.sentID {
+		response.ID = w.id
+		w.sentID = true
+	}
+
+	return response, nil
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -89,14 +119,22 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		log.Err(err).Msg("error creating chat completion")
 		return nil, nil, err
 	}
+	if opts.OpenAIResponseID != "" {
+		resp.ID = opts.OpenAIResponseID
+	}
 
 	return &resp, &req, nil
 }
 
 // ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
-func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
+func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*wrappedChatCompletionStream, *openai.ChatCompletionRequest, error) {
 	req.Stream = true
+
+	// Generate OpenAI response ID if not provided
+	if opts.OpenAIResponseID == "" {
+		opts.OpenAIResponseID = system.GenerateOpenAIResponseID()
+	}
 
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
@@ -155,7 +193,9 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
-	return stream, &req, nil
+	// Wrap the stream to include the ID
+	wrappedStream := wrapStream(stream, opts.OpenAIResponseID)
+	return wrappedStream, &req, nil
 }
 
 func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oai.Client, error) {
@@ -231,7 +271,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	}, true, nil
 }
 
-func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, bool, error) {
+func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*wrappedChatCompletionStream, bool, error) {
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
 		vals = &oai.ContextValues{}
@@ -283,7 +323,9 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
-	return stream, true, nil
+	// Wrap the stream with the OpenAI response ID
+	wrappedStream := wrapStream(stream, opts.OpenAIResponseID)
+	return wrappedStream, true, nil
 }
 
 func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*types.Tool, *tools.IsActionableResponse, bool, error) {

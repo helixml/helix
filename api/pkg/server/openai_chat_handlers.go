@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -83,9 +84,11 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		ownerID = oai.RunnerID
 	}
 
+	id := system.GenerateOpenAIResponseID()
+
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         ownerID,
-		SessionID:       "n/a",
+		SessionID:       id,
 		InteractionID:   "n/a",
 		OriginalRequest: body,
 	})
@@ -103,6 +106,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			}
 			return params
 		}(),
+		OpenAIResponseID: id,
 	}
 
 	if user.AppID != "" {

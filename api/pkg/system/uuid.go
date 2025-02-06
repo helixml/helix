@@ -21,6 +21,7 @@ const (
 	KnowledgeVersionPrefix    = "knov_"
 	SecretPrefix              = "sec_"
 	TestRunPrefix             = "testrun_"
+	OpenAIResponsePrefix      = "oai_"
 )
 
 func GenerateUUID() string {
@@ -33,6 +34,10 @@ func GenerateID() string {
 
 func newID() string {
 	return strings.ToLower(ulid.Make().String())
+}
+
+func GenerateOpenAIResponseID() string {
+	return fmt.Sprintf("%s%s", OpenAIResponsePrefix, newID())
 }
 
 func GenerateToolID() string {
