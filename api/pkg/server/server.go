@@ -339,6 +339,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
+	runnerRouter.HandleFunc("/runner/ws", func(w http.ResponseWriter, r *http.Request) {
+		// Directly proxies all requests to the nats websocket server running on 8433
+		proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+			Scheme: "ws",
+			Host:   fmt.Sprintf("localhost:8433"),
+		})
+		proxy.ServeHTTP(w, r)
+
+	})
 	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
