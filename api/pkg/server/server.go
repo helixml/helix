@@ -178,6 +178,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
 	router.Use(ErrorLoggingMiddleware)
 
+	// insecure router is under /api/v1 but not protected by auth
+	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
+
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
 
@@ -341,7 +344,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
 	// all these routes are secured via runner tokens
-	router.HandleFunc("test", func(w http.ResponseWriter, r *http.Request) {
+	insecureRouter.HandleFunc("/runner/{runnerid}/ws", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		runnerID := vars["runnerid"]
 		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
@@ -349,8 +352,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 		// Upgrade the incoming HTTP connection to a WebSocket connection.
 		upgrader := websocket.Upgrader{
-			// In production, you might want to check the origin!
-			CheckOrigin: func(r *http.Request) bool { return true },
+			// TODO(Phil): check origin
+			CheckOrigin: func(r *http.Request) bool {
+				log.Debug().Interface("request", r).Msg("nats check origin")
+				return true
+			},
 		}
 		clientConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -372,6 +378,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		// Start two goroutines to copy data between the client and the backend.
 		errCh := make(chan error, 2)
 
+		log.Trace().Msg("starting client to backend copy")
 		// Copy messages from the client to the backend.
 		go func() {
 			for {
@@ -387,6 +394,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 			}
 		}()
 
+		log.Trace().Msg("starting backend to client copy")
 		// Copy messages from the backend to the client.
 		go func() {
 			for {
