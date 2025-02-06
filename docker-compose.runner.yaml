@@ -9,7 +9,7 @@ services:
       - ~/.cache/huggingface:/root/.cache/huggingface
     ports:
       - ${SERVER_PORT-8081}:${SERVER_PORT-8081}
-      - 4222:4222
+      - 8443:8433
     environment:
       - LOG_LEVEL=${LOG_LEVEL-info}
       - RUNNER_ID=${RUNNER_ID-local-dev-runner}
