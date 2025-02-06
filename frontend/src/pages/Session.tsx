@@ -65,7 +65,6 @@ import { getAssistant, getAssistantAvatar, getAssistantName, getAssistantDescrip
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
-import VirtualizedInteractionList from '../components/session/VirtualizedInteractionList'
 import { generateFixtureSession } from '../utils/fixtures'
 
 const Session: FC = () => {
@@ -568,171 +567,244 @@ const Session: FC = () => {
     <Box
       sx={{
         width: '100%',
-        height: '100%',
+        height: '100vh',
         display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
+        flexDirection: 'row',
       }}
     >
+      {/* Left menu is handled by the parent layout component */}
       <Box
         sx={{
-          width: '100%',
-          flexGrow: 0,
-          py: 1,
-          px: 2,
+          flexGrow: 1,
+          height: '100vh',
           display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+          flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
-        {
-          (isOwner || account.admin) && (
-            <SessionToolbar
-              session={ session.data }
-              onReload={ session.reload }
-              onOpenMobileMenu={ () => account.setMobileMenuOpen(true) }
-            />
-          )
-        }
-      </Box>
-      {appID && apps.app && (
+        {/* Header section */}
         <Box
           sx={{
             width: '100%',
-            position: 'relative',
-            backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
-            backgroundPosition: 'top',
-            backgroundRepeat: 'no-repeat',
-            backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
-            p: 2,
+            flexShrink: 0,
+            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
           }}
         >
-          {appID && apps.app.config.helix.image && (
+          {(isOwner || account.admin) && (
+            <Box sx={{ py: 1, px: 2 }}>
+              <SessionToolbar
+                session={session.data}
+                onReload={session.reload}
+                onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+              />
+            </Box>
+          )}
+          
+          {appID && apps.app && (
             <Box
               sx={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                zIndex: 1,
+                width: '100%',
+                position: 'relative',
+                backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
+                backgroundPosition: 'top',
+                backgroundRepeat: 'no-repeat',
+                backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
+                p: 2,
               }}
-            />
-          )}
-          <Box
-            sx={{
-              position: 'relative',
-              zIndex: 2,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              pt: 4,
-              px: 2,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <IconButton
-                onClick={handleBackToCreate}
-                sx={{
-                  color: 'white',
-                  mr: 2,
-                }}
-              >
-                <ArrowBackIcon />
-              </IconButton>
-              {activeAssistantAvatar && (
-                <Avatar
-                  src={activeAssistantAvatar}
+            >
+              {appID && apps.app.config.helix.image && (
+                <Box
                   sx={{
-                    width: '80px',
-                    height: '80px',
-                    mb: 2,
-                    border: '2px solid #fff',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    zIndex: 1,
                   }}
                 />
               )}
-            </Box>
-            <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-              {activeAssistantName}
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
-              {activeAssistantDescription}
-            </Typography>
-          </Box>
-        </Box>
-      )}
-      <Box
-        sx={{
-          width: '100%',
-          flexGrow: 1,
-          position: 'relative',
-        }}
-      >
-        <Container maxWidth="lg" sx={{ height: '100%' }}>
-          {
-            session.data && (
-              <VirtualizedInteractionList
-                interactions={session.data.interactions}
-                session={session.data}
-                serverConfig={account.serverConfig}
-                highlightAllFiles={highlightAllFiles}
-                retryFinetuneErrors={retryFinetuneErrors}
-                onReloadSession={session.reload}
-                onClone={onClone}
-                onAddDocuments={onAddDocuments}
-                onRestart={onRestart}
-                onMessageChange={handleScroll}
-              />
-            )
-          }
-          {
-            !loading && (
-              <Box sx={{ mt: 2 }}>
-                <Box
-                  sx={{
-                    width: '100%',
-                    flexGrow: 0,
-                    p: 2,
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Button
-                    onClick={ () => {
-                      onUpdateSessionConfig({
-                        eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                      }, `Thank you for your feedback!`)
+              <Box
+                sx={{
+                  position: 'relative',
+                  zIndex: 2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  pt: 4,
+                  px: 2,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <IconButton
+                    onClick={handleBackToCreate}
+                    sx={{
+                      color: 'white',
+                      mr: 2,
                     }}
                   >
-                    { session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon /> }
-                  </Button>
-                  <Button
-                    onClick={ () => {
-                      onUpdateSessionConfig({
-                        eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                      }, `Sorry! We will use your feedback to improve`)
-                    }}
-                  >
-                    { session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon /> }
-                  </Button>
+                    <ArrowBackIcon />
+                  </IconButton>
+                  {activeAssistantAvatar && (
+                    <Avatar
+                      src={activeAssistantAvatar}
+                      sx={{
+                        width: '80px',
+                        height: '80px',
+                        mb: 2,
+                        border: '2px solid #fff',
+                      }}
+                    />
+                  )}
                 </Box>
-                {
-                  session.data?.config.eval_user_score != "" && ( 
+                <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                  {activeAssistantName}
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
+                  {activeAssistantDescription}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </Box>
+
+        {/* Main scrollable content area */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box
+            sx={{
+              flexGrow: 1,
+              overflowY: 'auto',
+              '&::-webkit-scrollbar': {
+                width: '4px',
+                borderRadius: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
+                borderRadius: '8px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
+              },
+            }}
+          >
+            {(() => {
+              if (!session.data || !session.data.interactions) return null;
+              const sessionData = session.data as ISession;
+
+              return (
+                <Container maxWidth="lg" sx={{ py: 2 }}>
+                  {sessionData.interactions.map((interaction, index) => {
+                    const isLastInteraction = index === sessionData.interactions.length - 1;
+                    const isLastFinetune = false; // TODO: implement this check if needed
+                    const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING;
+                    const isOwner = account.user?.id === sessionData.owner;
+
+                    return (
+                      <Interaction
+                        key={interaction.id}
+                        serverConfig={account.serverConfig}
+                        interaction={interaction}
+                        session={sessionData}
+                        highlightAllFiles={highlightAllFiles}
+                        retryFinetuneErrors={retryFinetuneErrors}
+                        onReloadSession={session.reload}
+                        onClone={onClone}
+                        onAddDocuments={isLastFinetune ? onAddDocuments : undefined}
+                        onRestart={isLastInteraction ? onRestart : undefined}
+                        headerButtons={isLastInteraction ? (
+                          <Tooltip title="Restart Session">
+                            <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
+                              <RefreshIcon
+                                sx={{
+                                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                                  '&:hover': {
+                                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                                  },
+                                }}
+                              />
+                            </IconButton>
+                          </Tooltip>
+                        ) : undefined}
+                      >
+                        {isLive && (isOwner || account.admin) && (
+                          <InteractionLiveStream
+                            session_id={sessionData.id}
+                            interaction={interaction}
+                            session={sessionData}
+                            serverConfig={account.serverConfig}
+                            hasSubscription={account.userConfig.stripe_subscription_active || false}
+                            onMessageChange={handleScroll}
+                          />
+                        )}
+                      </Interaction>
+                    );
+                  })}
+                </Container>
+              );
+            })()}
+          </Box>
+
+          {/* Fixed bottom section */}
+          <Box
+            sx={{
+              flexShrink: 0,
+              borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+              bgcolor: theme.palette.background.default,
+            }}
+          >
+            {!loading && (
+              <Container maxWidth="lg">
+                <Box sx={{ py: 2 }}>
+                  <Box
+                    sx={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mb: 2,
+                    }}
+                  >
+                    <Button
+                      onClick={() => {
+                        onUpdateSessionConfig({
+                          eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                        }, `Thank you for your feedback!`)
+                      }}
+                    >
+                      {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        onUpdateSessionConfig({
+                          eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                        }, `Sorry! We will use your feedback to improve`)
+                      }}
+                    >
+                      {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                    </Button>
+                  </Box>
+
+                  {session.data?.config.eval_user_score != "" && (
                     <Box
                       sx={{
                         width: '100%',
-                        flexGrow: 0,
-                        p: 2,
                         display: 'flex',
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        mb: 2,
                       }}
                     >
                       <TextField
@@ -743,309 +815,234 @@ const Session: FC = () => {
                         name="ai_feedback"
                       />
                       <Button
-                        variant='contained'
+                        variant="contained"
                         disabled={loading}
-                        onClick={ () => onUpdateSessionConfig({
-                            eval_user_reason: feedbackValue,
-                          }, `Thanks, you are awesome`)
-                        }
+                        onClick={() => onUpdateSessionConfig({
+                          eval_user_reason: feedbackValue,
+                        }, `Thanks, you are awesome`)}
                         sx={{ ml: 2 }}
                       >
                         Save
                       </Button>
                     </Box>
-                  )
-                }
-              </Box>
-            )
-          }
-          {
-            account.admin && account.user?.id && account.user?.id != session.data.owner && (
-              <Box
-                sx={{
-                  width: '100%',
-                  flexGrow: 0,
-                  p: 1,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <ClickLink
-                  sx={{
-                    textDecoration: 'underline',
-                  }}
-                  onClick={ () => setShowCloneAllWindow(true) }
-                >
-                  Clone All
-                </ClickLink>
-              </Box>
-            )
-          }
-        </Container>
-      </Box>
-      <Box
-        sx={{
-          width: '100%',
-          flexGrow: 0,
-          p: 2,
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Container
-          maxWidth="xl"
-        >
-          <Row>
-            <Cell flexGrow={1}>
-            <TextField
-              id="textEntry"
-              fullWidth
-              inputRef={textFieldRef}
-              label={(
-                (
-                  session.data?.type == SESSION_TYPE_TEXT ?
-                    session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
-                    'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                ) + " (shift+enter to add a newline)"
-              )}
-              value={inputValue}
-              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-              onChange={handleInputChange}
-              name="ai_submit"
-              multiline={true}
-              onKeyDown={handleKeyDown}
-              InputProps={{
-                startAdornment: isBigScreen && (
-                  activeAssistant ? (
-                    activeAssistantAvatar ? (
-                      <Avatar
-                        src={activeAssistantAvatar}
-                        sx={{
-                          width: '30px',
-                          height: '30px',
-                          mr: 1,
+                  )}
+
+                  <Row>
+                    <Cell flexGrow={1}>
+                      <TextField
+                        id="textEntry"
+                        fullWidth
+                        inputRef={textFieldRef}
+                        label={(
+                          (
+                            session.data?.type == SESSION_TYPE_TEXT ?
+                              session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
+                              'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                          ) + " (shift+enter to add a newline)"
+                        )}
+                        value={inputValue}
+                        disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                        onChange={handleInputChange}
+                        name="ai_submit"
+                        multiline={true}
+                        onKeyDown={handleKeyDown}
+                        InputProps={{
+                          startAdornment: isBigScreen && (
+                            activeAssistant ? (
+                              activeAssistantAvatar ? (
+                                <Avatar
+                                  src={activeAssistantAvatar}
+                                  sx={{
+                                    width: '30px',
+                                    height: '30px',
+                                    mr: 1,
+                                  }}
+                                />
+                              ) : null
+                            ) : null
+                          ),
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                id="send-button"
+                                aria-label="send"
+                                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                                onClick={() => onSend(inputValue)}
+                                sx={{
+                                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                                }}
+                              >
+                                <SendIcon />
+                              </IconButton>
+                            </InputAdornment>
+                          ),
                         }}
                       />
-                    ) : null
-                  ) : null
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      id="send-button"
-                      aria-label="send"
-                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                      onClick={() => onSend(inputValue)}
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                      }}
-                     >
-                      <SendIcon />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-            </Cell>
-          </Row>
-          <Box
-            sx={{
-              mt: 2,
-            }}
-          >
-            <Disclaimer />
+                    </Cell>
+                  </Row>
+                  <Box sx={{ mt: 2 }}>
+                    <Disclaimer />
+                  </Box>
+                </Box>
+              </Container>
+            )}
           </Box>
-          
-        </Container>
-        
+        </Box>
       </Box>
 
-      {
-        router.params.cloneInteraction && (
-          <Window
-            open
-            size="sm"
-            title={`Clone ${session.data.name}?`}
-            withCancel
-            submitTitle="Clone"
-            onSubmit={ () => {
-              session.clone(sessionID, router.params.cloneInteraction)
-            } }
-            onCancel={ () => {
-              router.removeParams(['cloneInteraction'])
-            }}
-          >
-            <Typography gutterBottom>
-              Are you sure you want to clone {session.data.name} from this point in time?
-            </Typography>
-            <Typography variant="caption" gutterBottom>
-              This will create a new session.
-            </Typography>
-          </Window>
-        )
-      }
+      {/* Windows/Modals */}
+      {router.params.cloneInteraction && (
+        <Window
+          open
+          size="sm"
+          title={`Clone ${session.data.name}?`}
+          withCancel
+          submitTitle="Clone"
+          onSubmit={() => {
+            session.clone(sessionID, router.params.cloneInteraction)
+          }}
+          onCancel={() => {
+            router.removeParams(['cloneInteraction'])
+          }}
+        >
+          <Typography gutterBottom>
+            Are you sure you want to clone {session.data.name} from this point in time?
+          </Typography>
+          <Typography variant="caption" gutterBottom>
+            This will create a new session.
+          </Typography>
+        </Window>
+      )}
 
-      {
-        router.params.addDocuments && session.data && (
-          <AddFilesWindow
-            session={ session.data }
-            onClose={ (filesAdded) => {
-              router.removeParams(['addDocuments'])
-              if(filesAdded) {
-                session.reload()
-              }
-            } }
-          />
-        )
-      }
+      {router.params.addDocuments && session.data && (
+        <AddFilesWindow
+          session={session.data}
+          onClose={(filesAdded) => {
+            router.removeParams(['addDocuments'])
+            if (filesAdded) {
+              session.reload()
+            }
+          }}
+        />
+      )}
 
-      {
-        router.params.sharing && session.data && (
-          <ShareSessionWindow
-            session={ session.data }
-            onShare={ async () => true }
-            onUpdateSharing={ onUpdateSharing }
-            onCancel={ () => {
-              router.removeParams(['sharing'])
-            }}
-          />
-        )
-      }
-      
-      {
-        restartWindowOpen && (
-          <SimpleConfirmWindow
-            title="Restart Session"
-            message="Are you sure you want to restart this session?"
-            confirmTitle="Restart"
-            onCancel={ () => setRestartWindowOpen(false) }
-            onSubmit={ onRestartConfirm }
-          />
-        )
-      }
-      {
-        showLoginWindow && (
-          <Window
-            open
-            size="md"
-            title="Please login to continue"
-            onCancel={ () => {
-              setShowLoginWindow(false)
-            }}
-            onSubmit={ proceedToLogin }
-            withCancel
-            cancelTitle="Close"
-            submitTitle="Login / Register"
-           >
-            <Typography gutterBottom>
-              You can login with your Google account or with your email address.
-            </Typography>
-            <Typography>
-              This session will be cloned into your account and you can continue from there.
-            </Typography>
-          </Window>
-        )
-      }
-      {
-        showCloneWindow && (
-          <Window
-            open
-            size="md"
-            title="Clone Session?"
-            onCancel={ () => {
-              setShowCloneWindow(false)
-            }}
-            onSubmit={ onCloneIntoAccount }
-            withCancel
-            cancelTitle="Close"
-            submitTitle="Clone Session"
-          >
-            <Typography>
-              This session will be cloned into your account where you will be able to continue this session.
-            </Typography>
-          </Window>
-        )
-      }
-      {
-        showCloneAllWindow && (
-          <Window
-            open
-            size="md"
-            title="Clone All?"
-            onCancel={ () => {
-              setShowCloneAllWindow(false)
-            }}
-            withCancel
-            cancelTitle="Close"
-          >
-            <Box
-              sx={{
-                p: 2,
-                width: '100%',
-              }}
-            >
-              <Row>
+      {router.params.sharing && session.data && (
+        <ShareSessionWindow
+          session={session.data}
+          onShare={async () => true}
+          onUpdateSharing={onUpdateSharing}
+          onCancel={() => {
+            router.removeParams(['sharing'])
+          }}
+        />
+      )}
+
+      {restartWindowOpen && (
+        <SimpleConfirmWindow
+          title="Restart Session"
+          message="Are you sure you want to restart this session?"
+          confirmTitle="Restart"
+          onCancel={() => setRestartWindowOpen(false)}
+          onSubmit={onRestartConfirm}
+        />
+      )}
+
+      {showLoginWindow && (
+        <Window
+          open
+          size="md"
+          title="Please login to continue"
+          onCancel={() => {
+            setShowLoginWindow(false)
+          }}
+          onSubmit={proceedToLogin}
+          withCancel
+          cancelTitle="Close"
+          submitTitle="Login / Register"
+        >
+          <Typography gutterBottom>
+            You can login with your Google account or with your email address.
+          </Typography>
+          <Typography>
+            This session will be cloned into your account and you can continue from there.
+          </Typography>
+        </Window>
+      )}
+
+      {showCloneWindow && (
+        <Window
+          open
+          size="md"
+          title="Clone Session?"
+          onCancel={() => {
+            setShowCloneWindow(false)
+          }}
+          onSubmit={onCloneIntoAccount}
+          withCancel
+          cancelTitle="Close"
+          submitTitle="Clone Session"
+        >
+          <Typography>
+            This session will be cloned into your account where you will be able to continue this session.
+          </Typography>
+        </Window>
+      )}
+
+      {showCloneAllWindow && (
+        <Window
+          open
+          size="md"
+          title="Clone All?"
+          onCancel={() => {
+            setShowCloneAllWindow(false)
+          }}
+          withCancel
+          cancelTitle="Close"
+        >
+          <Box sx={{ p: 2, width: '100%' }}>
+            <Row>
+              <Cell grow>
+                <Typography>
+                  Clone the session into your account:
+                </Typography>
+              </Cell>
+              <Cell sx={{ width: '300px', textAlign: 'right' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={loading}
+                  onClick={() => onCloneAllIntoAccount(false)}
+                  sx={{ ml: 2, width: '200px' }}
+                  endIcon={<SendIcon />}
+                >
+                  your account
+                </Button>
+              </Cell>
+            </Row>
+            {account.serverConfig.eval_user_id && (
+              <Row sx={{ mt: 2 }}>
                 <Cell grow>
                   <Typography>
-                    Clone the session into your account:
+                    Clone the session into the evals account:
                   </Typography>
                 </Cell>
-                <Cell sx={{
-                  width: '300px',
-                  textAlign: 'right',
-                }}>
+                <Cell sx={{ width: '300px', textAlign: 'right' }}>
                   <Button
                     size="small"
-                    variant='contained'
+                    variant="contained"
                     disabled={loading}
-                    onClick={ () => onCloneAllIntoAccount(false) }
-                    sx={{ ml: 2, width: '200px', }}
+                    onClick={() => onCloneAllIntoAccount(true)}
+                    sx={{ ml: 2, width: '200px' }}
                     endIcon={<SendIcon />}
                   >
-                    your account
+                    evals account
                   </Button>
                 </Cell>
               </Row>
-              {
-                // if we know about an eval user then give the option to clone into that account
-                account.serverConfig.eval_user_id && (
-                  <Row
-                    sx={{
-                      mt: 2,
-                    }}
-                  >
-                    <Cell grow>
-                      <Typography>
-                        Clone the session into the evals account:
-                      </Typography>
-                    </Cell>
-                    <Cell sx={{
-                      width: '300px',
-                      textAlign: 'right',
-                    }}>
-                      <Button
-                        size="small"
-                        variant='contained'
-                        disabled={loading}
-                        onClick={ () => onCloneAllIntoAccount(true) }
-                        sx={{ ml: 2, width: '200px', }}
-                        endIcon={<SendIcon />}
-                      >
-                        evals account
-                      </Button>
-                    </Cell>
-                  </Row>
-                )
-              }
-              
-            </Box>
-          </Window>
-        )
-      }
+            )}
+          </Box>
+        </Window>
+      )}
     </Box>
   )
 }
