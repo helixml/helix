@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -249,7 +250,12 @@ func NewInMemoryNats() (*Nats, error) {
 	return NewNats(cfg)
 }
 
-func NewNatsClient(url string, token string) (*Nats, error) {
+func NewNatsClient(u string, token string) (*Nats, error) {
+	// Parse the URL to get the host and path
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL: %w", err)
+	}
 
 	opts := []nats.Option{
 		nats.Token(token),
@@ -257,11 +263,11 @@ func NewNatsClient(url string, token string) (*Nats, error) {
 		nats.RetryOnFailedConnect(false),
 		nats.MaxReconnects(-1), // Infinite reconnects
 		nats.ReconnectWait(time.Second * 2),
-		nats.ProxyPath("/test"),
+		nats.ProxyPath(parsedURL.Path),
 	}
 
-	log.Info().Str("url", url).Msg("connecting to nats")
-	nc, err := nats.Connect(url, opts...)
+	log.Info().Str("url", parsedURL.String()).Msg("connecting to nats")
+	nc, err := nats.Connect(parsedURL.String(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
