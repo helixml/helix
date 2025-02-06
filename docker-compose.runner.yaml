@@ -9,7 +9,6 @@ services:
       - ~/.cache/huggingface:/root/.cache/huggingface
     ports:
       - ${SERVER_PORT-8081}:${SERVER_PORT-8081}
-      - 8443:8433
     environment:
       - LOG_LEVEL=${LOG_LEVEL-info}
       - RUNNER_ID=${RUNNER_ID-local-dev-runner}
@@ -21,10 +20,6 @@ services:
       - SERVER_HOST=${SERVER_HOST-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT-8081}
       - CACHE_DIR=${CACHE_DIR-/root/.cache/huggingface}
-      - NATS_CLIENT_HOST=${NATS_CLIENT_HOST-localhost}
-      - NATS_CLIENT_PORT=${NATS_CLIENT_PORT-8433}
-      - NATS_CLIENT_TOKEN=${NATS_CLIENT_TOKEN-oh-hallo-insecure-token}
-      - NATS_CLIENT_NO_TLS=${NATS_CLIENT_NO_TLS-true}
     env_file:
       - .env
     deploy:
