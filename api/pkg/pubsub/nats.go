@@ -142,7 +142,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		nc, err = nats.Connect(ns.ClientURL(), opts...)
 	} else {
 		// Connect to external server
-		serverURL := fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)
+		serverURL := fmt.Sprintf("nats://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)
 		opts := []nats.Option{}
 		if cfg.PubSub.Server.Token != "" {
 			opts = append(opts, nats.Token(cfg.PubSub.Server.Token))

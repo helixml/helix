@@ -47,6 +47,12 @@ func NewRunnerOptions() *RunnerOptions {
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
 				Port: getDefaultServeOptionInt("SERVER_PORT", 80),
 			},
+			NatsClient: runner.NatsClient{
+				NoTLS: getDefaultServeOptionBool("NATS_CLIENT_NO_TLS", false),
+				Host:  getDefaultServeOptionString("NATS_CLIENT_HOST", "localhost"),
+				Port:  getDefaultServeOptionInt("NATS_CLIENT_PORT", 8433),
+				Token: getDefaultServeOptionString("NATS_CLIENT_TOKEN", "oh-hallo-insecure-token"),
+			},
 		},
 		Janitor: config.Janitor{
 			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),

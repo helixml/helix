@@ -78,12 +78,20 @@ type Options struct {
 	// never run more than this number of model instances
 	MaxModelInstances int
 
-	WebServer WebServer
+	WebServer  WebServer
+	NatsClient NatsClient
 }
 
 type WebServer struct {
 	Host string `envconfig:"SERVER_HOST" default:"127.0.0.1" description:"The host to bind the api server to."`
 	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
+}
+
+type NatsClient struct {
+	NoTLS bool
+	Host  string
+	Port  int
+	Token string
 }
 
 type Runner struct {
@@ -131,7 +139,13 @@ func NewRunner(
 		return nil, err
 	}
 
-	ps, err := pubsub.NewNatsClient("localhost:4222", options.APIToken)
+	natsProtocol := "wss"
+	if options.NatsClient.NoTLS {
+		natsProtocol = "ws"
+	}
+	natsServerURL := fmt.Sprintf("%s://%s:%d", natsProtocol, options.NatsClient.Host, options.NatsClient.Port)
+
+	ps, err := pubsub.NewNatsClient(natsServerURL, options.NatsClient.Token)
 	if err != nil {
 		return nil, err
 	}
