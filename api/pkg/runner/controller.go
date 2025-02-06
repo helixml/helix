@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
@@ -134,14 +133,6 @@ func NewRunner(
 
 	// Build the URL to the nats server
 	natsServerURL := fmt.Sprintf("ws://%s/api/v1/runner/%s/ws", options.APIHost, options.ID)
-
-	// Connect to the nats server with dial to make sure it's routable
-	dialer := websocket.Dialer{}
-	_, _, err = dialer.Dial(natsServerURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	log.Info().Msgf("Connecting to nats server: %s", natsServerURL)
 	ps, err := pubsub.NewNatsClient(natsServerURL, options.APIToken)
 	if err != nil {
