@@ -355,7 +355,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		upgrader := websocket.Upgrader{
 			// TODO(Phil): check origin
 			CheckOrigin: func(r *http.Request) bool {
-				log.Debug().Interface("request", r).Msg("nats check origin")
+				log.Debug().Interface("headers", r.Header).Interface("vars", r.RemoteAddr).Msg("nats check origin")
 				return true
 			},
 		}
@@ -379,7 +379,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		// Start two goroutines to copy data between the client and the backend.
 		errCh := make(chan error, 2)
 
-		log.Trace().Msg("starting client to backend copy")
 		// Copy messages from the client to the backend.
 		go func() {
 			for {
@@ -395,7 +394,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 			}
 		}()
 
-		log.Trace().Msg("starting backend to client copy")
 		// Copy messages from the backend to the client.
 		go func() {
 			for {
