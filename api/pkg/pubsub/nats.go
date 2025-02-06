@@ -100,12 +100,18 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	// Create and start embedded server if we're not connecting to an external one
 	if cfg.PubSub.Server.Host == "0.0.0.0" {
 		opts := &server.Options{
-			Host:          cfg.PubSub.Server.Host,
-			Port:          cfg.PubSub.Server.Port,
+			Host:          "localhost",
+			Port:          4222,
 			JetStream:     cfg.PubSub.Server.JetStream,
 			StoreDir:      cfg.PubSub.StoreDir,
 			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
 			Authorization: cfg.PubSub.Server.Token,
+			AllowNonTLS:   true, // TLS is terminated at the reverse proxy
+			Websocket: server.WebsocketOpts{
+				Host:  cfg.PubSub.Server.Host,
+				Port:  cfg.PubSub.Server.Port,
+				NoTLS: true,
+			},
 		}
 
 		// Initialize new server with options
@@ -115,7 +121,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		}
 
 		// Start the server via goroutine
-		log.Info().Str("url", ns.ClientURL()).Msg("starting nats server")
+		log.Info().Str("internal_url", ns.ClientURL()).Str("external_url", fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)).Msg("starting nats server")
 		go ns.Start()
 
 		// Wait for server to be ready for connections
@@ -135,7 +141,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		nc, err = nats.Connect(ns.ClientURL(), opts...)
 	} else {
 		// Connect to external server
-		serverURL := fmt.Sprintf("nats://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)
+		serverURL := fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)
 		opts := []nats.Option{}
 		if cfg.PubSub.Server.Token != "" {
 			opts = append(opts, nats.Token(cfg.PubSub.Server.Token))

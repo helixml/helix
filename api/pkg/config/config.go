@@ -240,7 +240,7 @@ type PubSub struct {
 	Provider string `envconfig:"PUBSUB_PROVIDER" default:"nats" description:"The pubsub provider to use (nats or inmemory)."`
 	Server   struct {
 		Host       string `envconfig:"NATS_SERVER_HOST" default:"0.0.0.0" description:"The host to bind the NATS server to."`
-		Port       int    `envconfig:"NATS_SERVER_PORT" default:"4222" description:"The port to bind the NATS server to."`
+		Port       int    `envconfig:"NATS_SERVER_PORT" default:"8433" description:"The port to bind the NATS server to."`
 		Token      string `envconfig:"NATS_SERVER_TOKEN" description:"The authentication token for the NATS server."`
 		MaxPayload int    `envconfig:"NATS_SERVER_MAX_PAYLOAD" default:"33554432" description:"The maximum payload size in bytes (default 32MB)."`
 		JetStream  bool   `envconfig:"NATS_SERVER_JETSTREAM" default:"true" description:"Whether to enable JetStream."`
