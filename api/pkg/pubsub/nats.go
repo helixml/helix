@@ -252,14 +252,10 @@ func NewInMemoryNats() (*Nats, error) {
 func NewNatsClient(url string, token string) (*Nats, error) {
 	opts := []nats.Option{
 		nats.Token(token),
-		nats.RetryOnFailedConnect(true),
+		nats.Timeout(time.Second * 2),
+		nats.RetryOnFailedConnect(false),
 		nats.MaxReconnects(-1), // Infinite reconnects
 		nats.ReconnectWait(time.Second * 2),
-		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			if err != nil {
-				log.Warn().Err(err).Msg("nats disconnected due to error")
-			}
-		}),
 	}
 
 	log.Info().Str("url", url).Msg("connecting to nats")
