@@ -138,6 +138,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		if cfg.PubSub.Server.Token != "" {
 			opts = append(opts, nats.Token(cfg.PubSub.Server.Token))
 		}
+		log.Info().Str("url", ns.ClientURL()).Msg("connecting to embedded nats")
 		nc, err = nats.Connect(ns.ClientURL(), opts...)
 	} else {
 		// Connect to external server
@@ -146,6 +147,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		if cfg.PubSub.Server.Token != "" {
 			opts = append(opts, nats.Token(cfg.PubSub.Server.Token))
 		}
+		log.Info().Str("url", serverURL).Msg("connecting to external nats")
 		nc, err = nats.Connect(serverURL, opts...)
 	}
 	if err != nil {
