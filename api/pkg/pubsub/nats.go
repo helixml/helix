@@ -262,6 +262,7 @@ func NewNatsClient(url string, token string) (*Nats, error) {
 		}),
 	}
 
+	log.Info().Str("url", url).Msg("connecting to nats")
 	nc, err := nats.Connect(url, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
