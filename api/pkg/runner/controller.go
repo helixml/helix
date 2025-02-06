@@ -136,8 +136,8 @@ func NewRunner(
 		Host:  options.APIHost,
 		Token: options.APIToken,
 	}
-	natsAPIPath := system.GetAPIPath(fmt.Sprintf("/runner/%s/ws", options.ID))
-	natsServerURL := system.WSURL(clientOptions, natsAPIPath)
+	// natsAPIPath := system.GetAPIPath(fmt.Sprintf("/runner/%s/ws", options.ID))
+	natsServerURL := system.WSURL(clientOptions, "/test")
 	log.Info().Msgf("Connecting to nats server: %s", natsServerURL)
 	ps, err := pubsub.NewNatsClient(natsServerURL, options.APIToken)
 	if err != nil {
