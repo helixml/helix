@@ -21,6 +21,7 @@ services:
       - SERVER_HOST=${SERVER_HOST-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT-8081}
       - CACHE_DIR=${CACHE_DIR-/root/.cache/huggingface}
+      - NATS_SERVER_HOST=${NATS_SERVER_HOST-localhost}
     env_file:
       - .env
     deploy:
