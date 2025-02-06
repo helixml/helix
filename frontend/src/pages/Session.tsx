@@ -65,6 +65,8 @@ import { getAssistant, getAssistantAvatar, getAssistantName, getAssistantDescrip
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
+import VirtualizedInteractionList from '../components/session/VirtualizedInteractionList'
+import { generateFixtureSession } from '../utils/fixtures'
 
 const Session: FC = () => {
   const snackbar = useSnackbar()
@@ -438,11 +440,18 @@ const Session: FC = () => {
     // before then asking for the shared session
     if(!account.initialized) return
     if(sessionID) {
-      session.loadSession(sessionID)
+      if (router.params.fixturemode === 'true') {
+        // Use fixture data instead of loading from API
+        const fixtureSession = generateFixtureSession(300) // Generate 300 interactions
+        session.setData(fixtureSession)
+      } else {
+        session.loadSession(sessionID)
+      }
     }
   }, [
     account.initialized,
     sessionID,
+    router.params.fixturemode,
   ])
 
   // this is for where we tried to do something to a shared session
@@ -657,95 +666,32 @@ const Session: FC = () => {
         </Box>
       )}
       <Box
-        id="helix-session-scroller"
-        ref={ divRef }
         sx={{
           width: '100%',
           flexGrow: 1,
-          overflowY: 'auto',
-          p: 2,
-          '&::-webkit-scrollbar': {
-            width: '4px',
-            borderRadius: '8px',
-            my: 2,
-          },
-          '&::-webkit-scrollbar-track': {
-            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-            borderRadius: '8px',
-          },
-          '&::-webkit-scrollbar-thumb:hover': {
-            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-          },
+          position: 'relative',
         }}
       >
-        <Container maxWidth="lg">
+        <Container maxWidth="lg" sx={{ height: '100%' }}>
           {
             session.data && (
-              <>
-                {
-                  session.data?.interactions.map((interaction: any, i: number) => {
-                    const isLastFinetune = lastFinetuneInteraction && lastFinetuneInteraction.id == interaction.id
-                    const interactionsLength = session.data?.interactions.length || 0
-                    const isLastInteraction = i == interactionsLength - 1
-                    const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
-
-                    if(!session.data) return null
-                    return (
-                      <Interaction
-                        key={ i }
-                        serverConfig={ account.serverConfig }
-                        interaction={ interaction }
-                        session={ session.data }
-                        highlightAllFiles={ highlightAllFiles }
-                        retryFinetuneErrors={ retryFinetuneErrors }
-                        headerButtons={ isLastInteraction ? (
-                          <Tooltip title="Restart Session">
-                            <IconButton onClick={ onRestart }  sx={{ mb: '0.5rem' }} >
-                              <RefreshIcon
-                                sx={{
-                                  color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                                  '&:hover': {
-                                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                                  },
-                                  
-                                }}
-                              />
-                            </IconButton>
-                          </Tooltip>
-                          
-                        ) : undefined }
-                        
-                        onReloadSession={ () => session.reload() }
-                        onClone={ onClone }
-                        onAddDocuments={ isLastFinetune ? onAddDocuments : undefined }
-                        onRestart={ isLastInteraction ? onRestart : undefined }
-                      >
-                        
-                        {
-                          isLive && (isOwner || account.admin) && (
-                            <InteractionLiveStream
-                              session_id={ session.data.id }
-                              interaction={ interaction }
-                              session={ session.data }
-                              serverConfig={ account.serverConfig }
-                              hasSubscription={ account.userConfig.stripe_subscription_active ? true : false }
-                              onMessageChange={ handleScroll }
-                            />
-                          )
-                        }
-                      </Interaction>
-                    )   
-                  })
-                }
-              </>    
+              <VirtualizedInteractionList
+                interactions={session.data.interactions}
+                session={session.data}
+                serverConfig={account.serverConfig}
+                highlightAllFiles={highlightAllFiles}
+                retryFinetuneErrors={retryFinetuneErrors}
+                onReloadSession={session.reload}
+                onClone={onClone}
+                onAddDocuments={onAddDocuments}
+                onRestart={onRestart}
+                onMessageChange={handleScroll}
+              />
             )
           }
           {
             !loading && (
-              <>
+              <Box sx={{ mt: 2 }}>
                 <Box
                   sx={{
                     width: '100%',
@@ -810,12 +756,10 @@ const Session: FC = () => {
                     </Box>
                   )
                 }
-              </>
+              </Box>
             )
           }
           {
-            // if we are an admin and the session is not ours then show the "clone all" button
-            // so we can copy it for debug/eval purposes
             account.admin && account.user?.id && account.user?.id != session.data.owner && (
               <Box
                 sx={{
