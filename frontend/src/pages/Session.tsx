@@ -101,7 +101,7 @@ const Session: FC = () => {
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
-  const divRef = useRef<HTMLDivElement>()
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const [highlightAllFiles, setHighlightAllFiles] = useState(false)
   const [showCloneWindow, setShowCloneWindow] = useState(false)
@@ -120,7 +120,6 @@ const Session: FC = () => {
   const [isInitialScroll, setIsInitialScroll] = useState(true)
   const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const observerRef = useRef<IntersectionObserver | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
 
   // Add a lastSessionId ref to track session changes
   const lastSessionIdRef = useRef<string | null>(null)
@@ -128,6 +127,9 @@ const Session: FC = () => {
   const [isLoadingBlock, setIsLoadingBlock] = useState(false)
   const lastLoadScrollPositionRef = useRef<number>(0)
   const lastScrollHeightRef = useRef<number>(0)
+
+  // Add new state to track if we're currently streaming
+  const [isStreaming, setIsStreaming] = useState(false)
 
   // Reset initial scroll when session changes
   useEffect(() => {
@@ -148,7 +150,7 @@ const Session: FC = () => {
         setIsInitialScroll(false)
       }
     })
-  }, [isInitialScroll, session.data?.interactions, visibleBlocks])
+  }, [isInitialScroll, session.data?.interactions])
 
   // Function to get block key
   const getBlockKey = useCallback((startIndex: number, endIndex: number) => {
@@ -180,16 +182,20 @@ const Session: FC = () => {
     const firstBlock = visibleBlocks[0]
     const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
     
+    // If we're already at the start or would be adding the same content, return early
     if (newStartIndex >= firstBlock.startIndex) return
-
-    // Get current scroll position and scroll height before adding content
-    const container = containerRef.current
-    const scrollTop = container.scrollTop
-    const scrollHeight = container.scrollHeight
+    
+    // If we're already showing all interactions, return early
+    if (firstBlock.startIndex === 0) return
 
     // Set loading lock
     setIsLoadingBlock(true)
     
+    // Store current scroll info before adding content
+    const container = containerRef.current
+    const scrollTop = container.scrollTop
+    const scrollHeight = container.scrollHeight
+
     setVisibleBlocks(prev => [{
       startIndex: newStartIndex,
       endIndex: firstBlock.startIndex,
@@ -203,15 +209,17 @@ const Session: FC = () => {
         const newScrollHeight = containerRef.current.scrollHeight
         // Calculate height of new content
         const addedHeight = newScrollHeight - scrollHeight
-        // Adjust scroll position to maintain view
-        containerRef.current.scrollTop = scrollTop + addedHeight
+        // Only adjust scroll if we actually added new content
+        if (addedHeight > 0) {
+          containerRef.current.scrollTop = scrollTop + addedHeight
+        }
       }
+      
+      // Release lock after the scroll adjustment
+      setTimeout(() => {
+        setIsLoadingBlock(false)
+      }, SCROLL_LOCK_DELAY)
     })
-
-    // Release lock after delay
-    setTimeout(() => {
-      setIsLoadingBlock(false)
-    }, SCROLL_LOCK_DELAY)
   }, [
     session.data?.interactions,
     visibleBlocks,
@@ -229,7 +237,11 @@ const Session: FC = () => {
 
     observerRef.current = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
-        if (entry.isIntersecting && entry.target.id === 'virtual-space-above') {
+        // Only trigger if we're actually intersecting with the virtual space
+        // and we're not at the start of the interactions
+        if (entry.isIntersecting && 
+            entry.target.id === 'virtual-space-above' && 
+            visibleBlocks[0]?.startIndex > 0) {
           addBlocksAbove()
         }
       })
@@ -685,26 +697,96 @@ const Session: FC = () => {
     }
   }, [session.data])
 
-  // Memoize callback functions
-  const handleScroll = useMemo(() => throttle(() => {
-    const divElement = divRef.current
-    if(!divElement) return
-    const scrollHeight = divElement.scrollHeight;
-    const isScrolledToBottom = divElement.scrollHeight - divElement.clientHeight === divElement.scrollTop;
-    if (!isScrolledToBottom) {
-      setTimeout(() => {
-        divElement.scrollTo({ top: scrollHeight, behavior: 'smooth' });
-      }, 50)
+  // Function to scroll to bottom of container
+  const scrollToBottom = useCallback(() => {
+    if (!containerRef.current) return
+    const container = containerRef.current
+    container.scrollTop = container.scrollHeight - container.clientHeight
+  }, [])
+
+  // Handle streaming state and auto-scrolling
+  useEffect(() => {
+    if (!session.data?.interactions || session.data.interactions.length === 0) return
+    
+    const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
+    const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
+    
+    setIsStreaming(isCurrentlyStreaming)
+    
+    if (isCurrentlyStreaming) {
+      // When streaming, initialize the visible blocks to show just the current interaction
+      const currentIndex = session.data.interactions.length - 1
+      setVisibleBlocks([{
+        startIndex: currentIndex,
+        endIndex: currentIndex + 1,
+        isGhost: false
+      }])
+      
+      // Ensure we're scrolled to bottom during streaming
+      requestAnimationFrame(scrollToBottom)
+    } else {
+      // When streaming ends, reinitialize the blocks to show the full content
+      initializeVisibleBlocks()
     }
-  }, 100, {
-    leading: true,
-    trailing: true,
-  }), [])
+  }, [session.data?.interactions, scrollToBottom])
 
-  // Update the renderInteractions logic
+  // Modify the container styles
+  const containerStyles = useMemo(() => ({
+    flexGrow: 1,
+    overflowY: isStreaming ? 'hidden' : 'auto',
+    transition: 'overflow-y 0.3s ease',
+    scrollBehavior: 'smooth',
+    '&::-webkit-scrollbar': {
+      width: '4px',
+      borderRadius: '8px',
+    },
+    '&::-webkit-scrollbar-track': {
+      background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
+    },
+    '&::-webkit-scrollbar-thumb': {
+      background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
+      borderRadius: '8px',
+    },
+    '&::-webkit-scrollbar-thumb:hover': {
+      background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
+    },
+  }), [theme.palette.mode, themeConfig, isStreaming])
+
+  // Modify the renderInteractions logic
   const renderInteractions = useMemo(() => {
-    if (!sessionData || !sessionData.interactions) return null;
+    if (!sessionData || !sessionData.interactions) return null
 
+    // During streaming, we only show the current interaction
+    if (isStreaming) {
+      const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
+      return (
+        <Container maxWidth="lg" sx={{ py: 2 }}>
+          <Interaction
+            key={currentInteraction.id}
+            serverConfig={account.serverConfig}
+            interaction={currentInteraction}
+            session={sessionData}
+            highlightAllFiles={highlightAllFiles}
+            retryFinetuneErrors={retryFinetuneErrors}
+            onReloadSession={session.reload}
+            onClone={onClone}
+            onAddDocuments={onAddDocuments}
+            onRestart={onRestart}
+          >
+            <InteractionLiveStream
+              session_id={sessionData.id}
+              interaction={currentInteraction}
+              session={sessionData}
+              serverConfig={account.serverConfig}
+              hasSubscription={account.userConfig.stripe_subscription_active || false}
+              onMessageChange={scrollToBottom}
+            />
+          </Interaction>
+        </Container>
+      )
+    }
+
+    // Normal virtualized rendering for non-streaming state
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
 
     // Group consecutive ghost blocks
@@ -712,7 +794,7 @@ const Session: FC = () => {
     let currentGhostGroup: IInteractionBlock & { totalHeight: number } | null = null
 
     visibleBlocks.forEach(block => {
-      if (block.isGhost) {
+      if (block.isGhost && !isStreaming) {
         if (currentGhostGroup) {
           currentGhostGroup.totalHeight += (block.height || 0)
           currentGhostGroup.endIndex = block.endIndex
@@ -810,7 +892,7 @@ const Session: FC = () => {
                         session={sessionData}
                         serverConfig={account.serverConfig}
                         hasSubscription={account.userConfig.stripe_subscription_active || false}
-                        onMessageChange={handleScroll}
+                        onMessageChange={scrollToBottom}
                       />
                     )}
                   </Interaction>
@@ -840,9 +922,10 @@ const Session: FC = () => {
     themeConfig.darkIcon,
     themeConfig.lightIconHover,
     themeConfig.darkIconHover,
-    handleScroll,
+    scrollToBottom,
     getBlockKey,
-    isLoadingBlock
+    isLoadingBlock,
+    isStreaming
   ])
 
   useEffect(() => {
@@ -1115,24 +1198,7 @@ const Session: FC = () => {
         >
           <Box
             ref={containerRef}
-            sx={{
-              flexGrow: 1,
-              overflowY: 'auto',
-              '&::-webkit-scrollbar': {
-                width: '4px',
-                borderRadius: '8px',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-                borderRadius: '8px',
-              },
-              '&::-webkit-scrollbar-thumb:hover': {
-                background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-              },
-            }}
+            sx={containerStyles}
           >
             {renderInteractions}
           </Box>
