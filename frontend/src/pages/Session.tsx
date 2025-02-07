@@ -102,6 +102,8 @@ const Session: FC = () => {
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const lastScrollTimeRef = useRef<number>(0)
 
   const [highlightAllFiles, setHighlightAllFiles] = useState(false)
   const [showCloneWindow, setShowCloneWindow] = useState(false)
@@ -117,7 +119,6 @@ const Session: FC = () => {
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
   const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  const observerRef = useRef<IntersectionObserver | null>(null)
 
   const [isLoadingBlock, setIsLoadingBlock] = useState(false)
   const lastLoadScrollPositionRef = useRef<number>(0)
@@ -704,19 +705,42 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Add scrollToBottom function
+  // Add scrollToBottom function with debouncing logic
   const scrollToBottom = useCallback(() => {
     if (!containerRef.current) return
-    containerRef.current.scrollTo({
-      top: containerRef.current.scrollHeight,
-      behavior: 'smooth'
-    })
+    
+    const now = Date.now()
+    const timeSinceLastScroll = now - lastScrollTimeRef.current
+    const SCROLL_DEBOUNCE = 200
+
+    // If this is our first scroll or it's been longer than our debounce period
+    if (lastScrollTimeRef.current === 0 || timeSinceLastScroll >= SCROLL_DEBOUNCE) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+      lastScrollTimeRef.current = now
+    } else {
+      // Wait for the remaining time before scrolling
+      const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
+      setTimeout(() => {
+        if (!containerRef.current) return
+        containerRef.current.scrollTo({
+          top: containerRef.current.scrollHeight,
+          behavior: 'smooth'
+        })
+        lastScrollTimeRef.current = Date.now()
+      }, waitTime)
+    }
   }, [])
 
   // Add effect to handle final scroll when streaming ends
   useEffect(() => {
     // Only trigger when streaming changes from true to false
     if (isStreaming) return
+    
+    // Reset the scroll timer when streaming ends
+    lastScrollTimeRef.current = 0
     
     // Wait for the bottom bar and final content to render
     const timer = setTimeout(() => {
