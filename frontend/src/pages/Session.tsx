@@ -126,6 +126,33 @@ const Session: FC = () => {
   // Add new state to track if we're currently streaming
   const [isStreaming, setIsStreaming] = useState(false)
 
+  // Add state to track which session we've auto-scrolled
+  const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
+
+  // Add effect to handle auto-scrolling when session changes
+  useEffect(() => {
+    // Return early if no session ID
+    if (!sessionID) return
+    
+    // Return early if session data hasn't loaded yet
+    if (!session.data?.interactions) return
+
+    // Return early if we've already auto-scrolled this session
+    if (sessionID === autoScrolledSessionId) return
+
+    // Set a small timeout to ensure content is rendered
+    setTimeout(() => {
+      if (!containerRef.current) return
+      
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }, 200) // Small timeout to ensure content is rendered
+
+    setAutoScrolledSessionId(sessionID)
+  }, [sessionID, session.data, autoScrolledSessionId])
+
   // Function to get block key
   const getBlockKey = useCallback((startIndex: number, endIndex: number) => {
     return `${startIndex}-${endIndex}`
