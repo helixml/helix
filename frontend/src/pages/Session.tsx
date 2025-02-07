@@ -441,7 +441,7 @@ const Session: FC = () => {
     if(sessionID) {
       if (router.params.fixturemode === 'true') {
         // Use fixture data instead of loading from API
-        const fixtureSession = generateFixtureSession(300) // Generate 300 interactions
+        const fixtureSession = generateFixtureSession(1000) // Generate 1000 interactions
         session.setData(fixtureSession)
       } else {
         session.loadSession(sessionID)
