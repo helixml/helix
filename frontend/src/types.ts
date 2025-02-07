@@ -372,21 +372,20 @@ export interface ISlotAttributesWorkload {
 }
 
 export interface ISessionSummary {
-  id: string,
-  created_at: string,
-  updated_at: string,
-  // scheduled_at: string,
-  // completed_at: string,
-  // session_id: string,
-  // name: string,
-  // interaction_id: string,
-  // model_name: string,
-  // mode: ISessionMode,
-  // type: ISessionType,
-  // owner: string,
-  // lora_dir?: string,
-  // summary: string,
-  // app_id?: string,
+  created: string,
+  updated: string,
+  scheduled: string,
+  completed: string,
+  session_id: string,
+  name: string,
+  interaction_id: string,
+  model_name: string,
+  mode: ISessionMode,
+  type: ISessionType,
+  owner: string,
+  lora_dir?: string,
+  summary: string,
+  app_id?: string,
 }
 
 export interface ISessionMetaUpdate {
