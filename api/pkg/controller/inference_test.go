@@ -74,7 +74,15 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
-	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, nil)
+	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
+		PubSub: suite.pubsub,
+		FS:     filestoreMock,
+	})
+	suite.NoError(err)
+	schedulerParams := &scheduler.Params{
+		RunnerController: runnerController,
+	}
+	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
 	suite.NoError(err)
 
 	c, err := NewController(context.Background(), Options{

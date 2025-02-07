@@ -78,6 +78,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
 			StoreDir: suite.T().TempDir(),
+			Provider: string(pubsub.ProviderMemory),
 		},
 	})
 	suite.NoError(err)
@@ -96,7 +97,15 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	providerManager := manager.NewMockProviderManager(ctrl)
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
 
-	scheduler, err := scheduler.NewScheduler(context.Background(), cfg, nil)
+	runnerController, err := scheduler.NewRunnerController(context.Background(), &scheduler.RunnerControllerConfig{
+		PubSub: suite.pubsub,
+		FS:     filestoreMock,
+	})
+	suite.NoError(err)
+	schedulerParams := &scheduler.Params{
+		RunnerController: runnerController,
+	}
+	scheduler, err := scheduler.NewScheduler(context.Background(), cfg, schedulerParams)
 	suite.NoError(err)
 	c, err := controller.NewController(context.Background(), controller.Options{
 		Config:          cfg,

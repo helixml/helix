@@ -44,6 +44,12 @@ type Params struct {
 }
 
 func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *Params) (*Scheduler, error) {
+	if params == nil {
+		params = &Params{}
+	}
+	if params.RunnerController == nil {
+		return nil, fmt.Errorf("runner controller is required")
+	}
 	modelTTL := serverConfig.Providers.Helix.ModelTTL
 	if modelTTL == 0 {
 		modelTTL = 10 * time.Second
