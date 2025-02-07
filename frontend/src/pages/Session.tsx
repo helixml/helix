@@ -164,16 +164,29 @@ const Session: FC = () => {
     if (!session.data?.interactions || session.data.interactions.length === 0) return
 
     const totalInteractions = session.data.interactions.length
-    const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-    const endIndex = totalInteractions
-
-    // Just set the blocks without any scrolling side effects
-    setVisibleBlocks([{
-      startIndex,
-      endIndex,
-      isGhost: false
-    }])
-  }, [session.data?.interactions])
+    
+    // If we're streaming, we want to show a continuous block from the most recent visible interaction
+    if (isStreaming) {
+      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1]
+      const startIndex = lastVisibleBlock 
+        ? lastVisibleBlock.startIndex 
+        : Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+      
+      setVisibleBlocks([{
+        startIndex,
+        endIndex: totalInteractions,
+        isGhost: false
+      }])
+    } else {
+      // Normal initialization for non-streaming state
+      const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+      setVisibleBlocks([{
+        startIndex,
+        endIndex: totalInteractions,
+        isGhost: false
+      }])
+    }
+  }, [session.data?.interactions, isStreaming, visibleBlocks])
 
   // Handle streaming state
   useEffect(() => {
@@ -742,7 +755,37 @@ const Session: FC = () => {
     return () => clearTimeout(timer)
   }, [isStreaming])
 
-  // Modify renderInteractions to remove onStreamingComplete
+  // Add new effect for handling streaming state transitions
+  useEffect(() => {
+    if (!isStreaming && session.data?.interactions) {
+      // When streaming ends, ensure we have continuous blocks
+      setVisibleBlocks(prev => {
+        const totalInteractions = session.data!.interactions.length
+        const lastBlock = prev[prev.length - 1]
+        
+        if (!lastBlock) {
+          return [{
+            startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
+            endIndex: totalInteractions,
+            isGhost: false
+          }]
+        }
+
+        // Ensure the last block extends to include the new interaction
+        return prev.map((block, index) => {
+          if (index === prev.length - 1) {
+            return {
+              ...block,
+              endIndex: totalInteractions
+            }
+          }
+          return block
+        })
+      })
+    }
+  }, [isStreaming, session.data?.interactions])
+
+  // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
 
@@ -756,7 +799,6 @@ const Session: FC = () => {
       
       return (
         <Container maxWidth="lg" sx={{ py: 2 }}>
-          {/* Show a message if there are more interactions above */}
           {startIndex > 0 && (
             <Typography 
               variant="body2" 
@@ -770,7 +812,6 @@ const Session: FC = () => {
             </Typography>
           )}
 
-          {/* Render previous interactions */}
           {previousInteractions.map(interaction => (
             <Interaction
               key={interaction.id}
@@ -786,7 +827,6 @@ const Session: FC = () => {
             />
           ))}
           
-          {/* Render the streaming response */}
           <Interaction
             key={currentInteraction.id}
             serverConfig={account.serverConfig}
@@ -817,7 +857,7 @@ const Session: FC = () => {
 
     return (
       <Container maxWidth="lg" sx={{ py: 2 }}>
-        {hasMoreAbove && (
+        {hasMoreAbove && !isStreaming && (
           <div
             id="virtual-space-above"
             style={{ 
