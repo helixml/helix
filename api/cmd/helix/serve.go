@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -243,12 +244,34 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	var appController *controller.Controller
+
 	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
 		RunnerController: runnerController,
 		QueueSize:        100,
 		OnSchedulingErr: func(work *scheduler.Workload, err error) {
-			// TODO(Phil): we don't do anything with this yet. We need to write to the session error handler.
-			log.Error().Err(err).Str("id", work.ID()).Msg("error scheduling work")
+			if appController != nil {
+				switch work.WorkloadType {
+				case scheduler.WorkloadTypeLLMInferenceRequest:
+					request := work.LLMInferenceRequest()
+					response := types.RunnerNatsReplyResponse{
+						OwnerID:   request.OwnerID,
+						RequestID: request.RequestID,
+						Error:     err.Error(),
+						Response:  []byte{},
+					}
+					bts, err := json.Marshal(response)
+					if err != nil {
+						log.Error().Err(err).Msg("error marshalling runner response")
+					}
+					err = ps.Publish(ctx, pubsub.GetRunnerResponsesQueue(request.OwnerID, request.RequestID), bts)
+					if err != nil {
+						log.Error().Err(err).Msg("error publishing runner response")
+					}
+				case scheduler.WorkloadTypeSession:
+					appController.ErrorSession(ctx, work.Session(), err)
+				}
+			}
 		},
 		OnResponseHandler: func(_ context.Context, _ *types.RunnerLLMInferenceResponse) error {
 			return nil
@@ -302,8 +325,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
-
-	var appController *controller.Controller
 
 	controllerOptions := controller.Options{
 		Config:               cfg,

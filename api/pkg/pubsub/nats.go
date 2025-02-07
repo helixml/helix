@@ -103,8 +103,8 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		opts := &server.Options{
 			Debug:         true,
 			Trace:         true,
-			Host:          cfg.PubSub.Server.Host,
-			Port:          cfg.PubSub.Server.Port,
+			Host:          "127.0.0.1", // For internal use only
+			Port:          -1,          // Random port
 			JetStream:     cfg.PubSub.Server.JetStream,
 			StoreDir:      cfg.PubSub.StoreDir,
 			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),

@@ -899,8 +899,8 @@ func (c *Controller) pubsubHandler(session *types.Session, payload []byte) error
 
 	log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
 
-	if runnerResp.Error != nil {
-		return fmt.Errorf("runner error: %w", runnerResp.Error)
+	if runnerResp.Error != "" {
+		return fmt.Errorf("runner error: %s", runnerResp.Error)
 	}
 
 	if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {

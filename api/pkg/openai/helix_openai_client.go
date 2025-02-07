@@ -99,8 +99,8 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
 
-		if runnerResp.Error != nil {
-			respError = fmt.Errorf("runner error: %w", runnerResp.Error)
+		if runnerResp.Error != "" {
+			respError = fmt.Errorf("runner error: %s", runnerResp.Error)
 		}
 
 		err = json.Unmarshal(runnerResp.Response, &resp)
@@ -193,8 +193,8 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
 
-		if runnerResp.Error != nil {
-			respError = fmt.Errorf("runner error: %w", runnerResp.Error)
+		if runnerResp.Error != "" {
+			respError = fmt.Errorf("runner error: %s", runnerResp.Error)
 		}
 
 		// First chunk received, ready to return the stream or the error

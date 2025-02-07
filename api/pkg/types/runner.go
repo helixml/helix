@@ -87,7 +87,7 @@ type RunnerNatsReplyResponse struct {
 	SessionID     string
 	InteractionID string
 	DurationMs    int64
-	Error         error // Set if there was an error
+	Error         string // Set if there was an error
 	Response      []byte
 }
 

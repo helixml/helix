@@ -158,23 +158,29 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 
 	log.Debug().Str("slot_id", slot.ID.String()).Msg("creating slot")
 
-	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
-	// long as the cli is running
-	s, err := CreateSlot(apiServer.cliContext, CreateSlotParams{
-		RunnerOptions: apiServer.runnerOptions,
-		ID:            slot.ID,
-		Runtime:       slot.Attributes.Runtime,
-		Model:         slot.Attributes.Model,
-	})
-	if err != nil {
-		if strings.Contains(err.Error(), "pull model manifest: file does not exist") {
-			http.Error(w, err.Error(), http.StatusNotFound)
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Run this in a goroutine, because pulling a model might take some time
+	go func() {
+		// Must pass the context from the cli to ensure that the underlying runtime continues to run so
+		// long as the cli is running
+		s, err := CreateSlot(apiServer.cliContext, CreateSlotParams{
+			RunnerOptions: apiServer.runnerOptions,
+			ID:            slot.ID,
+			Runtime:       slot.Attributes.Runtime,
+			Model:         slot.Attributes.Model,
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "pull model manifest: file does not exist") {
+				http.Error(w, err.Error(), http.StatusNotFound)
+			} else {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
 		}
-		return
-	}
-	apiServer.slots[slot.ID] = s
+
+		apiServer.slotsMtx.Lock()
+		defer apiServer.slotsMtx.Unlock()
+		apiServer.slots[slot.ID] = s
+	}()
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
