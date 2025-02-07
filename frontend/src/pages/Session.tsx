@@ -758,11 +758,47 @@ const Session: FC = () => {
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
 
-    // During streaming, we only show the current interaction
+    // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
     if (isStreaming) {
       const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
+      
+      // Calculate how many previous interactions to show
+      const startIndex = Math.max(0, sessionData.interactions.length - 1 - INTERACTIONS_PER_BLOCK)
+      const previousInteractions = sessionData.interactions.slice(startIndex, sessionData.interactions.length - 1)
+      
       return (
         <Container maxWidth="lg" sx={{ py: 2 }}>
+          {/* Show a message if there are more interactions above */}
+          {startIndex > 0 && (
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                textAlign: 'center', 
+                color: 'text.secondary',
+                mb: 2
+              }}
+            >
+              Previous messages hidden...
+            </Typography>
+          )}
+
+          {/* Render previous interactions */}
+          {previousInteractions.map(interaction => (
+            <Interaction
+              key={interaction.id}
+              serverConfig={account.serverConfig}
+              interaction={interaction}
+              session={sessionData}
+              highlightAllFiles={highlightAllFiles}
+              retryFinetuneErrors={retryFinetuneErrors}
+              onReloadSession={session.reload}
+              onClone={onClone}
+              onAddDocuments={undefined}
+              onRestart={undefined}
+            />
+          ))}
+          
+          {/* Render the streaming response */}
           <Interaction
             key={currentInteraction.id}
             serverConfig={account.serverConfig}
