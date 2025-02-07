@@ -704,7 +704,33 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Modify renderInteractions to include the virtual space div
+  // Add scrollToBottom function
+  const scrollToBottom = useCallback(() => {
+    if (!containerRef.current) return
+    containerRef.current.scrollTo({
+      top: containerRef.current.scrollHeight,
+      behavior: 'smooth'
+    })
+  }, [])
+
+  // Add effect to handle final scroll when streaming ends
+  useEffect(() => {
+    // Only trigger when streaming changes from true to false
+    if (isStreaming) return
+    
+    // Wait for the bottom bar and final content to render
+    const timer = setTimeout(() => {
+      if (!containerRef.current) return
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [isStreaming])
+
+  // Modify renderInteractions to remove onStreamingComplete
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
 
@@ -731,6 +757,7 @@ const Session: FC = () => {
               session={sessionData}
               serverConfig={account.serverConfig}
               hasSubscription={account.userConfig.stripe_subscription_active || false}
+              onMessageUpdate={scrollToBottom}
             />
           </Interaction>
         </Container>
@@ -852,7 +879,8 @@ const Session: FC = () => {
     themeConfig.darkIconHover,
     getBlockKey,
     isLoadingBlock,
-    isStreaming
+    isStreaming,
+    scrollToBottom
   ])
 
   useEffect(() => {
