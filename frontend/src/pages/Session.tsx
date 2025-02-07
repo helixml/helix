@@ -174,7 +174,7 @@ const Session: FC = () => {
     }])
   }, [session.data?.interactions])
 
-  // Handle streaming state and auto-scrolling
+  // Handle streaming state
   useEffect(() => {
     if (!session.data?.interactions || session.data.interactions.length === 0) return
     
@@ -184,21 +184,13 @@ const Session: FC = () => {
     setIsStreaming(isCurrentlyStreaming)
     
     if (isCurrentlyStreaming) {
-      // When streaming, show the last two interactions (user question + current response)
-      const startIndex = Math.max(0, session.data.interactions.length - 2)
+      // When streaming, initialize the visible blocks to show just the current interaction
+      const currentIndex = session.data.interactions.length - 1
       setVisibleBlocks([{
-        startIndex,
-        endIndex: session.data.interactions.length,
+        startIndex: currentIndex,
+        endIndex: currentIndex + 1,
         isGhost: false
       }])
-
-      // When in streaming mode, always scroll to bottom when content updates
-      // Use requestAnimationFrame to ensure we get the latest content height
-      requestAnimationFrame(() => {
-        if (!containerRef.current) return
-        // Force an immediate scroll to bottom
-        containerRef.current.scrollTop = containerRef.current.scrollHeight
-      })
     }
   }, [session.data?.interactions])
 
@@ -603,11 +595,11 @@ const Session: FC = () => {
     }
   }, [session.data])
 
-  // Modify the container styles to be consistent in both modes
+  // Modify the container styles
   const containerStyles = useMemo(() => ({
     flexGrow: 1,
-    overflowY: 'auto',
-    scrollBehavior: 'smooth',
+    overflowY: isStreaming ? 'hidden' : 'auto',
+    transition: 'overflow-y 0.3s ease',
     '&::-webkit-scrollbar': {
       width: '4px',
       borderRadius: '8px',
@@ -622,7 +614,7 @@ const Session: FC = () => {
     '&::-webkit-scrollbar-thumb:hover': {
       background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
     },
-  }), [theme.palette.mode, themeConfig])
+  }), [theme.palette.mode, themeConfig, isStreaming])
 
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
@@ -712,41 +704,35 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Modify renderInteractions to show both question and response in streaming mode
+  // Modify renderInteractions to include the virtual space div
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
 
-    // During streaming, show both the user's question and the current response
-    if (isStreaming && sessionData.interactions.length > 0) {
-      const currentIndex = sessionData.interactions.length - 1
-      const interactions = sessionData.interactions.slice(Math.max(0, currentIndex - 1), currentIndex + 1)
-      
+    // During streaming, we only show the current interaction
+    if (isStreaming) {
+      const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
       return (
         <Container maxWidth="lg" sx={{ py: 2 }}>
-          {interactions.map(interaction => (
-            <Interaction
-              key={interaction.id}
-              serverConfig={account.serverConfig}
-              interaction={interaction}
+          <Interaction
+            key={currentInteraction.id}
+            serverConfig={account.serverConfig}
+            interaction={currentInteraction}
+            session={sessionData}
+            highlightAllFiles={highlightAllFiles}
+            retryFinetuneErrors={retryFinetuneErrors}
+            onReloadSession={session.reload}
+            onClone={onClone}
+            onAddDocuments={onAddDocuments}
+            onRestart={onRestart}
+          >
+            <InteractionLiveStream
+              session_id={sessionData.id}
+              interaction={currentInteraction}
               session={sessionData}
-              highlightAllFiles={highlightAllFiles}
-              retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={session.reload}
-              onClone={onClone}
-              onAddDocuments={onAddDocuments}
-              onRestart={onRestart}
-            >
-              {interaction.id === sessionData.interactions[currentIndex].id && (
-                <InteractionLiveStream
-                  session_id={sessionData.id}
-                  interaction={interaction}
-                  session={sessionData}
-                  serverConfig={account.serverConfig}
-                  hasSubscription={account.userConfig.stripe_subscription_active || false}
-                />
-              )}
-            </Interaction>
-          ))}
+              serverConfig={account.serverConfig}
+              hasSubscription={account.userConfig.stripe_subscription_active || false}
+            />
+          </Interaction>
         </Container>
       )
     }
