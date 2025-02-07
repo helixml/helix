@@ -234,20 +234,18 @@ const Session: FC = () => {
       })
     }, options)
 
+    // Immediately observe the virtual space div if it exists
+    const virtualSpaceDiv = document.getElementById('virtual-space-above')
+    if (virtualSpaceDiv && observerRef.current) {
+      observerRef.current.observe(virtualSpaceDiv)
+    }
+
     return () => {
       if (observerRef.current) {
         observerRef.current.disconnect()
       }
     }
-  }, [addBlocksAbove])
-
-  // Observe virtual space div whenever it's created/updated
-  useEffect(() => {
-    const virtualSpaceDiv = document.getElementById('virtual-space-above')
-    if (virtualSpaceDiv && observerRef.current) {
-      observerRef.current.observe(virtualSpaceDiv)
-    }
-  }, [visibleBlocks])
+  }, [addBlocksAbove, visibleBlocks])
 
   // Measure block heights
   useEffect(() => {
