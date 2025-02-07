@@ -79,7 +79,7 @@ interface IInteractionBlock {
 const VIRTUAL_SPACE_HEIGHT = 500 // pixels
 const INTERACTIONS_PER_BLOCK = 20
 const SCROLL_LOCK_DELAY = 500 // ms
-const VIEWPORT_BUFFER = 1 // Number of blocks to keep rendered above and below viewport
+const VIEWPORT_BUFFER = 2 // Increased from 1 to 2 to keep more blocks rendered
 const MIN_SCROLL_DISTANCE = 200 // pixels
 
 const Session: FC = () => {
@@ -258,8 +258,28 @@ const Session: FC = () => {
 
     // Convert blocks outside viewport to ghost blocks
     setVisibleBlocks(prev => {
-      let inViewportFound = false
       let totalHeightAbove = 0
+
+      // Find the indices of visible blocks
+      const visibleIndices = prev.reduce((acc, block, index) => {
+        const blockKey = getBlockKey(block.startIndex, block.endIndex)
+        const blockHeight = blockHeights[blockKey] || 0
+        const blockTop = totalHeightAbove
+        const blockBottom = blockTop + blockHeight
+        totalHeightAbove += blockHeight
+
+        if (blockTop <= containerBottom && blockBottom >= containerTop) {
+          acc.push(index)
+        }
+        return acc
+      }, [] as number[])
+
+      // Get the range of blocks that should be rendered
+      const firstVisibleIndex = Math.min(...visibleIndices)
+      const lastVisibleIndex = Math.max(...visibleIndices)
+      
+      // Reset totalHeightAbove for the actual mapping
+      totalHeightAbove = 0
 
       return prev.map((block, index) => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
@@ -270,18 +290,17 @@ const Session: FC = () => {
         const blockBottom = blockTop + blockHeight
         totalHeightAbove += blockHeight
 
-        // Check if block is in or near viewport
+        // Check if block should be rendered based on viewport and buffer
         const isNearViewport = (
           // Block is partially in viewport
           (blockTop <= containerBottom && blockBottom >= containerTop) ||
-          // Or block is within buffer range
-          (index >= Math.max(0, prev.findIndex(b => !b.isGhost) - VIEWPORT_BUFFER) &&
-           index <= Math.min(prev.length - 1, prev.findIndex(b => !b.isGhost) + VIEWPORT_BUFFER))
+          // Or block is within buffer range of any visible block
+          (index >= firstVisibleIndex - VIEWPORT_BUFFER && 
+           index <= lastVisibleIndex + VIEWPORT_BUFFER)
         )
 
         // If block is near viewport, ensure it's rendered (not a ghost)
         if (isNearViewport) {
-          inViewportFound = true
           return {
             ...block,
             isGhost: false
