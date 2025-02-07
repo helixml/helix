@@ -112,17 +112,12 @@ const Session: FC = () => {
   const [inputValue, setInputValue] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
-  // TODO: set assistant_id to the value which we need to add to the session struct
   const [assistantID, setAssistantID] = useState<string | null>(null)
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
-  const [isInitialScroll, setIsInitialScroll] = useState(true)
   const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const observerRef = useRef<IntersectionObserver | null>(null)
-
-  // Add a lastSessionId ref to track session changes
-  const lastSessionIdRef = useRef<string | null>(null)
 
   const [isLoadingBlock, setIsLoadingBlock] = useState(false)
   const lastLoadScrollPositionRef = useRef<number>(0)
@@ -130,27 +125,6 @@ const Session: FC = () => {
 
   // Add new state to track if we're currently streaming
   const [isStreaming, setIsStreaming] = useState(false)
-
-  // Reset initial scroll when session changes
-  useEffect(() => {
-    if (sessionID !== lastSessionIdRef.current) {
-      setIsInitialScroll(true)
-      lastSessionIdRef.current = sessionID
-    }
-  }, [sessionID])
-
-  // Scroll to bottom on initial load or session change
-  useEffect(() => {
-    if (!isInitialScroll || !containerRef.current || !session.data?.interactions) return
-    
-    // Use requestAnimationFrame to ensure DOM has updated
-    requestAnimationFrame(() => {
-      if (containerRef.current) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight
-        setIsInitialScroll(false)
-      }
-    })
-  }, [isInitialScroll, session.data?.interactions])
 
   // Function to get block key
   const getBlockKey = useCallback((startIndex: number, endIndex: number) => {
@@ -165,6 +139,7 @@ const Session: FC = () => {
     const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
     const endIndex = totalInteractions
 
+    // Just set the blocks without any scrolling side effects
     setVisibleBlocks([{
       startIndex,
       endIndex,
@@ -172,95 +147,27 @@ const Session: FC = () => {
     }])
   }, [session.data?.interactions])
 
-  // Function to add blocks above
-  const addBlocksAbove = useCallback(() => {
-    if (!session.data?.interactions) return
-    if (visibleBlocks.length === 0) return
-    if (isLoadingBlock) return
-    if (!containerRef.current) return
-
-    const firstBlock = visibleBlocks[0]
-    const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
-    
-    // If we're already at the start or would be adding the same content, return early
-    if (newStartIndex >= firstBlock.startIndex) return
-    
-    // If we're already showing all interactions, return early
-    if (firstBlock.startIndex === 0) return
-
-    // Set loading lock
-    setIsLoadingBlock(true)
-    
-    // Store current scroll info before adding content
-    const container = containerRef.current
-    const scrollTop = container.scrollTop
-    const scrollHeight = container.scrollHeight
-
-    setVisibleBlocks(prev => [{
-      startIndex: newStartIndex,
-      endIndex: firstBlock.startIndex,
-      isGhost: false
-    }, ...prev])
-
-    // After the DOM updates, adjust scroll position
-    requestAnimationFrame(() => {
-      if (containerRef.current) {
-        // Get new scroll height
-        const newScrollHeight = containerRef.current.scrollHeight
-        // Calculate height of new content
-        const addedHeight = newScrollHeight - scrollHeight
-        // Only adjust scroll if we actually added new content
-        if (addedHeight > 0) {
-          containerRef.current.scrollTop = scrollTop + addedHeight
-        }
-      }
-      
-      // Release lock after the scroll adjustment
-      setTimeout(() => {
-        setIsLoadingBlock(false)
-      }, SCROLL_LOCK_DELAY)
-    })
-  }, [
-    session.data?.interactions,
-    visibleBlocks,
-    isLoadingBlock
-  ])
-
-  // Setup intersection observer
+  // Handle streaming state
   useEffect(() => {
-    if (!containerRef.current) return
-
-    const options = {
-      root: containerRef.current,
-      threshold: 0.1
+    if (!session.data?.interactions || session.data.interactions.length === 0) return
+    
+    const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
+    const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
+    
+    setIsStreaming(isCurrentlyStreaming)
+    
+    if (isCurrentlyStreaming) {
+      // When streaming, initialize the visible blocks to show just the current interaction
+      const currentIndex = session.data.interactions.length - 1
+      setVisibleBlocks([{
+        startIndex: currentIndex,
+        endIndex: currentIndex + 1,
+        isGhost: false
+      }])
     }
+  }, [session.data?.interactions])
 
-    observerRef.current = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        // Only trigger if we're actually intersecting with the virtual space
-        // and we're not at the start of the interactions
-        if (entry.isIntersecting && 
-            entry.target.id === 'virtual-space-above' && 
-            visibleBlocks[0]?.startIndex > 0) {
-          addBlocksAbove()
-        }
-      })
-    }, options)
-
-    // Immediately observe the virtual space div if it exists
-    const virtualSpaceDiv = document.getElementById('virtual-space-above')
-    if (virtualSpaceDiv && observerRef.current) {
-      observerRef.current.observe(virtualSpaceDiv)
-    }
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect()
-      }
-    }
-  }, [addBlocksAbove, visibleBlocks])
-
-  // Track which blocks are in viewport
+  // Track which blocks are in viewport - simplify to just track visibility
   const updateVisibleBlocksInViewport = useCallback(() => {
     if (!containerRef.current) return
 
@@ -268,32 +175,10 @@ const Session: FC = () => {
     const containerTop = container.scrollTop
     const containerBottom = containerTop + container.clientHeight
 
-    // Convert blocks outside viewport to ghost blocks
     setVisibleBlocks(prev => {
       let totalHeightAbove = 0
 
-      // Find the indices of visible blocks
-      const visibleIndices = prev.reduce((acc, block, index) => {
-        const blockKey = getBlockKey(block.startIndex, block.endIndex)
-        const blockHeight = blockHeights[blockKey] || 0
-        const blockTop = totalHeightAbove
-        const blockBottom = blockTop + blockHeight
-        totalHeightAbove += blockHeight
-
-        if (blockTop <= containerBottom && blockBottom >= containerTop) {
-          acc.push(index)
-        }
-        return acc
-      }, [] as number[])
-
-      // Get the range of blocks that should be rendered
-      const firstVisibleIndex = Math.min(...visibleIndices)
-      const lastVisibleIndex = Math.max(...visibleIndices)
-      
-      // Reset totalHeightAbove for the actual mapping
-      totalHeightAbove = 0
-
-      return prev.map((block, index) => {
+      return prev.map(block => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
         const blockHeight = blockHeights[blockKey] || 0
         
@@ -304,32 +189,15 @@ const Session: FC = () => {
 
         // Check if block should be rendered based on viewport and buffer
         const isNearViewport = (
-          // Block is partially in viewport
-          (blockTop <= containerBottom && blockBottom >= containerTop) ||
-          // Or block is within buffer range of any visible block
-          (index >= firstVisibleIndex - VIEWPORT_BUFFER && 
-           index <= lastVisibleIndex + VIEWPORT_BUFFER)
+          blockTop <= containerBottom + (VIEWPORT_BUFFER * blockHeight) && 
+          blockBottom >= containerTop - (VIEWPORT_BUFFER * blockHeight)
         )
 
-        // If block is near viewport, ensure it's rendered (not a ghost)
-        if (isNearViewport) {
-          return {
-            ...block,
-            isGhost: false
-          }
+        return {
+          ...block,
+          isGhost: !isNearViewport && blockHeight > 0,
+          height: blockHeight
         }
-
-        // If we have the height, convert to ghost
-        if (blockHeight > 0) {
-          return {
-            ...block,
-            isGhost: true,
-            height: blockHeight
-          }
-        }
-
-        // Keep block rendered if we don't have its height yet
-        return block
       })
     })
   }, [blockHeights, getBlockKey])
@@ -352,27 +220,30 @@ const Session: FC = () => {
     updateVisibleBlocksInViewport()
   }, [blockHeights, updateVisibleBlocksInViewport])
 
-  // Measure block heights
+  // Measure block heights without affecting scroll
   useEffect(() => {
-    visibleBlocks.forEach(block => {
-      if (block.isGhost) return
-      
-      const key = getBlockKey(block.startIndex, block.endIndex)
-      const element = blockRefs.current[key]
-      
-      if (element && !blockHeights[key]) {
-        setBlockHeights(prev => ({
-          ...prev,
-          [key]: element.offsetHeight
-        }))
-      }
+    requestAnimationFrame(() => {
+      visibleBlocks.forEach(block => {
+        if (block.isGhost) return
+        
+        const key = getBlockKey(block.startIndex, block.endIndex)
+        const element = blockRefs.current[key]
+        
+        if (element && !blockHeights[key]) {
+          setBlockHeights(prev => ({
+            ...prev,
+            [key]: element.offsetHeight
+          }))
+        }
+      })
     })
   }, [visibleBlocks, blockHeights, getBlockKey])
 
-  // Initialize blocks on session load
+  // Initialize blocks only once when session data first loads
   useEffect(() => {
+    if (!session.data?.interactions) return
     initializeVisibleBlocks()
-  }, [initializeVisibleBlocks])
+  }, [session.data?.id]) // Only run when session ID changes
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -697,45 +568,11 @@ const Session: FC = () => {
     }
   }, [session.data])
 
-  // Function to scroll to bottom of container
-  const scrollToBottom = useCallback(() => {
-    if (!containerRef.current) return
-    const container = containerRef.current
-    container.scrollTop = container.scrollHeight - container.clientHeight
-  }, [])
-
-  // Handle streaming state and auto-scrolling
-  useEffect(() => {
-    if (!session.data?.interactions || session.data.interactions.length === 0) return
-    
-    const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
-    const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
-    
-    setIsStreaming(isCurrentlyStreaming)
-    
-    if (isCurrentlyStreaming) {
-      // When streaming, initialize the visible blocks to show just the current interaction
-      const currentIndex = session.data.interactions.length - 1
-      setVisibleBlocks([{
-        startIndex: currentIndex,
-        endIndex: currentIndex + 1,
-        isGhost: false
-      }])
-      
-      // Ensure we're scrolled to bottom during streaming
-      requestAnimationFrame(scrollToBottom)
-    } else {
-      // When streaming ends, reinitialize the blocks to show the full content
-      initializeVisibleBlocks()
-    }
-  }, [session.data?.interactions, scrollToBottom])
-
   // Modify the container styles
   const containerStyles = useMemo(() => ({
     flexGrow: 1,
     overflowY: isStreaming ? 'hidden' : 'auto',
     transition: 'overflow-y 0.3s ease',
-    scrollBehavior: 'smooth',
     '&::-webkit-scrollbar': {
       width: '4px',
       borderRadius: '8px',
@@ -752,8 +589,96 @@ const Session: FC = () => {
     },
   }), [theme.palette.mode, themeConfig, isStreaming])
 
-  // Modify the renderInteractions logic
-  const renderInteractions = useMemo(() => {
+  // Function to add blocks above when scrolling up
+  const addBlocksAbove = useCallback(() => {
+    if (!session.data?.interactions) return
+    if (visibleBlocks.length === 0) return
+    if (isLoadingBlock) return
+    if (!containerRef.current) return
+
+    const firstBlock = visibleBlocks[0]
+    const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
+    
+    // If we're already at the start or would be adding the same content, return early
+    if (newStartIndex >= firstBlock.startIndex) return
+    
+    // If we're already showing all interactions, return early
+    if (firstBlock.startIndex === 0) return
+
+    // Set loading lock
+    setIsLoadingBlock(true)
+    
+    // Store current scroll info before adding content
+    const container = containerRef.current
+    const scrollTop = container.scrollTop
+    const scrollHeight = container.scrollHeight
+
+    setVisibleBlocks(prev => [{
+      startIndex: newStartIndex,
+      endIndex: firstBlock.startIndex,
+      isGhost: false
+    }, ...prev])
+
+    // After the DOM updates, adjust scroll position to maintain scroll position
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        // Get new scroll height
+        const newScrollHeight = containerRef.current.scrollHeight
+        // Calculate height of new content
+        const addedHeight = newScrollHeight - scrollHeight
+        // Only adjust scroll if we actually added new content
+        if (addedHeight > 0) {
+          containerRef.current.scrollTop = scrollTop + addedHeight
+        }
+      }
+      
+      // Release lock after the scroll adjustment
+      setTimeout(() => {
+        setIsLoadingBlock(false)
+      }, SCROLL_LOCK_DELAY)
+    })
+  }, [
+    session.data?.interactions,
+    visibleBlocks,
+    isLoadingBlock
+  ])
+
+  // Setup intersection observer to detect when we need to load more blocks
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const options = {
+      root: containerRef.current,
+      threshold: 0.1
+    }
+
+    observerRef.current = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        // Only trigger if we're actually intersecting with the virtual space
+        // and we're not at the start of the interactions
+        if (entry.isIntersecting && 
+            entry.target.id === 'virtual-space-above' && 
+            visibleBlocks[0]?.startIndex > 0) {
+          addBlocksAbove()
+        }
+      })
+    }, options)
+
+    // Immediately observe the virtual space div if it exists
+    const virtualSpaceDiv = document.getElementById('virtual-space-above')
+    if (virtualSpaceDiv && observerRef.current) {
+      observerRef.current.observe(virtualSpaceDiv)
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect()
+      }
+    }
+  }, [addBlocksAbove, visibleBlocks])
+
+  // Modify renderInteractions to include the virtual space div
+  const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
 
     // During streaming, we only show the current interaction
@@ -779,7 +704,6 @@ const Session: FC = () => {
               session={sessionData}
               serverConfig={account.serverConfig}
               hasSubscription={account.userConfig.stripe_subscription_active || false}
-              onMessageChange={scrollToBottom}
             />
           </Interaction>
         </Container>
@@ -789,32 +713,11 @@ const Session: FC = () => {
     // Normal virtualized rendering for non-streaming state
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
 
-    // Group consecutive ghost blocks
-    const groupedBlocks: (IInteractionBlock & { totalHeight?: number })[] = []
-    let currentGhostGroup: IInteractionBlock & { totalHeight: number } | null = null
-
-    visibleBlocks.forEach(block => {
-      if (block.isGhost && !isStreaming) {
-        if (currentGhostGroup) {
-          currentGhostGroup.totalHeight += (block.height || 0)
-          currentGhostGroup.endIndex = block.endIndex
-        } else {
-          currentGhostGroup = {
-            ...block,
-            totalHeight: block.height || 0
-          }
-          groupedBlocks.push(currentGhostGroup)
-        }
-      } else {
-        currentGhostGroup = null
-        groupedBlocks.push(block)
-      }
-    })
-
     return (
       <Container maxWidth="lg" sx={{ py: 2 }}>
         {hasMoreAbove && (
           <div
+            id="virtual-space-above"
             style={{ 
               height: VIRTUAL_SPACE_HEIGHT,
               display: 'flex',
@@ -823,7 +726,6 @@ const Session: FC = () => {
               opacity: isLoadingBlock ? 1 : 0,
               transition: 'opacity 0.2s'
             }}
-            id="virtual-space-above"
           >
             {isLoadingBlock && (
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
@@ -832,14 +734,14 @@ const Session: FC = () => {
             )}
           </div>
         )}
-        {groupedBlocks.map(block => {
+        {visibleBlocks.map(block => {
           const key = getBlockKey(block.startIndex, block.endIndex)
           
           if (block.isGhost) {
             return (
               <div
                 key={key}
-                style={{ height: block.totalHeight || block.height || 0 }}
+                style={{ height: block.height || 0 }}
               />
             )
           }
@@ -892,7 +794,6 @@ const Session: FC = () => {
                         session={sessionData}
                         serverConfig={account.serverConfig}
                         hasSubscription={account.userConfig.stripe_subscription_active || false}
-                        onMessageChange={scrollToBottom}
                       />
                     )}
                   </Interaction>
@@ -922,7 +823,6 @@ const Session: FC = () => {
     themeConfig.darkIcon,
     themeConfig.lightIconHover,
     themeConfig.darkIconHover,
-    scrollToBottom,
     getBlockKey,
     isLoadingBlock,
     isStreaming
@@ -1200,7 +1100,7 @@ const Session: FC = () => {
             ref={containerRef}
             sx={containerStyles}
           >
-            {renderInteractions}
+            {renderInteractions()}
           </Box>
 
           {/* Fixed bottom section */}
