@@ -766,67 +766,6 @@ const Session: FC = () => {
             {!loading && (
               <Container maxWidth="lg">
                 <Box sx={{ py: 2 }}>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      mb: 2,
-                    }}
-                  >
-                    <Button
-                      onClick={() => {
-                        onUpdateSessionConfig({
-                          eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                        }, `Thank you for your feedback!`)
-                      }}
-                    >
-                      {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        onUpdateSessionConfig({
-                          eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                        }, `Sorry! We will use your feedback to improve`)
-                      }}
-                    >
-                      {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
-                    </Button>
-                  </Box>
-
-                  {session.data?.config.eval_user_score != "" && (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mb: 2,
-                      }}
-                    >
-                      <TextField
-                        id="feedback"
-                        label="Please explain why"
-                        value={feedbackValue}
-                        onChange={handleFeedbackChange}
-                        name="ai_feedback"
-                      />
-                      <Button
-                        variant="contained"
-                        disabled={loading}
-                        onClick={() => onUpdateSessionConfig({
-                          eval_user_reason: feedbackValue,
-                        }, `Thanks, you are awesome`)}
-                        sx={{ ml: 2 }}
-                      >
-                        Save
-                      </Button>
-                    </Box>
-                  )}
-
                   <Row>
                     <Cell flexGrow={1}>
                       <TextField
@@ -879,7 +818,92 @@ const Session: FC = () => {
                         }}
                       />
                     </Cell>
+                    {isBigScreen && (
+                      <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
+                        <Button
+                          onClick={() => {
+                            onUpdateSessionConfig({
+                              eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                            }, `Thank you for your feedback!`)
+                          }}
+                        >
+                          {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            onUpdateSessionConfig({
+                              eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                            }, `Sorry! We will use your feedback to improve`)
+                          }}
+                        >
+                          {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                        </Button>
+                      </Cell>
+                    )}
                   </Row>
+
+                  {!isBigScreen && (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mt: 2,
+                      }}
+                    >
+                      <Button
+                        onClick={() => {
+                          onUpdateSessionConfig({
+                            eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                          }, `Thank you for your feedback!`)
+                        }}
+                      >
+                        {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          onUpdateSessionConfig({
+                            eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                          }, `Sorry! We will use your feedback to improve`)
+                        }}
+                      >
+                        {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                      </Button>
+                    </Box>
+                  )}
+
+                  {session.data?.config.eval_user_score != "" && (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mt: 2,
+                      }}
+                    >
+                      <TextField
+                        id="feedback"
+                        label="Please explain why"
+                        value={feedbackValue}
+                        onChange={handleFeedbackChange}
+                        name="ai_feedback"
+                      />
+                      <Button
+                        variant="contained"
+                        disabled={loading}
+                        onClick={() => onUpdateSessionConfig({
+                          eval_user_reason: feedbackValue,
+                        }, `Thanks, you are awesome`)}
+                        sx={{ ml: 2 }}
+                      >
+                        Save
+                      </Button>
+                    </Box>
+                  )}
                   <Box sx={{ mt: 2 }}>
                     <Disclaimer />
                   </Box>
