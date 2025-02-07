@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useMemo } from 'react'
 import InteractionContainer from './InteractionContainer'
 import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
@@ -25,7 +25,50 @@ import {
   isImage,
 } from '../../utils/filestore'
 
-export const Interaction: FC<{
+// Prop comparison function for React.memo
+const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
+  // Compare serverConfig
+  if (prevProps.serverConfig?.filestore_prefix !== nextProps.serverConfig?.filestore_prefix) {
+    return false
+  }
+
+  // Compare interaction
+  if (prevProps.interaction?.id !== nextProps.interaction?.id ||
+      prevProps.interaction?.finished !== nextProps.interaction?.finished ||
+      prevProps.interaction?.message !== nextProps.interaction?.message ||
+      prevProps.interaction?.display_message !== nextProps.interaction?.display_message ||
+      prevProps.interaction?.error !== nextProps.interaction?.error ||
+      prevProps.interaction?.state !== nextProps.interaction?.state) {
+    return false
+  }
+
+  // Compare session
+  if (prevProps.session?.id !== nextProps.session?.id ||
+      prevProps.session?.type !== nextProps.session?.type ||
+      prevProps.session?.mode !== nextProps.session?.mode ||
+      prevProps.session?.config?.shared !== nextProps.session?.config?.shared) {
+    return false
+  }
+
+  // Compare other props
+  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles ||
+      prevProps.showFinetuning !== nextProps.showFinetuning) {
+    return false
+  }
+
+  // Compare function references
+  if (prevProps.retryFinetuneErrors !== nextProps.retryFinetuneErrors ||
+      prevProps.onReloadSession !== nextProps.onReloadSession ||
+      prevProps.onClone !== nextProps.onClone ||
+      prevProps.onAddDocuments !== nextProps.onAddDocuments ||
+      prevProps.onRestart !== nextProps.onRestart) {
+    return false
+  }
+
+  return true
+}
+
+interface InteractionProps {
   serverConfig: IServerConfig,
   interaction: IInteraction,
   session: ISession,
@@ -37,7 +80,10 @@ export const Interaction: FC<{
   onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
   onRestart?: () => void,
-}> = ({
+  children?: React.ReactNode,
+}
+
+export const Interaction: FC<InteractionProps> = ({
   serverConfig,
   interaction,
   session,
@@ -52,41 +98,43 @@ export const Interaction: FC<{
   children,
 }) => {
   const account = useAccount()
-  let displayMessage: string = ''
-  let imageURLs: string[] = []
 
-  let isLoading = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
+  // Memoize computed values
+  const displayData = useMemo(() => {
+    let displayMessage: string = ''
+    let imageURLs: string[] = []
+    let isLoading = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
+    let useMessageText = interaction ? (interaction.display_message || interaction.message || '') : ''
 
-  let useMessageText = ''
-
-  if(interaction) {
-    useMessageText = interaction.display_message || interaction.message || ''
-  }
-
-  if(isLoading) {
-    // we don't display the message here - we render a LiveInteraction which handles the websockets
-    // without reloading the entire app
-  } else {
-    if(session.type == SESSION_TYPE_TEXT) {
-      if(!interaction?.lora_dir) {
-        // If single message is shown, display it
-        if (interaction?.message) {
-          displayMessage = useMessageText
-        } else {
-          displayMessage = interaction.status || ''
-        }        
-      }
-    } else if(session.type == SESSION_TYPE_IMAGE) {
-      if(interaction?.creator == SESSION_CREATOR_USER) {
-        displayMessage = useMessageText || ''
-      }
-      else {
-        if(session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {
-          imageURLs = interaction.files.filter(isImage)
+    if(!isLoading) {
+      if(session.type == SESSION_TYPE_TEXT) {
+        if(!interaction?.lora_dir) {
+          if (interaction?.message) {
+            displayMessage = useMessageText
+          } else {
+            displayMessage = interaction.status || ''
+          }        
+        }
+      } else if(session.type == SESSION_TYPE_IMAGE) {
+        if(interaction?.creator == SESSION_CREATOR_USER) {
+          displayMessage = useMessageText || ''
+        }
+        else {
+          if(session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {
+            imageURLs = interaction.files.filter(isImage)
+          }
         }
       }
     }
-  }
+
+    return {
+      displayMessage,
+      imageURLs,
+      isLoading
+    }
+  }, [interaction, session])
+
+  const { displayMessage, imageURLs, isLoading } = displayData
 
   const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
   const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
@@ -141,4 +189,4 @@ export const Interaction: FC<{
   )   
 }
 
-export default Interaction
+export default React.memo(Interaction, areEqual)
