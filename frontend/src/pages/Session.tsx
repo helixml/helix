@@ -75,9 +75,11 @@ interface IInteractionBlock {
   isGhost?: boolean;
 }
 
-// Add constant for virtual space height
+// Add constants
 const VIRTUAL_SPACE_HEIGHT = 500 // pixels
-const INTERACTIONS_PER_BLOCK = 10
+const INTERACTIONS_PER_BLOCK = 20
+const SCROLL_LOCK_DELAY = 500 // ms
+const MIN_SCROLL_DISTANCE = 200 // pixels
 
 const Session: FC = () => {
   const snackbar = useSnackbar()
@@ -121,6 +123,10 @@ const Session: FC = () => {
 
   // Add a lastSessionId ref to track session changes
   const lastSessionIdRef = useRef<string | null>(null)
+
+  const [isLoadingBlock, setIsLoadingBlock] = useState(false)
+  const lastLoadScrollPositionRef = useRef<number>(0)
+  const lastScrollHeightRef = useRef<number>(0)
 
   // Reset initial scroll when session changes
   useEffect(() => {
@@ -167,18 +173,49 @@ const Session: FC = () => {
   const addBlocksAbove = useCallback(() => {
     if (!session.data?.interactions) return
     if (visibleBlocks.length === 0) return
+    if (isLoadingBlock) return
+    if (!containerRef.current) return
 
     const firstBlock = visibleBlocks[0]
     const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
     
     if (newStartIndex >= firstBlock.startIndex) return
 
+    // Get current scroll position and scroll height before adding content
+    const container = containerRef.current
+    const scrollTop = container.scrollTop
+    const scrollHeight = container.scrollHeight
+
+    // Set loading lock
+    setIsLoadingBlock(true)
+    
     setVisibleBlocks(prev => [{
       startIndex: newStartIndex,
       endIndex: firstBlock.startIndex,
       isGhost: false
     }, ...prev])
-  }, [session.data?.interactions, visibleBlocks])
+
+    // After the DOM updates, adjust scroll position
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        // Get new scroll height
+        const newScrollHeight = containerRef.current.scrollHeight
+        // Calculate height of new content
+        const addedHeight = newScrollHeight - scrollHeight
+        // Adjust scroll position to maintain view
+        containerRef.current.scrollTop = scrollTop + addedHeight
+      }
+    })
+
+    // Release lock after delay
+    setTimeout(() => {
+      setIsLoadingBlock(false)
+    }, SCROLL_LOCK_DELAY)
+  }, [
+    session.data?.interactions,
+    visibleBlocks,
+    isLoadingBlock
+  ])
 
   // Setup intersection observer
   useEffect(() => {
@@ -191,11 +228,8 @@ const Session: FC = () => {
 
     observerRef.current = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
-        if (entry.isIntersecting && entry.target.id.startsWith('block-')) {
-          const [startIndex] = entry.target.id.replace('block-', '').split('-').map(Number)
-          if (startIndex === visibleBlocks[0]?.startIndex) {
-            addBlocksAbove()
-          }
+        if (entry.isIntersecting && entry.target.id === 'virtual-space-above') {
+          addBlocksAbove()
         }
       })
     }, options)
@@ -205,7 +239,15 @@ const Session: FC = () => {
         observerRef.current.disconnect()
       }
     }
-  }, [addBlocksAbove, visibleBlocks])
+  }, [addBlocksAbove])
+
+  // Observe virtual space div whenever it's created/updated
+  useEffect(() => {
+    const virtualSpaceDiv = document.getElementById('virtual-space-above')
+    if (virtualSpaceDiv && observerRef.current) {
+      observerRef.current.observe(virtualSpaceDiv)
+    }
+  }, [visibleBlocks])
 
   // Measure block heights
   useEffect(() => {
@@ -566,7 +608,7 @@ const Session: FC = () => {
     trailing: true,
   }), [])
 
-  // Update the renderInteractions logic
+  // Update the renderInteractions logic to include loading indicator
   const renderInteractions = useMemo(() => {
     if (!sessionData || !sessionData.interactions) return null;
 
@@ -577,9 +619,22 @@ const Session: FC = () => {
         {/* Add virtual space div if there are more interactions above */}
         {hasMoreAbove && (
           <div
-            style={{ height: VIRTUAL_SPACE_HEIGHT }}
+            style={{ 
+              height: VIRTUAL_SPACE_HEIGHT,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: isLoadingBlock ? 1 : 0,
+              transition: 'opacity 0.2s'
+            }}
             id="virtual-space-above"
-          />
+          >
+            {isLoadingBlock && (
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Loading more messages...
+              </Typography>
+            )}
+          </div>
         )}
         {visibleBlocks.map(block => {
           const key = getBlockKey(block.startIndex, block.endIndex)
@@ -672,7 +727,8 @@ const Session: FC = () => {
     themeConfig.lightIconHover,
     themeConfig.darkIconHover,
     handleScroll,
-    getBlockKey
+    getBlockKey,
+    isLoadingBlock
   ])
 
   useEffect(() => {
@@ -818,6 +874,13 @@ const Session: FC = () => {
       router.navigate('new')
     }
   }
+
+  // Reset scroll tracking when session changes
+  useEffect(() => {
+    lastLoadScrollPositionRef.current = 0
+    lastScrollHeightRef.current = 0
+    setIsLoadingBlock(false)
+  }, [sessionID])
 
   if(!session.data) return null
 
