@@ -79,6 +79,7 @@ interface IInteractionBlock {
 const VIRTUAL_SPACE_HEIGHT = 500 // pixels
 const INTERACTIONS_PER_BLOCK = 20
 const SCROLL_LOCK_DELAY = 500 // ms
+const VIEWPORT_BUFFER = 1 // Number of blocks to keep rendered above and below viewport
 const MIN_SCROLL_DISTANCE = 200 // pixels
 
 const Session: FC = () => {
@@ -247,9 +248,80 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
+  // Track which blocks are in viewport
+  const updateVisibleBlocksInViewport = useCallback(() => {
+    if (!containerRef.current) return
+
+    const container = containerRef.current
+    const containerTop = container.scrollTop
+    const containerBottom = containerTop + container.clientHeight
+
+    // Convert blocks outside viewport to ghost blocks
+    setVisibleBlocks(prev => {
+      let inViewportFound = false
+      let totalHeightAbove = 0
+
+      return prev.map((block, index) => {
+        const blockKey = getBlockKey(block.startIndex, block.endIndex)
+        const blockHeight = blockHeights[blockKey] || 0
+        
+        // Calculate block position
+        const blockTop = totalHeightAbove
+        const blockBottom = blockTop + blockHeight
+        totalHeightAbove += blockHeight
+
+        // Check if block is in or near viewport
+        const isNearViewport = (
+          // Block is partially in viewport
+          (blockTop <= containerBottom && blockBottom >= containerTop) ||
+          // Or block is within buffer range
+          (index >= Math.max(0, prev.findIndex(b => !b.isGhost) - VIEWPORT_BUFFER) &&
+           index <= Math.min(prev.length - 1, prev.findIndex(b => !b.isGhost) + VIEWPORT_BUFFER))
+        )
+
+        if (isNearViewport && !block.isGhost) {
+          inViewportFound = true
+          return block
+        }
+
+        // If we have the height, convert to ghost
+        if (blockHeight > 0) {
+          return {
+            ...block,
+            isGhost: true,
+            height: blockHeight
+          }
+        }
+
+        // Keep block rendered if we don't have its height yet
+        return block
+      })
+    })
+  }, [blockHeights, getBlockKey])
+
+  // Add scroll handler to update visible blocks
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleScroll = throttle(() => {
+      updateVisibleBlocksInViewport()
+    }, 100)
+
+    container.addEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [updateVisibleBlocksInViewport])
+
+  // Update visible blocks when heights change
+  useEffect(() => {
+    updateVisibleBlocksInViewport()
+  }, [blockHeights, updateVisibleBlocksInViewport])
+
   // Measure block heights
   useEffect(() => {
     visibleBlocks.forEach(block => {
+      if (block.isGhost) return
+      
       const key = getBlockKey(block.startIndex, block.endIndex)
       const element = blockRefs.current[key]
       
@@ -606,15 +678,36 @@ const Session: FC = () => {
     trailing: true,
   }), [])
 
-  // Update the renderInteractions logic to include loading indicator
+  // Update the renderInteractions logic
   const renderInteractions = useMemo(() => {
     if (!sessionData || !sessionData.interactions) return null;
 
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
 
+    // Group consecutive ghost blocks
+    const groupedBlocks: (IInteractionBlock & { totalHeight?: number })[] = []
+    let currentGhostGroup: IInteractionBlock & { totalHeight: number } | null = null
+
+    visibleBlocks.forEach(block => {
+      if (block.isGhost) {
+        if (currentGhostGroup) {
+          currentGhostGroup.totalHeight += (block.height || 0)
+          currentGhostGroup.endIndex = block.endIndex
+        } else {
+          currentGhostGroup = {
+            ...block,
+            totalHeight: block.height || 0
+          }
+          groupedBlocks.push(currentGhostGroup)
+        }
+      } else {
+        currentGhostGroup = null
+        groupedBlocks.push(block)
+      }
+    })
+
     return (
       <Container maxWidth="lg" sx={{ py: 2 }}>
-        {/* Add virtual space div if there are more interactions above */}
         {hasMoreAbove && (
           <div
             style={{ 
@@ -634,14 +727,14 @@ const Session: FC = () => {
             )}
           </div>
         )}
-        {visibleBlocks.map(block => {
+        {groupedBlocks.map(block => {
           const key = getBlockKey(block.startIndex, block.endIndex)
           
           if (block.isGhost) {
             return (
               <div
                 key={key}
-                style={{ height: blockHeights[key] || 0 }}
+                style={{ height: block.totalHeight || block.height || 0 }}
               />
             )
           }
