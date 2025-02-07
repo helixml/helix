@@ -168,7 +168,7 @@ func (s *Scheduler) processQueue(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			s.processQueueOnce()
+			s.processQueueOnce(ctx)
 			// Sleep for a while to allow others to access the queue
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -242,7 +242,7 @@ func (s *Scheduler) reconcileSlotsOnce() {
 	}
 }
 
-func (s *Scheduler) processQueueOnce() {
+func (s *Scheduler) processQueueOnce(ctx context.Context) {
 	s.queueMtx.Lock()
 	defer s.queueMtx.Unlock()
 
@@ -253,7 +253,7 @@ func (s *Scheduler) processQueueOnce() {
 
 	// Schedule any requests that are currently in the queue.
 	for _, work := range s.queue {
-		err := s.start(work)
+		err := s.start(ctx, work)
 		if err != nil {
 			retry, err := ErrorHandlingStrategy(err, work)
 
@@ -272,7 +272,7 @@ func (s *Scheduler) processQueueOnce() {
 	s.queue = unscheduledQueue
 }
 
-func (s *Scheduler) start(work *Workload) error {
+func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 	s.slotsMtx.RLock()
 	defer s.slotsMtx.RUnlock()
 
@@ -389,7 +389,7 @@ func (s *Scheduler) start(work *Workload) error {
 		}
 
 		// Create an allocated slot
-		err = s.allocateNewSlot(bestRunnerID, work)
+		err = s.allocateNewSlot(ctx, bestRunnerID, work)
 		if err != nil {
 			// Return error if unable to allocate a new slot.
 			return fmt.Errorf("unable to allocate new work on runner (ID: %s): %w", bestRunnerID, err)
@@ -568,7 +568,7 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 }
 
 // AllocateNewSlot creates a new slot for a workload and allocates it to the best available runner.
-func (s *Scheduler) allocateNewSlot(runnerID string, req *Workload) error {
+func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *Workload) error {
 	// Create a new slot and schedule the workload.
 	slot := NewSlot(runnerID, req, s.modelStaleFunc, s.slotTimeoutFunc)
 	log.Debug().
@@ -582,6 +582,36 @@ func (s *Scheduler) allocateNewSlot(runnerID string, req *Workload) error {
 	err := s.controller.CreateSlot(slot)
 	if err != nil {
 		return err
+	}
+
+	// Wait for the slot to be ready
+	slotReady := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				slots, err := s.controller.Slots(slot.RunnerID)
+				if err != nil {
+					log.Error().Err(err).Msg("unable to get slots")
+					return
+				}
+				for _, s := range slots {
+					if s.ID == slot.ID {
+						slotReady <- true
+						return
+					}
+				}
+			}
+		}
+	}()
+	select {
+	case <-slotReady:
+	case <-time.After(120 * time.Second):
+		return fmt.Errorf("slot not ready after 120 seconds")
 	}
 
 	log.Trace().Msg("slot created")
