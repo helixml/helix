@@ -1,10 +1,12 @@
+//go:build !windows
+// +build !windows
+
 package runner
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,7 +19,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/ollama/ollama/api"
 	"github.com/rs/zerolog/log"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 var (
@@ -32,12 +33,6 @@ type OllamaRuntime struct {
 	ollamaClient *api.Client
 	cmd          *exec.Cmd
 	cancel       context.CancelFunc
-}
-
-type PullProgress struct {
-	Status    string
-	Completed int64
-	Total     int64
 }
 
 type Model struct {
@@ -304,20 +299,4 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	}()
 
 	return cmd, nil
-}
-
-func isPortInUse(port int) bool {
-	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
-}
-
-func CreateOpenaiClient(_ context.Context, url string) (*openai.Client, error) {
-	config := openai.DefaultConfig("ollama")
-	config.BaseURL = url
-	client := openai.NewClientWithConfig(config)
-	return client, nil
 }

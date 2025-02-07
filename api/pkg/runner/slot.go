@@ -20,6 +20,12 @@ type Slot struct {
 	Model    string // The model assigned to this slot
 }
 
+type PullProgress struct {
+	Status    string
+	Completed int64
+	Total     int64
+}
+
 type Runtime interface {
 	Start(ctx context.Context) error
 	Stop() error
