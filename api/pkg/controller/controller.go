@@ -56,8 +56,7 @@ type Controller struct {
 	// the current buffer of scheduling decisions
 	schedulingDecisions []*types.GlobalSchedulingDecision
 
-	scheduler        *scheduler.Scheduler
-	runnerController *scheduler.RunnerController
+	scheduler *scheduler.Scheduler
 }
 
 func NewController(

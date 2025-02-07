@@ -104,18 +104,17 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			Debug:         true,
 			Trace:         true,
 			Host:          cfg.PubSub.Server.Host,
-			Port:          4222,
+			Port:          cfg.PubSub.Server.Port,
 			JetStream:     cfg.PubSub.Server.JetStream,
 			StoreDir:      cfg.PubSub.StoreDir,
 			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
 			Authorization: cfg.PubSub.Server.Token,
 			AllowNonTLS:   true, // TLS is terminated at the reverse proxy
 			Websocket: server.WebsocketOpts{
-				Host:      cfg.PubSub.Server.Host,
-				Port:      cfg.PubSub.Server.Port,
-				Advertise: "localhost:8433",
-				NoTLS:     true,
-				Token:     cfg.PubSub.Server.Token,
+				Host:  cfg.PubSub.Server.Host,
+				Port:  cfg.PubSub.Server.Port,
+				NoTLS: true,
+				Token: cfg.PubSub.Server.Token,
 			},
 		}
 

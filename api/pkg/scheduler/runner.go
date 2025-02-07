@@ -46,7 +46,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		mu:      &sync.RWMutex{},
 	}
 
-	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(ctx context.Context, msg *nats.Msg) error {
+	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
 		log.Info().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner connected")
 		runnerID, err := pubsub.ParseRunnerID(msg.Subject)
 		if err != nil {
@@ -61,20 +61,23 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	}
 	go func() {
 		<-ctx.Done()
-		sub.Unsubscribe()
+		err := sub.Unsubscribe()
+		if err != nil {
+			log.Error().Err(err).Msg("error unsubscribing from runner.connected.*")
+		}
 	}()
 
 	return controller, nil
 }
 
-func (r *RunnerController) Send(ctx context.Context, runnerId string, headers map[string]string, req *types.Request, timeout time.Duration) (*types.Response, error) {
+func (c *RunnerController) Send(ctx context.Context, runnerID string, headers map[string]string, req *types.Request, timeout time.Duration) (*types.Response, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling request: %w", err)
 	}
 
 	// Publish the task to the "tasks" subject
-	response, err := r.ps.Request(ctx, pubsub.GetRunnerQueue(runnerId), headers, data, timeout) // TODO(phil): some requests are long running, so we need to make this configurable
+	response, err := c.ps.Request(ctx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout) // TODO(phil): some requests are long running, so we need to make this configurable
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
@@ -109,7 +112,7 @@ func (c *RunnerController) TotalMemory(runnerID string) uint64 {
 		log.Error().Err(err).Msg("error getting runner status")
 		return 0
 	}
-	return uint64(status.TotalMemory)
+	return status.TotalMemory
 }
 
 func (c *RunnerController) FreeMemory(runnerID string) uint64 {
@@ -291,7 +294,7 @@ func (c *RunnerController) getStatus(runnerID string) (*types.RunnerStatus, erro
 		return nil, err
 	}
 	var status types.RunnerStatus
-	if err := json.Unmarshal([]byte(resp.Body), &status); err != nil {
+	if err := json.Unmarshal(resp.Body, &status); err != nil {
 		return nil, err
 	}
 	return &status, nil
@@ -306,7 +309,7 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 		return nil, err
 	}
 	var slots types.ListRunnerSlotsResponse
-	if err := json.Unmarshal([]byte(resp.Body), &slots); err != nil {
+	if err := json.Unmarshal(resp.Body, &slots); err != nil {
 		return nil, err
 	}
 	return &slots, nil

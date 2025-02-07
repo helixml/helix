@@ -44,7 +44,7 @@ type DiffusersRuntimeParams struct {
 	StartTimeout *time.Duration // How long to wait for ollama to start
 }
 
-func NewDiffusersRuntime(ctx context.Context, params DiffusersRuntimeParams) (*DiffusersRuntime, error) {
+func NewDiffusersRuntime(_ context.Context, params DiffusersRuntimeParams) (*DiffusersRuntime, error) {
 	defaultCacheDir := os.TempDir()
 	if params.CacheDir == nil {
 		params.CacheDir = &defaultCacheDir
@@ -150,7 +150,7 @@ func (d *DiffusersRuntime) Stop() error {
 	return nil
 }
 
-func (d *DiffusersRuntime) PullModel(ctx context.Context, modelName string, pullProgressFunc func(progress PullProgress) error) error {
+func (d *DiffusersRuntime) PullModel(ctx context.Context, modelName string, _ func(progress PullProgress) error) error {
 	return d.DiffusersClient.Pull(ctx, modelName)
 }
 
@@ -179,8 +179,7 @@ func startDiffusersCmd(ctx context.Context, commander Commander, port int, cache
 	log.Trace().Str("uv_path", uvPath).Msg("Found uv")
 
 	log.Trace().Msg("Preparing Diffusers command")
-	var cmd *exec.Cmd
-	cmd = exec.CommandContext(
+	cmd := exec.CommandContext(
 		ctx,
 		"uv", "run", "--frozen", "--no-dev", // Don't install dev dependencies
 		"uvicorn", "main:app",
@@ -267,7 +266,7 @@ type DiffusersClient struct {
 	url    string
 }
 
-func NewDiffusersClient(ctx context.Context, url string) (*DiffusersClient, error) {
+func NewDiffusersClient(_ context.Context, url string) (*DiffusersClient, error) {
 	return &DiffusersClient{
 		client: http.DefaultClient,
 		url:    url,
@@ -277,12 +276,13 @@ func NewDiffusersClient(ctx context.Context, url string) (*DiffusersClient, erro
 func (d *DiffusersClient) Healthz(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", d.url+"/healthz", nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making request: %w", err)
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("diffusers healthz returned status %d", resp.StatusCode)
 	}
@@ -296,22 +296,23 @@ type DiffusersVersionResponse struct {
 func (d *DiffusersClient) Version(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", d.url+"/version", nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error creating request: %w", err)
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error making request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("diffusers version returned status %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error reading response: %w", err)
 	}
 	var versionResp DiffusersVersionResponse
 	if err := json.Unmarshal(body, &versionResp); err != nil {
-		return "", err
+		return "", fmt.Errorf("error unmarshalling response: %w", err)
 	}
 	return versionResp.Version, nil
 }
@@ -326,16 +327,17 @@ func (d *DiffusersClient) Pull(ctx context.Context, modelName string) error {
 	}
 	body, err := json.Marshal(pullReq)
 	if err != nil {
-		return err
+		return fmt.Errorf("error marshaling request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", d.url+"/pull", bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("error creating request: %w", err)
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("diffusers pull returned status %d", resp.StatusCode)
 	}
@@ -360,8 +362,9 @@ func (d *DiffusersClient) Warm(ctx context.Context, modelName string) error {
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("diffusers warm returned status %d", resp.StatusCode)
 	}

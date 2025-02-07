@@ -17,13 +17,13 @@ import (
 )
 
 func (s *HelixRunnerAPIServer) createFinetuningJob(rw http.ResponseWriter, r *http.Request) {
-	slot_id := mux.Vars(r)["slot_id"]
-	slot_uuid, err := uuid.Parse(slot_id)
+	slotID := mux.Vars(r)["slot_id"]
+	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slot_id), http.StatusBadRequest)
+		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Msg("create finetuning job")
+	log.Trace().Str("slot_id", slotID).Msg("create finetuning job")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {
@@ -38,9 +38,9 @@ func (s *HelixRunnerAPIServer) createFinetuningJob(rw http.ResponseWriter, r *ht
 		return
 	}
 
-	slot, ok := s.slots[slot_uuid]
+	slot, ok := s.slots[slotUUID]
 	if !ok {
-		http.Error(rw, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
+		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
 	}
 
@@ -103,17 +103,17 @@ func (s *HelixRunnerAPIServer) createFinetuningJob(rw http.ResponseWriter, r *ht
 }
 
 func (s *HelixRunnerAPIServer) listFinetuningJobs(rw http.ResponseWriter, r *http.Request) {
-	slot_id := mux.Vars(r)["slot_id"]
-	slot_uuid, err := uuid.Parse(slot_id)
+	slotID := mux.Vars(r)["slot_id"]
+	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slot_id), http.StatusBadRequest)
+		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Msg("list finetuning jobs")
+	log.Trace().Str("slot_id", slotID).Msg("list finetuning jobs")
 
-	slot, ok := s.slots[slot_uuid]
+	slot, ok := s.slots[slotUUID]
 	if !ok {
-		http.Error(rw, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
+		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
 	}
 
@@ -129,6 +129,8 @@ func (s *HelixRunnerAPIServer) listFinetuningJobs(rw http.ResponseWriter, r *htt
 		return
 	}
 
+	// TODO(Phil): This is warning about depreciation.
+	// nolint:staticcheck
 	resp, err := openAIClient.ListFineTunes(r.Context())
 	if err != nil {
 		log.Error().Err(err).Msg("error listing finetuning jobs")
@@ -144,18 +146,18 @@ func (s *HelixRunnerAPIServer) listFinetuningJobs(rw http.ResponseWriter, r *htt
 }
 
 func (s *HelixRunnerAPIServer) retrieveFinetuningJob(rw http.ResponseWriter, r *http.Request) {
-	slot_id := mux.Vars(r)["slot_id"]
-	job_id := mux.Vars(r)["job_id"]
-	slot_uuid, err := uuid.Parse(slot_id)
+	slotID := mux.Vars(r)["slot_id"]
+	jobID := mux.Vars(r)["job_id"]
+	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slot_id), http.StatusBadRequest)
+		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Str("job_id", job_id).Msg("retrieve finetuning job")
+	log.Trace().Str("slot_id", slotID).Str("job_id", jobID).Msg("retrieve finetuning job")
 
-	slot, ok := s.slots[slot_uuid]
+	slot, ok := s.slots[slotUUID]
 	if !ok {
-		http.Error(rw, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
+		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
 	}
 
@@ -171,7 +173,7 @@ func (s *HelixRunnerAPIServer) retrieveFinetuningJob(rw http.ResponseWriter, r *
 		return
 	}
 
-	resp, err := openAIClient.RetrieveFineTuningJob(r.Context(), job_id)
+	resp, err := openAIClient.RetrieveFineTuningJob(r.Context(), jobID)
 	if err != nil {
 		log.Error().Err(err).Msg("error retrieving finetuning job")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -186,18 +188,18 @@ func (s *HelixRunnerAPIServer) retrieveFinetuningJob(rw http.ResponseWriter, r *
 }
 
 func (s *HelixRunnerAPIServer) listFinetuningJobEvents(rw http.ResponseWriter, r *http.Request) {
-	slot_id := mux.Vars(r)["slot_id"]
-	job_id := mux.Vars(r)["job_id"]
-	slot_uuid, err := uuid.Parse(slot_id)
+	slotID := mux.Vars(r)["slot_id"]
+	jobID := mux.Vars(r)["job_id"]
+	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slot_id), http.StatusBadRequest)
+		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Str("job_id", job_id).Msg("list finetuning job events")
+	log.Trace().Str("slot_id", slotID).Str("job_id", jobID).Msg("list finetuning job events")
 
-	slot, ok := s.slots[slot_uuid]
+	slot, ok := s.slots[slotUUID]
 	if !ok {
-		http.Error(rw, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
+		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
 	}
 
@@ -213,7 +215,7 @@ func (s *HelixRunnerAPIServer) listFinetuningJobEvents(rw http.ResponseWriter, r
 		return
 	}
 
-	resp, err := openAIClient.ListFineTuningJobEvents(r.Context(), job_id)
+	resp, err := openAIClient.ListFineTuningJobEvents(r.Context(), jobID)
 	if err != nil {
 		log.Error().Err(err).Msg("error listing finetuning job events")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)

@@ -23,31 +23,35 @@ func TestSendToRunner(t *testing.T) {
 
 	mockRunnerID := "test"
 
-	mockRunner, err := ps.SubscribeWithCtx(context.Background(), pubsub.GetRunnerQueue(mockRunnerID), func(ctx context.Context, msg *nats.Msg) error {
+	mockRunner, err := ps.SubscribeWithCtx(context.Background(), pubsub.GetRunnerQueue(mockRunnerID), func(_ context.Context, msg *nats.Msg) error {
 		response := &types.Response{
 			StatusCode: 200,
-			Body:       "test",
+			Body:       []byte("test"),
 		}
 		responseBytes, err := json.Marshal(response)
 		require.NoError(t, err)
-		msg.Respond(responseBytes)
+		err = msg.Respond(responseBytes)
+		require.NoError(t, err)
 		return nil
 	})
 	require.NoError(t, err)
-	defer mockRunner.Unsubscribe()
+	defer func() {
+		err := mockRunner.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	response, err := ctrl.Send(ctx, mockRunnerID, &types.Request{
+	response, err := ctrl.Send(ctx, mockRunnerID, map[string]string{}, &types.Request{
 		Method: "GET",
 		URL:    "https://example.com",
-		Body:   "{}",
-	})
+		Body:   []byte("{}"),
+	}, 1*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, response)
 	require.Equal(t, 200, response.StatusCode)
-	require.Equal(t, "test", response.Body)
+	require.Equal(t, []byte("test"), response.Body)
 }
 
 func TestSendNoRunner(t *testing.T) {
@@ -62,10 +66,10 @@ func TestSendNoRunner(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
 
-	_, err = ctrl.Send(ctx, "snowman", &types.Request{
+	_, err = ctrl.Send(ctx, "snowman", map[string]string{}, &types.Request{
 		Method: "GET",
 		URL:    "https://example.com",
-		Body:   "{}",
-	})
+		Body:   []byte("{}"),
+	}, 1*time.Second)
 	require.Error(t, err)
 }

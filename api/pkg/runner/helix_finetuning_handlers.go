@@ -34,19 +34,19 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 		return
 	}
 
-	slot_id := mux.Vars(r)["slot_id"]
-	slot_uuid, err := uuid.Parse(slot_id)
+	slotID := mux.Vars(r)["slot_id"]
+	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("invalid slot id: %s", slot_id), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
 
-	slot, ok := s.slots[slot_uuid]
+	slot, ok := s.slots[slotUUID]
 	if !ok {
-		http.Error(w, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Msg("create helix finetuning job")
+	log.Trace().Str("slot_id", slotUUID.String()).Msg("create helix finetuning job")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {

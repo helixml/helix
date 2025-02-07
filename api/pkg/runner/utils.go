@@ -118,4 +118,5 @@ func (f *RealFreePortFinder) GetFreePort() (int, error) {
 	return freeport.GetFreePort()
 }
 
+// nolint:unused
 var freePortFinder FreePortFinder = &RealFreePortFinder{}

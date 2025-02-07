@@ -43,7 +43,7 @@ type AxolotlRuntimeParams struct {
 	RunnerOptions *Options
 }
 
-func NewAxolotlRuntime(ctx context.Context, params AxolotlRuntimeParams) (*AxolotlRuntime, error) {
+func NewAxolotlRuntime(_ context.Context, params AxolotlRuntimeParams) (*AxolotlRuntime, error) {
 	defaultStartTimeout := 30 * time.Second
 	if params.StartTimeout == nil {
 		params.StartTimeout = &defaultStartTimeout
@@ -144,7 +144,7 @@ func (d *AxolotlRuntime) Runtime() types.Runtime {
 	return types.RuntimeAxolotl
 }
 
-func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress func(PullProgress) error) error {
+func (d *AxolotlRuntime) PullModel(_ context.Context, model string, progress func(PullProgress) error) error {
 	clientOptions := system.ClientOptions{
 		Host:  d.runnerOptions.APIHost,
 		Token: d.runnerOptions.APIToken,
@@ -160,11 +160,14 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 	}
 
 	// Pull model from the control plane
-	progress(PullProgress{
+	err = progress(PullProgress{
 		Status:    "downloading",
 		Completed: 0,
 		Total:     100,
 	})
+	if err != nil {
+		return fmt.Errorf("error reporting pull progress: %w", err)
+	}
 
 	downloadedLoraDir := buildLocalLoraDir(sessionID)
 	log.Debug().
@@ -176,11 +179,15 @@ func (d *AxolotlRuntime) PullModel(ctx context.Context, model string, progress f
 	if err != nil {
 		return fmt.Errorf("downloading LORA dir: %w", err)
 	}
-	progress(PullProgress{
+	err = progress(PullProgress{
 		Status:    "downloaded",
 		Completed: 100,
 		Total:     100,
 	})
+	if err != nil {
+		return fmt.Errorf("error reporting pull progress: %w", err)
+	}
+
 	return nil
 }
 
@@ -303,7 +310,7 @@ type AxolotlClient struct {
 	url    string
 }
 
-func NewAxolotlClient(ctx context.Context, url string) (*AxolotlClient, error) {
+func NewAxolotlClient(_ context.Context, url string) (*AxolotlClient, error) {
 	return &AxolotlClient{
 		client: http.DefaultClient,
 		url:    url,
@@ -313,12 +320,13 @@ func NewAxolotlClient(ctx context.Context, url string) (*AxolotlClient, error) {
 func (d *AxolotlClient) Healthz(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", d.url+"/healthz", nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making request: %w", err)
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("axolotl healthz returned status %d", resp.StatusCode)
 	}
@@ -336,8 +344,9 @@ func (d *AxolotlClient) Version(ctx context.Context) (string, error) {
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error making request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("axolotl version returned status %d", resp.StatusCode)
 	}

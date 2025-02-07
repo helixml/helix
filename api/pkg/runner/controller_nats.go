@@ -81,7 +81,10 @@ func (c *NatsController) setupSubscription(ctx context.Context, runnerID string)
 
 	go func() {
 		<-ctx.Done()
-		subscription.Unsubscribe()
+		err := subscription.Unsubscribe()
+		if err != nil {
+			log.Error().Err(err).Msg("error unsubscribing from runner queue")
+		}
 	}()
 
 	log.Debug().Str("runner_id", runnerID).Str("queue", pubsub.GetRunnerConnectedQueue(runnerID)).Msg("publishing to runner.connected queue")
@@ -103,9 +106,12 @@ func (c *NatsController) handler(ctx context.Context, msg *nats.Msg) error {
 
 	responseBytes, err := json.Marshal(response)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal response: %w", err)
 	}
-	msg.Respond(responseBytes)
+	err = msg.Respond(responseBytes)
+	if err != nil {
+		return fmt.Errorf("failed to respond to nats: %w", err)
+	}
 	return nil
 }
 
@@ -127,7 +133,7 @@ func (c *NatsController) handleGenericHTTPRequest(ctx context.Context, task type
 		return &types.Response{StatusCode: 400, Body: []byte("Unable to parse request URL")}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, task.Method, c.serverURL+url.Path, bytes.NewBuffer([]byte(task.Body)))
+	req, err := http.NewRequestWithContext(ctx, task.Method, c.serverURL+url.Path, bytes.NewBuffer(task.Body))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create HTTP request")
 		return &types.Response{StatusCode: 500, Body: []byte("Failed to create request")}

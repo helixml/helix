@@ -85,7 +85,10 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer consumer.Unsubscribe()
+		defer func() {
+			err := consumer.Unsubscribe()
+			require.NoError(t, err)
+		}()
 
 		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
@@ -114,7 +117,10 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer consumer.Unsubscribe()
+		defer func() {
+			err := consumer.Unsubscribe()
+			require.NoError(t, err)
+		}()
 
 		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
@@ -168,7 +174,10 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer consumer.Unsubscribe()
+		defer func() {
+			err := consumer.Unsubscribe()
+			require.NoError(t, err)
+		}()
 
 		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
@@ -197,7 +206,10 @@ func TestNatsPubsub(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer consumer.Unsubscribe()
+		defer func() {
+			err := consumer.Unsubscribe()
+			require.NoError(t, err)
+		}()
 
 		// Wait for subscription to be established
 		time.Sleep(100 * time.Millisecond)
@@ -244,7 +256,10 @@ func TestQueueMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub1.Unsubscribe()
+	defer func() {
+		err := sub1.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -258,7 +273,10 @@ func TestQueueMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub2.Unsubscribe()
+	defer func() {
+		err := sub2.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	for i := 0; i < 100; i++ {
 		data, err := pubsub.QueueRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
@@ -315,7 +333,10 @@ func TestNatsStreaming(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer sub.Unsubscribe()
+		defer func() {
+			err := sub.Unsubscribe()
+			require.NoError(t, err)
+		}()
 
 		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -326,7 +347,10 @@ func TestNatsStreaming(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err)
-		defer sub2.Unsubscribe()
+		defer func() {
+			err := sub2.Unsubscribe()
+			require.NoError(t, err)
+		}()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -400,7 +424,10 @@ func TestStreamRetries(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() {
+		err := sub.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -449,7 +476,10 @@ func TestStreamMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub1.Unsubscribe()
+	defer func() {
+		err := sub1.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
@@ -464,7 +494,10 @@ func TestStreamMultipleSubs(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub2.Unsubscribe()
+	defer func() {
+		err := sub2.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	// Wait for subscriptions to be established
 	time.Sleep(1 * time.Second)
@@ -549,7 +582,10 @@ func TestStreamAfterDelay(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() {
+		err := sub.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -624,7 +660,10 @@ func TestStreamFailOne(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() {
+		err := sub.Unsubscribe()
+		require.NoError(t, err)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

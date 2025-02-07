@@ -368,13 +368,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		defer clientConn.Close()
 
 		// Connect to the backend WebSocket server.
-		backendConn, _, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
+		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
 		if err != nil {
 			log.Printf("Failed to connect to backend WebSocket server: %v", err)
 			return
 		}
 		// Ensure the backend connection is closed on function exit.
 		defer backendConn.Close()
+		defer resp.Body.Close()
 
 		// Start two goroutines to copy data between the client and the backend.
 		errCh := make(chan error, 2)

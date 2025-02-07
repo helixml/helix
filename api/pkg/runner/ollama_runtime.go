@@ -59,7 +59,7 @@ type OllamaRuntimeParams struct {
 	StartTimeout *time.Duration // How long to wait for ollama to start, if nil, will use default
 }
 
-func NewOllamaRuntime(ctx context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
+func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
 	defaultCacheDir := os.TempDir()
 	if params.CacheDir == nil {
 		params.CacheDir = &defaultCacheDir
@@ -206,7 +206,7 @@ func (i *OllamaRuntime) Warm(ctx context.Context, model string) error {
 				Content: "Say the word 'warm'.",
 			},
 		},
-	}, func(response api.ChatResponse) error {
+	}, func(_ api.ChatResponse) error {
 		return nil
 	})
 	if err != nil {
@@ -315,7 +315,7 @@ func isPortInUse(port int) bool {
 	return true
 }
 
-func CreateOpenaiClient(ctx context.Context, url string) (*openai.Client, error) {
+func CreateOpenaiClient(_ context.Context, url string) (*openai.Client, error) {
 	config := openai.DefaultConfig("ollama")
 	config.BaseURL = url
 	client := openai.NewClientWithConfig(config)

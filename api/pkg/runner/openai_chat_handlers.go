@@ -17,13 +17,13 @@ import (
 )
 
 func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
-	slot_id := mux.Vars(r)["slot_id"]
-	slot_uuid, err := uuid.Parse(slot_id)
+	slotID := mux.Vars(r)["slot_id"]
+	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slot_id), http.StatusBadRequest)
+		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
-	log.Trace().Str("slot_id", slot_id).Msg("create chat completion")
+	log.Trace().Str("slot_id", slotUUID.String()).Msg("create chat completion")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {
@@ -38,9 +38,9 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 		return
 	}
 
-	slot, ok := s.slots[slot_uuid]
+	slot, ok := s.slots[slotUUID]
 	if !ok {
-		http.Error(rw, fmt.Sprintf("slot %s not found", slot_id), http.StatusNotFound)
+		http.Error(rw, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
 		return
 	}
 

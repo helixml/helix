@@ -107,12 +107,14 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	return subRouter, nil
 }
 
-func (apiServer *HelixRunnerAPIServer) healthz(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ok"))
-	w.WriteHeader(http.StatusOK)
+func (apiServer *HelixRunnerAPIServer) healthz(w http.ResponseWriter, _ *http.Request) {
+	_, err := w.Write([]byte("ok"))
+	if err != nil {
+		log.Error().Err(err).Msg("error writing healthz response")
+	}
 }
 
-func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, r *http.Request) {
+func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Request) {
 	status := &types.RunnerStatus{
 		ID:          apiServer.runnerOptions.ID,
 		Created:     startTime,
@@ -122,7 +124,10 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, r *http.Req
 		FreeMemory:  apiServer.gpuManager.GetFreeMemory(),
 		Labels:      apiServer.runnerOptions.Labels,
 	}
-	json.NewEncoder(w).Encode(status)
+	err := json.NewEncoder(w).Encode(status)
+	if err != nil {
+		log.Error().Err(err).Msg("error encoding status response")
+	}
 }
 
 func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +135,12 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	defer apiServer.slotsMtx.Unlock()
 
 	slot := &types.CreateRunnerSlotRequest{}
-	json.NewDecoder(r.Body).Decode(slot)
+	err := json.NewDecoder(r.Body).Decode(slot)
+	if err != nil {
+		log.Error().Err(err).Msg("error decoding create slot request")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Validate the request
 	if slot.ID == uuid.Nil {
@@ -170,7 +180,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.Request) {
+func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
 	apiServer.slotsMtx.RLock()
 	defer apiServer.slotsMtx.RUnlock()
 
@@ -186,7 +196,10 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 	response := &types.ListRunnerSlotsResponse{
 		Slots: slotList,
 	}
-	json.NewEncoder(w).Encode(response)
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Error().Err(err).Msg("error encoding list slots response")
+	}
 }
 
 func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http.Request) {

@@ -18,7 +18,7 @@ import (
 type TimeoutFunc func(runnerID string, lastActivityTime time.Time) bool
 
 func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
-	return func(runnerID string, lastActivityTime time.Time) bool {
+	return func(_ string, lastActivityTime time.Time) bool {
 		return lastActivityTime.Add(ttl).Before(time.Now())
 	}
 }
@@ -36,14 +36,14 @@ type Scheduler struct {
 	slotTimeoutFunc TimeoutFunc // Function to check if slots have timed out due to error
 }
 
-type SchedulerParams struct {
+type Params struct {
 	RunnerController  *RunnerController
 	QueueSize         int
 	OnSchedulingErr   func(work *Workload, err error)
 	OnResponseHandler func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
 }
 
-func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *SchedulerParams) (*Scheduler, error) {
+func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *Params) (*Scheduler, error) {
 	modelTTL := serverConfig.Providers.Helix.ModelTTL
 	if modelTTL == 0 {
 		modelTTL = 10 * time.Second
