@@ -402,7 +402,29 @@ const Session: FC = () => {
     onSend,
   ])
 
-  const handleScroll = throttle(() => {
+  // Memoize the session data comparison
+  const sessionData = useMemo(() => {
+    if (!session.data) return null;
+    return {
+      id: session.data.id,
+      name: session.data.name,
+      created: session.data.created,
+      updated: session.data.updated,
+      parent_session: session.data.parent_session,
+      parent_app: session.data.parent_app,
+      interactions: session.data.interactions,
+      owner: session.data.owner,
+      owner_type: session.data.owner_type,
+      type: session.data.type,
+      mode: session.data.mode,
+      model_name: session.data.model_name,
+      lora_dir: session.data.lora_dir,
+      config: session.data.config
+    }
+  }, [session.data])
+
+  // Memoize callback functions
+  const handleScroll = useMemo(() => throttle(() => {
     const divElement = divRef.current
     if(!divElement) return
     const scrollHeight = divElement.scrollHeight;
@@ -415,7 +437,81 @@ const Session: FC = () => {
   }, 100, {
     leading: true,
     trailing: true,
-  })
+  }), [])
+
+  // Memoize the interactions list render function
+  const renderInteractions = useMemo(() => {
+    if (!sessionData || !sessionData.interactions) return null;
+
+    return (
+      <Container maxWidth="lg" sx={{ py: 2 }}>
+        {sessionData.interactions.map((interaction, index) => {
+          const isLastInteraction = index === sessionData.interactions.length - 1;
+          const isLastFinetune = false; // TODO: implement this check if needed
+          const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING;
+          const isOwner = account.user?.id === sessionData.owner;
+
+          return (
+            <Interaction
+              key={interaction.id}
+              serverConfig={account.serverConfig}
+              interaction={interaction}
+              session={sessionData}
+              highlightAllFiles={highlightAllFiles}
+              retryFinetuneErrors={retryFinetuneErrors}
+              onReloadSession={session.reload}
+              onClone={onClone}
+              onAddDocuments={isLastFinetune ? onAddDocuments : undefined}
+              onRestart={isLastInteraction ? onRestart : undefined}
+              headerButtons={isLastInteraction ? (
+                <Tooltip title="Restart Session">
+                  <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
+                    <RefreshIcon
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                        },
+                      }}
+                    />
+                  </IconButton>
+                </Tooltip>
+              ) : undefined}
+            >
+              {isLive && (isOwner || account.admin) && (
+                <InteractionLiveStream
+                  session_id={sessionData.id}
+                  interaction={interaction}
+                  session={sessionData}
+                  serverConfig={account.serverConfig}
+                  hasSubscription={account.userConfig.stripe_subscription_active || false}
+                  onMessageChange={handleScroll}
+                />
+              )}
+            </Interaction>
+          );
+        })}
+      </Container>
+    );
+  }, [
+    sessionData,
+    account.serverConfig,
+    account.user?.id,
+    account.admin,
+    account.userConfig.stripe_subscription_active,
+    highlightAllFiles,
+    retryFinetuneErrors,
+    session.reload,
+    onClone,
+    onAddDocuments,
+    onRestart,
+    theme.palette.mode,
+    themeConfig.lightIcon,
+    themeConfig.darkIcon,
+    themeConfig.lightIconHover,
+    themeConfig.darkIconHover,
+    handleScroll
+  ])
 
   useEffect(() => {
     if(loading) return
@@ -698,61 +794,7 @@ const Session: FC = () => {
               },
             }}
           >
-            {(() => {
-              if (!session.data || !session.data.interactions) return null;
-              const sessionData = session.data as ISession;
-
-              return (
-                <Container maxWidth="lg" sx={{ py: 2 }}>
-                  {sessionData.interactions.map((interaction, index) => {
-                    const isLastInteraction = index === sessionData.interactions.length - 1;
-                    const isLastFinetune = false; // TODO: implement this check if needed
-                    const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING;
-                    const isOwner = account.user?.id === sessionData.owner;
-
-                    return (
-                      <Interaction
-                        key={interaction.id}
-                        serverConfig={account.serverConfig}
-                        interaction={interaction}
-                        session={sessionData}
-                        highlightAllFiles={highlightAllFiles}
-                        retryFinetuneErrors={retryFinetuneErrors}
-                        onReloadSession={session.reload}
-                        onClone={onClone}
-                        onAddDocuments={isLastFinetune ? onAddDocuments : undefined}
-                        onRestart={isLastInteraction ? onRestart : undefined}
-                        headerButtons={isLastInteraction ? (
-                          <Tooltip title="Restart Session">
-                            <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
-                              <RefreshIcon
-                                sx={{
-                                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                                  '&:hover': {
-                                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                                  },
-                                }}
-                              />
-                            </IconButton>
-                          </Tooltip>
-                        ) : undefined}
-                      >
-                        {isLive && (isOwner || account.admin) && (
-                          <InteractionLiveStream
-                            session_id={sessionData.id}
-                            interaction={interaction}
-                            session={sessionData}
-                            serverConfig={account.serverConfig}
-                            hasSubscription={account.userConfig.stripe_subscription_active || false}
-                            onMessageChange={handleScroll}
-                          />
-                        )}
-                      </Interaction>
-                    );
-                  })}
-                </Container>
-              );
-            })()}
+            {renderInteractions}
           </Box>
 
           {/* Fixed bottom section */}
