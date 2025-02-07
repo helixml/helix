@@ -279,9 +279,13 @@ const Session: FC = () => {
            index <= Math.min(prev.length - 1, prev.findIndex(b => !b.isGhost) + VIEWPORT_BUFFER))
         )
 
-        if (isNearViewport && !block.isGhost) {
+        // If block is near viewport, ensure it's rendered (not a ghost)
+        if (isNearViewport) {
           inViewportFound = true
-          return block
+          return {
+            ...block,
+            isGhost: false
+          }
         }
 
         // If we have the height, convert to ghost
