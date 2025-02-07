@@ -601,21 +601,9 @@ const Session: FC = () => {
     flexGrow: 1,
     overflowY: isStreaming ? 'hidden' : 'auto',
     transition: 'overflow-y 0.3s ease',
-    '&::-webkit-scrollbar': {
-      width: '4px',
-      borderRadius: '8px',
-    },
-    '&::-webkit-scrollbar-track': {
-      background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-    },
-    '&::-webkit-scrollbar-thumb': {
-      background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-      borderRadius: '8px',
-    },
-    '&::-webkit-scrollbar-thumb:hover': {
-      background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-    },
-  }), [theme.palette.mode, themeConfig, isStreaming])
+    paddingRight: '8px',
+    ...lightTheme.scrollbar,
+  }), [lightTheme.scrollbar, isStreaming])
 
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
@@ -1206,14 +1194,24 @@ const Session: FC = () => {
         <Box
           sx={{
             flexGrow: 1,
-            overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
+            height: '100%', // Ensure full height
+            minHeight: 0, // This is crucial for proper flex behavior
           }}
         >
           <Box
             ref={containerRef}
-            sx={containerStyles}
+            sx={{
+              flexGrow: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflowY: isStreaming ? 'hidden' : 'auto',
+              transition: 'overflow-y 0.3s ease',
+              pr: 3, // Add consistent padding to offset from the right edge
+              minHeight: 0, // This is crucial for proper flex behavior
+              ...lightTheme.scrollbar,
+            }}
           >
             {renderInteractions()}
           </Box>
@@ -1221,7 +1219,7 @@ const Session: FC = () => {
           {/* Fixed bottom section */}
           <Box
             sx={{
-              flexShrink: 0,
+              flexShrink: 0, // Prevent shrinking
               borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
               bgcolor: theme.palette.background.default,
             }}
