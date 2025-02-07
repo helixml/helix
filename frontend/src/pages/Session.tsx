@@ -67,6 +67,18 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 
+// Add new interfaces for virtualization
+interface IInteractionBlock {
+  startIndex: number;
+  endIndex: number;
+  height?: number;
+  isGhost?: boolean;
+}
+
+// Add constant for virtual space height
+const VIRTUAL_SPACE_HEIGHT = 500 // pixels
+const INTERACTIONS_PER_BLOCK = 10
+
 const Session: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -99,6 +111,121 @@ const Session: FC = () => {
   const [appID, setAppID] = useState<string | null>(null)
   // TODO: set assistant_id to the value which we need to add to the session struct
   const [assistantID, setAssistantID] = useState<string | null>(null)
+
+  const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
+  const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
+  const [isInitialScroll, setIsInitialScroll] = useState(true)
+  const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Add a lastSessionId ref to track session changes
+  const lastSessionIdRef = useRef<string | null>(null)
+
+  // Reset initial scroll when session changes
+  useEffect(() => {
+    if (sessionID !== lastSessionIdRef.current) {
+      setIsInitialScroll(true)
+      lastSessionIdRef.current = sessionID
+    }
+  }, [sessionID])
+
+  // Scroll to bottom on initial load or session change
+  useEffect(() => {
+    if (!isInitialScroll || !containerRef.current || !session.data?.interactions) return
+    
+    // Use requestAnimationFrame to ensure DOM has updated
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight
+        setIsInitialScroll(false)
+      }
+    })
+  }, [isInitialScroll, session.data?.interactions, visibleBlocks])
+
+  // Function to get block key
+  const getBlockKey = useCallback((startIndex: number, endIndex: number) => {
+    return `${startIndex}-${endIndex}`
+  }, [])
+
+  // Function to initialize visible blocks
+  const initializeVisibleBlocks = useCallback(() => {
+    if (!session.data?.interactions || session.data.interactions.length === 0) return
+
+    const totalInteractions = session.data.interactions.length
+    const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+    const endIndex = totalInteractions
+
+    setVisibleBlocks([{
+      startIndex,
+      endIndex,
+      isGhost: false
+    }])
+  }, [session.data?.interactions])
+
+  // Function to add blocks above
+  const addBlocksAbove = useCallback(() => {
+    if (!session.data?.interactions) return
+    if (visibleBlocks.length === 0) return
+
+    const firstBlock = visibleBlocks[0]
+    const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
+    
+    if (newStartIndex >= firstBlock.startIndex) return
+
+    setVisibleBlocks(prev => [{
+      startIndex: newStartIndex,
+      endIndex: firstBlock.startIndex,
+      isGhost: false
+    }, ...prev])
+  }, [session.data?.interactions, visibleBlocks])
+
+  // Setup intersection observer
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const options = {
+      root: containerRef.current,
+      threshold: 0.1
+    }
+
+    observerRef.current = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && entry.target.id.startsWith('block-')) {
+          const [startIndex] = entry.target.id.replace('block-', '').split('-').map(Number)
+          if (startIndex === visibleBlocks[0]?.startIndex) {
+            addBlocksAbove()
+          }
+        }
+      })
+    }, options)
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect()
+      }
+    }
+  }, [addBlocksAbove, visibleBlocks])
+
+  // Measure block heights
+  useEffect(() => {
+    visibleBlocks.forEach(block => {
+      const key = getBlockKey(block.startIndex, block.endIndex)
+      const element = blockRefs.current[key]
+      
+      if (element && !blockHeights[key]) {
+        setBlockHeights(prev => ({
+          ...prev,
+          [key]: element.offsetHeight
+        }))
+      }
+    })
+  }, [visibleBlocks, blockHeights, getBlockKey])
+
+  // Initialize blocks on session load
+  useEffect(() => {
+    initializeVisibleBlocks()
+  }, [initializeVisibleBlocks])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -439,62 +566,96 @@ const Session: FC = () => {
     trailing: true,
   }), [])
 
-  // Memoize the interactions list render function
+  // Update the renderInteractions logic
   const renderInteractions = useMemo(() => {
     if (!sessionData || !sessionData.interactions) return null;
 
+    const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
+
     return (
       <Container maxWidth="lg" sx={{ py: 2 }}>
-        {sessionData.interactions.map((interaction, index) => {
-          const isLastInteraction = index === sessionData.interactions.length - 1;
-          const isLastFinetune = false; // TODO: implement this check if needed
-          const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING;
-          const isOwner = account.user?.id === sessionData.owner;
+        {/* Add virtual space div if there are more interactions above */}
+        {hasMoreAbove && (
+          <div
+            style={{ height: VIRTUAL_SPACE_HEIGHT }}
+            id="virtual-space-above"
+          />
+        )}
+        {visibleBlocks.map(block => {
+          const key = getBlockKey(block.startIndex, block.endIndex)
+          
+          if (block.isGhost) {
+            return (
+              <div
+                key={key}
+                style={{ height: blockHeights[key] || 0 }}
+              />
+            )
+          }
 
+          const interactions = sessionData.interactions.slice(block.startIndex, block.endIndex)
+          
           return (
-            <Interaction
-              key={interaction.id}
-              serverConfig={account.serverConfig}
-              interaction={interaction}
-              session={sessionData}
-              highlightAllFiles={highlightAllFiles}
-              retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={session.reload}
-              onClone={onClone}
-              onAddDocuments={isLastFinetune ? onAddDocuments : undefined}
-              onRestart={isLastInteraction ? onRestart : undefined}
-              headerButtons={isLastInteraction ? (
-                <Tooltip title="Restart Session">
-                  <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
-                    <RefreshIcon
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                        '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                        },
-                      }}
-                    />
-                  </IconButton>
-                </Tooltip>
-              ) : undefined}
+            <div
+              key={key}
+              id={`block-${key}`}
+              ref={el => blockRefs.current[key] = el}
             >
-              {isLive && (isOwner || account.admin) && (
-                <InteractionLiveStream
-                  session_id={sessionData.id}
-                  interaction={interaction}
-                  session={sessionData}
-                  serverConfig={account.serverConfig}
-                  hasSubscription={account.userConfig.stripe_subscription_active || false}
-                  onMessageChange={handleScroll}
-                />
-              )}
-            </Interaction>
-          );
+              {interactions.map((interaction, index) => {
+                const absoluteIndex = block.startIndex + index
+                const isLastInteraction = absoluteIndex === sessionData.interactions.length - 1
+                const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+                const isOwner = account.user?.id === sessionData.owner
+
+                return (
+                  <Interaction
+                    key={interaction.id}
+                    serverConfig={account.serverConfig}
+                    interaction={interaction}
+                    session={sessionData}
+                    highlightAllFiles={highlightAllFiles}
+                    retryFinetuneErrors={retryFinetuneErrors}
+                    onReloadSession={session.reload}
+                    onClone={onClone}
+                    onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
+                    onRestart={isLastInteraction ? onRestart : undefined}
+                    headerButtons={isLastInteraction ? (
+                      <Tooltip title="Restart Session">
+                        <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
+                          <RefreshIcon
+                            sx={{
+                              color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                              '&:hover': {
+                                color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                              },
+                            }}
+                          />
+                        </IconButton>
+                      </Tooltip>
+                    ) : undefined}
+                  >
+                    {isLive && (isOwner || account.admin) && (
+                      <InteractionLiveStream
+                        session_id={sessionData.id}
+                        interaction={interaction}
+                        session={sessionData}
+                        serverConfig={account.serverConfig}
+                        hasSubscription={account.userConfig.stripe_subscription_active || false}
+                        onMessageChange={handleScroll}
+                      />
+                    )}
+                  </Interaction>
+                )
+              })}
+            </div>
+          )
         })}
       </Container>
-    );
+    )
   }, [
     sessionData,
+    visibleBlocks,
+    blockHeights,
     account.serverConfig,
     account.user?.id,
     account.admin,
@@ -510,7 +671,8 @@ const Session: FC = () => {
     themeConfig.darkIcon,
     themeConfig.lightIconHover,
     themeConfig.darkIconHover,
-    handleScroll
+    handleScroll,
+    getBlockKey
   ])
 
   useEffect(() => {
@@ -775,6 +937,7 @@ const Session: FC = () => {
           }}
         >
           <Box
+            ref={containerRef}
             sx={{
               flexGrow: 1,
               overflowY: 'auto',
