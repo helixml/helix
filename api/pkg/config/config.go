@@ -10,6 +10,7 @@ import (
 
 type ServerConfig struct {
 	Inference          Inference
+	Embeddings         Embeddings
 	Providers          Providers
 	Tools              Tools
 	Keycloak           Keycloak
@@ -46,6 +47,10 @@ func LoadServerConfig() (ServerConfig, error) {
 
 type Inference struct {
 	Provider types.Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+}
+
+type Embeddings struct {
+	Provider types.Provider `envconfig:"EMBEDDINGS_PROVIDER" default:"openai" description:"One of openai, or helix"`
 }
 
 // Providers is used to configure the various AI providers that we use
