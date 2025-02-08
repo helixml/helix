@@ -158,7 +158,7 @@ func (s *PingService) getUserCount() (int, error) {
 		return 0, fmt.Errorf("failed to get user count: %w", err)
 	}
 
-	return int(count), nil
+	return count, nil
 }
 
 func (s *PingService) GetLatestVersion() string {
