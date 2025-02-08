@@ -307,7 +307,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var ragClient rag.RAG
 
 	switch cfg.RAG.DefaultRagProvider {
-	case "typesense":
+	case config.RAGProviderTypesense:
 		ragSettings := &types.RAGSettings{}
 		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
 		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
@@ -316,13 +316,16 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			return fmt.Errorf("failed to create typesense RAG client: %v", err)
 		}
 		log.Info().Msgf("Using Typesense for RAG")
-	case "llamaindex":
+	case config.RAGProviderLlamaindex:
 		ragClient = rag.NewLlamaindex(&types.RAGSettings{
 			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
 			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
 			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
 		})
 		log.Info().Msgf("Using Llamaindex for RAG")
+	case config.RAGProviderPGVector:
+		ragClient = rag.NewPGVector(cfg, providerManager, store)
+		log.Info().Msgf("Using PGVector for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
