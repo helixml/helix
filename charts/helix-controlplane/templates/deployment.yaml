@@ -54,7 +54,7 @@ spec:
             - name: SERVER_URL
               value: {{ .Values.global.serverUrl }}
             - name: FILESTORE_LOCALFS_PATH
-              value: /filestore
+              value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }} 
             - name: TEXT_EXTRACTION_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/extract
             - name: RAG_INDEX_URL
@@ -69,20 +69,57 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
+              {{- with .Values.controlplane.extraEnv }}
+              {{- toYaml . | nindent 12 }}
+              {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.persistence.enabled }}
           volumeMounts:
+          {{- if .Values.controlplane.extraVolumeMounts }}
+          {{- toYaml .Values.controlplane.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+
+          {{- if .Values.persistence.enabled }}
             - name: controlplane-storage
               mountPath: /filestore
-          {{- end }}       
+          {{- end }}  
+        {{- if .Values.controlplane.sidecar.enabled }}
+        - name: {{ .Values.controlplane.sidecar.name | default "sidecar" }}
+          image: "{{ .Values.controlplane.sidecar.image }}"
+          imagePullPolicy: "{{ .Values.controlplane.sidecar.imagePullPolicy | default .Values.image.pullPolicy }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.controlplane.sidecar.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.sidecar.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.sidecar.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.sidecar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end}}
+          {{- with .Values.controlplane.sidecar.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end}}
+        {{- end }}
+      volumes:
+      {{- if .Values.controlplane.extraVolumes }}
+      {{- toYaml .Values.controlplane.extraVolumes | nindent 6 }}
+      {{- end }}
 
       {{- if .Values.persistence.enabled }}     
-      volumes:
       - name: controlplane-storage
         persistentVolumeClaim:
           claimName: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc      

@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	defaultMaxDepth    = 10  // How deep to crawl the website
-	defaultMaxPages    = 200 // How many pages to crawl before stopping
+	defaultDepth       = 10
+	defaultMaxDepth    = 100 // How many pages to crawl before stopping
 	defaultParallelism = 5   // How many pages to crawl in parallel
 	defaultUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
@@ -39,15 +39,18 @@ type Default struct {
 	browser *browser.Browser
 
 	pageTimeout time.Duration
+
+	updateProgress func(progress types.KnowledgeProgress)
 }
 
-func NewDefault(browser *browser.Browser, k *types.Knowledge) (*Default, error) {
+func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress func(progress types.KnowledgeProgress)) (*Default, error) {
 	crawler := &Default{
-		knowledge:   k,
-		converter:   md.NewConverter("", true, nil),
-		parser:      readability.NewParser(),
-		browser:     browser,
-		pageTimeout: 15 * time.Second,
+		knowledge:      k,
+		converter:      md.NewConverter("", true, nil),
+		parser:         readability.NewParser(),
+		browser:        browser,
+		pageTimeout:    15 * time.Second,
+		updateProgress: updateProgress,
 	}
 
 	return crawler, nil
@@ -63,18 +66,15 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		domains = append(domains, parsedURL.Host)
 	}
 
-	var (
-		maxPages    int32
-		maxDepth    int
-		userAgent   string
-		pageCounter atomic.Int32
-	)
+	started := time.Now()
 
-	if d.knowledge.Source.Web.Crawler.MaxDepth == 0 {
-		maxDepth = defaultMaxDepth
-	} else {
-		maxDepth = d.knowledge.Source.Web.Crawler.MaxDepth
-	}
+	var (
+		maxPages  int32
+		userAgent string
+		// Number of pages queued to be crawled, we increment this
+		// number as we add pages to the queue on "a[href]" elements
+		pageQueueCounter atomic.Int32
+	)
 
 	if d.knowledge.Source.Web.Crawler.UserAgent == "" {
 		userAgent = defaultUserAgent
@@ -85,24 +85,33 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	if !d.knowledge.Source.Web.Crawler.Enabled {
 		maxPages = 1
 	} else {
-		if d.knowledge.Source.Web.Crawler.MaxPages > defaultMaxPages {
-			maxPages = defaultMaxPages
+		if d.knowledge.Source.Web.Crawler.MaxDepth > defaultMaxDepth {
+			maxPages = defaultMaxDepth
 		}
 
-		if d.knowledge.Source.Web.Crawler.MaxPages == 0 {
-			maxPages = defaultMaxPages
+		// If not specified, use the default depth
+		if d.knowledge.Source.Web.Crawler.MaxDepth == 0 {
+			maxPages = defaultDepth
 		} else {
-			maxPages = int32(d.knowledge.Source.Web.Crawler.MaxPages)
+			maxPages = int32(d.knowledge.Source.Web.Crawler.MaxDepth)
 		}
 	}
 
-	pageCounter.Store(0)
+	pageQueueCounter.Store(0)
 
 	collyOptions := []colly.CollectorOption{
+		// Allow crawling of the domains, this is normally
+		// based on the domain of the URL
 		colly.AllowedDomains(domains...),
+		// Some websites block requests with the same user agent
 		colly.UserAgent(userAgent),
-		colly.MaxDepth(maxDepth), // Limit crawl depth to avoid infinite crawling
-		colly.IgnoreRobotsTxt(),
+		// If you have this as "2" then it will crawl the current
+		// supplied page and the pages it links to
+		colly.MaxDepth(int(maxPages)),
+	}
+
+	if d.knowledge.Source.Web.Crawler.IgnoreRobotsTxt {
+		collyOptions = append(collyOptions, colly.IgnoreRobotsTxt())
 	}
 
 	if len(d.knowledge.Source.Web.Excludes) > 0 {
@@ -122,6 +131,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		if err := collector.Limit(&colly.LimitRule{
 			DomainGlob:  fmt.Sprintf("*%s*", domain),
 			Parallelism: defaultParallelism,
+			// RandomDelay: 1 * time.Second,
 		}); err != nil {
 			log.Warn().
 				Str("domain_glob", fmt.Sprintf("*%s*", domain)).
@@ -137,24 +147,12 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	crawledURLs := make(map[string]bool)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		crawledMu.Lock()
-		alreadyCrawled := crawledURLs[e.Request.URL.String()]
-		crawledMu.Unlock()
-
-		if alreadyCrawled {
-			return
-		}
-
-		visited := pageCounter.Load()
+		visited := pageQueueCounter.Load()
 
 		log.Info().
 			Str("knowledge_id", d.knowledge.ID).
 			Int32("visited_pages", visited).
 			Str("url", e.Request.URL.String()).Msg("visiting link")
-
-		crawledMu.Lock()
-		crawledURLs[e.Request.URL.String()] = true
-		crawledMu.Unlock()
 
 		// TODO: get more URLs from the browser too, it can render
 		doc, err := d.crawlWithBrowser(ctx, b, e.Request.URL.String())
@@ -174,8 +172,6 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			})
 			crawledMu.Unlock()
 
-			pageCounter.Add(1)
-
 			return
 		}
 
@@ -190,31 +186,63 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		crawledDocs = append(crawledDocs, doc)
 		crawledMu.Unlock()
 
-		pageCounter.Add(1)
+		d.updateProgress(types.KnowledgeProgress{
+			Step:           "Crawling",
+			Progress:       0, // We don't know the progress here
+			ElapsedSeconds: int(time.Since(started).Seconds()),
+			Message:        fmt.Sprintf("Visited %d pages", visited),
+			StartedAt:      started,
+		})
 	})
 
 	// Add this new OnHTML callback to find and visit links
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
 
-		if pageCounter.Load() >= maxPages {
-			log.Warn().
+		if pageQueueCounter.Load() > maxPages {
+			log.Trace().
 				Str("knowledge_id", d.knowledge.ID).
 				Str("url", e.Request.URL.String()).
 				Str("absolute_url", e.Request.AbsoluteURL(link)).
+				Int32("max_pages", maxPages).
 				Msg("Max pages reached")
 			return
 		}
 
-		err := collector.Visit(e.Request.AbsoluteURL(link))
+		crawledMu.Lock()
+		alreadyCrawled := crawledURLs[link]
+		crawledMu.Unlock()
+
+		// This link has been seen, nothing to do
+		if alreadyCrawled {
+			return
+		}
+
+		// Increment the page queue counter
+		pageQueueCounter.Add(1)
+
+		// Add link to the seen list
+		crawledMu.Lock()
+		crawledURLs[link] = true
+		crawledMu.Unlock()
+
+		// Schedule the link to be crawled
+		err := e.Request.Visit(e.Request.AbsoluteURL(link))
 		if err != nil {
+			if strings.Contains(err.Error(), "URL already visited") {
+				// Common error if duplicate URLs are visited
+				return
+			}
+			if strings.Contains(err.Error(), "Forbidden domain") {
+				// Common error when domain links to another domain (we can ignore these)
+				return
+			}
 			log.Warn().
 				Err(err).
 				Str("url", e.Request.URL.String()).
 				Str("absolute_url", e.Request.AbsoluteURL(link)).
 				Msg("error visiting link")
 		}
-
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
@@ -226,6 +254,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		Str("knowledge_name", d.knowledge.Name).
 		Str("url", d.knowledge.Source.Web.URLs[0]).
 		Str("domains", strings.Join(domains, ",")).
+		Int("max_pages", int(maxPages)).
 		Msg("starting to crawl the website")
 
 	for _, url := range d.knowledge.Source.Web.URLs {
@@ -242,7 +271,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		Str("knowledge_name", d.knowledge.Name).
 		Str("url", d.knowledge.Source.Web.URLs[0]).
 		Str("domains", strings.Join(domains, ",")).
-		Int32("pages_crawled", pageCounter.Load()).
+		Int32("pages_queued", pageQueueCounter.Load()).
 		Msg("finished crawling the website")
 
 	return crawledDocs, nil

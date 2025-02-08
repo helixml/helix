@@ -259,7 +259,7 @@ const Dashboard: FC = () => {
           </Tabs>
         </Box>
 
-        {activeTab === 0 && (
+        {activeTab === 1 && (
           <Box
             sx={{
               width: '100%',
@@ -420,7 +420,7 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 1 && (
+        {activeTab === 0 && (
           <Box
             sx={{
               width: '100%',

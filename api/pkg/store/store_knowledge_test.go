@@ -119,7 +119,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
 	suite.NoError(err)
 
 	err = suite.db.UpdateKnowledgeState(context.Background(),
-		knowledge.ID, types.KnowledgeStateIndexing, "Indexing", 99)
+		knowledge.ID, types.KnowledgeStateIndexing, "Indexing")
 	suite.NoError(err, "failed to update knowledge state")
 
 	updatedKnowledge, err := suite.db.GetKnowledge(context.Background(), knowledge.ID)
@@ -128,9 +128,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateKnowledgeState() {
 	suite.Equal(knowledge.ID, updatedKnowledge.ID)
 	suite.Equal(knowledge.Owner, updatedKnowledge.Owner)
 	suite.Equal("Test Knowledge", updatedKnowledge.Name)
-
-	// Check percentage
-	suite.Equal(99, updatedKnowledge.ProgressPercent)
 
 	// Cleanup
 	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
