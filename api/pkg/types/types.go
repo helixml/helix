@@ -702,6 +702,7 @@ type ServerConfigForFrontend struct {
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
 	DisableLLMCallLogging   bool   `json:"disable_llm_call_logging"`
 	Version                 string `json:"version"`
+	LatestVersion           string `json:"latest_version"`
 }
 
 // a short version of a session that we keep for the dashboard

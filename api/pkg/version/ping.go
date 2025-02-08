@@ -15,21 +15,27 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 )
 
+type PingResponse struct {
+	LatestVersion string `json:"latest_version"`
+}
+
 type PingService struct {
-	db           *store.PostgresStore
-	launchpadURL string
-	ticker       *time.Ticker
-	done         chan bool
-	licenseKey   string
+	db            *store.PostgresStore
+	launchpadURL  string
+	ticker        *time.Ticker
+	done          chan bool
+	licenseKey    string
+	latestVersion string
 }
 
 func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL string) *PingService {
 	return &PingService{
-		db:           db,
-		launchpadURL: launchpadURL,
-		ticker:       time.NewTicker(1 * time.Hour),
-		done:         make(chan bool),
-		licenseKey:   licenseKey,
+		db:            db,
+		launchpadURL:  launchpadURL,
+		ticker:        time.NewTicker(1 * time.Hour),
+		done:          make(chan bool),
+		licenseKey:    licenseKey,
+		latestVersion: "",
 	}
 }
 
@@ -73,7 +79,7 @@ func (s *PingService) sendPing() {
 
 	// Generate deployment ID from license key
 	hasher := sha256.New()
-	hasher.Write([]byte(s.licenseKey)) // Use license key for deployment ID
+	hasher.Write([]byte(s.licenseKey)) // Use license key hash for deployment ID
 	deploymentID := hex.EncodeToString(hasher.Sum(nil))
 
 	// Prepare ping data
@@ -102,9 +108,15 @@ func (s *PingService) sendPing() {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		log.Printf("Unexpected status code from ping: %d", resp.StatusCode)
+	// Parse the response to get latest version
+	var pingResp PingResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+		log.Printf("Error decoding ping response: %v", err)
+		return
 	}
+
+	// Store the latest version
+	s.latestVersion = pingResp.LatestVersion
 }
 
 func (s *PingService) getUserCount() (int, error) {
@@ -112,4 +124,8 @@ func (s *PingService) getUserCount() (int, error) {
 	// This would need to use the Keycloak admin API to get the user count
 	// For now returning a placeholder
 	return 1, nil
+}
+
+func (s *PingService) GetLatestVersion() string {
+	return s.latestVersion
 }
