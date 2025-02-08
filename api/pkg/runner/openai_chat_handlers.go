@@ -38,7 +38,7 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 		return
 	}
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
 		return

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/data"
@@ -30,8 +30,7 @@ var (
 type HelixRunnerAPIServer struct {
 	runnerOptions *Options
 	cliContext    context.Context
-	slots         map[uuid.UUID]*Slot
-	slotsMtx      sync.RWMutex
+	slots         *xsync.MapOf[uuid.UUID, *Slot]
 	gpuManager    *GPUManager
 }
 
@@ -52,8 +51,7 @@ func NewHelixRunnerAPIServer(
 
 	return &HelixRunnerAPIServer{
 		runnerOptions: runnerOptions,
-		slots:         make(map[uuid.UUID]*Slot),
-		slotsMtx:      sync.RWMutex{},
+		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(runnerOptions),
 	}, nil
@@ -172,27 +170,24 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	apiServer.slotsMtx.Lock()
-	defer apiServer.slotsMtx.Unlock()
-	apiServer.slots[slot.ID] = s
+	apiServer.slots.Store(slot.ID, s)
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
 }
 
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
-	apiServer.slotsMtx.RLock()
-	defer apiServer.slotsMtx.RUnlock()
 
-	slotList := make([]*types.RunnerSlot, 0, len(apiServer.slots))
-	for id, slot := range apiServer.slots {
+	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
+	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
 			ID:      id,
 			Runtime: slot.Runtime.Runtime(),
 			Version: slot.Runtime.Version(),
 			Model:   slot.Model,
 		})
-	}
+		return true
+	})
 	response := &types.ListRunnerSlotsResponse{
 		Slots: slotList,
 	}
@@ -203,25 +198,29 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.
 }
 
 func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http.Request) {
-	apiServer.slotsMtx.Lock()
-	defer apiServer.slotsMtx.Unlock()
-
 	slotID := mux.Vars(r)["slot_id"]
 	slotUUID, err := uuid.Parse(slotID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	slot, ok := apiServer.slots[slotUUID]
+	slot, ok := apiServer.slots.Load(slotUUID)
 	if !ok {
 		http.Error(w, "slot not found", http.StatusNotFound)
 		return
 	}
+
+	// TODO(Phil): Check if the slot is being used by a running job before deleting it
+
+	// Delete slot first to ensure it is not used while we are stopping it
+	apiServer.slots.Delete(slotUUID)
+
 	err = slot.Runtime.Stop()
 	if err != nil {
+		log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	delete(apiServer.slots, slotUUID)
+
 	w.WriteHeader(http.StatusNoContent)
 }

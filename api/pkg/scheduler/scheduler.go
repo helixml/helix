@@ -133,9 +133,6 @@ func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
 }
 
 func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
-	s.slotsMtx.RLock()
-	defer s.slotsMtx.RUnlock()
-
 	// Get a current list of runners
 	runners := s.controller.RunnerIDs()
 
@@ -200,43 +197,62 @@ func (s *Scheduler) reconcileSlotsOnce() {
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
 
-	// For each runner, check their actual slots against what we think they have
+	// Build a complete map of all actual slots across all runners
+	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
 	for _, runnerID := range runnerIDs {
-		// Get the actual slots from the runner
 		actualSlots, err := s.controller.Slots(runnerID)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get slots from runner")
 			continue
 		}
 
-		// Create a map of actual slot IDs for quick lookup
-		actualSlotMap := make(map[uuid.UUID]bool)
 		for _, slot := range actualSlots {
-			actualSlotMap[slot.ID] = true
-		}
-
-		// Check that the scheduler slots match the runner's actual slots
-		for slotID := range s.slots {
-			if !actualSlotMap[slotID] {
+			// If we find the same slot ID on multiple runners, delete from the duplicate runner
+			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
 				log.Warn().
-					Str("runner_id", runnerID).
-					Str("slot_id", slotID.String()).
-					Msg("found slot on the scheduler that doesn't exist on the runner, deleting...")
-				delete(s.slots, slotID)
-			}
-		}
-
-		// Check that the runner's actual slots match the scheduler's slots
-		for slotID := range actualSlotMap {
-			if _, ok := s.slots[slotID]; !ok {
-				log.Warn().
-					Str("runner_id", runnerID).
-					Str("slot_id", slotID.String()).
-					Msg("found slot on the runner that doesn't exist on the scheduler, deleting...")
-				err = s.controller.DeleteSlot(runnerID, slotID)
+					Str("slot_id", slot.ID.String()).
+					Str("existing_runner", existingRunnerID).
+					Str("duplicate_runner", runnerID).
+					Msg("found duplicate slot ID on multiple runners, cleaning up duplicate")
+				err = s.controller.DeleteSlot(runnerID, slot.ID)
 				if err != nil {
-					log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slotID.String()).Msg("failed to delete slot")
+					log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slot.ID.String()).Msg("failed to delete duplicate slot")
 				}
+				continue
+			}
+			allActualSlots[slot.ID] = runnerID
+		}
+	}
+
+	// Clean up scheduler slots that don't exist on any runner
+	for slotID, slot := range s.slots {
+		if runnerID, exists := allActualSlots[slotID]; !exists {
+			log.Warn().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slotID.String()).
+				Msg("found slot on the scheduler that doesn't exist on any runner, deleting...")
+			delete(s.slots, slotID)
+		} else if runnerID != slot.RunnerID {
+			// The slot exists but on a different runner than we thought
+			log.Warn().
+				Str("scheduler_runner", slot.RunnerID).
+				Str("actual_runner", runnerID).
+				Str("slot_id", slotID.String()).
+				Msg("slot exists on different runner than expected, updating runner ID")
+			slot.RunnerID = runnerID
+		}
+	}
+
+	// Clean up runner slots that don't exist in scheduler
+	for slotID, runnerID := range allActualSlots {
+		if _, exists := s.slots[slotID]; !exists {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("slot_id", slotID.String()).
+				Msg("found slot on runner that doesn't exist in scheduler, deleting...")
+			err := s.controller.DeleteSlot(runnerID, slotID)
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slotID.String()).Msg("failed to delete slot")
 			}
 		}
 	}
@@ -562,6 +578,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
 		}
 	}
+	// TODO(Phil): This isn't right, we shouldn't release the slot here, because it's still running
+	// a job. Probably should move this to the runner itself.
 	slot.Release()
 
 	return nil

@@ -27,7 +27,7 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 		return
 	}
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(w, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
 		return

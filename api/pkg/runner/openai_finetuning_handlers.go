@@ -38,7 +38,7 @@ func (s *HelixRunnerAPIServer) createFinetuningJob(rw http.ResponseWriter, r *ht
 		return
 	}
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
@@ -111,7 +111,7 @@ func (s *HelixRunnerAPIServer) listFinetuningJobs(rw http.ResponseWriter, r *htt
 	}
 	log.Trace().Str("slot_id", slotID).Msg("list finetuning jobs")
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
@@ -155,7 +155,7 @@ func (s *HelixRunnerAPIServer) retrieveFinetuningJob(rw http.ResponseWriter, r *
 	}
 	log.Trace().Str("slot_id", slotID).Str("job_id", jobID).Msg("retrieve finetuning job")
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
@@ -197,7 +197,7 @@ func (s *HelixRunnerAPIServer) listFinetuningJobEvents(rw http.ResponseWriter, r
 	}
 	log.Trace().Str("slot_id", slotID).Str("job_id", jobID).Msg("list finetuning job events")
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return

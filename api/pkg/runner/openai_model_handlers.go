@@ -20,7 +20,7 @@ func (s *HelixRunnerAPIServer) listModels(rw http.ResponseWriter, r *http.Reques
 	}
 	log.Trace().Str("slot_id", slotID).Msg("list models")
 
-	slot, ok := s.slots[slotUUID]
+	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotID), http.StatusNotFound)
 		return
