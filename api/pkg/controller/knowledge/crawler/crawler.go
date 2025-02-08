@@ -14,7 +14,7 @@ type Crawler interface {
 	Crawl(ctx context.Context) ([]*types.CrawledDocument, error)
 }
 
-func NewCrawler(browserPool *browser.Browser, k *types.Knowledge) (Crawler, error) {
+func NewCrawler(browserPool *browser.Browser, k *types.Knowledge, updateProgress func(progress types.KnowledgeProgress)) (Crawler, error) {
 	switch {
 	case k.Source.Web.Crawler.Firecrawl != nil:
 		log.Info().
@@ -27,6 +27,6 @@ func NewCrawler(browserPool *browser.Browser, k *types.Knowledge) (Crawler, erro
 			Str("knowledge_id", k.ID).
 			Str("knowledge_name", k.Name).
 			Msgf("Using default Helix crawler")
-		return NewDefault(browserPool, k)
+		return NewDefault(browserPool, k, updateProgress)
 	}
 }

@@ -21,7 +21,8 @@ func TestDefault_Crawl(t *testing.T) {
 			Web: &types.KnowledgeSourceWeb{
 				URLs: []string{"https://docs.helix.ml/helix"},
 				Crawler: &types.WebsiteCrawler{
-					Enabled: true,
+					Enabled:  true,
+					MaxDepth: 200,
 				},
 				Excludes: []string{"searchbot/*"},
 			},
@@ -34,7 +35,11 @@ func TestDefault_Crawl(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -90,7 +95,11 @@ func TestDefault_CrawlSingle(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	docs, err := d.Crawl(context.Background())
@@ -117,7 +126,11 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	// Setting very short timeout to force the page to timeout
@@ -150,7 +163,11 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile("../readability/testdata/example_code_block.html")
@@ -184,7 +201,11 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
-	d, err := NewDefault(browserManager, k)
+	updateProgress := func(progress types.KnowledgeProgress) {
+		t.Logf("progress: %+v", progress)
+	}
+
+	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -192,8 +213,8 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	b, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	doc, err := d.crawlWithBrowser(ctx, b, "https://www.starbucks.com/store-locator/store/50766-275766/target-austin-ut-campus-3250-2021-guadalupe-st-austin-tx-78705-us")
+	doc, err := d.crawlWithBrowser(ctx, b, "https://news.ycombinator.com/news")
 	require.NoError(t, err)
 
-	assert.True(t, strings.Contains(doc.Content, "Target Austin UT Campus") || strings.Contains(doc.Content, "This site uses cookies"))
+	assert.True(t, strings.Contains(doc.Content, "points"))
 }

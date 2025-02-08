@@ -66,11 +66,6 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 				k.Source.Web.Crawler.MaxDepth = cfg.RAG.Crawler.MaxDepth
 				log.Warn().Msgf("max depth set to %d", k.Source.Web.Crawler.MaxDepth)
 			}
-
-			if cfg.RAG.Crawler.MaxPages > 0 && k.Source.Web.Crawler.MaxPages > cfg.RAG.Crawler.MaxPages {
-				k.Source.Web.Crawler.MaxPages = cfg.RAG.Crawler.MaxPages
-				log.Warn().Msgf("max pages set to %d", k.Source.Web.Crawler.MaxPages)
-			}
 		}
 	}
 

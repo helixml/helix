@@ -115,12 +115,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		})
 	}
 
-	messages = append(messages,
-		openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "Return the corresponding json for the last user input",
-		},
-	)
+	if len(messages) > 0 {
+		messages[len(messages)-1].Content += "\nReturn the corresponding json for the last user input"
+	}
 
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
