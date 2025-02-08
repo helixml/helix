@@ -178,6 +178,9 @@ function test() {
   docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome
 
   # Database config (running in a sidecar)
+  export POSTGRES_USER=postgres
+  export POSTGRES_PASSWORD=postgres
+  export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
   export TYPESENSE_URL=http://localhost:8108
   export TYPESENSE_API_KEY=typesense
@@ -185,6 +188,9 @@ function test() {
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
   go test -v ./...
+  # To debug test hangs, try this:
+  # Run tests one at a time and show which test is running
+  #go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
 }
 
 eval "$@"
