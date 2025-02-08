@@ -81,7 +81,7 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddings() {
 	}).Return(s.openAiClient, nil)
 
 	s.openAiClient.EXPECT().CreateEmbeddings(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, req oai.EmbeddingRequest) (oai.EmbeddingResponse, error) {
+		DoAndReturn(func(_ context.Context, req oai.EmbeddingRequest) (oai.EmbeddingResponse, error) {
 			s.Equal("text-embedding-ada-002", string(req.Model))
 			s.Equal("float", string(req.EncodingFormat))
 			s.Equal("The food was delicious and the waiter...", req.Input)
