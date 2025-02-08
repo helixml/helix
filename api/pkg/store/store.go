@@ -121,6 +121,11 @@ type Store interface {
 	ListKnowledgeVersions(ctx context.Context, q *ListKnowledgeVersionQuery) ([]*types.KnowledgeVersion, error)
 	DeleteKnowledgeVersion(ctx context.Context, id string) error
 
+	// Embeddings
+	CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error
+	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
+	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
+
 	// GPTScript runs history table
 	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
 	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)

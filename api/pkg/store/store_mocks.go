@@ -101,6 +101,25 @@ func (mr *MockStoreMockRecorder) CreateKnowledge(ctx, knowledge any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateKnowledge", reflect.TypeOf((*MockStore)(nil).CreateKnowledge), ctx, knowledge)
 }
 
+// CreateKnowledgeEmbedding mocks base method.
+func (m *MockStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range embeddings {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CreateKnowledgeEmbedding", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateKnowledgeEmbedding indicates an expected call of CreateKnowledgeEmbedding.
+func (mr *MockStoreMockRecorder) CreateKnowledgeEmbedding(ctx any, embeddings ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, embeddings...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateKnowledgeEmbedding", reflect.TypeOf((*MockStore)(nil).CreateKnowledgeEmbedding), varargs...)
+}
+
 // CreateKnowledgeVersion mocks base method.
 func (m *MockStore) CreateKnowledgeVersion(ctx context.Context, version *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
 	m.ctrl.T.Helper()
@@ -260,6 +279,20 @@ func (m *MockStore) DeleteKnowledge(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteKnowledge(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteKnowledge", reflect.TypeOf((*MockStore)(nil).DeleteKnowledge), ctx, id)
+}
+
+// DeleteKnowledgeEmbedding mocks base method.
+func (m *MockStore) DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteKnowledgeEmbedding", ctx, knowledgeID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteKnowledgeEmbedding indicates an expected call of DeleteKnowledgeEmbedding.
+func (mr *MockStoreMockRecorder) DeleteKnowledgeEmbedding(ctx, knowledgeID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteKnowledgeEmbedding", reflect.TypeOf((*MockStore)(nil).DeleteKnowledgeEmbedding), ctx, knowledgeID)
 }
 
 // DeleteKnowledgeVersion mocks base method.
@@ -677,6 +710,21 @@ func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery
 func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
+}
+
+// QueryKnowledgeEmbeddings mocks base method.
+func (m *MockStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueryKnowledgeEmbeddings", ctx, q)
+	ret0, _ := ret[0].([]*types.KnowledgeEmbeddingItem)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// QueryKnowledgeEmbeddings indicates an expected call of QueryKnowledgeEmbeddings.
+func (mr *MockStoreMockRecorder) QueryKnowledgeEmbeddings(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryKnowledgeEmbeddings", reflect.TypeOf((*MockStore)(nil).QueryKnowledgeEmbeddings), ctx, q)
 }
 
 // UpdateApp mocks base method.
