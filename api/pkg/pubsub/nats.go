@@ -103,8 +103,8 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		opts := &server.Options{
 			Debug:         true,
 			Trace:         true,
-			Host:          "127.0.0.1", // For internal use only
-			Port:          -1,          // Random port
+			Host:          "127.0.0.1",        // For internal use only
+			Port:          server.RANDOM_PORT, // Random port
 			JetStream:     cfg.PubSub.Server.JetStream,
 			StoreDir:      cfg.PubSub.StoreDir,
 			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
@@ -245,6 +245,7 @@ func NewInMemoryNats() (*Nats, error) {
 	cfg.PubSub.Server.Port = server.RANDOM_PORT
 	cfg.PubSub.Server.JetStream = true
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
+	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
 
 	return NewNats(cfg)
 }

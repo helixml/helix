@@ -277,7 +277,7 @@ func (c *Controller) RestartSession(ctx context.Context, session *types.Session)
 	// not care and just say "start again"
 	// if there is more data prep to do, it will carry on
 	// if we go staight into the queue then it's a fine tune restart
-	c.SessionRunner(ctx, session)
+	c.SessionRunner(session)
 
 	return session, nil
 }

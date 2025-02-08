@@ -13,6 +13,7 @@ const (
 	ProviderNATS   Provider = "nats"
 )
 
+// TODO(Phil): Clean this up, NewInMemoryNats is basically the same as NewNats
 func New(cfg *config.ServerConfig) (PubSub, error) {
 	switch cfg.PubSub.Provider {
 	case string(ProviderMemory):
