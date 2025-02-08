@@ -581,7 +581,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	// if this session is spawned from an app then we populate the list of tools from the app rather than the linked
 	// database record
 	if session.ParentApp != "" {
-		app, err := c.Options.Store.GetAppWithTools(ctx, session.ParentApp)
+		app, err := c.Options.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
 			return nil, fmt.Errorf("error getting app: %w", err)
 		}

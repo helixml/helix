@@ -230,7 +230,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 }
 
 func (s *HelixAPIServer) getAppLoraAssistant(ctx context.Context, appID string) (*types.AssistantConfig, error) {
-	app, err := s.Store.GetAppWithTools(ctx, appID)
+	app, err := s.Store.GetApp(ctx, appID)
 	if err != nil {
 		return nil, err
 	}

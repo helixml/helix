@@ -225,7 +225,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			Str("app_id", appID).
 			Msg("running app cron job")
 
-		app, err := c.store.GetAppWithTools(ctx, appID)
+		app, err := c.store.GetApp(ctx, appID)
 		if err != nil {
 			log.Error().
 				Err(err).

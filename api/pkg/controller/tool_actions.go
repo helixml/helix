@@ -26,7 +26,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 	}
 
 	if session.ParentApp != "" {
-		app, err := c.Options.Store.GetAppWithTools(ctx, session.ParentApp)
+		app, err := c.Options.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get app %s: %w", session.ParentApp, err)
 		}

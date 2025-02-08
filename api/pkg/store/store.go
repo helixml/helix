@@ -96,7 +96,7 @@ type Store interface {
 	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
 	UpdateApp(ctx context.Context, tool *types.App) (*types.App, error)
 	GetApp(ctx context.Context, id string) (*types.App, error)
-	GetAppWithTools(ctx context.Context, id string) (*types.App, error)
+	// GetAppWithTools(ctx context.Context, id string) (*types.App, error)
 	ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error)
 	DeleteApp(ctx context.Context, id string) error
 

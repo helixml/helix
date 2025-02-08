@@ -65,6 +65,8 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 	return nil
 }
 
+// Tool name regex: ^[a-zA-Z0-9_-]{1,64}$
+
 func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:

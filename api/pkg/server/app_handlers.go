@@ -733,7 +733,7 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 	user := getRequestUser(r)
 	id := getID(r)
 
-	app, err := s.Store.GetAppWithTools(r.Context(), id)
+	app, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("app not found")

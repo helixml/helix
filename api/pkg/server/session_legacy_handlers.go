@@ -116,7 +116,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 
 		// if we have an app then let's populate the InternalSessionRequest with values from it
 		if newSession.ParentApp != "" {
-			app, err := s.Store.GetAppWithTools(ctx, appID)
+			app, err := s.Store.GetApp(ctx, appID)
 			if err != nil {
 				http.Error(rw, err.Error(), http.StatusInternalServerError)
 				return
