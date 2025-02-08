@@ -34,6 +34,12 @@ type ServerConfig struct {
 	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// License key for deployment identification
+	LicenseKey string `envconfig:"LICENSE_KEY"`
+	// Launchpad URL for version pings
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {

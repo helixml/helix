@@ -272,6 +272,7 @@ export interface IServerConfig {
   tools_enabled: boolean,
   apps_enabled: boolean,
   version?: string,
+  latest_version?: string,
 }
 
 export interface IConversation {
