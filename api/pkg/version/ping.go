@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Nerzal/gocloak/v13"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/store"
 )
@@ -20,22 +22,26 @@ type PingResponse struct {
 }
 
 type PingService struct {
-	db            *store.PostgresStore
-	launchpadURL  string
-	ticker        *time.Ticker
-	done          chan bool
-	licenseKey    string
-	latestVersion string
+	db             *store.PostgresStore
+	launchpadURL   string
+	ticker         *time.Ticker
+	done           chan bool
+	licenseKey     string
+	latestVersion  string
+	keycloakConfig *config.Keycloak
+	gocloak        *gocloak.GoCloak
 }
 
-func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL string) *PingService {
+func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL string, keycloakConfig *config.Keycloak) *PingService {
 	return &PingService{
-		db:            db,
-		launchpadURL:  launchpadURL,
-		ticker:        time.NewTicker(1 * time.Hour),
-		done:          make(chan bool),
-		licenseKey:    licenseKey,
-		latestVersion: "",
+		db:             db,
+		launchpadURL:   launchpadURL,
+		ticker:         time.NewTicker(1 * time.Hour),
+		done:           make(chan bool),
+		licenseKey:     licenseKey,
+		latestVersion:  "",
+		keycloakConfig: keycloakConfig,
+		gocloak:        gocloak.NewClient(keycloakConfig.KeycloakURL),
 	}
 }
 
@@ -123,10 +129,29 @@ func (s *PingService) sendPing() {
 }
 
 func (s *PingService) getUserCount() (int, error) {
-	// TODO: Implement Keycloak user count
-	// This would need to use the Keycloak admin API to get the user count
-	// For now returning a placeholder
-	return 1, nil
+	// Get admin token
+	token, err := s.gocloak.LoginAdmin(
+		context.Background(),
+		s.keycloakConfig.Username,
+		s.keycloakConfig.Password,
+		s.keycloakConfig.AdminRealm,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get admin token: %w", err)
+	}
+
+	// Get users count
+	count, err := s.gocloak.GetUserCount(
+		context.Background(),
+		token.AccessToken,
+		s.keycloakConfig.Realm,
+		gocloak.GetUsersParams{},
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user count: %w", err)
+	}
+
+	return int(count), nil
 }
 
 func (s *PingService) GetLatestVersion() string {

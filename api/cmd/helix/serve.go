@@ -200,7 +200,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		err := lm.Run(ctx)
 		if err != nil {
 			log.Error().Err(err).Msg("license is not valid anymore")
-			cancel() // Cancel context when license becomes invalid
+			// don't actually shut down the server yet, we'll start enforcing licenses in the next version
+			// cancel() // Cancel context when license becomes invalid
 		}
 	}()
 
@@ -413,7 +414,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Initialize ping service if not disabled
 	var pingService *version.PingService
 	if !cfg.DisableVersionPing {
-		pingService = version.NewPingService(store, cfg.LicenseKey, cfg.LaunchpadURL)
+		pingService = version.NewPingService(store, cfg.LicenseKey, cfg.LaunchpadURL, &cfg.Keycloak)
 		pingService.Start(ctx)
 		defer pingService.Stop()
 	}
