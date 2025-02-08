@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/pgvector/pgvector-go"
+	"gorm.io/gorm"
 )
 
 type AssistantKnowledge struct {
@@ -262,4 +265,17 @@ type KnowledgeProgress struct {
 	StartedAt      time.Time `json:"started_at"`
 	ElapsedSeconds int       `json:"elapsed_seconds"`
 	Message        string    `json:"message"`
+}
+
+type KnowledgeEmbeddingItem struct {
+	gorm.Model
+	Owner           string `gorm:"index"` // User ID or org ID
+	OwnerType       OwnerType
+	KnowledgeID     string `gorm:"index"`
+	DocumentGroupID string `gorm:"index"`
+	DocumentID      string `gorm:"index"`
+	Source          string
+	Embedding       pgvector.Vector `gorm:"type:vector(3)"`
+	Content         string          // Content of the knowledge
+	ContentOffset   int             // Offset of the content in the knowledge
 }
