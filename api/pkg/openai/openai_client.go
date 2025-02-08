@@ -29,6 +29,8 @@ type Client interface {
 
 	ListModels(ctx context.Context) ([]model.OpenAIModel, error)
 
+	CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error)
+
 	APIKey() string
 }
 
@@ -187,4 +189,24 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 	}
 
 	return models, nil
+}
+
+func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+	// Perform request with retries
+	err = retry.Do(func() error {
+		resp, err = c.apiClient.CreateEmbeddings(ctx, request)
+		if err != nil {
+			if strings.Contains(err.Error(), "401 Unauthorized") {
+				return retry.Unrecoverable(err)
+			}
+			return err
+		}
+		return nil
+	},
+		retry.Attempts(retries),
+		retry.Delay(delayBetweenRetries),
+		retry.Context(ctx),
+	)
+
+	return
 }
