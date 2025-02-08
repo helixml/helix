@@ -176,11 +176,19 @@ type TextExtractor struct {
 	}
 }
 
+type RAGProvider string
+
+const (
+	RAGProviderTypesense  RAGProvider = "typesense"
+	RAGProviderPGVector   RAGProvider = "pgvector"
+	RAGProviderLlamaindex RAGProvider = "llamaindex"
+)
+
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
 	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider string `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
+	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
@@ -191,7 +199,8 @@ type RAG struct {
 	}
 
 	PGVector struct {
-		Enabled bool `envconfig:"RAG_PGVECTOR_ENABLED" default:"false" description:"Whether to use the PGVector RAG provider."`
+		Enabled         bool   `envconfig:"RAG_PGVECTOR_ENABLED" default:"false" description:"Whether to use the PGVector RAG provider."`
+		EmbeddingsModel string `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
 	}
 
 	Llamaindex struct {
