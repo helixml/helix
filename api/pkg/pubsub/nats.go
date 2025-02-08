@@ -99,7 +99,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	}
 
 	// Create and start embedded server if we're not connecting to an external one
-	if cfg.PubSub.Server.Host == "0.0.0.0" {
+	if cfg.PubSub.Server.EmbeddedNatsServerEnabled {
 		opts := &server.Options{
 			Debug:         true,
 			Trace:         true,
