@@ -24,10 +24,8 @@ type OpenAIEmbeddingsSuite struct {
 	store        *store.MockStore
 	openAiClient *openai.MockClient
 	manager      *manager.MockProviderManager
-	cfg          *config.ServerConfig
 
 	authCtx context.Context
-	userID  string
 
 	server *HelixAPIServer
 }
@@ -68,9 +66,6 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddings() {
     "encoding_format": "float"
   }`))
 	s.NoError(err)
-
-	// ownerID, ok := getTestOwnerID(s.authCtx)
-	// s.Require().True(ok)
 
 	req = req.WithContext(s.authCtx)
 
