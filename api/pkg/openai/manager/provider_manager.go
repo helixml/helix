@@ -202,7 +202,11 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 
 	client, ok := m.clients[req.Provider]
 	if !ok {
-		return nil, fmt.Errorf("no client found for provider: %s", req.Provider)
+		availableProviders := make([]string, 0, len(m.clients))
+		for provider := range m.clients {
+			availableProviders = append(availableProviders, string(provider))
+		}
+		return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
 	}
 
 	return client.client, nil

@@ -86,6 +86,21 @@ func (mr *MockClientMockRecorder) CreateChatCompletionStream(ctx, request any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChatCompletionStream", reflect.TypeOf((*MockClient)(nil).CreateChatCompletionStream), ctx, request)
 }
 
+// CreateEmbeddings mocks base method.
+func (m *MockClient) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEmbeddings", ctx, request)
+	ret0, _ := ret[0].(openai.EmbeddingResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEmbeddings indicates an expected call of CreateEmbeddings.
+func (mr *MockClientMockRecorder) CreateEmbeddings(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEmbeddings", reflect.TypeOf((*MockClient)(nil).CreateEmbeddings), ctx, request)
+}
+
 // ListModels mocks base method.
 func (m *MockClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 	m.ctrl.T.Helper()
