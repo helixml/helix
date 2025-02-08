@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const schedulingDecisionHistorySize = 10
@@ -56,6 +57,11 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIMod
 
 func (c *InternalHelixServer) APIKey() string {
 	return ""
+}
+
+func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+	// TODO: implement once we support pass through
+	return openai.EmbeddingResponse{}, fmt.Errorf("not implemented")
 }
 
 // TODO: move logic from controller and other places. This method would be called directly from the runner
