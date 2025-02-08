@@ -131,9 +131,6 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 }
 
 func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http.Request) {
-	apiServer.slotsMtx.Lock()
-	defer apiServer.slotsMtx.Unlock()
-
 	slot := &types.CreateRunnerSlotRequest{}
 	err := json.NewDecoder(r.Body).Decode(slot)
 	if err != nil {
