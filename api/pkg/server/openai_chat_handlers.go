@@ -25,7 +25,7 @@ const (
 
 // POST https://app.tryhelix.ai/v1/chat/completions
 
-// createTool godoc
+// createChatCompletion godoc
 // @Summary Stream responses for chat
 // @Description Creates a model response for the given chat conversation.
 // @Tags    chat
