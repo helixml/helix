@@ -26,6 +26,7 @@ func setupTestNats(t *testing.T) (*Nats, func()) {
 	cfg.PubSub.Server.Port = server.RANDOM_PORT
 	cfg.PubSub.Server.JetStream = true
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
+	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
 
 	nats, err := NewNats(cfg)
 	require.NoError(t, err)
@@ -54,7 +55,7 @@ func setupAuthTestNats(t *testing.T) (*Nats, func()) {
 	cfg.PubSub.Server.JetStream = true
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
 	cfg.PubSub.Server.Token = "test"
-
+	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
 	nats, err := NewNats(cfg)
 	require.NoError(t, err)
 
