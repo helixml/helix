@@ -72,7 +72,6 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			Content:         indexReq.Content,
 			Embedding:       vector,
 			Source:          indexReq.Source,
-			Filename:        indexReq.Filename,
 		})
 	}
 
@@ -80,9 +79,46 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 }
 
 func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error) {
-	return nil, nil
+
+	client, err := p.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		Provider: p.cfg.Embeddings.Provider,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the embeddings for the query
+	generated, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Model: openai.EmbeddingModel(p.cfg.RAG.PGVector.EmbeddingsModel),
+		Input: q.Prompt,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	embeddings, err := p.store.QueryKnowledgeEmbeddings(ctx, &types.KnowledgeEmbeddingQuery{
+		KnowledgeID: q.DataEntityID,
+		Embedding:   pgvector.NewVector(generated.Data[0].Embedding),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var results []*types.SessionRAGResult
+
+	for _, embedding := range embeddings {
+		results = append(results, &types.SessionRAGResult{
+			DocumentGroupID: embedding.DocumentGroupID,
+			DocumentID:      embedding.DocumentID,
+			Source:          embedding.Source,
+			Content:         embedding.Content,
+			ContentOffset:   embedding.ContentOffset,
+		})
+	}
+
+	return results, nil
 }
 
 func (p *PGVector) Delete(ctx context.Context, req *types.DeleteIndexRequest) error {
-	return nil
+	return p.store.DeleteKnowledgeEmbedding(ctx, req.DataEntityID)
 }
