@@ -226,7 +226,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "deepseek-r1:8b-llama-distill-q8_0",
 			Name:          "Deepseek-R1 8B",
-			Memory:        GB * 9,
+			Memory:        GB * 26,
 			ContextLength: 131072,
 			Description:   "Small reasoning model (Llama based) - 8bit quantized, 128K context",
 			Hide:          false,
@@ -234,7 +234,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "deepseek-r1:32b-qwen-distill-q8_0",
 			Name:          "Deepseek-R1 32B",
-			Memory:        GB * 35,
+			Memory:        GB * 66,
 			ContextLength: 131072,
 			Description:   "Medium reasoning model (Qwen based) - 8bit quantized, 128K context",
 			Hide:          false,
