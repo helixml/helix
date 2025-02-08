@@ -195,6 +195,12 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
 
+	currentVersion := data.GetHelixVersion()
+	latestVersion := ""
+	if apiServer.pingService != nil {
+		latestVersion = apiServer.pingService.GetLatestVersion()
+	}
+
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
@@ -206,7 +212,8 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
 		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
 		DisableLLMCallLogging:   apiServer.Cfg.DisableLLMCallLogging,
-		Version:                 data.GetHelixVersion(),
+		Version:                 currentVersion,
+		LatestVersion:           latestVersion,
 	}, nil
 }
 
@@ -229,12 +236,16 @@ window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
 window.RUDDERSTACK_WRITE_KEY = "%s"
 window.RUDDERSTACK_DATA_PLANE_URL = "%s"
+window.HELIX_VERSION = "%s"
+window.HELIX_LATEST_VERSION = "%s"
 `,
 		config.DisableLLMCallLogging,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
 		config.RudderStackWriteKey,
 		config.RudderStackDataPlaneURL,
+		config.Version,
+		config.LatestVersion,
 	)
 	if _, err := res.Write([]byte(content)); err != nil {
 		log.Error().Msgf("Failed to write response: %v", err)

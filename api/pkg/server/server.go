@@ -28,6 +28,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
 	"crypto/x509"
@@ -69,10 +70,11 @@ type HelixAPIServer struct {
 	pubsub            pubsub.PubSub
 	providerManager   manager.ProviderManager
 	gptScriptExecutor gptscript.Executor
-	inferenceServer   openai.HelixServer // Helix OpenAI server
+	inferenceServer   openai.HelixServer
 	knowledgeManager  knowledge.Manager
 	router            *mux.Router
 	scheduler         scheduler.Scheduler
+	pingService       *version.PingService
 }
 
 func NewServer(
@@ -88,6 +90,7 @@ func NewServer(
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
 	scheduler scheduler.Scheduler,
+	pingService *version.PingService,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -126,6 +129,7 @@ func NewServer(
 		pubsub:           ps,
 		knowledgeManager: knowledgeManager,
 		scheduler:        scheduler,
+		pingService:      pingService,
 	}, nil
 }
 

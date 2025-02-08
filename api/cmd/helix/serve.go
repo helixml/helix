@@ -410,19 +410,34 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
+	// Initialize ping service if not disabled
+	var pingService *version.PingService
+	if !cfg.DisableVersionPing {
+		pingService = version.NewPingService(store, cfg.LicenseKey, cfg.LaunchpadURL)
+		pingService.Start(ctx)
+		defer pingService.Stop()
+	}
+
+	server, err := server.NewServer(
+		cfg,
+		store,
+		ps,
+		gse,
+		providerManager,
+		helixInference,
+		keycloakAuthenticator,
+		stripe,
+		appController,
+		janitor,
+		knowledgeReconciler,
+		scheduler,
+		pingService,
+	)
 	if err != nil {
 		return err
 	}
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
-
-	// Initialize ping service if not disabled
-	if !cfg.DisableVersionPing {
-		pingService := version.NewPingService(store, cfg.LicenseKey, cfg.LaunchpadURL)
-		pingService.Start(ctx)
-		defer pingService.Stop()
-	}
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)
