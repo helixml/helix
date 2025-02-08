@@ -96,22 +96,35 @@ func (c *NatsController) setupSubscription(ctx context.Context, runnerID string)
 }
 
 func (c *NatsController) handler(ctx context.Context, msg *nats.Msg) error {
-	var req types.Request
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		return err
-	}
+	// Create a new context that we can cancel if needed
+	taskCtx, cancel := context.WithCancel(ctx)
 
-	// Execute the task via an HTTP handler
-	response := c.executeTaskViaHTTP(ctx, msg.Header, req)
+	go func() {
+		defer cancel()
+		var req types.Request
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			log.Error().Err(err).Msg("failed to unmarshal request")
+			c.respondWithError(msg, err)
+			return
+		}
 
-	responseBytes, err := json.Marshal(response)
-	if err != nil {
-		return fmt.Errorf("failed to marshal response: %w", err)
-	}
-	err = msg.Respond(responseBytes)
-	if err != nil {
-		return fmt.Errorf("failed to respond to nats: %w", err)
-	}
+		// Execute the task via an HTTP handler
+		response := c.executeTaskViaHTTP(taskCtx, msg.Header, req)
+
+		responseBytes, err := json.Marshal(response)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal response")
+			c.respondWithError(msg, err)
+			return
+		}
+		err = msg.Respond(responseBytes)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to respond to nats")
+			c.respondWithError(msg, err)
+			return
+		}
+	}()
+
 	return nil
 }
 
@@ -308,4 +321,17 @@ func (c *NatsController) publishResponse(ctx context.Context, queue string, req 
 	}
 
 	return nil
+}
+
+// Helper method to handle error responses
+func (c *NatsController) respondWithError(msg *nats.Msg, err error) {
+	response := &types.Response{
+		StatusCode: http.StatusInternalServerError,
+		Body:       []byte(err.Error()),
+	}
+
+	responseBytes, _ := json.Marshal(response)
+	if err := msg.Respond(responseBytes); err != nil {
+		log.Error().Err(err).Msg("failed to send error response")
+	}
 }
