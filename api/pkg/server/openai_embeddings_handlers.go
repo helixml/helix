@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/openai/manager"
+
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
