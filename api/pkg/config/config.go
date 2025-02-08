@@ -190,6 +190,10 @@ type RAG struct {
 		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
 	}
 
+	PGVector struct {
+		Enabled bool `envconfig:"RAG_PGVECTOR_ENABLED" default:"false" description:"Whether to use the PGVector RAG provider."`
+	}
+
 	Llamaindex struct {
 		// the URL we can post a chunk of text to for RAG indexing
 		RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk" description:"The URL to index text with RAG."`
@@ -258,6 +262,8 @@ type Store struct {
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+
+	PGVectorEnabled bool // Set by the RAG struct
 }
 
 type WebServer struct {
