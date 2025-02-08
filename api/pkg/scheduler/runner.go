@@ -77,7 +77,7 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 	}
 
 	// Publish the task to the "tasks" subject
-	response, err := c.ps.Request(ctx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout) // TODO(phil): some requests are long running, so we need to make this configurable
+	response, err := c.ps.Request(ctx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
@@ -242,6 +242,12 @@ func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *typ
 }
 
 func (c *RunnerController) CreateSlot(slot *Slot) error {
+	log.Debug().
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("model", slot.ModelName().String()).
+		Str("runtime", string(slot.Runtime())).
+		Msg("creating slot")
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
@@ -268,7 +274,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 }
 
 func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
-	log.Info().
+	log.Debug().
 		Str("runner_id", runnerID).
 		Str("slot_id", slotID.String()).
 		Msg("deleting slot")

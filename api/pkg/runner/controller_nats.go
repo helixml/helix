@@ -131,10 +131,11 @@ func (c *NatsController) handler(ctx context.Context, msg *nats.Msg) error {
 func (c *NatsController) executeTaskViaHTTP(ctx context.Context, headers nats.Header, task types.Request) *types.Response {
 	// Route based on request type
 	if headers.Get(pubsub.HelixNatsReplyHeader) != "" {
-		log.Debug().Str("method", task.Method).Str("url", task.URL).Msg("routing to nats reply handler")
+		log.Trace().Str("method", task.Method).Str("url", task.URL).Msg("routing to nats reply handler")
 		return c.handleNatsReplyRequest(ctx, task, headers.Get(pubsub.HelixNatsReplyHeader))
 	}
 
+	log.Trace().Str("method", task.Method).Str("url", task.URL).Msg("routing to generic http handler")
 	return c.handleGenericHTTPRequest(ctx, task)
 }
 
