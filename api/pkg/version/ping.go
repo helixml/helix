@@ -7,14 +7,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/rs/zerolog/log"
 )
 
 type PingResponse struct {
@@ -46,6 +47,12 @@ func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL str
 }
 
 func (s *PingService) Start(ctx context.Context) {
+	// Don't start the ping service if HELIX_DISABLE_VERSION_CHECK is set
+	if os.Getenv("HELIX_DISABLE_VERSION_CHECK") != "" {
+		log.Info().Msg("Version check service disabled via HELIX_DISABLE_VERSION_CHECK")
+		return
+	}
+
 	go func() {
 		// Send initial ping
 		s.sendPing()
@@ -72,14 +79,14 @@ func (s *PingService) sendPing() {
 	// Get app count from database
 	appCount, err := s.db.GetAppCount()
 	if err != nil {
-		log.Printf("Error getting app count: %v", err)
+		log.Error().Err(err).Msg("Error getting app count")
 		return
 	}
 
 	// Get user count from Keycloak
 	userCount, err := s.getUserCount()
 	if err != nil {
-		log.Printf("Error getting user count: %v", err)
+		log.Error().Err(err).Msg("Error getting user count")
 		return
 	}
 
@@ -102,7 +109,7 @@ func (s *PingService) sendPing() {
 	// Send ping to launchpad
 	jsonData, err := json.Marshal(pingData)
 	if err != nil {
-		log.Printf("Error marshaling ping data: %v", err)
+		log.Error().Err(err).Msg("Error marshaling ping data")
 		return
 	}
 
@@ -112,7 +119,7 @@ func (s *PingService) sendPing() {
 		bytes.NewBuffer(jsonData),
 	)
 	if err != nil {
-		log.Printf("Error sending ping: %v", err)
+		log.Error().Err(err).Msg("Error sending ping")
 		return
 	}
 	defer resp.Body.Close()
@@ -120,7 +127,7 @@ func (s *PingService) sendPing() {
 	// Parse the response to get latest version
 	var pingResp PingResponse
 	if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
-		log.Printf("Error decoding ping response: %v", err)
+		log.Error().Err(err).Msg("Error decoding ping response")
 		return
 	}
 
