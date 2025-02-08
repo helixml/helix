@@ -37,8 +37,8 @@ export interface IAccountContext {
   onLogin: () => void,
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
-  models: IHelixModel[];
-  fetchModels: () => Promise<void>;
+  models: IHelixModel[],
+  fetchModels: () => Promise<void>,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -92,6 +92,7 @@ export const useAccountContext = (): IAccountContext => {
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
   const [ models, setModels ] = useState<IHelixModel[]>([])
+  const [ latestVersion, setLatestVersion ] = useState<string>()
 
   const keycloak = useMemo(() => {
     return new Keycloak({

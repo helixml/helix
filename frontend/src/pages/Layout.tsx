@@ -1,9 +1,11 @@
-import React, { FC } from 'react'
+import React, { FC, useState, useMemo } from 'react'
 import { useTheme } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
+import Alert from '@mui/material/Alert'
+import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
@@ -26,6 +28,15 @@ const Layout: FC = ({
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
+
+  const [showVersionBanner, setShowVersionBanner] = useState(true)
+
+  const hasNewVersion = useMemo(() => {
+    if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
+      return false
+    }
+    return account.serverConfig.version !== account.serverConfig.latest_version
+  }, [account.serverConfig?.version, account.serverConfig?.latest_version])
 
   return (
     <Box
@@ -84,6 +95,17 @@ const Layout: FC = ({
           flexDirection: 'column',
         }}
       >
+        <Collapse in={showVersionBanner && hasNewVersion} sx={{backgroundColor: 'black', position: 'relative', paddingRight: '15px'}}>
+          <Alert
+            severity="info"
+            sx={{
+              borderRadius: 0,
+            }}
+            onClose={() => setShowVersionBanner(false)}
+          >
+            A new version of Helix ({account.serverConfig?.latest_version}) is available! You are currently running version {account.serverConfig?.version}. Learn more <a style={{color: 'white'}} href={`https://github.com/helixml/helix/releases/${account.serverConfig?.latest_version}`} target="_blank" rel="noopener noreferrer">here</a>.
+          </Alert>
+        </Collapse>
         <Box
           component="div"
           sx={{
