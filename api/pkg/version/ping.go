@@ -77,10 +77,13 @@ func (s *PingService) sendPing() {
 		return
 	}
 
-	// Generate deployment ID from license key
-	hasher := sha256.New()
-	hasher.Write([]byte(s.licenseKey)) // Use license key hash for deployment ID
-	deploymentID := hex.EncodeToString(hasher.Sum(nil))
+	deploymentID := "unknown"
+	if s.licenseKey != "" {
+		// Generate deployment ID from license key
+		hasher := sha256.New()
+		hasher.Write([]byte(s.licenseKey)) // Use license key hash for deployment ID
+		deploymentID = hex.EncodeToString(hasher.Sum(nil))
+	}
 
 	// Prepare ping data
 	pingData := map[string]interface{}{
