@@ -242,3 +242,8 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		}
 	}
 }
+
+// No-op, not logging embeddings calls
+func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+	return m.client.CreateEmbeddings(ctx, request)
+}
