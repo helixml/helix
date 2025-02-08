@@ -58,11 +58,11 @@ func TestDeleteAllApps(t *testing.T) {
 			deleteButton := row.MustElementX(`//*[name()='svg' and @data-testid='DeleteIcon']`)
 
 			wait := page.MustWaitRequestIdle()
-			deleteButton.MustWaitInteractable().MustClick()
+			deleteButton.MustWaitVisible().MustClick()
 
 			// Wait for and type delete into the modal
-			page.MustElementX(`//input[@type='text']`).MustWaitInteractable().MustInput("delete")
-			page.MustElementX(`//button[text() = 'Confirm']`).MustWaitInteractable().MustClick()
+			page.MustElementX(`//input[@type='text']`).MustWaitVisible().MustInput("delete")
+			page.MustElementX(`//button[text() = 'Confirm']`).MustWaitVisible().MustClick()
 			wait()
 
 			page.MustWaitIdle()

@@ -238,6 +238,58 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Function to check if running on WSL2 (don't auto-install docker in that case)
+check_wsl2_docker() {
+    if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
+        echo "Detected WSL2 (Windows) environment."
+        echo "Please install Docker Desktop for Windows from https://docs.docker.com/desktop/windows/install/"
+        exit 1
+    fi
+}
+
+# Function to install Docker and Docker Compose plugin
+install_docker() {
+    if ! command -v docker &> /dev/null; then
+        check_wsl2_docker
+        echo "Docker not found. Installing Docker..."
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case $ID in
+                ubuntu|debian)
+                    sudo apt-get update
+                    sudo apt-get install -y ca-certificates curl gnupg
+                    sudo install -m 0755 -d /etc/apt/keyrings
+                    curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+                    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                    sudo apt-get update
+                    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                    ;;
+                fedora)
+                    sudo dnf -y install dnf-plugins-core
+                    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+                    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
+                    ;;
+                *)
+                    echo "Unsupported distribution for automatic Docker installation. Please install Docker manually."
+                    exit 1
+                    ;;
+            esac
+        else
+            echo "Unable to determine OS distribution. Please install Docker manually."
+            exit 1
+        fi
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
+        sudo apt-get update
+        sudo apt-get install -y docker-compose-plugin
+    fi
+}
+
 # default docker command
 DOCKER_CMD="docker"
 
@@ -245,6 +297,8 @@ DOCKER_CMD="docker"
 if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ]; then
     NEED_SUDO="false"
 else
+    # Install docker if not present, if we're going to
+    install_docker
     # Determine if we need sudo for docker commands
     NEED_SUDO=$(check_docker_sudo)
     if [ "$NEED_SUDO" = "true" ]; then
@@ -256,9 +310,11 @@ fi
 if [ -n "$HELIX_VERSION" ]; then
     LATEST_RELEASE="$HELIX_VERSION"
     echo "Using specified Helix version: $LATEST_RELEASE"
+    echo
 else
     LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
     echo "Using latest Helix version: $LATEST_RELEASE"
+    echo
 fi
 
 # Function to check for NVIDIA GPU
@@ -412,58 +468,6 @@ fi
 # Function to generate random alphanumeric password
 generate_password() {
     openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
-}
-
-# Function to check if running on WSL2 (don't auto-install docker in that case)
-check_wsl2_docker() {
-    if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
-        echo "Detected WSL2 (Windows) environment."
-        echo "Please install Docker Desktop for Windows from https://docs.docker.com/desktop/windows/install/"
-        exit 1
-    fi
-}
-
-# Function to install Docker and Docker Compose plugin
-install_docker() {
-    if ! command -v docker &> /dev/null; then
-        check_wsl2_docker
-        echo "Docker not found. Installing Docker..."
-        if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            case $ID in
-                ubuntu|debian)
-                    sudo apt-get update
-                    sudo apt-get install -y ca-certificates curl gnupg
-                    sudo install -m 0755 -d /etc/apt/keyrings
-                    curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-                    sudo chmod a+r /etc/apt/keyrings/docker.gpg
-                    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-                    sudo apt-get update
-                    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-                    ;;
-                fedora)
-                    sudo dnf -y install dnf-plugins-core
-                    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-                    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-                    sudo systemctl start docker
-                    sudo systemctl enable docker
-                    ;;
-                *)
-                    echo "Unsupported distribution for automatic Docker installation. Please install Docker manually."
-                    exit 1
-                    ;;
-            esac
-        else
-            echo "Unable to determine OS distribution. Please install Docker manually."
-            exit 1
-        fi
-    fi
-
-    if ! docker compose version &> /dev/null; then
-        echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
-        sudo apt-get update
-        sudo apt-get install -y docker-compose-plugin
-    fi
 }
 
 # Function to install NVIDIA Docker runtime

@@ -124,6 +124,7 @@ for env_var in \
     KEYCLOAK_USER \
     KEYCLOAK_PASSWORD \
     ADMIN_USER_IDS \
+    ADMIN_USER_SOURCE \
     EVAL_USER_ID \
     HELIX_API_KEY; do
     eval value=\${$env_var:-}

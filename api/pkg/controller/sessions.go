@@ -157,7 +157,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		return nil, err
 	}
 
-	go c.SessionRunner(ctx, sessionData)
+	go c.SessionRunner(sessionData)
 
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, user, sessionData)
 	if err != nil {
@@ -222,7 +222,7 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 		return nil, err
 	}
 
-	go c.SessionRunner(ctx, sessionData)
+	go c.SessionRunner(sessionData)
 
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeUpdated, user, sessionData)
 	if err != nil {
@@ -309,7 +309,7 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 		log.Err(err).Msg("failed writing session")
 	}
 
-	go c.SessionRunner(ctx, session)
+	go c.SessionRunner(session)
 
 	return session, nil
 }
@@ -353,14 +353,15 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 		log.Err(err).Msg("failed writing session")
 	}
 
-	go c.SessionRunner(ctx, session)
+	go c.SessionRunner(session)
 
 	return session, nil
 }
 
 // the idempotent function to "run" the session
 // it should work out what this means - i.e. have we prepared the data yet?
-func (c *Controller) SessionRunner(ctx context.Context, sessionData *types.Session) {
+func (c *Controller) SessionRunner(sessionData *types.Session) {
+	ctx := context.Background()
 	// Wait for that to complete before adding to the queue
 	// the model can be adding subsequent child sessions to the queue
 	// e.g. in the case of text fine tuning data prep - we need an LLM to convert

@@ -78,3 +78,46 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 
 	cancel()
 }
+
+func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile() {
+	// Create a temporary file for testing
+	tmpDir := suite.T().TempDir()
+	keyFile := filepath.Join(tmpDir, "api-key")
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		err := os.WriteFile(keyFile, []byte("initial-key"), 0644)
+		suite.NoError(err)
+	}()
+
+	// Create manager with initial key
+	manager := NewProviderManager(suite.cfg, nil)
+
+	// Create context with cancel
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start watching the file with a short interval
+	interval := 20 * time.Millisecond
+
+	err := manager.watchAndUpdateClient(ctx, types.ProviderOpenAI, interval, "https://api.openai.com/v1", keyFile)
+	suite.NoError(err)
+
+	defer manager.wg.Wait()
+
+	// Wait for the file to be updated
+	time.Sleep(time.Second)
+
+	// Get the client and verify the API key
+	client, err := manager.GetClient(ctx, &GetClientRequest{Provider: types.ProviderOpenAI})
+	suite.NoError(err)
+
+	// Type assert to access the underlying client
+	// Note: This assumes the client implements a way to get the API key
+	// You might need to modify your openai.Client interface to expose this
+	openaiClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+
+	suite.Equal("initial-key", openaiClient.APIKey())
+
+	cancel()
+}

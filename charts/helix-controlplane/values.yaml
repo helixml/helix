@@ -122,6 +122,21 @@ gptscript:
   concurrency: 20
   maxTasks: 0 # unlimited
 
+
+controlplane: 
+  # update to required filestorepath
+  # filestorePath: /tmp
+  sidecar: 
+    enabled: false
+    name: sidecar
+    image: curlimages/curl:8.11.1
+    imagePullPolicy: IfNotPresent
+    command: 
+      - "/bin/sh" 
+      - "-c"
+    args: 
+      - 'echo "Hello World"'
+        
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""

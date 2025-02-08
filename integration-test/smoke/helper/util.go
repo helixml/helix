@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,22 +65,16 @@ func PerformLogin(t *testing.T, page *rod.Page) error {
 
 func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	LogStep(t, "Looking for login button")
-	loginBtn := page.MustElement("button[id='login-button']").MustWaitInteractable()
-	err := loginBtn.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		LogStep(t, "Login button not found, must be already logged in")
-		return nil
-	}
+	page.MustElement("button[id='login-button']").MustClick()
 
 	LogStep(t, "Getting credentials from environment")
 	username := GetHelixUser()
 	password := GetHelixPassword()
 
 	LogStep(t, "Filling in username and password")
-	page.MustElementX("//input[@type='text']").MustWaitInteractable().MustInput(username)
-	page.MustElementX("//input[@type='password']").MustWaitInteractable().MustInput(password)
-	time.Sleep(100 * time.Millisecond)
-	page.MustElementX("//input[@type='submit']").MustWaitInteractable().MustClick()
+	page.MustElementX("//input[@type='text']").MustWaitVisible().MustInput(username)
+	page.MustElementX("//input[@type='password']").MustWaitVisible().MustInput(password)
+	page.MustElementX("//input[@type='submit']").MustWaitVisible().MustClick()
 
 	return nil
 }

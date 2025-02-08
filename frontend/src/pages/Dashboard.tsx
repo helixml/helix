@@ -161,12 +161,12 @@ const Dashboard: FC = () => {
       >
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="Dashboard" />
             <Tab label="LLM Calls" />
+            <Tab label="Dashboard" />
           </Tabs>
         </Box>
 
-        {activeTab === 0 && (
+        {activeTab === 1 && (
           <Box
             sx={{
               width: '100%',
@@ -320,7 +320,7 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 1 && (
+        {activeTab === 0 && (
           <Box
             sx={{
               width: '100%',

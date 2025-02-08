@@ -22,7 +22,10 @@ import (
 
 type Manager interface {
 	NextRun(ctx context.Context, knowledgeID string) (time.Time, error)
+	GetStatus(knowledgeID string) types.KnowledgeProgress // Ephemeral progress status for the knowledge
 }
+
+var _ Manager = &Reconciler{}
 
 type Reconciler struct {
 	config       *config.ServerConfig
@@ -33,6 +36,8 @@ type Reconciler struct {
 	ragClient    rag.RAG                                   // Default server RAG client
 	newRagClient func(settings *types.RAGSettings) rag.RAG // Custom RAG server client constructor
 	newCrawler   func(k *types.Knowledge) (crawler.Crawler, error)
+	progressMu   *sync.RWMutex
+	progress     map[string]types.KnowledgeProgress
 	cron         gocron.Scheduler
 	wg           sync.WaitGroup
 }
@@ -43,7 +48,7 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
-	return &Reconciler{
+	r := &Reconciler{
 		config:     config,
 		store:      store,
 		filestore:  filestore,
@@ -54,10 +59,22 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
-		newCrawler: func(k *types.Knowledge) (crawler.Crawler, error) {
-			return crawler.NewCrawler(b, k)
-		},
-	}, nil
+		// newCrawler: ,
+		progressMu: &sync.RWMutex{},
+		progress:   make(map[string]types.KnowledgeProgress),
+	}
+
+	r.newCrawler = func(k *types.Knowledge) (crawler.Crawler, error) {
+		// Provide an ability for the crawler to update the progress
+		updateProgress := func(progress types.KnowledgeProgress) {
+			r.updateKnowledgeProgress(k.ID, progress)
+		}
+
+		// Construct the crawler
+		return crawler.NewCrawler(b, k, updateProgress)
+	}
+
+	return r, nil
 }
 
 func (r *Reconciler) Start(ctx context.Context) error {
@@ -145,4 +162,35 @@ func (r *Reconciler) reset(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *Reconciler) GetStatus(knowledgeID string) types.KnowledgeProgress {
+	r.progressMu.RLock()
+	defer r.progressMu.RUnlock()
+
+	if progress, ok := r.progress[knowledgeID]; ok {
+		return progress
+	}
+
+	// No progress yet or already finished
+	return types.KnowledgeProgress{
+		Step:           "",
+		Progress:       0,
+		Message:        "",
+		ElapsedSeconds: 0,
+	}
+}
+
+func (r *Reconciler) updateKnowledgeProgress(knowledgeID string, progress types.KnowledgeProgress) {
+	r.progressMu.Lock()
+	defer r.progressMu.Unlock()
+
+	r.progress[knowledgeID] = progress
+}
+
+func (r *Reconciler) resetKnowledgeProgress(knowledgeID string) {
+	r.progressMu.Lock()
+	defer r.progressMu.Unlock()
+
+	delete(r.progress, knowledgeID)
 }
