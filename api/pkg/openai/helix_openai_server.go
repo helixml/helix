@@ -59,7 +59,7 @@ func (c *InternalHelixServer) APIKey() string {
 	return ""
 }
 
-func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+func (c *InternalHelixServer) CreateEmbeddings(_ context.Context, _ openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
 	// TODO: implement once we support pass through
 	return openai.EmbeddingResponse{}, fmt.Errorf("not implemented")
 }
