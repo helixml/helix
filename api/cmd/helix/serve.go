@@ -185,6 +185,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	cfg.Store.PGVectorEnabled = cfg.RAG.PGVector.Enabled
+
 	store, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return err
