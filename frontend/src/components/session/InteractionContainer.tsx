@@ -26,7 +26,7 @@ export const InteractionContainer: FC<{
     <Box
       sx={{
         px: 2,
-        py: 1,
+        py: 0.5,
         borderRadius: 4,
         backgroundColor: background ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
       }}

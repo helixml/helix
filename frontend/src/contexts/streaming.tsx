@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
@@ -40,6 +40,55 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
+
+  // Add refs for managing streaming state
+  const messageBufferRef = useRef<Map<string, string[]>>(new Map());
+  const pendingUpdateRef = useRef<boolean>(false);
+  const messageHistoryRef = useRef<Map<string, string>>(new Map());
+
+  // Function to flush message buffer to state
+  const flushMessageBuffer = useCallback((sessionId: string) => {
+    const chunks = messageBufferRef.current.get(sessionId);
+    if (!chunks || chunks.length === 0) return;
+
+    setCurrentResponses(prev => {
+      const current = prev.get(sessionId) || {};
+      const existingMessage = messageHistoryRef.current.get(sessionId) || '';
+      const newChunks = chunks.join('');
+      const newMessage = existingMessage + newChunks;
+      
+      // Update our history ref with the new complete message
+      messageHistoryRef.current.set(sessionId, newMessage);
+      
+      // Clear just the buffer, keeping the history
+      messageBufferRef.current.set(sessionId, []);
+      
+      return new Map(prev).set(sessionId, {
+        ...current,
+        message: newMessage
+      });
+    });
+  }, []);
+
+  // Schedule a flush if one isn't already pending
+  const scheduleFlush = useCallback((sessionId: string) => {
+    if (pendingUpdateRef.current) return;
+    pendingUpdateRef.current = true;
+
+    requestAnimationFrame(() => {
+      flushMessageBuffer(sessionId);
+      pendingUpdateRef.current = false;
+    });
+  }, [flushMessageBuffer]);
+
+  // Function to add a message chunk to the buffer
+  const addMessageChunk = useCallback((sessionId: string, chunk: string) => {
+    const chunks = messageBufferRef.current.get(sessionId) || [];
+    chunks.push(chunk);
+    messageBufferRef.current.set(sessionId, chunks);
+    scheduleFlush(sessionId);
+  }, [scheduleFlush]);
+
   const handleWebsocketEvent = useCallback((parsedData: IWebsocketEvent) => {
     if (!currentSessionId) return;
 
@@ -54,22 +103,40 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     if (parsedData.type === WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
       const workerResponse = parsedData.worker_task_response;
-      setCurrentResponses(prev => {
-        const current = prev.get(currentSessionId) || {};
-        let updatedInteraction: Partial<IInteraction> = { ...current };
 
-        if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
-          if (workerResponse.progress !== undefined) {
-            updatedInteraction.progress = workerResponse.progress;
+      // Use requestAnimationFrame to batch updates and prevent UI blocking
+      requestAnimationFrame(() => {
+        setCurrentResponses(prev => {
+          const current = prev.get(currentSessionId) || {};
+          let updatedInteraction: Partial<IInteraction> = { ...current };
+
+          if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
+            if (workerResponse.progress !== undefined) {
+              updatedInteraction.progress = workerResponse.progress;
+            }
+            if (workerResponse.status) {
+              updatedInteraction.status = workerResponse.status;
+            }
           }
-          if (workerResponse.status) {
-            updatedInteraction.status = workerResponse.status;
-          }
-        }
-        return new Map(prev).set(currentSessionId, updatedInteraction);
+
+          // Store the latest state in the ref
+          const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
+          return newMap;
+        });
       });
     }
   }, [currentSessionId]);
+
+  // Use a debounced effect to update sessions
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (currentSessionId) {
+        sessions.loadSessions(true);
+      }
+    }, 2000); // Update every 2 seconds instead of on every message
+
+    return () => clearInterval(timer);
+  }, [currentSessionId, sessions]);
 
   useEffect(() => {
     if (!account.token || !currentSessionId) return;
@@ -105,7 +172,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     loraDir = '',
     sessionId = ''
   }: NewInferenceParams): Promise<ISession> => {
-    console.log('NewInference', appId);
+    // Clear both buffer and history for new sessions
+    messageBufferRef.current.delete(sessionId);
+    messageHistoryRef.current.delete(sessionId);
+
     const sessionChatRequest: ISessionChatRequest = {
       type,
       stream: true,
@@ -145,71 +215,32 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       const reader = response.body.getReader();
       let sessionData: ISession | null = null;
       let promiseResolved = false;
+      let decoder = new TextDecoder();
+      let buffer = '';
 
       const processStream = new Promise<void>((resolveStream, rejectStream) => {
-        const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
-          if (event.type === 'event') {
-            if (!event.data || event.data === '') {
-              return;
-            }
-            if (event.data === "[DONE]") {
-              // Safely remove the completed stream from currentResponses
-              if (sessionData && sessionData.id) {
-                setCurrentResponses(prev => {
-                  const newMap = new Map(prev);
-                  newMap.delete(sessionData!.id);
-                  return newMap;
-                });
-              }
-              resolveStream();
-              return;
-            }
-            try {
-              const parsedData = JSON.parse(event.data);
-              if (!sessionData) {
-                // This is the first chunk of data
-                sessionData = parsedData;
-                if (sessionData && sessionData.id) {
-                  setCurrentSessionId(sessionData.id);
-
-                  if (parsedData.choices && parsedData.choices.length > 0) {                    
-                    const messageSegment = parsedData.choices[0]?.delta?.content;
-                    setCurrentResponses(prev => new Map(prev).set(sessionData!.id, { message: messageSegment || '', status: '', progress: 0 }));
-                  }                  
-                  
-                  if (!promiseResolved) {
-                    promiseResolved = true;
-                  }
-                } else {
-                  console.error('Invalid session data received:', sessionData);
-                  rejectStream(new Error('Invalid session data'));
-                }
-              } else if (Array.isArray(parsedData?.choices) && parsedData.choices.length > 0) {
-                const messageSegment = parsedData.choices[0]?.delta?.content;
-                if (messageSegment) {
-                  setCurrentResponses(prev => {
-                    const current = prev.get(sessionData!.id) || {};
-                    return new Map(prev).set(sessionData!.id, {
-                      ...current,
-                      message: (current.message || '') + messageSegment
-                    });
-                  });
-                }
-              }
-            } catch (error) {
-              console.error('Error parsing SSE data:', error);
-              rejectStream(error);
-            }
+        const processChunk = (chunk: string) => {
+          const lines = chunk.split('\n');
+          
+          if (buffer) {
+            lines[0] = buffer + lines[0];
+            buffer = '';
           }
-        });
+          
+          if (!chunk.endsWith('\n')) {
+            buffer = lines.pop() || '';
+          }
 
-        const pump = async () => {
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                // Safely remove the completed stream from currentResponses
-                if (sessionData && sessionData.id) {
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            if (line.startsWith('data: ')) {
+              const data = line.slice(5);
+              
+              if (data === '[DONE]') {
+                if (sessionData?.id) {
+                  // Final flush of any remaining content
+                  flushMessageBuffer(sessionData.id);
                   setCurrentResponses(prev => {
                     const newMap = new Map(prev);
                     newMap.delete(sessionData!.id);
@@ -217,31 +248,85 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                   });
                 }
                 resolveStream();
+                return;
+              }
+
+              try {
+                const parsedData = JSON.parse(data);
+                if (!sessionData) {
+                  sessionData = parsedData;
+                  if (sessionData?.id) {
+                    setCurrentSessionId(sessionData.id);
+                    messageBufferRef.current.set(sessionData.id, []);
+                    
+                    if (parsedData.choices?.[0]?.delta?.content) {
+                      addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
+                    }
+
+                    if (!promiseResolved) {
+                      promiseResolved = true;
+                    }
+                  } else {
+                    console.error('Invalid session data received:', sessionData);
+                    rejectStream(new Error('Invalid session data'));
+                  }
+                } else if (parsedData.choices?.[0]?.delta?.content) {
+                  addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
+                }
+              } catch (error) {
+                console.error('Error parsing SSE data:', error);
+                console.warn('Continuing despite parse error');
+              }
+            }
+          }
+        };
+
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              
+              if (done) {
+                if (buffer) {
+                  processChunk(buffer);
+                }
+                if (sessionData?.id) {
+                  flushMessageBuffer(sessionData.id);
+                }
+                resolveStream();
                 break;
               }
-              parser.feed(new TextDecoder().decode(value));
+
+              const chunk = decoder.decode(value, { stream: true });
+              processChunk(chunk);
             }
           } catch (error) {
             rejectStream(error);
           }
         };
 
-        pump();
+        pump().catch(error => {
+          console.error('Pump error:', error);
+          rejectStream(error);
+        });
       });
 
-      // Wait for the first chunk to resolve the outer promise
-      await new Promise<void>((resolve) => {
-        const checkResolved = () => {
-          if (promiseResolved) {
-            resolve();
-          } else {
-            setTimeout(checkResolved, 10);
-          }
-        };
-        checkResolved();
-      });
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const checkResolved = () => {
+            if (promiseResolved) {
+              resolve();
+            } else {
+              setTimeout(checkResolved, 10);
+            }
+          };
+          checkResolved();
+        }),
+        new Promise<void>((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout waiting for first chunk')), 5000)
+        )
+      ]);
 
-      // Continue processing the stream in the background
       processStream.catch((error) => {
         console.error('Error processing stream:', error);
       });
