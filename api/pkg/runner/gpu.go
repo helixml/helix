@@ -47,6 +47,9 @@ func (g *GPUManager) GetFreeMemory() int64 {
 		return 0
 	}
 
+	// Default to the user set max memory value
+	freeMemory := int64(g.runnerOptions.MemoryBytes)
+
 	switch runtime.GOOS {
 	case "linux":
 		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits")
@@ -54,20 +57,23 @@ func (g *GPUManager) GetFreeMemory() int64 {
 		output, err := cmd.Output()
 		if err == nil {
 			if free, err := strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64); err == nil {
-				return free * 1024 * 1024 // Convert MiB to bytes
+				actualFreeMemory := free * 1024 * 1024 // Convert MiB to bytes
+				if actualFreeMemory < freeMemory {
+					freeMemory = actualFreeMemory
+				}
 			}
 		}
 	case "darwin":
 		arch, err := getMacArchitecture()
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get Mac architecture")
-			return 0
+			freeMemory = 0
 		}
 
 		switch arch {
 		case MacArchitectureIntel:
 			log.Error().Msg("Intel Mac architecture not supported, please get in touch if you need this")
-			return 0
+			freeMemory = 0
 		case MacArchitectureApple:
 			// If it is an Apple Silicon based mac, then it's unified memory, so just return the
 			// amount of free memory
@@ -76,13 +82,15 @@ func (g *GPUManager) GetFreeMemory() int64 {
 				log.Error().Err(err).Msg("failed to get Mac free memory")
 				return 0
 			}
-			return int64(free)
+			if int64(free) < freeMemory {
+				freeMemory = int64(free)
+			}
 		}
 	case "windows":
 		log.Error().Msg("Windows not yet supported, please get in touch if you need this")
-		return 0
+		freeMemory = 0
 	}
-	return 0
+	return freeMemory
 }
 
 func (g *GPUManager) GetTotalMemory() uint64 {
