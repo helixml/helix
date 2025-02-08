@@ -117,16 +117,6 @@ func addCorsHeaders(w http.ResponseWriter) {
 Access Control
 -
 */
-// if any of the admin users IDs is "all" then we are in dev mode and every user is an admin
-// nolint:unused
-func isDevelopmentMode(adminUserIDs []string) bool {
-	for _, id := range adminUserIDs {
-		if id == types.AdminAllUsers {
-			return true
-		}
-	}
-	return false
-}
 
 func hasUser(user *types.User) bool {
 	return user.ID != ""
