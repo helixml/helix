@@ -45,6 +45,13 @@ func NewPostgresStore(
 		gdb: gormDB,
 	}
 
+	if cfg.PGVectorEnabled {
+		err = store.autoMigratePGVector()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if cfg.AutoMigrate {
 		err = store.autoMigrate()
 		if err != nil {
@@ -105,6 +112,22 @@ func (s *PostgresStore) autoMigrate() error {
 
 	if err := createFK(s.gdb, types.KnowledgeVersion{}, types.Knowledge{}, "knowledge_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) autoMigratePGVector() error {
+	err := s.gdb.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error
+	if err != nil {
+		return fmt.Errorf("failed to create vector extension: %w. Install it manually or disable PGVector RAG (RAG_PGVECTOR_ENABLED env variable)", err)
+	}
+
+	err = s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.KnowledgeEmbeddingItem{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to auto migrate PGVector table: %w", err)
 	}
 
 	return nil
