@@ -279,3 +279,10 @@ type KnowledgeEmbeddingItem struct {
 	Content         string          // Content of the knowledge
 	ContentOffset   int             // Offset of the content in the knowledge
 }
+
+type KnowledgeEmbeddingQuery struct {
+	KnowledgeID string          `json:"knowledge_id"`
+	Embedding   pgvector.Vector // Query by embedding
+	Content     string          // Optional for full text search
+	Limit       int             // Limit the number of results
+}
