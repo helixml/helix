@@ -3,10 +3,10 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 )
 
 // Slot is the crazy mirror equivalent of scheduler.Slot
@@ -89,21 +89,18 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 		return nil, err
 	}
 	found := false
+	modelList := make([]string, 0, len(models.Models))
 	for _, m := range models.Models {
+		modelList = append(modelList, m.ID)
 		if m.ID == params.Model {
 			found = true
 			break
 		}
 	}
 	if !found {
-		// Pull the model if it's not already available
-		err = r.PullModel(ctx, params.Model, func(progress PullProgress) error {
-			log.Info().Str("status", progress.Status).Int64("completed", progress.Completed).Int64("total", progress.Total).Msgf("pulling model %s", params.Model)
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+		// TODO(phil): I disabled model pulling for now because it's more work. But it is there if
+		// we need it
+		return nil, fmt.Errorf("model %s not found, available models: %s", params.Model, strings.Join(modelList, ", "))
 	}
 
 	// Warm up the model

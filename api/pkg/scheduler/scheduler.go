@@ -402,6 +402,7 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 		for _, runnerID := range allRunners {
 			runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
 		}
+		log.Trace().Interface("runner_memory", runnerMemory).Msg("runner memory")
 
 		// Filter out runners that don't have enough memory to allocate the new workload
 		filteredRunners := make([]string, 0)
@@ -410,20 +411,23 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 				filteredRunners = append(filteredRunners, runnerID)
 			}
 		}
+		log.Trace().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
 
 		// Reach out to the remaining runners and get their current load
 		runnerLoad := make(map[string]uint64)
 		for _, runnerID := range filteredRunners {
 			runnerLoad[runnerID] = s.controller.FreeMemory(runnerID)
 		}
+		log.Trace().Interface("runner_load", runnerLoad).Msg("runner load")
 
 		// Sort the runners by load, increasing, with a random shuffle for ties
 		slices.SortFunc(filteredRunners, func(a, b string) int {
 			if runnerLoad[a] != runnerLoad[b] {
-				return int(runnerLoad[a] - runnerLoad[b])
+				return int(runnerLoad[b] - runnerLoad[a])
 			}
 			return rand.Intn(3) - 1 // Introduces random shuffle for true ties
 		})
+		log.Trace().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
 
 		// Error if there are no runners left
 		if len(filteredRunners) == 0 {
