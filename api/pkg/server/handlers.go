@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
+func (apiServer *HelixAPIServer) getConfig(_ context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
