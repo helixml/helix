@@ -1466,6 +1466,14 @@ type Secret struct {
 	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
 }
 
+// LicenseKey represents a license key in the database
+type LicenseKey struct {
+	ID         uint      `gorm:"primarykey" json:"id"`
+	LicenseKey string    `json:"license_key"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type GetDesiredRunnerSlotsResponse struct {
 	Data []DesiredRunnerSlot `json:"data"`
 }

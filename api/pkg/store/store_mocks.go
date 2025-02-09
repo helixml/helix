@@ -439,10 +439,10 @@ func (mr *MockStoreMockRecorder) GetKnowledgeVersion(ctx, id any) *gomock.Call {
 }
 
 // GetLicenseKey mocks base method.
-func (m *MockStore) GetLicenseKey(ctx context.Context) (*LicenseKey, error) {
+func (m *MockStore) GetLicenseKey(ctx context.Context) (*types.LicenseKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetLicenseKey", ctx)
-	ret0, _ := ret[0].(*LicenseKey)
+	ret0, _ := ret[0].(*types.LicenseKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

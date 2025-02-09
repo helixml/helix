@@ -90,6 +90,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.LLMCall{},
 		&MigrationScript{},
 		&types.Secret{},
+		&types.LicenseKey{},
 	)
 	if err != nil {
 		return err
