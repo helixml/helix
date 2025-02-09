@@ -9,6 +9,7 @@ import (
 
 func (d *PostgresStore) GetLicenseKey(ctx context.Context) (*types.LicenseKey, error) {
 	var license types.LicenseKey
+	// Get the most recent license key by created_at
 	result := d.gdb.WithContext(ctx).Order("created_at DESC").First(&license)
 	if result.Error == gorm.ErrRecordNotFound {
 		return nil, nil
@@ -20,11 +21,7 @@ func (d *PostgresStore) GetLicenseKey(ctx context.Context) (*types.LicenseKey, e
 }
 
 func (d *PostgresStore) SetLicenseKey(ctx context.Context, licenseKey string) error {
-	// Delete any existing keys first
-	if err := d.gdb.WithContext(ctx).Where("1=1").Delete(&types.LicenseKey{}).Error; err != nil {
-		return err
-	}
-	// Create new key
+	// Simply create a new license key record
 	return d.gdb.WithContext(ctx).Create(&types.LicenseKey{
 		LicenseKey: licenseKey,
 	}).Error
