@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
+func (apiServer *HelixAPIServer) getConfig(req *http.Request) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
@@ -197,8 +197,18 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 
 	currentVersion := data.GetHelixVersion()
 	latestVersion := ""
+	deploymentID := "unknown"
 	if apiServer.pingService != nil {
 		latestVersion = apiServer.pingService.GetLatestVersion()
+		deploymentID = apiServer.pingService.GetDeploymentID()
+	}
+
+	// Check for license key in database
+	license, err := apiServer.Store.GetLicenseKey(req.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get license key")
+	} else if license != nil {
+		deploymentID = license.LicenseKey
 	}
 
 	return types.ServerConfigForFrontend{
@@ -214,17 +224,18 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		DisableLLMCallLogging:   apiServer.Cfg.DisableLLMCallLogging,
 		Version:                 currentVersion,
 		LatestVersion:           latestVersion,
+		DeploymentID:            deploymentID,
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, _ *http.Request) (types.ServerConfigForFrontend, error) {
-	return apiServer.getConfig()
+func (apiServer *HelixAPIServer) config(w http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
+	return apiServer.getConfig(req)
 }
 
 // prints the config values as JavaScript values so we can block the rest of the frontend on
 // initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
 func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, _ *http.Request) {
-	config, err := apiServer.getConfig()
+	config, err := apiServer.getConfig(nil)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return

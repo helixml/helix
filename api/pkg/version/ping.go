@@ -31,9 +31,18 @@ type PingService struct {
 	latestVersion  string
 	keycloakConfig *config.Keycloak
 	gocloak        *gocloak.GoCloak
+	deploymentID   string
 }
 
 func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL string, keycloakConfig *config.Keycloak) *PingService {
+	deploymentID := "unknown"
+	if licenseKey != "" {
+		// Generate deployment ID from license key
+		hasher := sha256.New()
+		hasher.Write([]byte(licenseKey))
+		deploymentID = hex.EncodeToString(hasher.Sum(nil))
+	}
+
 	return &PingService{
 		db:             db,
 		launchpadURL:   launchpadURL,
@@ -43,6 +52,7 @@ func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL str
 		latestVersion:  "",
 		keycloakConfig: keycloakConfig,
 		gocloak:        gocloak.NewClient(keycloakConfig.KeycloakURL),
+		deploymentID:   deploymentID,
 	}
 }
 
@@ -90,20 +100,12 @@ func (s *PingService) sendPing() {
 		return
 	}
 
-	deploymentID := "unknown"
-	if s.licenseKey != "" {
-		// Generate deployment ID from license key
-		hasher := sha256.New()
-		hasher.Write([]byte(s.licenseKey)) // Use license key hash for deployment ID
-		deploymentID = hex.EncodeToString(hasher.Sum(nil))
-	}
-
 	// Prepare ping data
 	pingData := map[string]interface{}{
 		"version":       data.GetHelixVersion(),
 		"apps_count":    appCount,
 		"users_count":   userCount,
-		"deployment_id": deploymentID,
+		"deployment_id": s.deploymentID,
 	}
 
 	// Send ping to launchpad
@@ -163,4 +165,8 @@ func (s *PingService) getUserCount() (int, error) {
 
 func (s *PingService) GetLatestVersion() string {
 	return s.latestVersion
+}
+
+func (s *PingService) GetDeploymentID() string {
+	return s.deploymentID
 }
