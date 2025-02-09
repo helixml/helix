@@ -106,8 +106,7 @@ class TextToImagePipeline:
                 guidance_scale=7.5,
                 height=720,
                 width=1280,
-                callback=callback,         # <--- THIS is the correct argument name
-                callback_steps=1,         # <--- Usually set to 1 so you get all steps
+                callback_on_step_end=callback,
             )
             return result.images
 
@@ -260,7 +259,7 @@ async def stream_progress(prompt: str):
     progress_queue = asyncio.Queue()
 
     # 2) Define callback that runs in the *worker* thread
-    def diffusion_callback(step: int, timestep: int, latents: torch.FloatTensor):
+    def diffusion_callback(pipe: any, step: int, timestep: int, callback_kwargs: any):
         # Construct your partial progress object
         progress = ImageResponse(
             created=int(datetime.now().timestamp()),
