@@ -190,20 +190,27 @@ class ListModelsResponse(BaseModel):
 @app.get("/v1/models", response_model=ListModelsResponse)
 async def list_models():
     logger.debug(f"Listing models in {cache_dir}")
-    models = os.listdir(cache_dir)
-    logger.debug(f"Found {len(models)} models")
-    return ListModelsResponse(
-        object="list",
-        data=[
-            Model(
-                id=model,
-                created=int(datetime.now().timestamp()),
-                object="model",
-                owned_by="helix",
-            )
-            for model in models
-        ]
-    )
+    
+    try:
+        # Get all locally available models using diffusers
+        models = diffusers.DiffusionPipeline.get_local_pipelines(cache_dir)
+        logger.debug(f"Found {len(models)} models: {models}")
+        
+        return ListModelsResponse(
+            object="list",
+            data=[
+                Model(
+                    id=model_id,  # models are already in "org/name" format
+                    created=int(datetime.now().timestamp()),
+                    object="model",
+                    owned_by="helix",
+                )
+                for model_id in models
+            ]
+        )
+    except Exception as e:
+        logger.error(f"Error listing models: {e}")
+        return ListModelsResponse(object="list", data=[])
 
 
 class WarmRequest(BaseModel):
