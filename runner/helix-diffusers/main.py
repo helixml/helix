@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from huggingface_hub import snapshot_download
 from pydantic import BaseModel
+from diffusers.pipelines.pipeline_loading_utils import LOADABLE_CLASSES
+from pathlib import Path
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -192,15 +194,28 @@ async def list_models():
     logger.debug(f"Listing models in {cache_dir}")
     
     try:
-        # Get all locally available models using diffusers
-        models = diffusers.DiffusionPipeline.get_local_pipelines(cache_dir)
+        models = []
+        cache_path = Path(cache_dir)
+        for model_dir in cache_path.glob("models--*"):
+            if model_dir.is_dir():
+                # Look for model_index.json which indicates a valid diffusers model
+                for snapshot_dir in (model_dir / "snapshots").glob("*"):
+                    index_file = snapshot_dir / "model_index.json"
+                    if index_file.exists():
+                        # Convert from "models--org--name" to "org/name"
+                        parts = model_dir.name.split("--")
+                        if len(parts) >= 3:
+                            model_name = "/".join(parts[1:])
+                            models.append(model_name)
+                            break  # Found a valid snapshot for this model
+        
         logger.debug(f"Found {len(models)} models: {models}")
         
         return ListModelsResponse(
             object="list",
             data=[
                 Model(
-                    id=model_id,  # models are already in "org/name" format
+                    id=model_id,
                     created=int(datetime.now().timestamp()),
                     object="model",
                     owned_by="helix",
