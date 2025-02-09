@@ -203,14 +203,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		deploymentID = apiServer.pingService.GetDeploymentID()
 	}
 
-	// Check for license key in database
-	license, err := apiServer.Store.GetLicenseKey(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to get license key")
-	} else if license != nil {
-		deploymentID = license.LicenseKey
-	}
-
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
