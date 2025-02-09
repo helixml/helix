@@ -703,6 +703,7 @@ type ServerConfigForFrontend struct {
 	DisableLLMCallLogging   bool   `json:"disable_llm_call_logging"`
 	Version                 string `json:"version"`
 	LatestVersion           string `json:"latest_version"`
+	DeploymentID            string `json:"deployment_id"`
 }
 
 // a short version of a session that we keep for the dashboard
