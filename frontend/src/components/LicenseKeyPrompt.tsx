@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { Box, Button, TextField, Typography, Link, Alert } from '@mui/material';
-import { useAccount } from '../contexts/account';
+import { useAccount } from '../hooks/useAccount';
 
 export const LicenseKeyPrompt: React.FC = () => {
-  const { user } = useAccount();
+  const account = useAccount();
   const [licenseKey, setLicenseKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Add debug logging
+  console.log('LicenseKeyPrompt:', {
+    deploymentId: account.serverConfig?.deployment_id,
+    serverConfig: account.serverConfig
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,8 +37,6 @@ export const LicenseKeyPrompt: React.FC = () => {
       setLoading(false);
     }
   };
-
-  if (!user?.is_admin) return null;
 
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4, p: 3 }}>

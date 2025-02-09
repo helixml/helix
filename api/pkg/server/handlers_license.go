@@ -12,11 +12,6 @@ type LicenseKeyRequest struct {
 }
 
 func (s *HelixAPIServer) handleGetLicenseKey(w http.ResponseWriter, r *http.Request) {
-	if !s.isAdmin(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	license, err := s.Store.GetLicenseKey(r.Context())
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get license key")
@@ -30,11 +25,6 @@ func (s *HelixAPIServer) handleGetLicenseKey(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *HelixAPIServer) handleSetLicenseKey(w http.ResponseWriter, r *http.Request) {
-	if !s.isAdmin(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	var req LicenseKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)

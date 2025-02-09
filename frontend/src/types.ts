@@ -273,6 +273,7 @@ export interface IServerConfig {
   apps_enabled: boolean,
   version?: string,
   latest_version?: string,
+  deployment_id?: string,
 }
 
 export interface IConversation {
