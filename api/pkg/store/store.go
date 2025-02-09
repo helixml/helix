@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -131,6 +132,8 @@ type Store interface {
 
 	GetLicenseKey(ctx context.Context) (*types.LicenseKey, error)
 	SetLicenseKey(ctx context.Context, licenseKey string) error
+
+	GetDecodedLicense(ctx context.Context) (*license.License, error)
 }
 
 var ErrNotFound = errors.New("not found")

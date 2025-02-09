@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	license "github.com/helixml/helix/api/pkg/license"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -406,6 +407,21 @@ func (m *MockStore) GetDataEntity(ctx context.Context, id string) (*types.DataEn
 func (mr *MockStoreMockRecorder) GetDataEntity(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDataEntity", reflect.TypeOf((*MockStore)(nil).GetDataEntity), ctx, id)
+}
+
+// GetDecodedLicense mocks base method.
+func (m *MockStore) GetDecodedLicense(ctx context.Context) (*license.License, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDecodedLicense", ctx)
+	ret0, _ := ret[0].(*license.License)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDecodedLicense indicates an expected call of GetDecodedLicense.
+func (mr *MockStoreMockRecorder) GetDecodedLicense(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDecodedLicense", reflect.TypeOf((*MockStore)(nil).GetDecodedLicense), ctx)
 }
 
 // GetKnowledge mocks base method.
