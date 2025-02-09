@@ -405,13 +405,31 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 		log.Trace().Interface("runner_memory", runnerMemory).Msg("runner memory")
 
 		// Filter out runners that don't have enough memory to allocate the new workload
+		numRunnersWithNotEnoughTotalMemory := 0
+		largestRunnerMemory := uint64(0)
+		requiredMemory := work.Model().GetMemoryRequirements(work.Mode())
 		filteredRunners := make([]string, 0)
 		for runnerID, memory := range runnerMemory {
-			if memory >= work.Model().GetMemoryRequirements(work.Mode()) {
+			if memory >= requiredMemory {
 				filteredRunners = append(filteredRunners, runnerID)
+			} else {
+				numRunnersWithNotEnoughTotalMemory++
+			}
+			if memory > largestRunnerMemory {
+				largestRunnerMemory = memory
 			}
 		}
 		log.Trace().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
+
+		// Error if no runners have enough memory
+		if numRunnersWithNotEnoughTotalMemory == len(allRunners) {
+			return fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d)", requiredMemory, largestRunnerMemory)
+		}
+
+		// Error if there are no runners left
+		if len(filteredRunners) == 0 {
+			return fmt.Errorf("no runners available")
+		}
 
 		// Reach out to the remaining runners and get their current load
 		runnerLoad := make(map[string]uint64)
@@ -428,11 +446,6 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 			return rand.Intn(3) - 1 // Introduces random shuffle for true ties
 		})
 		log.Trace().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
-
-		// Error if there are no runners left
-		if len(filteredRunners) == 0 {
-			return fmt.Errorf("no runners available")
-		}
 
 		// Pick the first runner
 		bestRunnerID := filteredRunners[0]
