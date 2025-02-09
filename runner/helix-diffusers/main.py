@@ -176,17 +176,15 @@ def download_model(model_name: str, save_path: str):
 
 
 class Model(BaseModel):
-    CreatedAt: int
-    ID: str
-    Object: str
-    OwnedBy: str
-    Permission: List[str]
-    Root: str
-    Parent: str
+    id: str
+    created: int
+    object: str
+    owned_by: str
 
 
 class ListModelsResponse(BaseModel):
-    models: List[Model]
+    object: str
+    data: List[Model]
 
 
 @app.get("/v1/models", response_model=ListModelsResponse)
@@ -195,15 +193,13 @@ async def list_models():
     models = os.listdir(cache_dir)
     logger.debug(f"Found {len(models)} models")
     return ListModelsResponse(
-        models=[
+        object="list",
+        data=[
             Model(
-                CreatedAt=0,
-                ID=model,
-                Object="model",
-                OwnedBy="helix",
-                Permission=[],
-                Root="",
-                Parent="",
+                id=model,
+                created=int(datetime.now().timestamp()),
+                object="model",
+                owned_by="helix",
             )
             for model in models
         ]
