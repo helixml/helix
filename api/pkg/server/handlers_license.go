@@ -19,9 +19,14 @@ func (s *HelixAPIServer) handleGetLicenseKey(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"license_key": license,
-	})
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"license": license,
+	}); err != nil {
+		log.Error().Err(err).Msg("failed to encode response")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *HelixAPIServer) handleSetLicenseKey(w http.ResponseWriter, r *http.Request) {
