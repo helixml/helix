@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Box, Button, TextField, Typography, Link, Alert } from '@mui/material';
 import { useAccount } from '../hooks/useAccount';
+import useApi from '../hooks/useApi';
 
 export const LicenseKeyPrompt: React.FC = () => {
   const account = useAccount();
+  const api = useApi();
   const [licenseKey, setLicenseKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,20 +21,13 @@ export const LicenseKeyPrompt: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/v1/license', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ license_key: licenseKey }),
+      await api.post('/api/v1/license', {
+        license_key: licenseKey
       });
-      if (!response.ok) {
-        throw new Error(await response.text() || 'Failed to set license key');
-      }
       window.location.reload(); // Reload to update config
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error setting license key:', error);
-      setError(error instanceof Error ? error.message : 'Failed to set license key');
+      setError(error?.response?.data || error?.message || 'Failed to set license key');
     } finally {
       setLoading(false);
     }
