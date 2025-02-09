@@ -2,20 +2,13 @@ package store
 
 import (
 	"context"
-	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
 )
 
-type LicenseKey struct {
-	ID         uint      `gorm:"primarykey" json:"id"`
-	LicenseKey string    `json:"license_key"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-func (d *PostgresStore) GetLicenseKey(ctx context.Context) (*LicenseKey, error) {
-	var license LicenseKey
+func (d *PostgresStore) GetLicenseKey(ctx context.Context) (*types.LicenseKey, error) {
+	var license types.LicenseKey
 	result := d.gdb.WithContext(ctx).Order("created_at DESC").First(&license)
 	if result.Error == gorm.ErrRecordNotFound {
 		return nil, nil
@@ -28,11 +21,11 @@ func (d *PostgresStore) GetLicenseKey(ctx context.Context) (*LicenseKey, error) 
 
 func (d *PostgresStore) SetLicenseKey(ctx context.Context, licenseKey string) error {
 	// Delete any existing keys first
-	if err := d.gdb.WithContext(ctx).Where("1=1").Delete(&LicenseKey{}).Error; err != nil {
+	if err := d.gdb.WithContext(ctx).Where("1=1").Delete(&types.LicenseKey{}).Error; err != nil {
 		return err
 	}
 	// Create new key
-	return d.gdb.WithContext(ctx).Create(&LicenseKey{
+	return d.gdb.WithContext(ctx).Create(&types.LicenseKey{
 		LicenseKey: licenseKey,
 	}).Error
 }

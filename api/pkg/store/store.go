@@ -129,7 +129,7 @@ type Store interface {
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
 
-	GetLicenseKey(ctx context.Context) (*LicenseKey, error)
+	GetLicenseKey(ctx context.Context) (*types.LicenseKey, error)
 	SetLicenseKey(ctx context.Context, licenseKey string) error
 }
 
