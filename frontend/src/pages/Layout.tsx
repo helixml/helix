@@ -160,7 +160,7 @@ const Layout: FC = ({
             </Window>
           )
         }
-        {account.serverConfig?.deployment_id === 'unknown' && <LicenseKeyPrompt />}
+        {account.serverConfig?.license && !account.serverConfig.license.valid && <LicenseKeyPrompt />}
       </Box>
     </>
   )

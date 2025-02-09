@@ -203,7 +203,33 @@ func (apiServer *HelixAPIServer) getConfig(_ context.Context) (types.ServerConfi
 		deploymentID = apiServer.pingService.GetDeploymentID()
 	}
 
-	return types.ServerConfigForFrontend{
+	// Add license information
+	var licenseInfo *types.FrontendLicenseInfo
+	decodedLicense, err := apiServer.Store.GetDecodedLicense(context.Background())
+	if err == nil && decodedLicense != nil {
+		licenseInfo = &types.FrontendLicenseInfo{
+			Valid:        decodedLicense.Valid && !decodedLicense.Expired(),
+			Organization: decodedLicense.Organization,
+			ValidUntil:   decodedLicense.ValidUntil,
+			Features: struct {
+				Users bool `json:"users"`
+			}{
+				Users: decodedLicense.Features.Users,
+			},
+			Limits: struct {
+				Users    int64 `json:"users"`
+				Machines int64 `json:"machines"`
+			}{
+				Users:    decodedLicense.Limits.Users,
+				Machines: decodedLicense.Limits.Machines,
+			},
+		}
+	} else {
+		// if license is not valid, allow user to upload a new one
+		deploymentID = "unknown"
+	}
+
+	config := types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
 		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
@@ -217,7 +243,10 @@ func (apiServer *HelixAPIServer) getConfig(_ context.Context) (types.ServerConfi
 		Version:                 currentVersion,
 		LatestVersion:           latestVersion,
 		DeploymentID:            deploymentID,
-	}, nil
+		License:                 licenseInfo,
+	}
+
+	return config, nil
 }
 
 func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {

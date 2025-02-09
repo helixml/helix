@@ -691,19 +691,20 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
-	FilestorePrefix         string `json:"filestore_prefix"`
-	StripeEnabled           bool   `json:"stripe_enabled"`
-	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
-	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
-	EvalUserID              string `json:"eval_user_id"`
-	ToolsEnabled            bool   `json:"tools_enabled"`
-	AppsEnabled             bool   `json:"apps_enabled"`
-	RudderStackWriteKey     string `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
-	DisableLLMCallLogging   bool   `json:"disable_llm_call_logging"`
-	Version                 string `json:"version"`
-	LatestVersion           string `json:"latest_version"`
-	DeploymentID            string `json:"deployment_id"`
+	FilestorePrefix         string               `json:"filestore_prefix"`
+	StripeEnabled           bool                 `json:"stripe_enabled"`
+	SentryDSNFrontend       string               `json:"sentry_dsn_frontend"`
+	GoogleAnalyticsFrontend string               `json:"google_analytics_frontend"`
+	EvalUserID              string               `json:"eval_user_id"`
+	ToolsEnabled            bool                 `json:"tools_enabled"`
+	AppsEnabled             bool                 `json:"apps_enabled"`
+	RudderStackWriteKey     string               `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL string               `json:"rudderstack_data_plane_url"`
+	DisableLLMCallLogging   bool                 `json:"disable_llm_call_logging"`
+	Version                 string               `json:"version"`
+	LatestVersion           string               `json:"latest_version"`
+	DeploymentID            string               `json:"deployment_id"`
+	License                 *FrontendLicenseInfo `json:"license,omitempty"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1526,4 +1527,18 @@ type RunAPIActionRequest struct {
 type RunAPIActionResponse struct {
 	Response string `json:"response"` // Raw response from the API
 	Error    string `json:"error"`
+}
+
+// Add this struct to represent the license info we want to send to the frontend
+type FrontendLicenseInfo struct {
+	Valid        bool      `json:"valid"`
+	Organization string    `json:"organization"`
+	ValidUntil   time.Time `json:"valid_until"`
+	Features     struct {
+		Users bool `json:"users"`
+	} `json:"features"`
+	Limits struct {
+		Users    int64 `json:"users"`
+		Machines int64 `json:"machines"`
+	} `json:"limits"`
 }

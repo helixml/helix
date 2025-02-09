@@ -38,8 +38,17 @@ export const LicenseKeyPrompt: React.FC = () => {
       <Typography variant="h5" gutterBottom>
         License Key Required
       </Typography>
+      {account.serverConfig?.license && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          License Expired!
+          Organization: {account.serverConfig.license.organization} |
+          Valid Until: {new Date(account.serverConfig.license.valid_until).toLocaleDateString()} |
+          Users: {account.serverConfig.license.limits.users} |
+          Machines: {account.serverConfig.license.limits.machines}
+        </Alert>
+      )}
       <Typography paragraph>
-        Please enter your license key from{' '}
+        Please get a valid license key from{' '}
         <Link href="https://deploy.helix.ml" target="_blank" rel="noopener">
           deploy.helix.ml
         </Link>
