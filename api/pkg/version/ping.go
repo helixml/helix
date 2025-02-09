@@ -64,7 +64,7 @@ func (s *PingService) Start(ctx context.Context) {
 
 	go func() {
 		// Send initial ping
-		s.sendPing()
+		s.SendPing()
 
 		for {
 			select {
@@ -73,7 +73,7 @@ func (s *PingService) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-s.ticker.C:
-				s.sendPing()
+				s.SendPing()
 			}
 		}
 	}()
@@ -84,7 +84,7 @@ func (s *PingService) Stop() {
 	s.done <- true
 }
 
-func (s *PingService) sendPing() {
+func (s *PingService) SendPing() {
 	// Get app count from database
 	appCount, err := s.db.GetAppCount()
 	if err != nil {

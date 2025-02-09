@@ -42,5 +42,10 @@ func (s *HelixAPIServer) handleSetLicenseKey(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Trigger an immediate ping to update deployment ID
+	if s.pingService != nil {
+		go s.pingService.SendPing()
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
