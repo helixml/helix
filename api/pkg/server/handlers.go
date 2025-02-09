@@ -228,42 +228,14 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) config(w http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
-	config, err := apiServer.getConfig(req.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return types.ServerConfigForFrontend{}, err
-	}
-
-	w.Header().Set("Content-Type", "application/javascript")
-	content := fmt.Sprintf(`
-window.DISABLE_LLM_CALL_LOGGING = %t
-window.HELIX_SENTRY_DSN = "%s"
-window.HELIX_GOOGLE_ANALYTICS = "%s"
-window.RUDDERSTACK_WRITE_KEY = "%s"
-window.RUDDERSTACK_DATA_PLANE_URL = "%s"
-window.HELIX_VERSION = "%s"
-window.HELIX_LATEST_VERSION = "%s"
-`,
-		config.DisableLLMCallLogging,
-		config.SentryDSNFrontend,
-		config.GoogleAnalyticsFrontend,
-		config.RudderStackWriteKey,
-		config.RudderStackDataPlaneURL,
-		config.Version,
-		config.LatestVersion,
-	)
-	if _, err := w.Write([]byte(content)); err != nil {
-		log.Error().Msgf("Failed to write response: %v", err)
-		return types.ServerConfigForFrontend{}, err
-	}
-	return config, nil
+func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
+	return apiServer.getConfig(req.Context())
 }
 
 // prints the config values as JavaScript values so we can block the rest of the frontend on
 // initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
-func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, _ *http.Request) {
-	config, err := apiServer.getConfig(nil)
+func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Request) {
+	config, err := apiServer.getConfig(req.Context())
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
