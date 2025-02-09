@@ -87,11 +87,12 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	return s, nil
 }
 
-func (s *Scheduler) Enqueue(work *Workload) error {
+// addWorkItem safely adds a single work item to the queue
+func (s *Scheduler) addWorkItem(work *Workload, priority bool) error {
 	s.queueMtx.Lock()
 	defer s.queueMtx.Unlock()
 
-	// Check if the work is already in the queue.
+	// Check if the work is already in the queue
 	for _, w := range s.queue {
 		if w.ID() == work.ID() {
 			return fmt.Errorf("work already in queue")
@@ -102,20 +103,26 @@ func (s *Scheduler) Enqueue(work *Workload) error {
 		return fmt.Errorf("queue is full")
 	}
 
+	// Add with priority if requested
+	if priority {
+		s.queue = append([]*Workload{work}, s.queue...)
+	} else {
+		s.queue = append(s.queue, work)
+	}
+
+	return nil
+}
+
+func (s *Scheduler) Enqueue(work *Workload) error {
 	// Check if the work is a session and has priority
+	priority := false
 	if work.WorkloadType == WorkloadTypeSession {
 		if work.Session().Metadata.Priority {
-			// Add the work to the front of the queue.
-			// Ignoring the order of other priority sessions here to avoid complexity
-			s.queue = append([]*Workload{work}, s.queue...)
-			return nil
+			priority = true
 		}
 	}
 
-	// Queue the work
-	s.queue = append(s.queue, work)
-
-	return nil
+	return s.addWorkItem(work, priority)
 }
 
 func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
@@ -259,33 +266,62 @@ func (s *Scheduler) reconcileSlotsOnce() {
 }
 
 func (s *Scheduler) processQueueOnce(ctx context.Context) {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
+	// First, safely get work items from the queue
+	workItems := s.getWorkItems()
+	if len(workItems) == 0 {
+		return
+	}
 
-	// Store jobs that weren't able to be scheduled to re-add to the queue later
-	// This is important because there many be workloads that persistently fail to schedule
-	// and we don't want to block workloads that can be scheduled from further down the queue
-	unscheduledQueue := make([]*Workload, 0)
-
-	// Schedule any requests that are currently in the queue.
-	for _, work := range s.queue {
+	// Process work items without holding the queue lock
+	unscheduledWork := make([]*Workload, 0)
+	for _, work := range workItems {
 		err := s.start(ctx, work)
 		if err != nil {
 			retry, err := ErrorHandlingStrategy(err, work)
 
-			// If we can retry, break out of the loop and try again later
 			if retry {
-				unscheduledQueue = append(unscheduledQueue, work)
+				unscheduledWork = append(unscheduledWork, work)
 				continue
 			}
 
-			// If we can't retry, write an error to the request and continue so it takes it off
-			// the queue
 			s.onSchedulingErr(work, err)
 		}
 	}
-	// Clear processed queue
-	s.queue = unscheduledQueue
+
+	// Update queue with only unscheduled items
+	s.updateQueue(unscheduledWork)
+}
+
+// getWorkItems safely retrieves and clears the current queue
+func (s *Scheduler) getWorkItems() []*Workload {
+	s.queueMtx.Lock()
+	defer s.queueMtx.Unlock()
+
+	if len(s.queue) == 0 {
+		return nil
+	}
+
+	// Make a copy of the current queue
+	workItems := make([]*Workload, len(s.queue))
+	copy(workItems, s.queue)
+
+	// Clear the queue
+	s.queue = make([]*Workload, 0, s.queueSize)
+
+	return workItems
+}
+
+// updateQueue safely updates the queue with unscheduled items
+func (s *Scheduler) updateQueue(unscheduledWork []*Workload) {
+	if len(unscheduledWork) == 0 {
+		return
+	}
+
+	s.queueMtx.Lock()
+	defer s.queueMtx.Unlock()
+
+	// Add unscheduled work back to the queue
+	s.queue = append(s.queue, unscheduledWork...)
 }
 
 func (s *Scheduler) start(ctx context.Context, work *Workload) error {
