@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) getConfig(req *http.Request) (types.ServerConfigForFrontend, error) {
+func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
@@ -204,7 +204,7 @@ func (apiServer *HelixAPIServer) getConfig(req *http.Request) (types.ServerConfi
 	}
 
 	// Check for license key in database
-	license, err := apiServer.Store.GetLicenseKey(req.Context())
+	license, err := apiServer.Store.GetLicenseKey(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get license key")
 	} else if license != nil {
@@ -229,7 +229,7 @@ func (apiServer *HelixAPIServer) getConfig(req *http.Request) (types.ServerConfi
 }
 
 func (apiServer *HelixAPIServer) config(w http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
-	return apiServer.getConfig(req)
+	return apiServer.getConfig(req.Context())
 }
 
 // prints the config values as JavaScript values so we can block the rest of the frontend on
