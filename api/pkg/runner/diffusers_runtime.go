@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -59,6 +60,11 @@ func NewDiffusersRuntime(_ context.Context, params DiffusersRuntimeParams) (*Dif
 		params.Port = &port
 		log.Debug().Int("port", *params.Port).Msg("Found free port")
 	}
+	log.Info().
+		Str("cache_dir", *params.CacheDir).
+		Dur("start_timeout", *params.StartTimeout).
+		Int("port", *params.Port).
+		Msg("creating diffusers runtime")
 	return &DiffusersRuntime{
 		cacheDir:     *params.CacheDir,
 		port:         *params.Port,
@@ -187,12 +193,27 @@ func startDiffusersCmd(ctx context.Context, commander Commander, port int, cache
 	// Set the working directory to the runner dir (which makes relative path stuff easier)
 	cmd.Dir = "/workspace/helix/runner/helix-diffusers"
 
+	// Convert go log level to python log level
+	pythonLogLevel := "INFO"
+	switch log.Logger.GetLevel() {
+	case zerolog.TraceLevel:
+		pythonLogLevel = "DEBUG"
+	case zerolog.DebugLevel:
+		pythonLogLevel = "DEBUG"
+	case zerolog.InfoLevel:
+		pythonLogLevel = "INFO"
+	case zerolog.WarnLevel:
+		pythonLogLevel = "WARNING"
+	case zerolog.ErrorLevel:
+		pythonLogLevel = "ERROR"
+	}
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("CACHE_DIR=%s", path.Join(cacheDir, "hub")), // Mimic the diffusers library's default cache dir
 		// Add the HF_TOKEN environment variable which is required by the diffusers library
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 		// Set python to be unbuffered so we get logs in real time
 		"PYTHONUNBUFFERED=1",
+		fmt.Sprintf("LOG_LEVEL=%s", pythonLogLevel),
 	)
 	log.Trace().Interface("env", cmd.Env).Msg("Diffusers serve command")
 
