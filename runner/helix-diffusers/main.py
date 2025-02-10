@@ -29,6 +29,7 @@ server_host = os.getenv("SERVER_HOST", "0.0.0.0")
 server_port = int(os.getenv("SERVER_PORT", 8000))
 server_url = f"http://{server_host}:{server_port}"
 cache_dir = os.getenv("CACHE_DIR", "/root/.cache/huggingface/hub")
+default_num_steps = 50
 
 # Check that the cache dir exists
 if not os.path.exists(cache_dir):
@@ -101,7 +102,7 @@ class TextToImagePipeline:
 
             result = self.pipeline(
                 prompt=prompt,
-                num_inference_steps=50,
+                num_inference_steps=default_num_steps,
                 guidance_scale=7.5,
                 height=720,
                 width=1280,
@@ -265,7 +266,7 @@ class HelixCallback(PipelineCallback):
         # Construct your partial progress object
         progress = ImageResponse(
             created=int(datetime.now().timestamp()),
-            step=step_index,
+            step=int(step_index/default_num_steps), # Normalize step to 0-100. TODO(Phil): Make this a float!
             timestep=int(timestep),
             error="",
             completed=False,
