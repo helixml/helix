@@ -90,7 +90,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  NewTimeoutFunc(modelTTL),
 		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
-		pendingSlots:    make(chan *PendingSlot, 2),
+		pendingSlots:    make(chan *PendingSlot, pendingSlotsBufferSize),
 	}
 
 	// Start the queue processor
