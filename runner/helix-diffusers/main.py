@@ -254,7 +254,7 @@ class ImageResponse(BaseModel):
 
 
 class HelixCallback(PipelineCallback):
-    tensor_inputs = []
+    tensor_inputs = [] # Leave this, it's required by the PipelineCallback interface
     
     def __init__(self, loop: asyncio.AbstractEventLoop, progress_queue: asyncio.Queue):
         self.loop = loop
@@ -276,7 +276,7 @@ class HelixCallback(PipelineCallback):
             self.progress_queue.put_nowait,
             progress.model_dump_json()
         )
-        return {}
+        return {} # You must return something, otherwise the pipeline will crash with a "pop" error
 
 
 async def stream_progress(prompt: str):
