@@ -110,6 +110,8 @@ class TextToImagePipeline:
             return result.images
 
         except Exception as e:
+            import traceback
+            logger.error(f"Error during image generation:\n{traceback.format_exc()}")
             raise RuntimeError(f"Error during image generation: {str(e)}") from e
 
 
@@ -252,7 +254,7 @@ class ImageResponse(BaseModel):
 
 
 class HelixCallback(PipelineCallback):
-    tensor_inputs = ["prompt_embeds"]
+    tensor_inputs = [""]
     
     def __init__(self, loop: asyncio.AbstractEventLoop, progress_queue: asyncio.Queue):
         self.loop = loop
