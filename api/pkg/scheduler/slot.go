@@ -77,6 +77,8 @@ func (s *Slot) Release() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	log.Trace().Str("slot_id", s.ID.String()).Msg("releasing slot")
+
 	s.isActive = false
 	s.LastActivityTime = time.Now()
 }
@@ -85,6 +87,8 @@ func (s *Slot) Release() {
 func (s *Slot) Start() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	log.Trace().Str("slot_id", s.ID.String()).Msg("starting slot")
 
 	s.LastActivityTime = time.Now()
 	s.isActive = true

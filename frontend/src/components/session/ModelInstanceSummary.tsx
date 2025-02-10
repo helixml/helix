@@ -42,7 +42,7 @@ export const ModelInstanceSummary: FC<{
       sx={{
         width: '100%',
         p: 1,
-        // border: `1px solid ${modelInstance.current_session ? activeColor : '#e5e5e5'}`,
+        border: `1px solid ${slot.active ? activeColor : '#e5e5e5'}`,
         mt: 1,
         mb: 1,
       }}

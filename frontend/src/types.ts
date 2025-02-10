@@ -350,6 +350,7 @@ export interface ISlot {
   runtime: string,
   model: string,
   version: string,
+  active: boolean,
 }
 
 export interface LLMInferenceRequest {

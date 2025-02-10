@@ -186,6 +186,7 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.
 			Runtime: slot.Runtime.Runtime(),
 			Version: slot.Runtime.Version(),
 			Model:   slot.Model,
+			Active:  slot.Active,
 		})
 		return true
 	})
