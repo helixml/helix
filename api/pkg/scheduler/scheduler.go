@@ -25,6 +25,13 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 	}
 }
 
+// Add these new types to track pending slot creation
+type PendingSlot struct {
+	Work     *Workload
+	RunnerID string
+	Created  chan struct{} // Channel to signal when slot is created
+}
+
 type Scheduler struct {
 	ctx             context.Context
 	controller      *RunnerController
@@ -34,8 +41,9 @@ type Scheduler struct {
 	onSchedulingErr func(work *Workload, err error)
 	slotsMtx        *sync.Mutex // This is used to stop the slot reconciler from running until new slots are created
 	slots           *xsync.MapOf[uuid.UUID, *Slot]
-	modelStaleFunc  TimeoutFunc // Function to check if models are stale
-	slotTimeoutFunc TimeoutFunc // Function to check if slots have timed out due to error
+	modelStaleFunc  TimeoutFunc       // Function to check if models are stale
+	slotTimeoutFunc TimeoutFunc       // Function to check if slots have timed out due to error
+	pendingSlots    chan *PendingSlot // Channel for pending slot creations
 }
 
 type Params struct {
@@ -78,6 +86,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  NewTimeoutFunc(modelTTL),
 		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
+		pendingSlots:    make(chan *PendingSlot, 100), // Buffer size can be adjusted
 	}
 
 	// Start the queue processor
@@ -91,6 +100,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
+
+	// Start the slot creator
+	go s.runSlotCreator(ctx)
 
 	return s, nil
 }
@@ -415,6 +427,33 @@ func (s *Scheduler) updateQueue(unscheduledWork []*Workload) {
 	s.queue = append(s.queue, unscheduledWork...)
 }
 
+// Add new method to handle slot creation
+func (s *Scheduler) runSlotCreator(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case pending := <-s.pendingSlots:
+			// Create an allocated slot, lock the reconciler to prevent it from running until the slot
+			// is created
+			log.Debug().Str("runner_id", pending.RunnerID).Msg("taking slot mutex")
+			s.slotsMtx.Lock()
+			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
+			s.slotsMtx.Unlock()
+			log.Debug().Str("runner_id", pending.RunnerID).Msg("unlocked slot mutex")
+
+			if err != nil {
+				log.Error().Err(err).Msg("failed to create new slot")
+			}
+			close(pending.Created) // Signal that creation attempt is complete
+
+			// Add configurable delay between slot creations
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+// Modify the start method to handle async slot creation
 func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 	if work == nil {
 		return fmt.Errorf("workload is nil")
@@ -470,100 +509,105 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 		leastLoadedRunnerSlots := runnerSlots[runnerIDs[0]]
 		slot := leastLoadedRunnerSlots[rand.Intn(len(leastLoadedRunnerSlots))]
 
-		err := s.allocateSlot(slot.ID, work)
-		if err != nil {
-			// Return error if unable to allocate work to the warm model.
-			return fmt.Errorf("unable to allocate work to a warm model slot (ID: %s, slot runner: %s): %w", slot.ID, slot.RunnerID, err)
-		}
-	} else {
-		// If no warm slots are available, pick a runner to allocate a slot to.
-
-		// Take time to find the best runner here, since it's not on the hot path.
-		// Reach out to each runner and get an update on their current load.
-		// Pick the first runner that has the least load and has enough memory to allocate the new
-		// workload.
-
-		// First get a list of all runners
-		allRunners := s.controller.RunnerIDs()
-
-		// Reach out to each runner and get their total memory
-		runnerMemory := make(map[string]uint64)
-		for _, runnerID := range allRunners {
-			runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
-		}
-		log.Trace().Interface("runner_memory", runnerMemory).Msg("runner memory")
-
-		// Filter out runners that don't have enough memory to allocate the new workload
-		numRunnersWithNotEnoughTotalMemory := 0
-		largestRunnerMemory := uint64(0)
-		requiredMemory := work.Model().GetMemoryRequirements(work.Mode())
-		filteredRunners := make([]string, 0)
-		for runnerID, memory := range runnerMemory {
-			if memory >= requiredMemory {
-				filteredRunners = append(filteredRunners, runnerID)
-			} else {
-				numRunnersWithNotEnoughTotalMemory++
-			}
-			if memory > largestRunnerMemory {
-				largestRunnerMemory = memory
-			}
-		}
-		log.Trace().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
-
-		// Error if no runners have enough memory
-		if numRunnersWithNotEnoughTotalMemory == len(allRunners) {
-			return fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
-		}
-
-		// Error if there are no runners left
-		if len(filteredRunners) == 0 {
-			return ErrNoRunnersAvailable
-		}
-
-		// Reach out to the remaining runners and get their current load
-		runnerLoad := make(map[string]uint64)
-		for _, runnerID := range filteredRunners {
-			runnerLoad[runnerID] = s.controller.FreeMemory(runnerID)
-		}
-		log.Trace().Interface("runner_load", runnerLoad).Msg("runner load")
-
-		// Sort the runners by load, increasing, with a random shuffle for ties
-		slices.SortFunc(filteredRunners, func(a, b string) int {
-			if runnerLoad[a] != runnerLoad[b] {
-				return int(runnerLoad[b] - runnerLoad[a])
-			}
-			return rand.Intn(3) - 1 // Introduces random shuffle for true ties
-		})
-		log.Trace().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
-
-		// Pick the first runner
-		bestRunnerID := filteredRunners[0]
-		log.Trace().Str("runner_id", bestRunnerID).Msg("chosen best runner")
-
-		// While there isn't enough free memory, delete the most stale slot.
-		err := s.deleteMostStaleStrategy(bestRunnerID, work.Model().GetMemoryRequirements(work.Mode()))
-		if err != nil {
-			return fmt.Errorf("unable to delete any stale slots: %w", err)
-		}
-
-		// Create an allocated slot, lock the reconciler to prevent it from running until the slot
-		// is created
-		log.Debug().Str("runner_id", bestRunnerID).Msg("taking slot mutex")
-		s.slotsMtx.Lock()
-		defer func() {
-			s.slotsMtx.Unlock()
-			log.Debug().Str("runner_id", bestRunnerID).Msg("unlocked slot mutex")
-		}()
-		err = s.allocateNewSlot(ctx, bestRunnerID, work)
-		if err != nil {
-			// Return error if unable to allocate a new slot.
-			return fmt.Errorf("unable to allocate new work on runner (ID: %s): %w", bestRunnerID, err)
-		}
+		return s.allocateSlot(slot.ID, work)
 	}
 
-	log.Trace().Str("work_id", work.ID()).Msg("finished processing work item")
+	// If no warm slots are available, pick a runner to allocate a slot to.
+	bestRunnerID, err := s.findBestRunner(work)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	// While there isn't enough free memory, delete the most stale slot.
+	err = s.deleteMostStaleStrategy(bestRunnerID, work.Model().GetMemoryRequirements(work.Mode()))
+	if err != nil {
+		return fmt.Errorf("unable to delete any stale slots: %w", err)
+	}
+
+	// Create a pending slot and wait for it to be created
+	pending := &PendingSlot{
+		Work:     work,
+		RunnerID: bestRunnerID,
+		Created:  make(chan struct{}),
+	}
+
+	// Submit the pending slot for creation
+	select {
+	case s.pendingSlots <- pending:
+	default:
+		return fmt.Errorf("slot creation queue is full")
+	}
+
+	// Wait for slot creation to complete
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-pending.Created:
+		return nil
+	}
+}
+
+// Add new helper method to find the best runner
+func (s *Scheduler) findBestRunner(work *Workload) (string, error) {
+	// First get a list of all runners
+	allRunners := s.controller.RunnerIDs()
+
+	// Reach out to each runner and get their total memory
+	runnerMemory := make(map[string]uint64)
+	for _, runnerID := range allRunners {
+		runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
+	}
+	log.Trace().Interface("runner_memory", runnerMemory).Msg("runner memory")
+
+	// Filter out runners that don't have enough memory to allocate the new workload
+	numRunnersWithNotEnoughTotalMemory := 0
+	largestRunnerMemory := uint64(0)
+	requiredMemory := work.Model().GetMemoryRequirements(work.Mode())
+	filteredRunners := make([]string, 0)
+	for runnerID, memory := range runnerMemory {
+		if memory >= requiredMemory {
+			filteredRunners = append(filteredRunners, runnerID)
+		} else {
+			numRunnersWithNotEnoughTotalMemory++
+		}
+		if memory > largestRunnerMemory {
+			largestRunnerMemory = memory
+		}
+	}
+	log.Trace().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
+
+	// Error if no runners have enough memory
+	if numRunnersWithNotEnoughTotalMemory == len(allRunners) {
+		return "", fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
+	}
+
+	// Error if there are no runners left
+	if len(filteredRunners) == 0 {
+		return "", ErrNoRunnersAvailable
+	}
+
+	// Reach out to the remaining runners and get their current load
+	runnerLoad := make(map[string]uint64)
+	for _, runnerID := range filteredRunners {
+		runnerLoad[runnerID] = s.controller.FreeMemory(runnerID)
+	}
+	log.Trace().Interface("runner_load", runnerLoad).Msg("runner load")
+
+	// Sort the runners by load, increasing, with a random shuffle for ties
+	slices.SortFunc(filteredRunners, func(a, b string) int {
+		if runnerLoad[a] != runnerLoad[b] {
+			return int(runnerLoad[b] - runnerLoad[a])
+		}
+		return rand.Intn(3) - 1 // Introduces random shuffle for true ties
+	})
+	log.Trace().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
+
+	// Pick the first runner
+	bestRunnerID := filteredRunners[0]
+	log.Trace().Str("runner_id", bestRunnerID).Msg("chosen best runner")
+
+	// Return the bestRunnerID and any error
+	return bestRunnerID, nil
 }
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
