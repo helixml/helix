@@ -16,6 +16,10 @@ import (
 	"golang.org/x/exp/rand"
 )
 
+const (
+	pendingSlotsBufferSize = 2 // The number of slot creation requests to buffer
+)
+
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
 type TimeoutFunc func(runnerID string, lastActivityTime time.Time) bool
 
@@ -86,7 +90,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  NewTimeoutFunc(modelTTL),
 		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
-		pendingSlots:    make(chan *PendingSlot, 100), // Buffer size can be adjusted
+		pendingSlots:    make(chan *PendingSlot, 2),
 	}
 
 	// Start the queue processor
@@ -535,7 +539,7 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 	select {
 	case s.pendingSlots <- pending:
 	default:
-		return fmt.Errorf("slot creation queue is full")
+		return ErrPendingSlotsFull
 	}
 
 	// Wait for slot creation to complete
