@@ -254,7 +254,7 @@ class ImageResponse(BaseModel):
 
 
 class HelixCallback(PipelineCallback):
-    tensor_inputs = [""]
+    tensor_inputs = []
     
     def __init__(self, loop: asyncio.AbstractEventLoop, progress_queue: asyncio.Queue):
         self.loop = loop
