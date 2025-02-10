@@ -406,7 +406,7 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 		// Map of ALL active slots per runner (not just warm ones)
 		activeSlots := make(map[string]int)
 		// Get ALL slots from controller, not just warm ones
-		s.slots.Range(func(key uuid.UUID, slot *Slot) bool {
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 			if slot.IsActive() {
 				activeSlots[slot.RunnerID]++
 			}
@@ -538,7 +538,7 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64) error {
 	for {
 		var allSlots []*Slot
-		s.slots.Range(func(key uuid.UUID, slot *Slot) bool {
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 			if slot.RunnerID == runnerID {
 				allSlots = append(allSlots, slot)
 			}
@@ -571,7 +571,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 
 func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
-	s.slots.Range(func(key uuid.UUID, slot *Slot) bool {
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		l := log.With().
 			Str("slot_id", slot.ID.String()).
 			Str("req_model_name", req.ModelName().String()).
