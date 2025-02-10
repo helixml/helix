@@ -33,6 +33,8 @@ export const LicenseKeyPrompt: React.FC = () => {
     }
   };
 
+  const isLoggedIn = !!account.user;
+
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4, p: 3 }}>
       <Typography variant="h5" gutterBottom>
@@ -49,10 +51,15 @@ export const LicenseKeyPrompt: React.FC = () => {
       )}
       <Typography paragraph>
         Please get a valid license key from{' '}
-        <Link href="https://deploy.helix.ml" target="_blank" rel="noopener">
-          deploy.helix.ml
+        <Link href="https://deploy.helix.ml/licenses" target="_blank" rel="noopener">
+          deploy.helix.ml/licenses
         </Link>
       </Typography>
+      {!isLoggedIn && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Please log in with an admin account to activate your license key
+        </Alert>
+      )}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -67,12 +74,13 @@ export const LicenseKeyPrompt: React.FC = () => {
           margin="normal"
           required
           error={!!error}
+          disabled={!isLoggedIn}
         />
         <Button
           type="submit"
           variant="contained"
           color="primary"
-          disabled={loading}
+          disabled={loading || !isLoggedIn}
           sx={{ mt: 2 }}
         >
           {loading ? 'Saving...' : 'Save License Key'}
