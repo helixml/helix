@@ -65,7 +65,9 @@ func TestDeleteAllApps(t *testing.T) {
 			page.MustElementX(`//button[text() = 'Confirm']`).MustWaitVisible().MustClick()
 			wait()
 
-			page.MustWaitIdle()
+			// Do a hard reload on every delete to ensure the page is updated
+			page.MustReload()
+			page.Timeout(10 * time.Second).MustElement(`[data-testid='DeleteIcon']`)
 		})
 	}
 }
