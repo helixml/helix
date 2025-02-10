@@ -77,8 +77,7 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 	err = diffusersClient.GenerateStreaming(r.Context(), imageRequest.Prompt, func(update types.HelixImageGenerationUpdate) error {
 		log.Trace().Interface("update", update).Msg("Image generation update")
 		if update.Error != "" {
-			http.Error(w, update.Error, http.StatusInternalServerError)
-			return fmt.Errorf("error: %s", update.Error)
+			return fmt.Errorf("python diffusers error: %s", update.Error)
 		}
 		if update.Completed {
 			// Intercept the result and upload the files to the control plane
@@ -95,8 +94,7 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 			}
 			resFiles, err := fileHandler.uploadFiles(sessionID, localFiles, types.FilestoreResultsDir)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("failed to upload files: %s", err.Error()), http.StatusInternalServerError)
-				return err
+				return fmt.Errorf("failed to upload files: %w", err)
 			}
 			// Overwrite the original urls with the new ones
 			inner := []openai.ImageResponseDataInner{}
@@ -115,22 +113,22 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 			}
 			bts, err := json.Marshal(finalResponse)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return fmt.Errorf("failed to marshal update: %w", err)
 			}
 
 			if err := writeChunk(w, bts); err != nil {
-				log.Error().Msgf("failed to write completion chunk: %v", err)
+				return fmt.Errorf("failed to write completion chunk: %w", err)
 			}
 			return nil
 		}
 
 		bts, err := json.Marshal(update)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return fmt.Errorf("failed to marshal update: %w", err)
 		}
 
 		if err := writeChunk(w, bts); err != nil {
-			log.Error().Msgf("failed to write completion chunk: %v", err)
+			return fmt.Errorf("failed to write completion chunk: %w", err)
 		}
 		return nil
 	})

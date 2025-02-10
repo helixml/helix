@@ -5,7 +5,7 @@ import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Any
 
 import diffusers
 import PIL
@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from huggingface_hub import snapshot_download
 from pydantic import BaseModel
-from diffusers.pipelines.pipeline_loading_utils import LOADABLE_CLASSES
+from diffusers.callbacks import PipelineCallback
 from pathlib import Path
 
 logging.basicConfig(
@@ -99,7 +99,6 @@ class TextToImagePipeline:
             scheduler = self.pipeline.scheduler.from_config(self.pipeline.scheduler.config)
             self.pipeline.scheduler = scheduler
 
-            # The important part: pass callback=..., callback_steps=... to get updates each step
             result = self.pipeline(
                 prompt=prompt,
                 num_inference_steps=50,
@@ -252,35 +251,44 @@ class ImageResponse(BaseModel):
     data: List[ImageResponseDataInner]
 
 
-async def stream_progress(prompt: str):
-    """Coroutine that yields SSE data while generating images in background."""
-    # 1) Capture the main event loop
-    loop = asyncio.get_event_loop()
-    progress_queue = asyncio.Queue()
+class HelixCallback(PipelineCallback):
+    def __init__(self, loop: asyncio.AbstractEventLoop, progress_queue: asyncio.Queue):
+        self.loop = loop
+        self.progress_queue = progress_queue
 
-    # 2) Define callback that runs in the *worker* thread
-    def diffusion_callback(pipe: any, step: int, timestep: int, callback_kwargs: any):
+    def callback_fn(self, pipeline, step_index, timestep, callback_kwargs) -> Dict[str, Any]:
+        logger.debug(f"Diffusion callback called with step: {step_index}, timestep: {timestep}, callback_kwargs: {callback_kwargs}")
         # Construct your partial progress object
         progress = ImageResponse(
             created=int(datetime.now().timestamp()),
-            step=step,
+            step=step_index,
             timestep=timestep,
             error="",
             completed=False,
             data=[],
         )
-        # 3) Put it in the async queue using loop.call_soon_threadsafe
-        loop.call_soon_threadsafe(
-            progress_queue.put_nowait,
+        # Put it in the async queue using loop.call_soon_threadsafe
+        self.loop.call_soon_threadsafe(
+            self.progress_queue.put_nowait,
             progress.model_dump_json()
         )
 
-    # 4) Launch the generation in a separate thread, so we don't block
+
+async def stream_progress(prompt: str):
+    """Coroutine that yields SSE data while generating images in background."""
+    # Capture the main event loop
+    loop = asyncio.get_event_loop()
+    progress_queue = asyncio.Queue()
+
+    # Define callback that runs in the *worker* thread
+    callback = HelixCallback(loop, progress_queue)
+
+    # Launch the generation in a separate thread, so we don't block
     generation_task = asyncio.create_task(
-        asyncio.to_thread(shared_pipeline.generate, prompt, diffusion_callback)
+        asyncio.to_thread(shared_pipeline.generate, prompt, callback)
     )
 
-    # 5) Continuously yield SSE events as progress messages arrive
+    # Continuously yield SSE events as progress messages arrive
     try:
         while not generation_task.done():
             try:
@@ -290,7 +298,7 @@ async def stream_progress(prompt: str):
                 # No progress update yet
                 pass
         
-        # 6) Once done, gather final images
+        # Once done, gather final images
         images = await generation_task
         urls = []
         for im in images:
@@ -356,7 +364,6 @@ async def generate_image(image_input: TextToImageInput):
         return {"data": [{"url": image_url}]}
 
     except Exception as e:
-        logger.error(f"Error during image generation: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={"error": {"code": "500", "message": str(e)}},
