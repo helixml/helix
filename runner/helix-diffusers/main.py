@@ -260,13 +260,13 @@ class HelixCallback(PipelineCallback):
         self.loop = loop
         self.progress_queue = progress_queue
 
-    def callback_fn(self, pipeline, step_index, timestep, callback_kwargs) -> Dict[str, Any]:
+    def callback_fn(self, pipeline: Any, step_index: int, timestep: float, callback_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         logger.debug(f"Diffusion callback called with step: {step_index}, timestep: {timestep}, callback_kwargs: {callback_kwargs}")
         # Construct your partial progress object
         progress = ImageResponse(
             created=int(datetime.now().timestamp()),
             step=step_index,
-            timestep=timestep,
+            timestep=int(timestep),
             error="",
             completed=False,
             data=[],
