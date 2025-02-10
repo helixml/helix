@@ -254,7 +254,7 @@ class ImageResponse(BaseModel):
 
 
 class HelixCallback(PipelineCallback):
-    tensor_inputs = ["latents"]
+    tensor_inputs = []
     
     def __init__(self, loop: asyncio.AbstractEventLoop, progress_queue: asyncio.Queue):
         self.loop = loop
@@ -276,6 +276,7 @@ class HelixCallback(PipelineCallback):
             self.progress_queue.put_nowait,
             progress.model_dump_json()
         )
+        return {}
 
 
 async def stream_progress(prompt: str):
