@@ -12,6 +12,7 @@ import SessionsMenu from '../components/session/SessionsMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
+import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -45,6 +46,11 @@ const Layout: FC = ({
     }
     return account.serverConfig.version !== account.serverConfig.latest_version
   }, [account.serverConfig?.version, account.serverConfig?.latest_version])
+
+  console.log('Layout:', {
+    deploymentId: account.serverConfig?.deployment_id,
+    serverConfig: account.serverConfig
+  });
 
   return (
     <>
@@ -153,6 +159,12 @@ const Layout: FC = ({
               </Typography>
             </Window>
           )
+        }
+        {
+          (account.serverConfig?.license && !account.serverConfig.license.valid) || 
+          account.serverConfig?.deployment_id === "unknown" ? 
+            <LicenseKeyPrompt /> : 
+            null
         }
       </Box>
     </>

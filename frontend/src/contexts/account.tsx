@@ -1,6 +1,6 @@
 import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
-import { createContext, FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
@@ -67,6 +67,10 @@ export const AccountContext = createContext<IAccountContext>({
   models: [],
   fetchModels: async () => {},
 })
+
+export const useAccount = () => {
+  return useContext(AccountContext);
+};
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
@@ -176,7 +180,7 @@ export const useAccountContext = (): IAccountContext => {
         if(!keycloak.token) throw new Error(`no user token found from keycloak`)
         const user: IKeycloakUser = {
           id: keycloak.tokenParsed?.sub,
-          email: keycloak.tokenParsed?.preferred_username, 
+          email: keycloak.tokenParsed?.preferred_username,
           token: keycloak.token,
           name: keycloak.tokenParsed?.name,
         }
@@ -199,6 +203,7 @@ export const useAccountContext = (): IAccountContext => {
               api.setToken(keycloak.token)
               setUser(Object.assign({}, user, {
                 token: keycloak.token,
+                is_admin: admin,
               }))
             }
           } catch(e) {

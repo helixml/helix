@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	license "github.com/helixml/helix/api/pkg/license"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -408,6 +409,21 @@ func (mr *MockStoreMockRecorder) GetDataEntity(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDataEntity", reflect.TypeOf((*MockStore)(nil).GetDataEntity), ctx, id)
 }
 
+// GetDecodedLicense mocks base method.
+func (m *MockStore) GetDecodedLicense(ctx context.Context) (*license.License, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDecodedLicense", ctx)
+	ret0, _ := ret[0].(*license.License)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDecodedLicense indicates an expected call of GetDecodedLicense.
+func (mr *MockStoreMockRecorder) GetDecodedLicense(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDecodedLicense", reflect.TypeOf((*MockStore)(nil).GetDecodedLicense), ctx)
+}
+
 // GetKnowledge mocks base method.
 func (m *MockStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -436,6 +452,21 @@ func (m *MockStore) GetKnowledgeVersion(ctx context.Context, id string) (*types.
 func (mr *MockStoreMockRecorder) GetKnowledgeVersion(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).GetKnowledgeVersion), ctx, id)
+}
+
+// GetLicenseKey mocks base method.
+func (m *MockStore) GetLicenseKey(ctx context.Context) (*types.LicenseKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLicenseKey", ctx)
+	ret0, _ := ret[0].(*types.LicenseKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLicenseKey indicates an expected call of GetLicenseKey.
+func (mr *MockStoreMockRecorder) GetLicenseKey(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLicenseKey", reflect.TypeOf((*MockStore)(nil).GetLicenseKey), ctx)
 }
 
 // GetSecret mocks base method.
@@ -677,6 +708,20 @@ func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery
 func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
+}
+
+// SetLicenseKey mocks base method.
+func (m *MockStore) SetLicenseKey(ctx context.Context, licenseKey string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetLicenseKey", ctx, licenseKey)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetLicenseKey indicates an expected call of SetLicenseKey.
+func (mr *MockStoreMockRecorder) SetLicenseKey(ctx, licenseKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLicenseKey", reflect.TypeOf((*MockStore)(nil).SetLicenseKey), ctx, licenseKey)
 }
 
 // UpdateApp mocks base method.

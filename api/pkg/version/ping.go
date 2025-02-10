@@ -18,6 +18,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func hashLicenseKey(licenseKey string) string {
+	if licenseKey == "" {
+		return "unknown"
+	}
+	hasher := sha256.New()
+	hasher.Write([]byte(licenseKey))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
 type PingResponse struct {
 	LatestVersion string `json:"latest_version"`
 }
@@ -27,19 +36,19 @@ type PingService struct {
 	launchpadURL   string
 	ticker         *time.Ticker
 	done           chan bool
-	licenseKey     string
+	envLicenseKey  string // renamed from licenseKey to be more explicit
 	latestVersion  string
 	keycloakConfig *config.Keycloak
 	gocloak        *gocloak.GoCloak
 }
 
-func NewPingService(db *store.PostgresStore, licenseKey string, launchpadURL string, keycloakConfig *config.Keycloak) *PingService {
+func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL string, keycloakConfig *config.Keycloak) *PingService {
 	return &PingService{
 		db:             db,
 		launchpadURL:   launchpadURL,
 		ticker:         time.NewTicker(1 * time.Hour),
 		done:           make(chan bool),
-		licenseKey:     licenseKey,
+		envLicenseKey:  envLicenseKey,
 		latestVersion:  "",
 		keycloakConfig: keycloakConfig,
 		gocloak:        gocloak.NewClient(keycloakConfig.KeycloakURL),
@@ -55,7 +64,7 @@ func (s *PingService) Start(ctx context.Context) {
 
 	go func() {
 		// Send initial ping
-		s.sendPing()
+		s.SendPing()
 
 		for {
 			select {
@@ -64,7 +73,7 @@ func (s *PingService) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-s.ticker.C:
-				s.sendPing()
+				s.SendPing()
 			}
 		}
 	}()
@@ -75,7 +84,7 @@ func (s *PingService) Stop() {
 	s.done <- true
 }
 
-func (s *PingService) sendPing() {
+func (s *PingService) SendPing() {
 	// Get app count from database
 	appCount, err := s.db.GetAppCount()
 	if err != nil {
@@ -90,20 +99,12 @@ func (s *PingService) sendPing() {
 		return
 	}
 
-	deploymentID := "unknown"
-	if s.licenseKey != "" {
-		// Generate deployment ID from license key
-		hasher := sha256.New()
-		hasher.Write([]byte(s.licenseKey)) // Use license key hash for deployment ID
-		deploymentID = hex.EncodeToString(hasher.Sum(nil))
-	}
-
 	// Prepare ping data
 	pingData := map[string]interface{}{
 		"version":       data.GetHelixVersion(),
 		"apps_count":    appCount,
 		"users_count":   userCount,
-		"deployment_id": deploymentID,
+		"deployment_id": s.GetDeploymentID(),
 	}
 
 	// Send ping to launchpad
@@ -163,4 +164,16 @@ func (s *PingService) getUserCount() (int, error) {
 
 func (s *PingService) GetLatestVersion() string {
 	return s.latestVersion
+}
+
+func (s *PingService) GetDeploymentID() string {
+	// Check for license key in database first
+	if dbLicense, err := s.db.GetLicenseKey(context.Background()); err != nil {
+		log.Error().Err(err).Msg("failed to get license key from database")
+	} else if dbLicense != nil && dbLicense.LicenseKey != "" {
+		return hashLicenseKey(dbLicense.LicenseKey)
+	}
+
+	// Fall back to environment license key if no valid database license
+	return hashLicenseKey(s.envLicenseKey)
 }
