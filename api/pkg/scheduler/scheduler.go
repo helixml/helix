@@ -88,6 +88,10 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the activity reconciler
 	go s.reconcileActivity(ctx)
+
+	// Start the runner reconciler
+	go s.reconcileRunners(ctx)
+
 	return s, nil
 }
 
@@ -250,6 +254,35 @@ func (s *Scheduler) reconcileActivityOnce() {
 		}
 		return true
 	})
+}
+
+// reconcileRunners runs in a goroutine to reconcile runners.
+func (s *Scheduler) reconcileRunners(ctx context.Context) {
+	log.Debug().Msg("starting runner reconciler")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			s.reconcileRunnersOnce()
+			// Sleep for a while to allow others to access the queue
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+func (s *Scheduler) reconcileRunnersOnce() {
+	// Get all runners
+	runnerIDs := s.controller.RunnerIDs()
+
+	// Get the health of each runner
+	for _, runnerID := range runnerIDs {
+		err := s.controller.getHealthz(runnerID)
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
+			s.controller.deleteRunner(runnerID)
+		}
+	}
 }
 
 // reconcileSlotsOnce reconciles slots once.

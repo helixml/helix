@@ -99,6 +99,18 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 	}
 }
 
+func (c *RunnerController) deleteRunner(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var newRunners []string
+	for _, runner := range c.runners {
+		if runner != id {
+			newRunners = append(newRunners, runner)
+		}
+	}
+	c.runners = newRunners
+}
+
 func (c *RunnerController) RunnerIDs() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -414,4 +426,18 @@ func (c *RunnerController) getSlot(runnerID string, slotID uuid.UUID) (*types.Ru
 		return nil, fmt.Errorf("error unmarshalling slot: %w", err)
 	}
 	return &slot, nil
+}
+
+func (c *RunnerController) getHealthz(runnerID string) error {
+	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/healthz",
+	}, 1*time.Second)
+	if err != nil {
+		return fmt.Errorf("error getting healthz: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
 }
