@@ -80,6 +80,9 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 			return fmt.Errorf("python diffusers error: %s", update.Error)
 		}
 		if update.Completed {
+			// When everything has finished, mark the slot as complete
+			defer s.markSlotAsComplete(slotUUID)
+
 			// Intercept the result and upload the files to the control plane
 			clientOptions := system.ClientOptions{
 				Host:  s.runnerOptions.APIHost,

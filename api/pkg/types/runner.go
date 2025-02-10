@@ -61,8 +61,7 @@ type RunnerSlot struct {
 	Runtime Runtime   `json:"runtime"`
 	Model   string    `json:"model"`
 	Version string    `json:"version"`
-	// ...
-	// TODO(phil): add more fields
+	Active  bool      `json:"active"`
 }
 
 type ListRunnerSlotsResponse struct {

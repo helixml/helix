@@ -87,15 +87,16 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.HandleFunc("/status", apiServer.status).Methods(http.MethodGet)
 	subRouter.HandleFunc("/slots", apiServer.createSlot).Methods(http.MethodPost)
 	subRouter.HandleFunc("/slots", apiServer.listSlots).Methods(http.MethodGet)
+	subRouter.HandleFunc("/slots/{slot_id}", apiServer.getSlot).Methods(http.MethodGet)
 	subRouter.HandleFunc("/slots/{slot_id}", apiServer.deleteSlot).Methods(http.MethodDelete)
-	subRouter.HandleFunc("/slots/{slot_id}/v1/chat/completions", apiServer.createChatCompletion).Methods(http.MethodPost, http.MethodOptions)
+	subRouter.HandleFunc("/slots/{slot_id}/v1/chat/completions", apiServer.slotActivationMiddleware(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/models", apiServer.listModels).Methods(http.MethodGet, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/embedding", apiServer.createEmbedding).Methods(http.MethodPost, http.MethodOptions)
-	subRouter.HandleFunc("/slots/{slot_id}/v1/images/generations", apiServer.createImageGeneration).Methods(http.MethodPost, http.MethodOptions)
-	subRouter.HandleFunc("/slots/{slot_id}/v1/helix/images/generations", apiServer.createHelixImageGeneration).Methods(http.MethodPost, http.MethodOptions)
+	subRouter.HandleFunc("/slots/{slot_id}/v1/images/generations", apiServer.slotActivationMiddleware(apiServer.createImageGeneration)).Methods(http.MethodPost, http.MethodOptions)
+	subRouter.HandleFunc("/slots/{slot_id}/v1/helix/images/generations", apiServer.slotActivationMiddleware(apiServer.createHelixImageGeneration)).Methods(http.MethodPost, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs", apiServer.listFinetuningJobs).Methods(http.MethodGet, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs/{job_id}", apiServer.retrieveFinetuningJob).Methods(http.MethodGet, http.MethodOptions)
-	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs", apiServer.createFinetuningJob).Methods(http.MethodPost, http.MethodOptions)
+	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs", apiServer.slotActivationMiddleware(apiServer.createFinetuningJob)).Methods(http.MethodPost, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs/{job_id}/events", apiServer.listFinetuningJobEvents).Methods(http.MethodGet, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/helix/fine_tuning/jobs", apiServer.createHelixFinetuningJob).Methods(http.MethodPost, http.MethodOptions)
 
@@ -197,6 +198,34 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.
 	}
 }
 
+func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Request) {
+	slotID := mux.Vars(r)["slot_id"]
+	slotUUID, err := uuid.Parse(slotID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	slot, ok := apiServer.slots.Load(slotUUID)
+	if !ok {
+		http.Error(w, "slot not found", http.StatusNotFound)
+		return
+	}
+
+	response := &types.RunnerSlot{
+		ID:      slotUUID,
+		Runtime: slot.Runtime.Runtime(),
+		Version: slot.Runtime.Version(),
+		Model:   slot.Model,
+		Active:  slot.Active,
+	}
+
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Error().Err(err).Msg("error encoding get slot response")
+	}
+}
+
 func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http.Request) {
 	slotID := mux.Vars(r)["slot_id"]
 	slotUUID, err := uuid.Parse(slotID)
@@ -223,4 +252,37 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// slotActivationMiddleware is a http middleware that parses the slot ID from the request and sets
+// it as active.
+// It doesn't mark it as complete, you must do that yourself in each handler. This is because some
+// handlers are async, like fine tuning
+func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slotID := mux.Vars(r)["slot_id"]
+		slotUUID, err := uuid.Parse(slotID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		slot, ok := apiServer.slots.Load(slotUUID)
+		if !ok {
+			http.Error(w, "slot not found", http.StatusNotFound)
+			return
+		}
+		slot.Active = true
+		apiServer.slots.Store(slotUUID, slot)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
+	slot, ok := apiServer.slots.Load(slotUUID)
+	if !ok {
+		log.Error().Str("slot_id", slotUUID.String()).Msg("attempting to mark slot as complete but slot not found")
+		return
+	}
+	slot.Active = false
+	apiServer.slots.Store(slotUUID, slot)
 }

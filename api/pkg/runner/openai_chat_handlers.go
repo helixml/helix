@@ -25,6 +25,15 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 	}
 	log.Trace().Str("slot_id", slotUUID.String()).Msg("create chat completion")
 
+	slot, ok := s.slots.Load(slotUUID)
+	if !ok {
+		http.Error(rw, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
+		return
+	}
+
+	// When everything has finished, mark the slot as complete
+	defer s.markSlotAsComplete(slotUUID)
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -35,12 +44,6 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 	err = json.Unmarshal(body, &chatCompletionRequest)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	slot, ok := s.slots.Load(slotUUID)
-	if !ok {
-		http.Error(rw, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
 		return
 	}
 

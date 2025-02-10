@@ -399,3 +399,19 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 
 	return nil
 }
+
+func (c *RunnerController) getSlot(runnerID string, slotID uuid.UUID) (*types.RunnerSlot, error) {
+	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
+	}, 1*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("error getting slot: %w", err)
+	}
+
+	var slot types.RunnerSlot
+	if err := json.Unmarshal(resp.Body, &slot); err != nil {
+		return nil, fmt.Errorf("error unmarshalling slot: %w", err)
+	}
+	return &slot, nil
+}

@@ -137,6 +137,10 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 	// Now keep track of that job id and stream the events back to the control plane
 	go func() {
 		defer cancel()
+
+		// When everything has finished, mark the slot as complete
+		defer s.markSlotAsComplete(slotUUID)
+
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 

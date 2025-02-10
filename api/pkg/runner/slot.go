@@ -18,6 +18,7 @@ type Slot struct {
 	RunnerID string    // Same as scheduler.Slot
 	Runtime  Runtime
 	Model    string // The model assigned to this slot
+	Active   bool   // True if the slot is active
 }
 
 type PullProgress struct {

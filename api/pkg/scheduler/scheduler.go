@@ -263,6 +263,20 @@ func (s *Scheduler) reconcileSlotsOnce() {
 			}
 		}
 	}
+
+	// Check the status of all remaining slots to see if they have finished their work
+	for slotID, slot := range s.slots {
+		if slot.IsActive() {
+			remoteSlot, err := s.controller.getSlot(slot.RunnerID, slotID)
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", slot.RunnerID).Str("slot_id", slotID.String()).Msg("failed to get slot, assuming it's finished")
+				slot.Release()
+			}
+			if !remoteSlot.Active {
+				slot.Release()
+			}
+		}
+	}
 }
 
 func (s *Scheduler) processQueueOnce(ctx context.Context) {
@@ -537,12 +551,6 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 			continue
 		}
 
-		// If the slot is scheduled to run another job, skip
-		if slot.IsScheduled() {
-			l.Trace().Msg("skipping warm slot, already scheduled")
-			continue
-		}
-
 		// If it doesn't have the right LoraDir then skip
 		if slot.LoraDir() != req.LoraDir() {
 			l.Trace().Str("slot_lora_dir", slot.LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
@@ -564,9 +572,6 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	}
 
 	// Ensure the slot is not already scheduled or active.
-	if slot.IsScheduled() {
-		return fmt.Errorf("slot has scheduled work: %s", slot.ID.String())
-	}
 	if slot.IsActive() {
 		return fmt.Errorf("slot already active: %s", slot.ID.String())
 	}
@@ -579,11 +584,10 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 		Str("request_id", req.ID()).
 		Msg("allocating slot")
 
-	// Schedule the slot.
-	slot.Schedule()
+	// Marks the slot as locally active. This is reset in the reconciliation process.
+	slot.Start()
 
 	// Submit the work to the slot
-	slot.Start()
 	switch req.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
 		err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
@@ -631,9 +635,6 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
 		}
 	}
-	// TODO(Phil): This isn't right, we shouldn't release the slot here, because it's still running
-	// a job. Probably should move this to the runner itself.
-	slot.Release()
 
 	return nil
 }
