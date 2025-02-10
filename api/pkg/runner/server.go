@@ -267,23 +267,25 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		slot, ok := apiServer.slots.Load(slotUUID)
-		if !ok {
-			http.Error(w, "slot not found", http.StatusNotFound)
-			return
-		}
-		slot.Active = true
-		apiServer.slots.Store(slotUUID, slot)
+
+		apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
+			if !loaded {
+				http.Error(w, "slot not found", http.StatusNotFound)
+				return nil, false
+			}
+			oldValue.Active = true
+			return oldValue, false
+		})
 		next.ServeHTTP(w, r)
 	})
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
-	slot, ok := apiServer.slots.Load(slotUUID)
-	if !ok {
-		log.Error().Str("slot_id", slotUUID.String()).Msg("attempting to mark slot as complete but slot not found")
-		return
-	}
-	slot.Active = false
-	apiServer.slots.Store(slotUUID, slot)
+	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
+		if !loaded {
+			return nil, false
+		}
+		oldValue.Active = false
+		return oldValue, false
+	})
 }

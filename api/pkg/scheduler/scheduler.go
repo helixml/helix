@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
@@ -133,10 +134,27 @@ func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
 	defer s.queueMtx.RUnlock()
 	queue := make([]*types.WorkloadSummary, 0, len(s.queue))
 	for _, w := range s.queue {
+		summary := ""
+		switch w.WorkloadType {
+		case WorkloadTypeLLMInferenceRequest:
+			req := w.LLMInferenceRequest()
+			summary = req.Request.Messages[len(req.Request.Messages)-1].Content
+		case WorkloadTypeSession:
+			s := w.Session()
+			interaction, _ := data.GetLastUserInteraction(s.Interactions)
+			if interaction != nil {
+				summary = interaction.Message
+			}
+		}
 		queue = append(queue, &types.WorkloadSummary{
 			ID:        w.ID(),
 			CreatedAt: w.Created(),
 			UpdatedAt: w.Updated(),
+			ModelName: string(w.ModelName()),
+			Mode:      string(w.Mode()),
+			Runtime:   string(w.Runtime()),
+			LoraDir:   w.LoraDir(),
+			Summary:   summary,
 		})
 	}
 	return queue, nil
@@ -160,11 +178,7 @@ func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
 }
 
 func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
-	runnerSlots, err := s.controller.Slots(runnerID)
-	if err != nil {
-		return nil, err
-	}
-	return runnerSlots, nil
+	return s.controller.Slots(runnerID)
 }
 
 // processQueue runs in a goroutine to processes the queue of requests.
@@ -215,8 +229,15 @@ func (s *Scheduler) reconcileActivity(ctx context.Context) {
 }
 
 func (s *Scheduler) reconcileActivityOnce() {
+	if s.slots == nil {
+		return
+	}
 	// Check the status of all remaining slots to see if they have finished their work
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		if slot == nil {
+			slot.Release()
+			return true
+		}
 		if slot.IsActive() {
 			remoteSlot, err := s.controller.getSlot(slot.RunnerID, slotID)
 			if err != nil {
@@ -309,7 +330,6 @@ func (s *Scheduler) processQueueOnce(ctx context.Context) {
 	}
 	log.Trace().Int("num_work_items", len(workItems)).Msg("processing work items")
 
-	// Process work items without holding the queue lock
 	unscheduledWork := make([]*Workload, 0)
 	for _, work := range workItems {
 		log.Trace().Str("work_id", work.ID()).Msg("processing work item")
@@ -493,9 +513,14 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 			return fmt.Errorf("unable to delete any stale slots: %w", err)
 		}
 
-		// Create an allocated slot, lock the reconciler to prevent it from running until the slot is created
+		// Create an allocated slot, lock the reconciler to prevent it from running until the slot
+		// is created
+		log.Debug().Str("runner_id", bestRunnerID).Msg("taking slot mutex")
 		s.slotsMtx.Lock()
-		defer s.slotsMtx.Unlock()
+		defer func() {
+			s.slotsMtx.Unlock()
+			log.Debug().Str("runner_id", bestRunnerID).Msg("unlocked slot mutex")
+		}()
 		err = s.allocateNewSlot(ctx, bestRunnerID, work)
 		if err != nil {
 			// Return error if unable to allocate a new slot.
@@ -612,54 +637,60 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	// Marks the slot as locally active. This is reset in the reconciliation process.
 	slot.Start()
 
-	// Submit the work to the slot
-	switch req.WorkloadType {
-	case WorkloadTypeLLMInferenceRequest:
-		err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
-		if err != nil {
-			// TODO(Phil): Need to pass on the error to the session for all these cases
-			log.Error().Err(err).Msg("error submitting chat completion request")
-		}
-	case WorkloadTypeSession:
-		switch req.Session().Mode {
-		case types.SessionModeInference:
-			switch req.Session().Type {
-			case types.SessionTypeImage:
-				err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
-				if err != nil {
-					log.Error().Err(err).Msg("error submitting text2image request")
-				}
-			case types.SessionTypeText:
-				if req.Session().LoraDir != "" {
-					// Overwrite the request model name with the helix lora model details
-					convertedRequest := req.ToLLMInferenceRequest()
-					convertedRequest.Request.Model = req.Session().LoraDir
-
-					// Forward the request to the chat completion handler
-					err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
+	// Can do the rest in a goroutine, no need to wait for it to submit
+	go func() {
+		// Submit the work to the slot
+		switch req.WorkloadType {
+		case WorkloadTypeLLMInferenceRequest:
+			log.Trace().Str("runner_id", slot.RunnerID).Str("slot_id", slot.ID.String()).Msg("submitting chat completion request")
+			err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
+			if err != nil {
+				// TODO(Phil): Need to pass on the error to the session for all these cases
+				log.Error().Err(err).Msg("error submitting chat completion request")
+			}
+		case WorkloadTypeSession:
+			switch req.Session().Mode {
+			case types.SessionModeInference:
+				switch req.Session().Type {
+				case types.SessionTypeImage:
+					err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
 					if err != nil {
-						return fmt.Errorf("error submitting text request: %w", err)
+						log.Error().Err(err).Msg("error submitting text2image request")
 					}
-				} else {
-					panic(fmt.Sprintf("not implemented: %s and no lora dir", req.Session().Type))
+				case types.SessionTypeText:
+					if req.Session().LoraDir != "" {
+						// Overwrite the request model name with the helix lora model details
+						convertedRequest := req.ToLLMInferenceRequest()
+						convertedRequest.Request.Model = req.Session().LoraDir
+
+						// Forward the request to the chat completion handler
+						err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
+						if err != nil {
+							log.Error().Err(err).Msg("error submitting text request")
+						}
+					} else {
+						panic(fmt.Sprintf("not implemented: %s and no lora dir", req.Session().Type))
+					}
+				default:
+					panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+				}
+			case types.SessionModeFinetune:
+				switch req.Session().Type {
+				case types.SessionTypeText:
+					err := s.controller.SubmitFinetuningRequest(slot, req.Session())
+					if err != nil {
+						log.Error().Err(err).Msg("error submitting finetuning request")
+					}
+				default:
+					panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
 				}
 			default:
-				panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+				panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
 			}
-		case types.SessionModeFinetune:
-			switch req.Session().Type {
-			case types.SessionTypeText:
-				err := s.controller.SubmitFinetuningRequest(slot, req.Session())
-				if err != nil {
-					log.Error().Err(err).Msg("error submitting finetuning request")
-				}
-			default:
-				panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
-			}
-		default:
-			panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
 		}
-	}
+
+		log.Trace().Str("runner_id", slot.RunnerID).Str("slot_id", slot.ID.String()).Msg("finished submitting request")
+	}()
 
 	return nil
 }

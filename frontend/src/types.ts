@@ -340,8 +340,19 @@ export interface  IGlobalSchedulingDecision {
   model_name: string,
 }
 
+export interface IQueueItem {
+  id: string,
+  created: string,
+  updated: string,
+  model_name: string,
+  mode: string,
+  runtime: string,
+  lora_dir: string,
+  summary: string,
+}
+
 export interface IDashboardData {
-  queue: ISessionSummary[],
+  queue: IQueueItem[],
   runners: IRunnerStatus[],
 }
 

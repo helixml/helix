@@ -18,6 +18,7 @@ import Interaction from '../components/session/Interaction'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SessionBadgeKey from '../components/session/SessionBadgeKey'
 import SessionToolbar from '../components/session/SessionToolbar'
+import SessionSummary from '../components/session/SessionSummary'
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import Window from '../components/widgets/Window'
@@ -26,7 +27,9 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
   IDashboardData,
-  ISession
+  IQueueItem,
+  ISession,
+  ISessionSummary
 } from '../types'
 
 const START_ACTIVE = true
@@ -259,18 +262,31 @@ const Dashboard: FC = () => {
                       ))}
                     </React.Fragment>
                   ) : null
-                })}
-                {data.session_queue.length > 0 && (
+                })} */}
+                {data.queue.length > 0 && (
                   <Typography variant="h6">Queued Jobs</Typography>
                 )}
-                {data.session_queue.map((session) => {
+                {data.queue.map((item: IQueueItem) => {
                   return (
                     <SessionSummary
-                      key={session.session_id}
-                      session={session}
+                      key={item.id}
+                      session={
+                        {
+                          session_id: item.id,
+                          created: item.created,
+                          updated: item.updated,
+                          model_name: item.model_name,
+                          mode: item.mode,
+                          type: item.runtime,
+                          owner: "todo",
+                          lora_dir: item.lora_dir,
+                          summary: item.summary,
+                          app_id: "todo",
+                        } as ISessionSummary
+                      }
                       onViewSession={onViewSession} />
                   )
-                })} */}
+                })}
                 {/* {data.global_scheduling_decisions.length > 0 && (
                   <Typography variant="h6">Global Scheduling</Typography>
                 )}

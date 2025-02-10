@@ -729,6 +729,11 @@ type WorkloadSummary struct {
 	ID        string    `json:"id"`
 	CreatedAt time.Time `json:"created"`
 	UpdatedAt time.Time `json:"updated"`
+	ModelName string    `json:"model_name"`
+	Mode      string    `json:"mode"`
+	Runtime   string    `json:"runtime"`
+	LoraDir   string    `json:"lora_dir"`
+	Summary   string    `json:"summary"`
 
 	// Created       time.Time   `json:"created"`
 	// Updated       time.Time   `json:"updated"`
