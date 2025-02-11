@@ -35,21 +35,26 @@ func NewPostgresStore(
 ) (*PostgresStore, error) {
 
 	// Waiting for connection
-	gormDB, err := connect(context.Background(), cfg)
+	gormDB, err := connect(context.Background(), connectConfig{
+		host:            cfg.Host,
+		port:            cfg.Port,
+		schemaName:      cfg.Schema,
+		database:        cfg.Database,
+		username:        cfg.Username,
+		password:        cfg.Password,
+		ssl:             cfg.SSL,
+		idleConns:       cfg.IdleConns,
+		maxConns:        cfg.MaxConns,
+		maxConnIdleTime: cfg.MaxConnIdleTime,
+		maxConnLifetime: cfg.MaxConnLifetime,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to Postgres: %w", err)
 	}
 
 	store := &PostgresStore{
 		cfg: cfg,
 		gdb: gormDB,
-	}
-
-	if cfg.PGVectorEnabled {
-		err = store.autoMigratePGVector()
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	if cfg.AutoMigrate {
@@ -112,22 +117,6 @@ func (s *PostgresStore) autoMigrate() error {
 
 	if err := createFK(s.gdb, types.KnowledgeVersion{}, types.Knowledge{}, "knowledge_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
-	}
-
-	return nil
-}
-
-func (s *PostgresStore) autoMigratePGVector() error {
-	err := s.gdb.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error
-	if err != nil {
-		return fmt.Errorf("failed to create vector extension: %w. Install it manually or disable PGVector RAG (RAG_PGVECTOR_ENABLED env variable)", err)
-	}
-
-	err = s.gdb.WithContext(context.Background()).AutoMigrate(
-		&types.KnowledgeEmbeddingItem{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to auto migrate PGVector table: %w", err)
 	}
 
 	return nil
@@ -261,16 +250,30 @@ const (
 	DatabaseTypePostgres = "postgres"
 )
 
-func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
+type connectConfig struct {
+	host            string
+	port            int
+	schemaName      string
+	database        string
+	username        string
+	password        string
+	ssl             bool
+	idleConns       int
+	maxConns        int
+	maxConnIdleTime time.Duration
+	maxConnLifetime time.Duration
+}
+
+func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("sql store startup deadline exceeded")
 		default:
 			log.Info().
-				Str("host", cfg.Host).
-				Int("port", cfg.Port).
-				Str("database", cfg.Database).
+				Str("host", cfg.host).
+				Int("port", cfg.port).
+				Str("database", cfg.database).
 				Msg("connecting to DB")
 
 			var (
@@ -280,20 +283,20 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 
 			// Read SSL setting from environment
 			sslSettings := "sslmode=disable"
-			if cfg.SSL {
+			if cfg.ssl {
 				sslSettings = "sslmode=require"
 			}
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
-				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
+				cfg.username, cfg.password, cfg.host, cfg.port, cfg.database, sslSettings)
 
 			dialector = postgres.Open(dsn)
 
 			gormConfig := &gorm.Config{}
 
-			if cfg.Schema != "" {
+			if cfg.schemaName != "" {
 				gormConfig.NamingStrategy = schema.NamingStrategy{
-					TablePrefix: cfg.Schema + ".",
+					TablePrefix: cfg.schemaName + ".",
 				}
 			}
 
@@ -310,10 +313,10 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 			if err != nil {
 				return nil, err
 			}
-			sqlDB.SetMaxIdleConns(cfg.IdleConns)
-			sqlDB.SetMaxOpenConns(cfg.MaxConns)
-			sqlDB.SetConnMaxIdleTime(cfg.MaxConnIdleTime)
-			sqlDB.SetConnMaxLifetime(cfg.MaxConnLifetime)
+			sqlDB.SetMaxIdleConns(cfg.idleConns)
+			sqlDB.SetMaxOpenConns(cfg.maxConns)
+			sqlDB.SetConnMaxIdleTime(cfg.maxConnIdleTime)
+			sqlDB.SetConnMaxLifetime(cfg.maxConnLifetime)
 
 			log.Info().Msg("sql store connected")
 

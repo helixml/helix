@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (s *PostgresStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
+func (s *PGVectorStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
 	if len(embeddings) == 0 { // No embeddings to create
 		return nil
 	}
@@ -35,7 +35,7 @@ func (s *PostgresStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings
 	return nil
 }
 
-func (s *PostgresStore) DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error {
+func (s *PGVectorStore) DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error {
 	if knowledgeID == "" {
 		return fmt.Errorf("knowledge ID is required")
 	}
@@ -47,7 +47,7 @@ func (s *PostgresStore) DeleteKnowledgeEmbedding(ctx context.Context, knowledgeI
 	return nil
 }
 
-func (s *PostgresStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) {
+func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) {
 	if q.KnowledgeID == "" {
 		return nil, fmt.Errorf("knowledge ID is required")
 	}
