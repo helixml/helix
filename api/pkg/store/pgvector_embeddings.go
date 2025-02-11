@@ -63,26 +63,26 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 	switch {
 	case len(q.Embedding384.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding_384 <-> ?", Vars: []interface{}{q.Embedding384}},
+			Expression: clause.Expr{SQL: "embedding384 <-> ?", Vars: []interface{}{q.Embedding384}},
 		})
 	case len(q.Embedding512.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding_512 <-> ?", Vars: []interface{}{q.Embedding512}},
+			Expression: clause.Expr{SQL: "embedding512 <-> ?", Vars: []interface{}{q.Embedding512}},
 		})
 	case len(q.Embedding1024.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding_1024 <-> ?", Vars: []interface{}{q.Embedding1024}},
+			Expression: clause.Expr{SQL: "embedding1024 <-> ?", Vars: []interface{}{q.Embedding1024}},
 		})
 	case len(q.Embedding1536.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding_1536 <-> ?", Vars: []interface{}{q.Embedding1536}},
+			Expression: clause.Expr{SQL: "embedding1536 <-> ?", Vars: []interface{}{q.Embedding1536}},
 		})
 	case len(q.Embedding3584.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding_3584 <-> ?", Vars: []interface{}{q.Embedding3584}},
+			Expression: clause.Expr{SQL: "embedding3584 <-> ?", Vars: []interface{}{q.Embedding3584}},
 		})
 	default:
-		return nil, fmt.Errorf("no embedding provided")
+		// No query, will fetch all
 	}
 
 	err := query.Limit(q.Limit).Find(&items).Error
