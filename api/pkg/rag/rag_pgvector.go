@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -65,14 +66,28 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 
 		vector := pgvector.NewVector(generated.Data[0].Embedding)
 
-		embeddings = append(embeddings, &types.KnowledgeEmbeddingItem{
+		embedding := &types.KnowledgeEmbeddingItem{
 			KnowledgeID:     indexReq.DataEntityID,
 			DocumentID:      indexReq.DocumentID,
 			DocumentGroupID: indexReq.DocumentGroupID,
 			Content:         indexReq.Content,
-			Embedding:       vector,
+			Embedding384:    vector,
 			Source:          indexReq.Source,
-		})
+		}
+
+		dimensions, err := getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
+		if err != nil {
+			return nil, err
+		}
+
+		switch dimensions {
+		case Dimensions384:
+			embedding.Embedding384 = vector
+		case Dimensions1024:
+
+		}
+
+		embeddings = append(embeddings, embedding)
 	}
 
 	return embeddings, nil
@@ -96,10 +111,21 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 		return nil, err
 	}
 
-	embeddings, err := p.store.QueryKnowledgeEmbeddings(ctx, &types.KnowledgeEmbeddingQuery{
+	query := &types.KnowledgeEmbeddingQuery{
 		KnowledgeID: q.DataEntityID,
-		Embedding:   pgvector.NewVector(generated.Data[0].Embedding),
-	})
+	}
+
+	dimensions, err := getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
+	if err != nil {
+		return nil, err
+	}
+
+	switch dimensions {
+	case Dimensions384:
+		query.Embedding384 = pgvector.NewVector(generated.Data[0].Embedding)
+	}
+
+	embeddings, err := p.store.QueryKnowledgeEmbeddings(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -121,4 +147,23 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 
 func (p *PGVector) Delete(ctx context.Context, req *types.DeleteIndexRequest) error {
 	return p.store.DeleteKnowledgeEmbedding(ctx, req.DataEntityID)
+}
+
+type dimensions int
+
+const (
+	Dimensions384  dimensions = 384
+	Dimensions1024 dimensions = 1024
+)
+
+// getDimensions - returns the dimensions of the embeddings for the given model
+// Ref: https://huggingface.co/thenlper/gte-small
+func getDimensions(model string) (dimensions, error) {
+	switch model {
+	case "thenlper/gte-small", "sentence-transformers/all-MiniLM-L6-v2", "sentence-transformers/all-MiniLM-L12-v2":
+		return Dimensions384, nil
+		// TODO: different dimensions for different models
+	}
+
+	return 0, fmt.Errorf("unknown model: %s", model)
 }
