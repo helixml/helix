@@ -20,7 +20,7 @@ const test_data = [
 // k6 run --vus 10 --duration 300s scripts/k6/openai.js
 export default function () {
   let data = {
-    "model": "aya:8b-23-q8_0",
+    "model": "llama3.1:8b-instruct-q8_0",
     "messages": [
       {
         "role": "user",

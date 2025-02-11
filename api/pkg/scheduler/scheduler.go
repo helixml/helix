@@ -263,8 +263,7 @@ func (s *Scheduler) reconcileActivityOnce() {
 			if err != nil {
 				log.Error().Err(err).Str("runner_id", slot.RunnerID).Str("slot_id", slotID.String()).Msg("failed to get slot, assuming it's finished")
 				slot.Release()
-			}
-			if !remoteSlot.Active {
+			} else if !remoteSlot.Active {
 				slot.Release()
 			}
 		}
