@@ -15,12 +15,12 @@ import (
 type PGVector struct {
 	cfg             *config.ServerConfig
 	providerManager manager.ProviderManager
-	store           store.Store
+	store           store.EmbeddingsStore
 }
 
 var _ RAG = &PGVector{}
 
-func NewPGVector(cfg *config.ServerConfig, providerManager manager.ProviderManager, store store.Store) *PGVector {
+func NewPGVector(cfg *config.ServerConfig, providerManager manager.ProviderManager, store store.EmbeddingsStore) *PGVector {
 	return &PGVector{
 		cfg:             cfg,
 		providerManager: providerManager,
