@@ -15,12 +15,12 @@ func (s *PGVectorStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings
 
 	// Ensure all embeddings have non-empty DocumentGroupID and DocumentID
 	for _, embedding := range embeddings {
-		if embedding.Owner == "" {
-			return fmt.Errorf("owner is required")
+		if embedding.DocumentGroupID == "" {
+			return fmt.Errorf("document group ID is required")
 		}
 
-		if embedding.OwnerType == "" {
-			return fmt.Errorf("owner type is required")
+		if embedding.DocumentID == "" {
+			return fmt.Errorf("document ID is required")
 		}
 
 		if embedding.KnowledgeID == "" {

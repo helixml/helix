@@ -269,8 +269,6 @@ type KnowledgeProgress struct {
 
 type KnowledgeEmbeddingItem struct {
 	gorm.Model
-	Owner           string `gorm:"index"` // User ID or org ID
-	OwnerType       OwnerType
 	KnowledgeID     string `gorm:"index"`
 	DocumentGroupID string `gorm:"index"`
 	DocumentID      string `gorm:"index"`
