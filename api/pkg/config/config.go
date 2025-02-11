@@ -23,6 +23,7 @@ type ServerConfig struct {
 	Controller         Controller
 	FileStore          FileStore
 	Store              Store
+	PGVectorStore      PGVectorStore
 	PubSub             PubSub
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
@@ -188,7 +189,7 @@ type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
 	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
+	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"pgvector" description:"The default RAG provider to use if not specified."`
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
@@ -271,8 +272,24 @@ type Store struct {
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+}
 
-	PGVectorEnabled bool // Set by the RAG struct
+type PGVectorStore struct {
+	Enabled bool `envconfig:"PGVECTOR_ENABLED" default:"false" description:"Whether to use the PGVector store."`
+
+	Host     string `envconfig:"PGVECTOR_HOST" default:"pgvector" description:"The host to connect to the postgres server."`
+	Port     int    `envconfig:"PGVECTOR_PORT" default:"5432" description:"The port to connect to the postgres server."`
+	Database string `envconfig:"PGVECTOR_DATABASE" default:"postgres" description:"The database to connect to the postgres server."`
+	Username string `envconfig:"PGVECTOR_USER" default:"postgres" description:"The username to connect to the postgres server."`
+	Password string `envconfig:"PGVECTOR_PASSWORD" default:"postgres" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"PGVECTOR_SSL" default:"false"`
+	Schema   string `envconfig:"PGVECTOR_SCHEMA"` // Defaults to public
+
+	AutoMigrate     bool          `envconfig:"PGVECTOR_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
+	MaxConns        int           `envconfig:"PGVECTOR_MAX_CONNS" default:"50"`
+	IdleConns       int           `envconfig:"PGVECTOR_IDLE_CONNS" default:"25"`
+	MaxConnLifetime time.Duration `envconfig:"PGVECTOR_MAX_CONN_LIFETIME" default:"1h"`
+	MaxConnIdleTime time.Duration `envconfig:"PGVECTOR_MAX_CONN_IDLE_TIME" default:"1m"`
 }
 
 type WebServer struct {
