@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -99,45 +98,35 @@ func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.Api
 	return key, nil
 }
 
-func (c *Controller) cleanOldRunnerMetrics(_ context.Context) error {
-	deleteIDs := []string{}
-	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
-		// any runner that has not reported within the last minute
-		// should be removed
-		if time.Since(metrics.Created) > (time.Minute * 1) {
-			deleteIDs = append(deleteIDs, i)
-		}
-		return true
-	})
-
-	// Perform the deletion logic using the deleteIDs slice
-	for _, id := range deleteIDs {
-		c.activeRunners.Delete(id)
-	}
-
-	return nil
-}
-
-func (c *Controller) AddRunnerMetrics(_ context.Context, metrics *types.RunnerState) (*types.RunnerState, error) {
-	c.activeRunners.Store(metrics.ID, metrics)
-	return metrics, nil
-}
-
 func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, error) {
-	runners := []*types.RunnerState{}
-	c.activeRunners.Range(func(_ string, metrics *types.RunnerState) bool {
-		runners = append(runners, metrics)
-		return true
-	})
-	summaryData, err := c.scheduler.DashboardData()
+	runnerStatuses, err := c.scheduler.RunnerStatus()
+	if err != nil {
+		return nil, err
+	}
+	runners := make([]*types.DashboardRunner, 0, len(runnerStatuses))
+	for _, runnerStatus := range runnerStatuses {
+		runnerSlots, err := c.scheduler.RunnerSlots(runnerStatus.ID)
+		if err != nil {
+			return nil, err
+		}
+		runners = append(runners, &types.DashboardRunner{
+			ID:          runnerStatus.ID,
+			Created:     runnerStatus.Created,
+			Updated:     runnerStatus.Updated,
+			Version:     runnerStatus.Version,
+			TotalMemory: runnerStatus.TotalMemory,
+			FreeMemory:  runnerStatus.FreeMemory,
+			Labels:      runnerStatus.Labels,
+			Slots:       runnerSlots,
+		})
+	}
+	queue, err := c.scheduler.Queue()
 	if err != nil {
 		return nil, err
 	}
 	return &types.DashboardData{
-		DesiredSlots:              c.scheduler.DashboardSlotsData(),
-		SessionQueue:              summaryData,
-		Runners:                   runners,
-		GlobalSchedulingDecisions: c.schedulingDecisions,
+		Runners: runners,
+		Queue:   queue,
 	}, nil
 }
 

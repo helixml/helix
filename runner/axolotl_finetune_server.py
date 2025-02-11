@@ -117,10 +117,8 @@ class HelixCallback(callbacks.TrainerCallback):
         **kwargs,
     ):
         loss, grad_norm, learning_rate, epoch, progress = 0.0, 0.0, 0.0, 0.0, 0
-        if state.epoch:
-            epoch = state.epoch
-            if state.num_train_epochs:
-                progress = int(100.0 * (state.epoch / state.num_train_epochs))
+        epoch = state.epoch
+        progress = int(100.0 * (state.epoch / state.num_train_epochs))
         if len(state.log_history) > 0:
             hist = state.log_history[-1]
             if "loss" in hist:
@@ -153,7 +151,7 @@ def run_fine_tuning(
         fine_tuning_jobs[job_id].status = "running"
         add_fine_tuning_event(job_id, "info", "Fine-tuning job started.")
 
-        parsed_cfg = unified_config(job_id, training_file, "")
+        parsed_cfg = unified_config(job_id, training_file, "", hyperparameters.n_epochs)
 
         cli_args = TrainerCliArgs()
         dataset_meta = load_datasets(cfg=parsed_cfg, cli_args=cli_args)
@@ -283,6 +281,7 @@ class CompletionResponse(BaseModel):
 async def chat_completions(request: CompletionRequest):
     print(request)
 
+    # Local lora dir is the ChatCompletionRequest.Model. This isn't ideal, but just about makes sense.
     cfg = unified_config("", "", request.model)
 
     cli_args = TrainerCliArgs()
@@ -361,16 +360,53 @@ async def chat_completions(request: CompletionRequest):
     )
 
 
+class Model(BaseModel):
+    CreatedAt: int
+    ID: str
+    Object: str
+    OwnedBy: str
+    Permission: List[str]
+    Root: str
+    Parent: str
+
+
+class ListModelsResponse(BaseModel):
+    models: List[Model]
+
+
+@app.get("/v1/models", response_model=ListModelsResponse)
+async def list_models():
+    return ListModelsResponse(
+        models=[
+            Model(
+                CreatedAt=0,
+                ID="mistralai/Mistral-7B-Instruct-v0.1",
+                Object="model",
+                OwnedBy="helix",
+                Permission=[],
+                Root="",
+                Parent="",
+            )
+        ]
+    )
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
 
+@app.get("/version")
+async def version():
+    return {"version": "main-20241008-py3.11-cu124-2.4.0"}
+    # https://github.com/axolotl-ai-cloud/axolotl/commit/34d3c8dcfb3db152fce6b7eae7e9f6a60be14ce3
+    # __version__ wasn't added until recently
 
-def unified_config(job_id="", training_file="", lora_dir=""):
+
+def unified_config(job_id="", training_file="", lora_dir="", num_epochs=10):
     print("unified_content")
     parsed_cfg = load_cfg("helix-llama3.2-instruct-1b-v1.yml")
     parsed_cfg["sample_packing"] = False
-
+    parsed_cfg["num_epochs"] = num_epochs
+    
     if training_file != "":
         parsed_cfg["datasets"][0]["path"] = training_file
         parsed_cfg["datasets"][0]["type"] = "chat_template"
