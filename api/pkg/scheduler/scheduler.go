@@ -830,7 +830,7 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 
 // AddWorkFields adds standard work-related fields to a log event
 func withWorkContext(l *zerolog.Logger, w *Workload) *zerolog.Logger {
-	copy := l.With().
+	nextLogger := l.With().
 		Str("work_id", w.ID()).
 		Str("model_name", w.ModelName().String()).
 		Str("mode", string(w.Mode())).
@@ -838,16 +838,16 @@ func withWorkContext(l *zerolog.Logger, w *Workload) *zerolog.Logger {
 		Str("lora_dir", w.LoraDir()).
 		Dur("duration_ms", time.Since(w.Created())).
 		Logger()
-	return &copy
+	return &nextLogger
 }
 
 // AddSlotFields adds standard slot-related fields to a log event
 func withSlotContext(l *zerolog.Logger, s *Slot) *zerolog.Logger {
-	copy := l.With().
+	nextLogger := l.With().
 		Str("runner_id", s.RunnerID).
 		Str("slot_id", s.ID.String()).
 		Str("model_name", s.ModelName().String()).
 		Uint64("memory", s.Memory()).
 		Logger()
-	return &copy
+	return &nextLogger
 }
