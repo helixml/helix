@@ -189,7 +189,7 @@ type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
 	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"pgvector" description:"The default RAG provider to use if not specified."`
+	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
