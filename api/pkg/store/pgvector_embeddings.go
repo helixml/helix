@@ -52,10 +52,6 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 		return nil, fmt.Errorf("knowledge ID is required")
 	}
 
-	if len(q.Embedding384.Slice()) == 0 {
-		return nil, fmt.Errorf("embedding is required")
-	}
-
 	if q.Limit == 0 {
 		q.Limit = 5
 	}
@@ -76,6 +72,10 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 	case len(q.Embedding1024.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
 			Expression: clause.Expr{SQL: "embedding_1024 <-> ?", Vars: []interface{}{q.Embedding1024}},
+		})
+	case len(q.Embedding1536.Slice()) > 0:
+		query = query.Clauses(clause.OrderBy{
+			Expression: clause.Expr{SQL: "embedding_1536 <-> ?", Vars: []interface{}{q.Embedding1536}},
 		})
 	case len(q.Embedding3584.Slice()) > 0:
 		query = query.Clauses(clause.OrderBy{
