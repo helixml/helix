@@ -273,6 +273,19 @@ export interface IServerConfig {
   apps_enabled: boolean,
   version?: string,
   latest_version?: string,
+  deployment_id?: string,
+  license?: {
+    valid: boolean,
+    organization: string,
+    valid_until: string,
+    features: {
+      users: boolean,
+    },
+    limits: {
+      users: number,
+      machines: number,
+    },
+  },
 }
 
 export interface IConversation {

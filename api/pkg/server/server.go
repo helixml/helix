@@ -367,6 +367,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// proxy other routes to frontend
 	apiServer.registerDefaultHandler(router)
 
+	// only admins can manage licenses
+	adminRouter.HandleFunc("/license", apiServer.handleGetLicenseKey).Methods("GET")
+	adminRouter.HandleFunc("/license", apiServer.handleSetLicenseKey).Methods("POST")
+
 	apiServer.router = router
 
 	return subRouter, nil
