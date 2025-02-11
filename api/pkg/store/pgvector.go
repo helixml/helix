@@ -58,16 +58,23 @@ func (s *PGVectorStore) autoMigratePGVector() error {
 		return fmt.Errorf("failed to create vector extension: %w. Install it manually or disable PGVector RAG (RAG_PGVECTOR_ENABLED env variable)", err)
 	}
 
-	err = s.gdb.Exec("CREATE INDEX ON knowledge_embedding_items USING hnsw (embedding vector_l2_ops)").Error
-	if err != nil {
-		return fmt.Errorf("failed to create hnsw index: %w", err)
-	}
-
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.KnowledgeEmbeddingItem{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to auto migrate PGVector table: %w", err)
+	}
+
+	// Get the schema name from config, default to "public" if not set
+	schemaName := "public"
+	if cfg := s.cfg; cfg.Schema != "" {
+		schemaName = cfg.Schema
+	}
+
+	// Create index with schema name
+	err = s.gdb.Exec(fmt.Sprintf("CREATE INDEX ON %s.knowledge_embedding_items USING hnsw (embedding vector_l2_ops)", schemaName)).Error
+	if err != nil {
+		return fmt.Errorf("failed to create hnsw index: %w", err)
 	}
 
 	return nil
