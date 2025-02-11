@@ -65,14 +65,34 @@ func (s *PGVectorStore) autoMigratePGVector() error {
 		return fmt.Errorf("failed to auto migrate PGVector table: %w", err)
 	}
 
+	err = s.createIndex(context.Background(), "embedding384", "embedding_384_index")
+	if err != nil {
+		return fmt.Errorf("failed to create embedding384 index: %w", err)
+	}
+
+	err = s.createIndex(context.Background(), "embedding512", "embedding_512_index")
+	if err != nil {
+		return fmt.Errorf("failed to create embedding512 index: %w", err)
+	}
+
+	err = s.createIndex(context.Background(), "embedding1024", "embedding_1024_index")
+	if err != nil {
+		return fmt.Errorf("failed to create embedding1024 index: %w", err)
+	}
+
+	// Note: column cannot have more than 2000 dimensions for hnsw index hence skipping index creation for 3584
+
+	return nil
+}
+
+func (s *PGVectorStore) createIndex(ctx context.Context, columnName, indexName string) error {
 	// Get the schema name from config, default to "public" if not set
 	schemaName := "public"
 	if cfg := s.cfg; cfg.Schema != "" {
 		schemaName = cfg.Schema
 	}
-
 	// Create index with schema name
-	err = s.gdb.Exec(fmt.Sprintf("CREATE INDEX ON %s.knowledge_embedding_items USING hnsw (embedding vector_l2_ops)", schemaName)).Error
+	err := s.gdb.Exec(fmt.Sprintf("CREATE INDEX ON %s.knowledge_embedding_items USING hnsw (%s vector_l2_ops)", schemaName, columnName)).Error
 	if err != nil {
 		return fmt.Errorf("failed to create hnsw index: %w", err)
 	}

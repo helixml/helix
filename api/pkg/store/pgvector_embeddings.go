@@ -61,9 +61,31 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 	}
 
 	var items []*types.KnowledgeEmbeddingItem
-	err := s.gdb.WithContext(ctx).Where("knowledge_id = ?", q.KnowledgeID).Clauses(clause.OrderBy{
-		Expression: clause.Expr{SQL: "embedding <-> ?", Vars: []interface{}{q.Embedding384}},
-	}).Limit(q.Limit).Find(&items).Error
+
+	query := s.gdb.WithContext(ctx).Where("knowledge_id = ?", q.KnowledgeID)
+
+	switch {
+	case len(q.Embedding384.Slice()) > 0:
+		query = query.Clauses(clause.OrderBy{
+			Expression: clause.Expr{SQL: "embedding_384 <-> ?", Vars: []interface{}{q.Embedding384}},
+		})
+	case len(q.Embedding512.Slice()) > 0:
+		query = query.Clauses(clause.OrderBy{
+			Expression: clause.Expr{SQL: "embedding_512 <-> ?", Vars: []interface{}{q.Embedding512}},
+		})
+	case len(q.Embedding1024.Slice()) > 0:
+		query = query.Clauses(clause.OrderBy{
+			Expression: clause.Expr{SQL: "embedding_1024 <-> ?", Vars: []interface{}{q.Embedding1024}},
+		})
+	case len(q.Embedding3584.Slice()) > 0:
+		query = query.Clauses(clause.OrderBy{
+			Expression: clause.Expr{SQL: "embedding_3584 <-> ?", Vars: []interface{}{q.Embedding3584}},
+		})
+	default:
+		return nil, fmt.Errorf("no embedding provided")
+	}
+
+	err := query.Limit(q.Limit).Find(&items).Error
 	if err != nil {
 		return nil, err
 	}
