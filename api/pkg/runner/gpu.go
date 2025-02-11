@@ -94,11 +94,18 @@ func (g *GPUManager) GetFreeMemory() int64 {
 }
 
 func (g *GPUManager) GetTotalMemory() uint64 {
+	totalMemory := g.getActualTotalMemory()
+
 	// If the user has manually set the total memory, then use that
-	if g.runnerOptions.MemoryBytes > 0 {
-		return g.runnerOptions.MemoryBytes
+	// But make sure it is less than the actual total memory
+	if g.runnerOptions.MemoryBytes > 0 && g.runnerOptions.MemoryBytes < totalMemory {
+		totalMemory = g.runnerOptions.MemoryBytes
 	}
 
+	return totalMemory
+}
+
+func (g *GPUManager) getActualTotalMemory() uint64 {
 	if !g.hasGPU {
 		return 0
 	}
