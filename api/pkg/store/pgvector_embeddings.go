@@ -52,7 +52,7 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 		return nil, fmt.Errorf("knowledge ID is required")
 	}
 
-	if len(q.Embedding.Slice()) == 0 {
+	if len(q.Embedding384.Slice()) == 0 {
 		return nil, fmt.Errorf("embedding is required")
 	}
 
@@ -62,7 +62,7 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 
 	var items []*types.KnowledgeEmbeddingItem
 	err := s.gdb.WithContext(ctx).Where("knowledge_id = ?", q.KnowledgeID).Clauses(clause.OrderBy{
-		Expression: clause.Expr{SQL: "embedding <-> ?", Vars: []interface{}{q.Embedding}},
+		Expression: clause.Expr{SQL: "embedding <-> ?", Vars: []interface{}{q.Embedding384}},
 	}).Limit(q.Limit).Find(&items).Error
 	if err != nil {
 		return nil, err
