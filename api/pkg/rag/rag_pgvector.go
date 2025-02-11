@@ -75,16 +75,20 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			Source:          indexReq.Source,
 		}
 
-		dimensions, err := getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
+		dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
 		if err != nil {
 			return nil, err
 		}
 
 		switch dimensions {
-		case Dimensions384:
+		case types.Dimensions384:
 			embedding.Embedding384 = vector
-		case Dimensions1024:
-
+		case types.Dimensions512:
+			embedding.Embedding512 = vector
+		case types.Dimensions1024:
+			embedding.Embedding1024 = vector
+		case types.Dimensions3584:
+			embedding.Embedding3584 = vector
 		}
 
 		embeddings = append(embeddings, embedding)
@@ -115,14 +119,20 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 		KnowledgeID: q.DataEntityID,
 	}
 
-	dimensions, err := getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
+	dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
 	if err != nil {
 		return nil, err
 	}
 
 	switch dimensions {
-	case Dimensions384:
+	case types.Dimensions384:
 		query.Embedding384 = pgvector.NewVector(generated.Data[0].Embedding)
+	case types.Dimensions512:
+		query.Embedding512 = pgvector.NewVector(generated.Data[0].Embedding)
+	case types.Dimensions1024:
+		query.Embedding1024 = pgvector.NewVector(generated.Data[0].Embedding)
+	case types.Dimensions3584:
+		query.Embedding3584 = pgvector.NewVector(generated.Data[0].Embedding)
 	}
 
 	embeddings, err := p.store.QueryKnowledgeEmbeddings(ctx, query)
@@ -149,20 +159,26 @@ func (p *PGVector) Delete(ctx context.Context, req *types.DeleteIndexRequest) er
 	return p.store.DeleteKnowledgeEmbedding(ctx, req.DataEntityID)
 }
 
-type dimensions int
+func (p *PGVector) getDimensions(model string) (types.Dimensions, error) {
+	if p.cfg.RAG.PGVector.Dimensions != 0 {
+		return p.cfg.RAG.PGVector.Dimensions, nil
+	}
 
-const (
-	Dimensions384  dimensions = 384
-	Dimensions1024 dimensions = 1024
-)
+	return getDimensions(model)
+}
 
 // getDimensions - returns the dimensions of the embeddings for the given model
 // Ref: https://huggingface.co/thenlper/gte-small
-func getDimensions(model string) (dimensions, error) {
+func getDimensions(model string) (types.Dimensions, error) {
 	switch model {
 	case "thenlper/gte-small", "sentence-transformers/all-MiniLM-L6-v2", "sentence-transformers/all-MiniLM-L12-v2":
-		return Dimensions384, nil
-		// TODO: different dimensions for different models
+		return types.Dimensions384, nil
+	case "thenlper/gte-base":
+		return types.Dimensions512, nil
+	case "thenlper/gte-large":
+		return types.Dimensions1024, nil
+	case "Alibaba-NLP/gte-Qwen2-7B-instruct":
+		return types.Dimensions3584, nil
 	}
 
 	return 0, fmt.Errorf("unknown model: %s", model)
