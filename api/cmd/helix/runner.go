@@ -45,7 +45,7 @@ func NewRunnerOptions() *RunnerOptions {
 			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
 			WebServer: runner.WebServer{
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
-				Port: getDefaultServeOptionInt("SERVER_PORT", 80),
+				Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
 			},
 		},
 		Janitor: config.Janitor{

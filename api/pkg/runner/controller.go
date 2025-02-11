@@ -83,7 +83,7 @@ type Options struct {
 
 type WebServer struct {
 	Host string `envconfig:"SERVER_HOST" default:"127.0.0.1" description:"The host to bind the api server to."`
-	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
+	Port int    `envconfig:"SERVER_PORT" default:"8080" description:"The port to bind the api server to."`
 }
 
 type Runner struct {
