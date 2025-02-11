@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -25,7 +26,7 @@ const (
 
 // POST https://app.tryhelix.ai/v1/chat/completions
 
-// createTool godoc
+// createChatCompletion godoc
 // @Summary Stream responses for chat
 // @Description Creates a model response for the given chat conversation.
 // @Tags    chat
@@ -83,9 +84,11 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		ownerID = oai.RunnerID
 	}
 
+	responseID := system.GenerateOpenAIResponseID()
+
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         ownerID,
-		SessionID:       "n/a",
+		SessionID:       responseID,
 		InteractionID:   "n/a",
 		OriginalRequest: body,
 	})
@@ -186,6 +189,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			return
 		}
 
+		resp.ID = responseID
+
 		err = json.NewEncoder(rw).Encode(resp)
 		if err != nil {
 			log.Error().Err(err).Msg("error writing response")
@@ -208,6 +213,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// Write the stream into the response
 	for {
 		response, err := stream.Recv()
+		response.ID = responseID
 		if errors.Is(err, io.EOF) {
 			break
 		}

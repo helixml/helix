@@ -10,7 +10,21 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/sashabaranov/go-openai"
 )
+
+const schedulingDecisionHistorySize = 10
+
+type HelixServer interface {
+	// GetNextLLMInferenceRequest is called by the HTTP handler  to get the next LLM inference request to process for the runner
+	GetNextLLMInferenceRequest(ctx context.Context, filter types.InferenceRequestFilter, runnerID string) (*types.RunnerLLMInferenceRequest, error)
+	// ProcessRunnerResponse is called by the HTTP handler when the runner sends a response over the websocket
+	ProcessRunnerResponse(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
+	// GetSchedulingDecision returns the last scheduling decisions made by the server, used for the dashboar
+	GetSchedulingDecision() []*types.GlobalSchedulingDecision
+}
+
+var _ HelixServer = &InternalHelixServer{}
 
 // InternalHelixClient utilizes Helix runners to complete chat requests. Primary
 // purpose is to power internal tools
@@ -34,6 +48,11 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIMod
 
 func (c *InternalHelixServer) APIKey() string {
 	return ""
+}
+
+func (c *InternalHelixServer) CreateEmbeddings(_ context.Context, _ openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+	// TODO: implement once we support pass through
+	return openai.EmbeddingResponse{}, fmt.Errorf("not implemented")
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {

@@ -179,7 +179,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
@@ -245,7 +245,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			return stream, nil
@@ -414,7 +414,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
@@ -505,7 +505,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
@@ -632,7 +632,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			suite.Contains(req.Messages[1].Content, "This is a test RAG source 1")
@@ -733,7 +733,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
@@ -820,7 +820,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal(ownerID, vals.OwnerID)
-			suite.Equal("n/a", vals.SessionID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
 			suite.Equal("n/a", vals.InteractionID)
 
 			suite.Require().Equal(2, len(req.Messages))

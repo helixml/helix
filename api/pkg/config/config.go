@@ -10,6 +10,7 @@ import (
 
 type ServerConfig struct {
 	Inference          Inference
+	Embeddings         Embeddings
 	Providers          Providers
 	Tools              Tools
 	Keycloak           Keycloak
@@ -33,6 +34,12 @@ type ServerConfig struct {
 	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// License key for deployment identification
+	LicenseKey string `envconfig:"LICENSE_KEY"`
+	// Launchpad URL for version pings
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -46,6 +53,10 @@ func LoadServerConfig() (ServerConfig, error) {
 
 type Inference struct {
 	Provider types.Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+}
+
+type Embeddings struct {
+	Provider types.Provider `envconfig:"EMBEDDINGS_PROVIDER" default:"openai" description:"One of openai, or helix"`
 }
 
 // Providers is used to configure the various AI providers that we use

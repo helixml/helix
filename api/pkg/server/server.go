@@ -29,6 +29,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
 	"crypto/x509"
@@ -70,10 +71,11 @@ type HelixAPIServer struct {
 	pubsub            pubsub.PubSub
 	providerManager   manager.ProviderManager
 	gptScriptExecutor gptscript.Executor
-	inferenceServer   *openai.InternalHelixServer // Helix OpenAI server
+	inferenceServer   *openai.InternalHelixServer
 	knowledgeManager  knowledge.Manager
 	router            *mux.Router
 	scheduler         *scheduler.Scheduler
+	pingService       *version.PingService
 }
 
 func NewServer(
@@ -89,6 +91,7 @@ func NewServer(
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
 	scheduler *scheduler.Scheduler,
+	pingService *version.PingService,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -127,6 +130,7 @@ func NewServer(
 		pubsub:           ps,
 		knowledgeManager: knowledgeManager,
 		scheduler:        scheduler,
+		pingService:      pingService,
 	}, nil
 }
 
@@ -284,6 +288,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
@@ -429,6 +434,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// proxy other routes to frontend
 	apiServer.registerDefaultHandler(router)
+
+	// only admins can manage licenses
+	adminRouter.HandleFunc("/license", apiServer.handleGetLicenseKey).Methods("GET")
+	adminRouter.HandleFunc("/license", apiServer.handleSetLicenseKey).Methods("POST")
 
 	apiServer.router = router
 

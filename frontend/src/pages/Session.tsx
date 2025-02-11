@@ -65,6 +65,22 @@ import { getAssistant, getAssistantAvatar, getAssistantName, getAssistantDescrip
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
+import { generateFixtureSession } from '../utils/fixtures'
+
+// Add new interfaces for virtualization
+interface IInteractionBlock {
+  startIndex: number;
+  endIndex: number;
+  height?: number;
+  isGhost?: boolean;
+}
+
+// Add constants
+const VIRTUAL_SPACE_HEIGHT = 500 // pixels
+const INTERACTIONS_PER_BLOCK = 20
+const SCROLL_LOCK_DELAY = 500 // ms
+const VIEWPORT_BUFFER = 2 // Increased from 1 to 2 to keep more blocks rendered
+const MIN_SCROLL_DISTANCE = 200 // pixels
 
 const Session: FC = () => {
   const snackbar = useSnackbar()
@@ -85,7 +101,9 @@ const Session: FC = () => {
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
-  const divRef = useRef<HTMLDivElement>()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const lastScrollTimeRef = useRef<number>(0)
 
   const [highlightAllFiles, setHighlightAllFiles] = useState(false)
   const [showCloneWindow, setShowCloneWindow] = useState(false)
@@ -96,8 +114,177 @@ const Session: FC = () => {
   const [inputValue, setInputValue] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
-  // TODO: set assistant_id to the value which we need to add to the session struct
   const [assistantID, setAssistantID] = useState<string | null>(null)
+
+  const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
+  const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
+  const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  const [isLoadingBlock, setIsLoadingBlock] = useState(false)
+  const lastLoadScrollPositionRef = useRef<number>(0)
+  const lastScrollHeightRef = useRef<number>(0)
+
+  // Add new state to track if we're currently streaming
+  const [isStreaming, setIsStreaming] = useState(false)
+
+  // Add state to track which session we've auto-scrolled
+  const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
+
+  // Add effect to handle auto-scrolling when session changes
+  useEffect(() => {
+    // Return early if no session ID
+    if (!sessionID) return
+    
+    // Return early if session data hasn't loaded yet
+    if (!session.data?.interactions) return
+
+    // Return early if we've already auto-scrolled this session
+    if (sessionID === autoScrolledSessionId) return
+
+    // Set a small timeout to ensure content is rendered
+    setTimeout(() => {
+      if (!containerRef.current) return
+      
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }, 200) // Small timeout to ensure content is rendered
+
+    setAutoScrolledSessionId(sessionID)
+  }, [sessionID, session.data, autoScrolledSessionId])
+
+  // Function to get block key
+  const getBlockKey = useCallback((startIndex: number, endIndex: number) => {
+    return `${startIndex}-${endIndex}`
+  }, [])
+
+  // Function to initialize visible blocks
+  const initializeVisibleBlocks = useCallback(() => {
+    if (!session.data?.interactions || session.data.interactions.length === 0) return
+
+    const totalInteractions = session.data.interactions.length
+    
+    // If we're streaming, we want to show a continuous block from the most recent visible interaction
+    if (isStreaming) {
+      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1]
+      const startIndex = lastVisibleBlock 
+        ? lastVisibleBlock.startIndex 
+        : Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+      
+      setVisibleBlocks([{
+        startIndex,
+        endIndex: totalInteractions,
+        isGhost: false
+      }])
+    } else {
+      // Normal initialization for non-streaming state
+      const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+      setVisibleBlocks([{
+        startIndex,
+        endIndex: totalInteractions,
+        isGhost: false
+      }])
+    }
+  }, [session.data?.interactions, isStreaming, visibleBlocks])
+
+  // Handle streaming state
+  useEffect(() => {
+    if (!session.data?.interactions || session.data.interactions.length === 0) return
+    
+    const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
+    const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
+    
+    setIsStreaming(isCurrentlyStreaming)
+    
+    if (isCurrentlyStreaming) {
+      // When streaming, initialize the visible blocks to show just the current interaction
+      const currentIndex = session.data.interactions.length - 1
+      setVisibleBlocks([{
+        startIndex: currentIndex,
+        endIndex: currentIndex + 1,
+        isGhost: false
+      }])
+    }
+  }, [session.data?.interactions])
+
+  // Track which blocks are in viewport - simplify to just track visibility
+  const updateVisibleBlocksInViewport = useCallback(() => {
+    if (!containerRef.current) return
+
+    const container = containerRef.current
+    const containerTop = container.scrollTop
+    const containerBottom = containerTop + container.clientHeight
+
+    setVisibleBlocks(prev => {
+      let totalHeightAbove = 0
+
+      return prev.map(block => {
+        const blockKey = getBlockKey(block.startIndex, block.endIndex)
+        const blockHeight = blockHeights[blockKey] || 0
+        
+        // Calculate block position
+        const blockTop = totalHeightAbove
+        const blockBottom = blockTop + blockHeight
+        totalHeightAbove += blockHeight
+
+        // Check if block should be rendered based on viewport and buffer
+        const isNearViewport = (
+          blockTop <= containerBottom + (VIEWPORT_BUFFER * blockHeight) && 
+          blockBottom >= containerTop - (VIEWPORT_BUFFER * blockHeight)
+        )
+
+        return {
+          ...block,
+          isGhost: !isNearViewport && blockHeight > 0,
+          height: blockHeight
+        }
+      })
+    })
+  }, [blockHeights, getBlockKey])
+
+  // Add scroll handler to update visible blocks
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleScroll = throttle(() => {
+      updateVisibleBlocksInViewport()
+    }, 100)
+
+    container.addEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [updateVisibleBlocksInViewport])
+
+  // Update visible blocks when heights change
+  useEffect(() => {
+    updateVisibleBlocksInViewport()
+  }, [blockHeights, updateVisibleBlocksInViewport])
+
+  // Measure block heights without affecting scroll
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      visibleBlocks.forEach(block => {
+        if (block.isGhost) return
+        
+        const key = getBlockKey(block.startIndex, block.endIndex)
+        const element = blockRefs.current[key]
+        
+        if (element && !blockHeights[key]) {
+          setBlockHeights(prev => ({
+            ...prev,
+            [key]: element.offsetHeight
+          }))
+        }
+      })
+    })
+  }, [visibleBlocks, blockHeights, getBlockKey])
+
+  // Initialize blocks only once when session data first loads
+  useEffect(() => {
+    if (!session.data?.interactions) return
+    initializeVisibleBlocks()
+  }, [session.data?.id]) // Only run when session ID changes
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -401,20 +588,388 @@ const Session: FC = () => {
     onSend,
   ])
 
-  const handleScroll = throttle(() => {
-    const divElement = divRef.current
-    if(!divElement) return
-    const scrollHeight = divElement.scrollHeight;
-    const isScrolledToBottom = divElement.scrollHeight - divElement.clientHeight === divElement.scrollTop;
-    if (!isScrolledToBottom) {
-      setTimeout(() => {
-        divElement.scrollTo({ top: scrollHeight, behavior: 'smooth' });
-      }, 50)
+  // Memoize the session data comparison
+  const sessionData = useMemo(() => {
+    if (!session.data) return null;
+    return {
+      id: session.data.id,
+      name: session.data.name,
+      created: session.data.created,
+      updated: session.data.updated,
+      parent_session: session.data.parent_session,
+      parent_app: session.data.parent_app,
+      interactions: session.data.interactions,
+      owner: session.data.owner,
+      owner_type: session.data.owner_type,
+      type: session.data.type,
+      mode: session.data.mode,
+      model_name: session.data.model_name,
+      lora_dir: session.data.lora_dir,
+      config: session.data.config
     }
-  }, 100, {
-    leading: true,
-    trailing: true,
-  })
+  }, [session.data])
+
+  // Modify the container styles
+  const containerStyles = useMemo(() => ({
+    flexGrow: 1,
+    overflowY: isStreaming ? 'hidden' : 'auto',
+    transition: 'overflow-y 0.3s ease',
+    paddingRight: '8px',
+    ...lightTheme.scrollbar,
+  }), [lightTheme.scrollbar, isStreaming])
+
+  // Function to add blocks above when scrolling up
+  const addBlocksAbove = useCallback(() => {
+    if (!session.data?.interactions) return
+    if (visibleBlocks.length === 0) return
+    if (isLoadingBlock) return
+    if (!containerRef.current) return
+
+    const firstBlock = visibleBlocks[0]
+    const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
+    
+    // If we're already at the start or would be adding the same content, return early
+    if (newStartIndex >= firstBlock.startIndex) return
+    
+    // If we're already showing all interactions, return early
+    if (firstBlock.startIndex === 0) return
+
+    // Set loading lock
+    setIsLoadingBlock(true)
+    
+    // Store current scroll info before adding content
+    const container = containerRef.current
+    const scrollTop = container.scrollTop
+    const scrollHeight = container.scrollHeight
+
+    setVisibleBlocks(prev => [{
+      startIndex: newStartIndex,
+      endIndex: firstBlock.startIndex,
+      isGhost: false
+    }, ...prev])
+
+    // After the DOM updates, adjust scroll position to maintain scroll position
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        // Get new scroll height
+        const newScrollHeight = containerRef.current.scrollHeight
+        // Calculate height of new content
+        const addedHeight = newScrollHeight - scrollHeight
+        // Only adjust scroll if we actually added new content
+        if (addedHeight > 0) {
+          containerRef.current.scrollTop = scrollTop + addedHeight
+        }
+      }
+      
+      // Release lock after the scroll adjustment
+      setTimeout(() => {
+        setIsLoadingBlock(false)
+      }, SCROLL_LOCK_DELAY)
+    })
+  }, [
+    session.data?.interactions,
+    visibleBlocks,
+    isLoadingBlock
+  ])
+
+  // Setup intersection observer to detect when we need to load more blocks
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const options = {
+      root: containerRef.current,
+      threshold: 0.1
+    }
+
+    observerRef.current = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        // Only trigger if we're actually intersecting with the virtual space
+        // and we're not at the start of the interactions
+        if (entry.isIntersecting && 
+            entry.target.id === 'virtual-space-above' && 
+            visibleBlocks[0]?.startIndex > 0) {
+          addBlocksAbove()
+        }
+      })
+    }, options)
+
+    // Immediately observe the virtual space div if it exists
+    const virtualSpaceDiv = document.getElementById('virtual-space-above')
+    if (virtualSpaceDiv && observerRef.current) {
+      observerRef.current.observe(virtualSpaceDiv)
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect()
+      }
+    }
+  }, [addBlocksAbove, visibleBlocks])
+
+  // Add scrollToBottom function with debouncing logic
+  const scrollToBottom = useCallback(() => {
+    if (!containerRef.current) return
+    
+    const now = Date.now()
+    const timeSinceLastScroll = now - lastScrollTimeRef.current
+    const SCROLL_DEBOUNCE = 200
+
+    // If this is our first scroll or it's been longer than our debounce period
+    if (lastScrollTimeRef.current === 0 || timeSinceLastScroll >= SCROLL_DEBOUNCE) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+      lastScrollTimeRef.current = now
+    } else {
+      // Wait for the remaining time before scrolling
+      const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
+      setTimeout(() => {
+        if (!containerRef.current) return
+        containerRef.current.scrollTo({
+          top: containerRef.current.scrollHeight,
+          behavior: 'smooth'
+        })
+        lastScrollTimeRef.current = Date.now()
+      }, waitTime)
+    }
+  }, [])
+
+  // Add effect to handle final scroll when streaming ends
+  useEffect(() => {
+    // Only trigger when streaming changes from true to false
+    if (isStreaming) return
+    
+    // Reset the scroll timer when streaming ends
+    lastScrollTimeRef.current = 0
+    
+    // Wait for the bottom bar and final content to render
+    const timer = setTimeout(() => {
+      if (!containerRef.current) return
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [isStreaming])
+
+  // Add new effect for handling streaming state transitions
+  useEffect(() => {
+    if (!isStreaming && session.data?.interactions) {
+      // When streaming ends, ensure we have continuous blocks
+      setVisibleBlocks(prev => {
+        const totalInteractions = session.data!.interactions.length
+        const lastBlock = prev[prev.length - 1]
+        
+        if (!lastBlock) {
+          return [{
+            startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
+            endIndex: totalInteractions,
+            isGhost: false
+          }]
+        }
+
+        // Ensure the last block extends to include the new interaction
+        return prev.map((block, index) => {
+          if (index === prev.length - 1) {
+            return {
+              ...block,
+              endIndex: totalInteractions
+            }
+          }
+          return block
+        })
+      })
+    }
+  }, [isStreaming, session.data?.interactions])
+
+  // Update the renderInteractions function's virtual space handling
+  const renderInteractions = useCallback(() => {
+    if (!sessionData || !sessionData.interactions) return null
+
+    // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
+    if (isStreaming) {
+      const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
+      
+      // Calculate how many previous interactions to show
+      const startIndex = Math.max(0, sessionData.interactions.length - 1 - INTERACTIONS_PER_BLOCK)
+      const previousInteractions = sessionData.interactions.slice(startIndex, sessionData.interactions.length - 1)
+      
+      return (
+        <Container maxWidth="lg" sx={{ py: 2 }}>
+          {startIndex > 0 && (
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                textAlign: 'center', 
+                color: 'text.secondary',
+                mb: 2
+              }}
+            >
+              Previous messages hidden...
+            </Typography>
+          )}
+
+          {previousInteractions.map(interaction => (
+            <Interaction
+              key={interaction.id}
+              serverConfig={account.serverConfig}
+              interaction={interaction}
+              session={sessionData}
+              highlightAllFiles={highlightAllFiles}
+              retryFinetuneErrors={retryFinetuneErrors}
+              onReloadSession={session.reload}
+              onClone={onClone}
+              onAddDocuments={undefined}
+              onRestart={undefined}
+            />
+          ))}
+          
+          <Interaction
+            key={currentInteraction.id}
+            serverConfig={account.serverConfig}
+            interaction={currentInteraction}
+            session={sessionData}
+            highlightAllFiles={highlightAllFiles}
+            retryFinetuneErrors={retryFinetuneErrors}
+            onReloadSession={session.reload}
+            onClone={onClone}
+            onAddDocuments={onAddDocuments}
+            onRestart={onRestart}
+          >
+            <InteractionLiveStream
+              session_id={sessionData.id}
+              interaction={currentInteraction}
+              session={sessionData}
+              serverConfig={account.serverConfig}
+              hasSubscription={account.userConfig.stripe_subscription_active || false}
+              onMessageUpdate={scrollToBottom}
+            />
+          </Interaction>
+        </Container>
+      )
+    }
+
+    // Normal virtualized rendering for non-streaming state
+    const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
+
+    return (
+      <Container maxWidth="lg" sx={{ py: 2 }}>
+        {hasMoreAbove && !isStreaming && (
+          <div
+            id="virtual-space-above"
+            style={{ 
+              height: VIRTUAL_SPACE_HEIGHT,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: isLoadingBlock ? 1 : 0,
+              transition: 'opacity 0.2s'
+            }}
+          >
+            {isLoadingBlock && (
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Loading more messages...
+              </Typography>
+            )}
+          </div>
+        )}
+        {visibleBlocks.map(block => {
+          const key = getBlockKey(block.startIndex, block.endIndex)
+          
+          if (block.isGhost) {
+            return (
+              <div
+                key={key}
+                style={{ height: block.height || 0 }}
+              />
+            )
+          }
+
+          const interactions = sessionData.interactions.slice(block.startIndex, block.endIndex)
+          
+          return (
+            <div
+              key={key}
+              id={`block-${key}`}
+              ref={el => blockRefs.current[key] = el}
+            >
+              {interactions.map((interaction, index) => {
+                const absoluteIndex = block.startIndex + index
+                const isLastInteraction = absoluteIndex === sessionData.interactions.length - 1
+                const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+                const isOwner = account.user?.id === sessionData.owner
+
+                return (
+                  <Interaction
+                    key={interaction.id}
+                    serverConfig={account.serverConfig}
+                    interaction={interaction}
+                    session={sessionData}
+                    highlightAllFiles={highlightAllFiles}
+                    retryFinetuneErrors={retryFinetuneErrors}
+                    onReloadSession={session.reload}
+                    onClone={onClone}
+                    onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
+                    onRestart={isLastInteraction ? onRestart : undefined}
+                    headerButtons={isLastInteraction ? (
+                      <Tooltip title="Restart Session">
+                        <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
+                          <RefreshIcon
+                            sx={{
+                              color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                              '&:hover': {
+                                color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                              },
+                            }}
+                          />
+                        </IconButton>
+                      </Tooltip>
+                    ) : undefined}
+                  >
+                    {isLive && (isOwner || account.admin) && (
+                      <InteractionLiveStream
+                        session_id={sessionData.id}
+                        interaction={interaction}
+                        session={sessionData}
+                        serverConfig={account.serverConfig}
+                        hasSubscription={account.userConfig.stripe_subscription_active || false}
+                      />
+                    )}
+                  </Interaction>
+                )
+              })}
+            </div>
+          )
+        })}
+      </Container>
+    )
+  }, [
+    sessionData,
+    visibleBlocks,
+    blockHeights,
+    account.serverConfig,
+    account.user?.id,
+    account.admin,
+    account.userConfig.stripe_subscription_active,
+    highlightAllFiles,
+    retryFinetuneErrors,
+    session.reload,
+    onClone,
+    onAddDocuments,
+    onRestart,
+    theme.palette.mode,
+    themeConfig.lightIcon,
+    themeConfig.darkIcon,
+    themeConfig.lightIconHover,
+    themeConfig.darkIconHover,
+    getBlockKey,
+    isLoadingBlock,
+    isStreaming,
+    scrollToBottom
+  ])
 
   useEffect(() => {
     if(loading) return
@@ -438,11 +993,18 @@ const Session: FC = () => {
     // before then asking for the shared session
     if(!account.initialized) return
     if(sessionID) {
-      session.loadSession(sessionID)
+      if (router.params.fixturemode === 'true') {
+        // Use fixture data instead of loading from API
+        const fixtureSession = generateFixtureSession(1000) // Generate 1000 interactions
+        session.setData(fixtureSession)
+      } else {
+        session.loadSession(sessionID)
+      }
     }
   }, [
     account.initialized,
     sessionID,
+    router.params.fixturemode,
   ])
 
   // this is for where we tried to do something to a shared session
@@ -553,240 +1115,275 @@ const Session: FC = () => {
     }
   }
 
+  // Reset scroll tracking when session changes
+  useEffect(() => {
+    lastLoadScrollPositionRef.current = 0
+    lastScrollHeightRef.current = 0
+    setIsLoadingBlock(false)
+  }, [sessionID])
+
   if(!session.data) return null
 
   return (    
     <Box
       sx={{
         width: '100%',
-        height: '100%',
+        height: '100vh',
         display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
+        flexDirection: 'row',
       }}
     >
+      {/* Left menu is handled by the parent layout component */}
       <Box
         sx={{
-          width: '100%',
-          flexGrow: 0,
-          py: 1,
-          px: 2,
+          flexGrow: 1,
+          height: '100vh',
           display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+          flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
-        {
-          (isOwner || account.admin) && (
-            <SessionToolbar
-              session={ session.data }
-              onReload={ session.reload }
-              onOpenMobileMenu={ () => account.setMobileMenuOpen(true) }
-            />
-          )
-        }
-      </Box>
-      {appID && apps.app && (
+        {/* Header section */}
         <Box
           sx={{
             width: '100%',
-            position: 'relative',
-            backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
-            backgroundPosition: 'top',
-            backgroundRepeat: 'no-repeat',
-            backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
-            p: 2,
+            flexShrink: 0,
+            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
           }}
         >
-          {appID && apps.app.config.helix.image && (
+          {(isOwner || account.admin) && (
+            <Box sx={{ py: 1, px: 2 }}>
+              <SessionToolbar
+                session={session.data}
+                onReload={session.reload}
+                onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+              />
+            </Box>
+          )}
+          
+          {appID && apps.app && (
             <Box
               sx={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                zIndex: 1,
+                width: '100%',
+                position: 'relative',
+                backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
+                backgroundPosition: 'top',
+                backgroundRepeat: 'no-repeat',
+                backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
+                p: 2,
               }}
-            />
-          )}
-          <Box
-            sx={{
-              position: 'relative',
-              zIndex: 2,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              pt: 4,
-              px: 2,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <IconButton
-                onClick={handleBackToCreate}
-                sx={{
-                  color: 'white',
-                  mr: 2,
-                }}
-              >
-                <ArrowBackIcon />
-              </IconButton>
-              {activeAssistantAvatar && (
-                <Avatar
-                  src={activeAssistantAvatar}
+            >
+              {appID && apps.app.config.helix.image && (
+                <Box
                   sx={{
-                    width: '80px',
-                    height: '80px',
-                    mb: 2,
-                    border: '2px solid #fff',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    zIndex: 1,
                   }}
                 />
               )}
-            </Box>
-            <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-              {activeAssistantName}
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
-              {activeAssistantDescription}
-            </Typography>
-          </Box>
-        </Box>
-      )}
-      <Box
-        id="helix-session-scroller"
-        ref={ divRef }
-        sx={{
-          width: '100%',
-          flexGrow: 1,
-          overflowY: 'auto',
-          p: 2,
-          '&::-webkit-scrollbar': {
-            width: '4px',
-            borderRadius: '8px',
-            my: 2,
-          },
-          '&::-webkit-scrollbar-track': {
-            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-            borderRadius: '8px',
-          },
-          '&::-webkit-scrollbar-thumb:hover': {
-            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-          },
-        }}
-      >
-        <Container maxWidth="lg">
-          {
-            session.data && (
-              <>
-                {
-                  session.data?.interactions.map((interaction: any, i: number) => {
-                    const isLastFinetune = lastFinetuneInteraction && lastFinetuneInteraction.id == interaction.id
-                    const interactionsLength = session.data?.interactions.length || 0
-                    const isLastInteraction = i == interactionsLength - 1
-                    const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
-
-                    if(!session.data) return null
-                    return (
-                      <Interaction
-                        key={ i }
-                        serverConfig={ account.serverConfig }
-                        interaction={ interaction }
-                        session={ session.data }
-                        highlightAllFiles={ highlightAllFiles }
-                        retryFinetuneErrors={ retryFinetuneErrors }
-                        headerButtons={ isLastInteraction ? (
-                          <Tooltip title="Restart Session">
-                            <IconButton onClick={ onRestart }  sx={{ mb: '0.5rem' }} >
-                              <RefreshIcon
-                                sx={{
-                                  color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                                  '&:hover': {
-                                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                                  },
-                                  
-                                }}
-                              />
-                            </IconButton>
-                          </Tooltip>
-                          
-                        ) : undefined }
-                        
-                        onReloadSession={ () => session.reload() }
-                        onClone={ onClone }
-                        onAddDocuments={ isLastFinetune ? onAddDocuments : undefined }
-                        onRestart={ isLastInteraction ? onRestart : undefined }
-                      >
-                        
-                        {
-                          isLive && (isOwner || account.admin) && (
-                            <InteractionLiveStream
-                              session_id={ session.data.id }
-                              interaction={ interaction }
-                              session={ session.data }
-                              serverConfig={ account.serverConfig }
-                              hasSubscription={ account.userConfig.stripe_subscription_active ? true : false }
-                              onMessageChange={ handleScroll }
-                            />
-                          )
-                        }
-                      </Interaction>
-                    )   
-                  })
-                }
-              </>    
-            )
-          }
-          {
-            !loading && (
-              <>
-                <Box
-                  sx={{
-                    width: '100%',
-                    flexGrow: 0,
-                    p: 2,
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Button
-                    onClick={ () => {
-                      onUpdateSessionConfig({
-                        eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                      }, `Thank you for your feedback!`)
+              <Box
+                sx={{
+                  position: 'relative',
+                  zIndex: 2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  pt: 4,
+                  px: 2,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <IconButton
+                    onClick={handleBackToCreate}
+                    sx={{
+                      color: 'white',
+                      mr: 2,
                     }}
                   >
-                    { session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon /> }
-                  </Button>
-                  <Button
-                    onClick={ () => {
-                      onUpdateSessionConfig({
-                        eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                      }, `Sorry! We will use your feedback to improve`)
-                    }}
-                  >
-                    { session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon /> }
-                  </Button>
+                    <ArrowBackIcon />
+                  </IconButton>
+                  {activeAssistantAvatar && (
+                    <Avatar
+                      src={activeAssistantAvatar}
+                      sx={{
+                        width: '80px',
+                        height: '80px',
+                        mb: 2,
+                        border: '2px solid #fff',
+                      }}
+                    />
+                  )}
                 </Box>
-                {
-                  session.data?.config.eval_user_score != "" && ( 
+                <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                  {activeAssistantName}
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
+                  {activeAssistantDescription}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </Box>
+
+        {/* Main scrollable content area */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%', // Ensure full height
+            minHeight: 0, // This is crucial for proper flex behavior
+          }}
+        >
+          <Box
+            ref={containerRef}
+            sx={{
+              flexGrow: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflowY: isStreaming ? 'hidden' : 'auto',
+              transition: 'overflow-y 0.3s ease',
+              pr: 3, // Add consistent padding to offset from the right edge
+              minHeight: 0, // This is crucial for proper flex behavior
+              ...lightTheme.scrollbar,
+            }}
+          >
+            {renderInteractions()}
+          </Box>
+
+          {/* Fixed bottom section */}
+          <Box
+            sx={{
+              flexShrink: 0, // Prevent shrinking
+              borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+              bgcolor: theme.palette.background.default,
+            }}
+          >
+            {!loading && (
+              <Container maxWidth="lg">
+                <Box sx={{ py: 2 }}>
+                  <Row>
+                    <Cell flexGrow={1}>
+                      <TextField
+                        id="textEntry"
+                        fullWidth
+                        inputRef={textFieldRef}
+                        label={(
+                          (
+                            session.data?.type == SESSION_TYPE_TEXT ?
+                              session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
+                              'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                          ) + " (shift+enter to add a newline)"
+                        )}
+                        value={inputValue}
+                        disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                        onChange={handleInputChange}
+                        name="ai_submit"
+                        multiline={true}
+                        onKeyDown={handleKeyDown}
+                        InputProps={{
+                          startAdornment: isBigScreen && (
+                            activeAssistant ? (
+                              activeAssistantAvatar ? (
+                                <Avatar
+                                  src={activeAssistantAvatar}
+                                  sx={{
+                                    width: '30px',
+                                    height: '30px',
+                                    mr: 1,
+                                  }}
+                                />
+                              ) : null
+                            ) : null
+                          ),
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                id="send-button"
+                                aria-label="send"
+                                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                                onClick={() => onSend(inputValue)}
+                                sx={{
+                                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                                }}
+                              >
+                                <SendIcon />
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Cell>
+                    {isBigScreen && (
+                      <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
+                        <Button
+                          onClick={() => {
+                            onUpdateSessionConfig({
+                              eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                            }, `Thank you for your feedback!`)
+                          }}
+                        >
+                          {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            onUpdateSessionConfig({
+                              eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                            }, `Sorry! We will use your feedback to improve`)
+                          }}
+                        >
+                          {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                        </Button>
+                      </Cell>
+                    )}
+                  </Row>
+
+                  {!isBigScreen && (
                     <Box
                       sx={{
                         width: '100%',
-                        flexGrow: 0,
-                        p: 2,
                         display: 'flex',
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        mt: 2,
+                      }}
+                    >
+                      <Button
+                        onClick={() => {
+                          onUpdateSessionConfig({
+                            eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                          }, `Thank you for your feedback!`)
+                        }}
+                      >
+                        {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          onUpdateSessionConfig({
+                            eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                          }, `Sorry! We will use your feedback to improve`)
+                        }}
+                      >
+                        {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                      </Button>
+                    </Box>
+                  )}
+
+                  {session.data?.config.eval_user_score != "" && (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mt: 2,
                       }}
                     >
                       <TextField
@@ -797,311 +1394,180 @@ const Session: FC = () => {
                         name="ai_feedback"
                       />
                       <Button
-                        variant='contained'
+                        variant="contained"
                         disabled={loading}
-                        onClick={ () => onUpdateSessionConfig({
-                            eval_user_reason: feedbackValue,
-                          }, `Thanks, you are awesome`)
-                        }
+                        onClick={() => onUpdateSessionConfig({
+                          eval_user_reason: feedbackValue,
+                        }, `Thanks, you are awesome`)}
                         sx={{ ml: 2 }}
                       >
                         Save
                       </Button>
                     </Box>
-                  )
-                }
-              </>
-            )
-          }
-          {
-            // if we are an admin and the session is not ours then show the "clone all" button
-            // so we can copy it for debug/eval purposes
-            account.admin && account.user?.id && account.user?.id != session.data.owner && (
-              <Box
-                sx={{
-                  width: '100%',
-                  flexGrow: 0,
-                  p: 1,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <ClickLink
-                  sx={{
-                    textDecoration: 'underline',
-                  }}
-                  onClick={ () => setShowCloneAllWindow(true) }
-                >
-                  Clone All
-                </ClickLink>
-              </Box>
-            )
-          }
-        </Container>
-      </Box>
-      <Box
-        sx={{
-          width: '100%',
-          flexGrow: 0,
-          p: 2,
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Container
-          maxWidth="xl"
-        >
-          <Row>
-            <Cell flexGrow={1}>
-            <TextField
-              id="textEntry"
-              fullWidth
-              inputRef={textFieldRef}
-              label={(
-                (
-                  session.data?.type == SESSION_TYPE_TEXT ?
-                    session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
-                    'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                ) + " (shift+enter to add a newline)"
-              )}
-              value={inputValue}
-              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-              onChange={handleInputChange}
-              name="ai_submit"
-              multiline={true}
-              onKeyDown={handleKeyDown}
-              InputProps={{
-                startAdornment: isBigScreen && (
-                  activeAssistant ? (
-                    activeAssistantAvatar ? (
-                      <Avatar
-                        src={activeAssistantAvatar}
-                        sx={{
-                          width: '30px',
-                          height: '30px',
-                          mr: 1,
-                        }}
-                      />
-                    ) : null
-                  ) : null
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      id="send-button"
-                      aria-label="send"
-                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                      onClick={() => onSend(inputValue)}
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                      }}
-                     >
-                      <SendIcon />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-            </Cell>
-          </Row>
-          <Box
-            sx={{
-              mt: 2,
-            }}
-          >
-            <Disclaimer />
+                  )}
+                  <Box sx={{ mt: 2 }}>
+                    <Disclaimer />
+                  </Box>
+                </Box>
+              </Container>
+            )}
           </Box>
-          
-        </Container>
-        
+        </Box>
       </Box>
 
-      {
-        router.params.cloneInteraction && (
-          <Window
-            open
-            size="sm"
-            title={`Clone ${session.data.name}?`}
-            withCancel
-            submitTitle="Clone"
-            onSubmit={ () => {
-              session.clone(sessionID, router.params.cloneInteraction)
-            } }
-            onCancel={ () => {
-              router.removeParams(['cloneInteraction'])
-            }}
-          >
-            <Typography gutterBottom>
-              Are you sure you want to clone {session.data.name} from this point in time?
-            </Typography>
-            <Typography variant="caption" gutterBottom>
-              This will create a new session.
-            </Typography>
-          </Window>
-        )
-      }
+      {/* Windows/Modals */}
+      {router.params.cloneInteraction && (
+        <Window
+          open
+          size="sm"
+          title={`Clone ${session.data.name}?`}
+          withCancel
+          submitTitle="Clone"
+          onSubmit={() => {
+            session.clone(sessionID, router.params.cloneInteraction)
+          }}
+          onCancel={() => {
+            router.removeParams(['cloneInteraction'])
+          }}
+        >
+          <Typography gutterBottom>
+            Are you sure you want to clone {session.data.name} from this point in time?
+          </Typography>
+          <Typography variant="caption" gutterBottom>
+            This will create a new session.
+          </Typography>
+        </Window>
+      )}
 
-      {
-        router.params.addDocuments && session.data && (
-          <AddFilesWindow
-            session={ session.data }
-            onClose={ (filesAdded) => {
-              router.removeParams(['addDocuments'])
-              if(filesAdded) {
-                session.reload()
-              }
-            } }
-          />
-        )
-      }
+      {router.params.addDocuments && session.data && (
+        <AddFilesWindow
+          session={session.data}
+          onClose={(filesAdded) => {
+            router.removeParams(['addDocuments'])
+            if (filesAdded) {
+              session.reload()
+            }
+          }}
+        />
+      )}
 
-      {
-        router.params.sharing && session.data && (
-          <ShareSessionWindow
-            session={ session.data }
-            onShare={ async () => true }
-            onUpdateSharing={ onUpdateSharing }
-            onCancel={ () => {
-              router.removeParams(['sharing'])
-            }}
-          />
-        )
-      }
-      
-      {
-        restartWindowOpen && (
-          <SimpleConfirmWindow
-            title="Restart Session"
-            message="Are you sure you want to restart this session?"
-            confirmTitle="Restart"
-            onCancel={ () => setRestartWindowOpen(false) }
-            onSubmit={ onRestartConfirm }
-          />
-        )
-      }
-      {
-        showLoginWindow && (
-          <Window
-            open
-            size="md"
-            title="Please login to continue"
-            onCancel={ () => {
-              setShowLoginWindow(false)
-            }}
-            onSubmit={ proceedToLogin }
-            withCancel
-            cancelTitle="Close"
-            submitTitle="Login / Register"
-           >
-            <Typography gutterBottom>
-              You can login with your Google account or with your email address.
-            </Typography>
-            <Typography>
-              This session will be cloned into your account and you can continue from there.
-            </Typography>
-          </Window>
-        )
-      }
-      {
-        showCloneWindow && (
-          <Window
-            open
-            size="md"
-            title="Clone Session?"
-            onCancel={ () => {
-              setShowCloneWindow(false)
-            }}
-            onSubmit={ onCloneIntoAccount }
-            withCancel
-            cancelTitle="Close"
-            submitTitle="Clone Session"
-          >
-            <Typography>
-              This session will be cloned into your account where you will be able to continue this session.
-            </Typography>
-          </Window>
-        )
-      }
-      {
-        showCloneAllWindow && (
-          <Window
-            open
-            size="md"
-            title="Clone All?"
-            onCancel={ () => {
-              setShowCloneAllWindow(false)
-            }}
-            withCancel
-            cancelTitle="Close"
-          >
-            <Box
-              sx={{
-                p: 2,
-                width: '100%',
-              }}
-            >
-              <Row>
+      {router.params.sharing && session.data && (
+        <ShareSessionWindow
+          session={session.data}
+          onShare={async () => true}
+          onUpdateSharing={onUpdateSharing}
+          onCancel={() => {
+            router.removeParams(['sharing'])
+          }}
+        />
+      )}
+
+      {restartWindowOpen && (
+        <SimpleConfirmWindow
+          title="Restart Session"
+          message="Are you sure you want to restart this session?"
+          confirmTitle="Restart"
+          onCancel={() => setRestartWindowOpen(false)}
+          onSubmit={onRestartConfirm}
+        />
+      )}
+
+      {showLoginWindow && (
+        <Window
+          open
+          size="md"
+          title="Please login to continue"
+          onCancel={() => {
+            setShowLoginWindow(false)
+          }}
+          onSubmit={proceedToLogin}
+          withCancel
+          cancelTitle="Close"
+          submitTitle="Login / Register"
+        >
+          <Typography gutterBottom>
+            You can login with your Google account or with your email address.
+          </Typography>
+          <Typography>
+            This session will be cloned into your account and you can continue from there.
+          </Typography>
+        </Window>
+      )}
+
+      {showCloneWindow && (
+        <Window
+          open
+          size="md"
+          title="Clone Session?"
+          onCancel={() => {
+            setShowCloneWindow(false)
+          }}
+          onSubmit={onCloneIntoAccount}
+          withCancel
+          cancelTitle="Close"
+          submitTitle="Clone Session"
+        >
+          <Typography>
+            This session will be cloned into your account where you will be able to continue this session.
+          </Typography>
+        </Window>
+      )}
+
+      {showCloneAllWindow && (
+        <Window
+          open
+          size="md"
+          title="Clone All?"
+          onCancel={() => {
+            setShowCloneAllWindow(false)
+          }}
+          withCancel
+          cancelTitle="Close"
+        >
+          <Box sx={{ p: 2, width: '100%' }}>
+            <Row>
+              <Cell grow>
+                <Typography>
+                  Clone the session into your account:
+                </Typography>
+              </Cell>
+              <Cell sx={{ width: '300px', textAlign: 'right' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={loading}
+                  onClick={() => onCloneAllIntoAccount(false)}
+                  sx={{ ml: 2, width: '200px' }}
+                  endIcon={<SendIcon />}
+                >
+                  your account
+                </Button>
+              </Cell>
+            </Row>
+            {account.serverConfig.eval_user_id && (
+              <Row sx={{ mt: 2 }}>
                 <Cell grow>
                   <Typography>
-                    Clone the session into your account:
+                    Clone the session into the evals account:
                   </Typography>
                 </Cell>
-                <Cell sx={{
-                  width: '300px',
-                  textAlign: 'right',
-                }}>
+                <Cell sx={{ width: '300px', textAlign: 'right' }}>
                   <Button
                     size="small"
-                    variant='contained'
+                    variant="contained"
                     disabled={loading}
-                    onClick={ () => onCloneAllIntoAccount(false) }
-                    sx={{ ml: 2, width: '200px', }}
+                    onClick={() => onCloneAllIntoAccount(true)}
+                    sx={{ ml: 2, width: '200px' }}
                     endIcon={<SendIcon />}
                   >
-                    your account
+                    evals account
                   </Button>
                 </Cell>
               </Row>
-              {
-                // if we know about an eval user then give the option to clone into that account
-                account.serverConfig.eval_user_id && (
-                  <Row
-                    sx={{
-                      mt: 2,
-                    }}
-                  >
-                    <Cell grow>
-                      <Typography>
-                        Clone the session into the evals account:
-                      </Typography>
-                    </Cell>
-                    <Cell sx={{
-                      width: '300px',
-                      textAlign: 'right',
-                    }}>
-                      <Button
-                        size="small"
-                        variant='contained'
-                        disabled={loading}
-                        onClick={ () => onCloneAllIntoAccount(true) }
-                        sx={{ ml: 2, width: '200px', }}
-                        endIcon={<SendIcon />}
-                      >
-                        evals account
-                      </Button>
-                    </Cell>
-                  </Row>
-                )
-              }
-              
-            </Box>
-          </Window>
-        )
-      }
+            )}
+          </Box>
+        </Window>
+      )}
     </Box>
   )
 }
