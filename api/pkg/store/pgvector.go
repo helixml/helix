@@ -10,7 +10,7 @@ import (
 )
 
 func NewPGVectorStore(
-	serverCfg config.ServerConfig,
+	serverCfg *config.ServerConfig,
 ) (*PGVectorStore, error) {
 
 	cfg := serverCfg.PGVectorStore
