@@ -273,14 +273,14 @@ type KnowledgeEmbeddingItem struct {
 	DocumentGroupID string `gorm:"index"`
 	DocumentID      string `gorm:"index"`
 	Source          string
-	Embedding       pgvector.Vector `gorm:"type:vector(3)"`
+	Embedding384    pgvector.Vector `gorm:"type:vector(384)"` // For 384 dimensions ("gte-small")
 	Content         string          // Content of the knowledge
 	ContentOffset   int             // Offset of the content in the knowledge
 }
 
 type KnowledgeEmbeddingQuery struct {
-	KnowledgeID string          `json:"knowledge_id"`
-	Embedding   pgvector.Vector // Query by embedding
-	Content     string          // Optional for full text search
-	Limit       int             // Limit the number of results
+	KnowledgeID  string          `json:"knowledge_id"`
+	Embedding384 pgvector.Vector // Query by embedding
+	Content      string          // Optional for full text search
+	Limit        int             // Limit the number of results
 }
