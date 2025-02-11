@@ -13,15 +13,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-const schedulingDecisionHistorySize = 10
-
 type HelixServer interface {
-	// GetNextLLMInferenceRequest is called by the HTTP handler  to get the next LLM inference request to process for the runner
-	GetNextLLMInferenceRequest(ctx context.Context, filter types.InferenceRequestFilter, runnerID string) (*types.RunnerLLMInferenceRequest, error)
 	// ProcessRunnerResponse is called by the HTTP handler when the runner sends a response over the websocket
 	ProcessRunnerResponse(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
-	// GetSchedulingDecision returns the last scheduling decisions made by the server, used for the dashboar
-	GetSchedulingDecision() []*types.GlobalSchedulingDecision
 }
 
 var _ HelixServer = &InternalHelixServer{}
