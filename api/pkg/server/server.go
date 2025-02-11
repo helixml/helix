@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/auth"
@@ -70,10 +71,10 @@ type HelixAPIServer struct {
 	pubsub            pubsub.PubSub
 	providerManager   manager.ProviderManager
 	gptScriptExecutor gptscript.Executor
-	inferenceServer   openai.HelixServer
+	inferenceServer   *openai.InternalHelixServer
 	knowledgeManager  knowledge.Manager
 	router            *mux.Router
-	scheduler         scheduler.Scheduler
+	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
 }
 
@@ -83,13 +84,13 @@ func NewServer(
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
 	providerManager manager.ProviderManager,
-	inferenceServer openai.HelixServer,
+	inferenceServer *openai.InternalHelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
-	scheduler scheduler.Scheduler,
+	scheduler *scheduler.Scheduler,
 	pingService *version.PingService,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
@@ -180,7 +181,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
-	router.Use(errorLoggingMiddleware)
+	router.Use(ErrorLoggingMiddleware)
+
+	// insecure router is under /api/v1 but not protected by auth
+	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
 
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
@@ -346,17 +350,81 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
 	// all these routes are secured via runner tokens
-	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.DefaultWrapper(apiServer.handleRunnerResponse)).Methods(http.MethodPost)
-	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.DefaultWrapper(apiServer.handleRunnerMetrics)).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		runnerID := vars["runner_id"]
+		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
+		log.Debug().Interface("request", r).Msg("nats request")
+		fmt.Printf("proxying runner websocket request to nats for runner %s", runnerID)
+
+		// Upgrade the incoming HTTP connection to a WebSocket connection.
+		upgrader := websocket.Upgrader{
+			// TODO(Phil): check origin
+			CheckOrigin: func(r *http.Request) bool {
+				log.Debug().Interface("headers", r.Header).Interface("vars", r.RemoteAddr).Msg("nats check origin")
+				return true
+			},
+		}
+		clientConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Failed to upgrade client connection: %v", err)
+			return
+		}
+		// Ensure the client connection is closed on function exit.
+		defer clientConn.Close()
+
+		// Connect to the backend WebSocket server.
+		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
+		if err != nil {
+			log.Printf("Failed to connect to backend WebSocket server: %v", err)
+			return
+		}
+		// Ensure the backend connection is closed on function exit.
+		defer backendConn.Close()
+		defer resp.Body.Close()
+
+		// Start two goroutines to copy data between the client and the backend.
+		errCh := make(chan error, 2)
+
+		// Copy messages from the client to the backend.
+		go func() {
+			for {
+				messageType, message, err := clientConn.ReadMessage()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if err := backendConn.WriteMessage(messageType, message); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+
+		// Copy messages from the backend to the client.
+		go func() {
+			for {
+				messageType, message, err := backendConn.ReadMessage()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if err := clientConn.WriteMessage(messageType, message); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+
+		// Wait until one side returns an error (or closes the connection).
+		if err := <-errCh; err != nil {
+			log.Printf("WebSocket proxy error: %v", err)
+		}
+	})
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
-
-	runnerRouter.HandleFunc("/runner/{runnerid}/llm-inference-request", system.DefaultWrapper(apiServer.runnerLLMInferenceRequestHandler)).Methods(http.MethodGet)
-
-	runnerRouter.HandleFunc("/runner/{runnerid}/slots", system.DefaultWrapper(apiServer.getDesiredRunnerSlots)).Methods(http.MethodGet)
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)

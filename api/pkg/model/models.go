@@ -177,6 +177,14 @@ const (
 
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 	return []*DiffusersGenericImage{
+		// SD Turbo is useful for development because it's low RAM, but it doesn't produce very good images
+		// {
+		// 	ID:          ModelDiffusersSdturbo,
+		// 	Name:        "SD Turbo",
+		// 	Memory:      GB * 10,
+		// 	Description: "High quality image model, from Stability AI",
+		// 	Hide:        false,
+		// },
 		{
 			ID:          ModelDiffusersFluxdev,
 			Name:        "FLUX.1-dev",

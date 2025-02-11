@@ -159,8 +159,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
     - push
@@ -243,8 +241,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
 
@@ -316,8 +312,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
 
@@ -380,8 +374,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
     - push
@@ -416,8 +408,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
     - push
@@ -452,8 +442,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
     - push
@@ -488,8 +476,6 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
     event:
     - tag
     - push

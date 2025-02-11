@@ -3,8 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/extract"
@@ -21,8 +19,6 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/puzpuzpuz/xsync/v3"
-	"github.com/rs/zerolog/log"
 )
 
 type Options struct {
@@ -38,7 +34,8 @@ type Options struct {
 	// OpenAIClient         openai.Client
 	ProviderManager      manager.ProviderManager
 	DataprepOpenAIClient openai.Client
-	Scheduler            scheduler.Scheduler
+	Scheduler            *scheduler.Scheduler
+	RunnerController     *scheduler.RunnerController
 }
 
 type Controller struct {
@@ -56,14 +53,10 @@ type Controller struct {
 	// the models package looks after instantiating this for us
 	models map[string]model.Model
 
-	// the map of model instances that we have loaded
-	// and are currently running
-	activeRunners *xsync.MapOf[string, *types.RunnerState]
-
 	// the current buffer of scheduling decisions
 	schedulingDecisions []*types.GlobalSchedulingDecision
 
-	scheduler scheduler.Scheduler
+	scheduler *scheduler.Scheduler
 }
 
 func NewController(
@@ -100,7 +93,6 @@ func NewController(
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
-		activeRunners:       xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 		scheduler:           options.Scheduler,
 	}
@@ -121,30 +113,5 @@ func NewController(
 }
 
 func (c *Controller) Initialize() error {
-	return nil
-}
-
-// this should be run in a go-routine
-func (c *Controller) Start(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(10 * time.Second):
-			err := c.run(c.Ctx)
-			if err != nil {
-				log.Error().Msgf("error in controller loop: %s", err.Error())
-				debug.PrintStack()
-			}
-		}
-	}
-}
-
-func (c *Controller) run(ctx context.Context) error {
-	err := c.cleanOldRunnerMetrics(ctx)
-	if err != nil {
-		log.Error().Msgf("error in controller loop: %s", err.Error())
-		debug.PrintStack()
-	}
 	return nil
 }

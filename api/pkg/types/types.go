@@ -728,48 +728,48 @@ type SessionSummary struct {
 	AppID    string `json:"app_id,omitempty"`
 }
 
-type ModelInstanceState struct {
-	ID               string      `json:"id"`
-	ModelName        string      `json:"model_name"`
-	Mode             SessionMode `json:"mode"`
-	LoraDir          string      `json:"lora_dir"`
-	InitialSessionID string      `json:"initial_session_id"`
-	// this is either the currently running session
-	// or the queued session that will be run next but is currently downloading
-	CurrentSession *SessionSummary   `json:"current_session"`
-	JobHistory     []*SessionSummary `json:"job_history"`
-	// how many seconds to wait before calling ourselves stale
-	Timeout int `json:"timeout"`
-	// when was the last activity seen on this instance
-	LastActivity int `json:"last_activity"`
-	// we let the server tell us if it thinks this
-	// (even though we could work it out)
-	Stale       bool   `json:"stale"`
-	MemoryUsage uint64 `json:"memory"`
-	Status      string `json:"status"`
-}
+type WorkloadSummary struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created"`
+	UpdatedAt time.Time `json:"updated"`
+	ModelName string    `json:"model_name"`
+	Mode      string    `json:"mode"`
+	Runtime   string    `json:"runtime"`
+	LoraDir   string    `json:"lora_dir"`
+	Summary   string    `json:"summary"`
 
-// the basic struct reported by a runner when it connects
-// and keeps reporting it's status to the api server
-// we expire these records after a certain amount of time
-type RunnerState struct {
-	ID      string    `json:"id"`
-	Created time.Time `json:"created"`
-	// the URL that the runner will POST to to get a task
-	TotalMemory         uint64                `json:"total_memory"`
-	FreeMemory          int64                 `json:"free_memory"`
-	Labels              map[string]string     `json:"labels"`
-	ModelInstances      []*ModelInstanceState `json:"model_instances"`
-	SchedulingDecisions []string              `json:"scheduling_decisions"`
-	Version             string                `json:"version"`
-	Slots               []RunnerActualSlot    `json:"slots"`
+	// Created       time.Time   `json:"created"`
+	// Updated       time.Time   `json:"updated"`
+	// Scheduled     time.Time   `json:"scheduled"`
+	// Completed     time.Time   `json:"completed"`
+	// SessionID     string      `json:"session_id"`
+	// Name          string      `json:"name"`
+	// InteractionID string      `json:"interaction_id"`
+	// ModelName     string      `json:"model_name"`
+	// Mode          SessionMode `json:"mode"`
+	// Type          SessionType `json:"type"`
+	// Owner         string      `json:"owner"`
+	// LoraDir       string      `json:"lora_dir,omitempty"`
+	// // this is either the prompt or the summary of the training data
+	// Summary  string `json:"summary"`
+	// Priority bool   `json:"priority"`
+	// AppID    string `json:"app_id,omitempty"`
 }
 
 type DashboardData struct {
-	DesiredSlots              []DesiredSlots              `json:"desired_slots"`
-	SessionQueue              []*SessionSummary           `json:"session_queue"`
-	Runners                   []*RunnerState              `json:"runners"`
-	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
+	Runners []*DashboardRunner `json:"runners"`
+	Queue   []*WorkloadSummary `json:"queue"`
+}
+
+type DashboardRunner struct {
+	ID          string            `json:"id"`
+	Created     time.Time         `json:"created"`
+	Updated     time.Time         `json:"updated"`
+	Version     string            `json:"version"`
+	TotalMemory uint64            `json:"total_memory"`
+	FreeMemory  int64             `json:"free_memory"`
+	Labels      map[string]string `json:"labels"`
+	Slots       []*RunnerSlot     `json:"slots"`
 }
 
 type GlobalSchedulingDecision struct {
@@ -1515,6 +1515,7 @@ type RunnerActualSlot struct {
 type RunnerActualSlotAttributes struct {
 	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
 	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
+	RunnerSlot       *RunnerSlot     `json:"runner_slot,omitempty"`
 }
 
 type RunAPIActionRequest struct {
@@ -1527,6 +1528,22 @@ type RunAPIActionRequest struct {
 type RunAPIActionResponse struct {
 	Response string `json:"response"` // Raw response from the API
 	Error    string `json:"error"`
+}
+
+type RunnerAttributes struct {
+	TotalMemory uint64       `json:"total_memory"`
+	FreeMemory  uint64       `json:"free_memory"`
+	Version     string       `json:"version"`
+	Slots       []RunnerSlot `json:"slots"`
+}
+
+type Runner struct {
+	ID         string           `json:"id"`
+	Attributes RunnerAttributes `json:"attributes"`
+}
+
+type GetRunnersResponse struct {
+	Runners []Runner `json:"runners"`
 }
 
 // Add this struct to represent the license info we want to send to the frontend

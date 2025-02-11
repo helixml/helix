@@ -50,6 +50,8 @@ type FileHandler struct {
 	eventHandler      func(res *types.RunnerTaskResponse)
 }
 
+// TODO(Phil): We should flip this around. The runner should host a file server and the control
+// plane should download files from it. Leaving this here for now as it works.
 func NewFileHandler(
 	runnerID string,
 	clientOptions system.ClientOptions,
@@ -60,38 +62,6 @@ func NewFileHandler(
 		httpClientOptions: clientOptions,
 		eventHandler:      eventHandler,
 	}
-}
-
-func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
-	log.Info().
-		Msgf("🟢 upload worker response: %+v", res)
-
-	if len(res.Files) > 0 {
-		uploadedFiles, err := handler.uploadFiles(res.SessionID, res.Files, types.FilestoreResultsDir)
-		if err != nil {
-			return nil, err
-		}
-		res.Files = uploadedFiles
-	}
-
-	if res.LoraDir != "" {
-		// we add the interaction ID into the Lora path so we can keep mutiple Loras for one session
-		// this means that we can "re-train" (i.e. add more files and produce a new lora)
-		// by keeping each actual lora dir at one level lower inside the interaction
-		// we keep a history of re-trainings and can always go back to a previous step
-		// (because the previous lora dir is still there)
-		// the api server will "hoist" this folder to the session.LoraDir which is the "live" LoraDir
-		uploadedLoraDir, err := handler.uploadFolder(res.SessionID, res.LoraDir, path.Join(types.FilestoreLoraDir, res.InteractionID))
-		if err != nil {
-			return nil, err
-		}
-		res.LoraDir = uploadedLoraDir
-	}
-
-	log.Info().
-		Msgf("🟢 worker response uploaded: %+v", res)
-
-	return res, nil
 }
 
 func (handler *FileHandler) downloadFile(sessionID string, remotePath string, localPath string) error {

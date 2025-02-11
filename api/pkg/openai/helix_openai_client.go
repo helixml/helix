@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/model"
@@ -89,20 +90,22 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 
 	// Subscribe to the runner response from the runner
 	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(vals.OwnerID, requestID), func(payload []byte) error {
-		var runnerResp types.RunnerLLMInferenceResponse
+		log.Debug().Str("request_id", requestID).Msg("received runner response, closing channel")
+		defer close(doneCh)
+
+		var runnerResp types.RunnerNatsReplyResponse
 		err := json.Unmarshal(payload, &runnerResp)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
 
-		defer close(doneCh)
-
-		if runnerResp.Response != nil {
-			resp = *runnerResp.Response
-		}
-
 		if runnerResp.Error != "" {
 			respError = fmt.Errorf("runner error: %s", runnerResp.Error)
+		}
+
+		err = json.Unmarshal(runnerResp.Response, &resp)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling runner response: %w", err)
 		}
 
 		return nil
@@ -134,29 +137,13 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 	select {
 	case <-doneCh:
 	case <-requestCtx.Done():
-		// If this happens, the request has been cancelled, release the allocation
-		err := c.scheduler.Release(requestID)
-		if err != nil {
-			log.Error().Err(err).Msg("error releasing allocation")
-		}
 		return openai.ChatCompletionResponse{}, fmt.Errorf("request was cancelled")
 	case <-ctx.Done():
 		// If this happens, we have timed out
-		log.Warn().
-			Str("request_id", requestID).
-			Msg("timeout waiting for runner response, releasing allocation")
-		err := c.scheduler.Release(requestID)
-		if err != nil {
-			log.Error().Err(err).Msg("error releasing allocation")
-		}
 		return openai.ChatCompletionResponse{}, fmt.Errorf("timeout waiting for runner response")
 	}
 
 	if respError != nil {
-		err := c.scheduler.Release(requestID)
-		if err != nil {
-			log.Error().Err(err).Msg("error releasing allocation")
-		}
 		return openai.ChatCompletionResponse{}, respError
 	}
 
@@ -200,7 +187,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 
 	// Subscribe to the runner response from the runner
 	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(vals.OwnerID, requestID), func(payload []byte) error {
-		var runnerResp types.RunnerLLMInferenceResponse
+		var runnerResp types.RunnerNatsReplyResponse
 		err := json.Unmarshal(payload, &runnerResp)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling runner response: %w", err)
@@ -218,19 +205,29 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 			firstRun = false
 		}
 
-		if runnerResp.StreamResponse != nil {
-			bts, err := json.Marshal(runnerResp.StreamResponse)
-			if err != nil {
-				return fmt.Errorf("error marshalling stream response: %w", err)
-			}
+		// Remove the SSE "data: " prefix from the response
+		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
 
-			err = writeChunk(pw, bts)
-			if err != nil {
-				return fmt.Errorf("error writing to stream: %w", err)
-			}
+		// Parse the streaming response object to make sure it is valid
+		var streamResp openai.ChatCompletionStreamResponse
+		err = json.Unmarshal([]byte(response), &streamResp)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling stream response: %w", err)
 		}
 
-		if runnerResp.Done || runnerResp.Error != "" {
+		// Now write the chunk to the stream
+		bts, err := json.Marshal(streamResp)
+		if err != nil {
+			return fmt.Errorf("error marshalling stream response: %w", err)
+		}
+
+		err = writeChunk(pw, bts)
+		if err != nil {
+			return fmt.Errorf("error writing to stream: %w", err)
+		}
+
+		// If it's done, close the stream
+		if streamResp.Choices[0].FinishReason != "" || respError != nil {
 			close(doneCh)
 
 			// Ensure the buffer gets EOF so it stops reading

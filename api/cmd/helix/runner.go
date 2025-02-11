@@ -43,6 +43,10 @@ func NewRunnerOptions() *RunnerOptions {
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
 			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
+			WebServer: runner.WebServer{
+				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
+				Port: getDefaultServeOptionInt("SERVER_PORT", 80),
+			},
 		},
 		Janitor: config.Janitor{
 			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),
@@ -84,6 +88,16 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.APIToken, "api-token", allOptions.Runner.APIToken,
 		`The auth token for this runner`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.WebServer.Host, "server-host", allOptions.Runner.WebServer.Host,
+		`The host to bind the api server to.`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.WebServer.Port, "server-port", allOptions.Runner.WebServer.Port,
+		`The port to bind the api server to.`,
 	)
 
 	runnerCmd.PersistentFlags().Uint64Var(
@@ -288,12 +302,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return err
 	}
 
-	err = runnerController.Initialize(ctx)
-	if err != nil {
-		return err
-	}
-
-	go runnerController.Run()
+	go runnerController.Run(ctx)
 
 	<-ctx.Done()
 	return nil
