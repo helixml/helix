@@ -87,6 +87,8 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			embedding.Embedding512 = vector
 		case types.Dimensions1024:
 			embedding.Embedding1024 = vector
+		case types.Dimensions1536:
+			embedding.Embedding1536 = vector
 		case types.Dimensions3584:
 			embedding.Embedding3584 = vector
 		}
@@ -131,6 +133,8 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 		query.Embedding512 = pgvector.NewVector(generated.Data[0].Embedding)
 	case types.Dimensions1024:
 		query.Embedding1024 = pgvector.NewVector(generated.Data[0].Embedding)
+	case types.Dimensions1536:
+		query.Embedding1536 = pgvector.NewVector(generated.Data[0].Embedding)
 	case types.Dimensions3584:
 		query.Embedding3584 = pgvector.NewVector(generated.Data[0].Embedding)
 	}
@@ -177,6 +181,8 @@ func getDimensions(model string) (types.Dimensions, error) {
 		return types.Dimensions512, nil
 	case "thenlper/gte-large":
 		return types.Dimensions1024, nil
+	case "text-embedding-3-small":
+		return types.Dimensions1536, nil
 	case "Alibaba-NLP/gte-Qwen2-7B-instruct":
 		return types.Dimensions3584, nil
 	}
