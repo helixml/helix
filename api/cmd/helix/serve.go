@@ -185,9 +185,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	cfg.Store.PGVectorEnabled = cfg.RAG.PGVector.Enabled
-
-	store, err := store.NewPostgresStore(cfg.Store)
+	postgresStore, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return err
 	}
@@ -273,7 +271,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 				Error:   err.Error(),
 				Message: "Error scheduling session",
 			})
-			_, err = store.UpdateSession(ctx, *errSession)
+			_, err = postgresStore.UpdateSession(ctx, *errSession)
 			if err != nil {
 				log.Error().Err(err).Msg("error updating session")
 			}
@@ -288,7 +286,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	if !cfg.DisableLLMCallLogging {
 		logStores = []logger.LogStore{
-			store,
+			postgresStore,
 			// TODO: bigquery
 		}
 	}
@@ -324,7 +322,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		})
 		log.Info().Msgf("Using Llamaindex for RAG")
 	case config.RAGProviderPGVector:
-		ragClient = rag.NewPGVector(cfg, providerManager, store)
+		pgVectorStore, err := store.NewPGVectorStore(cfg)
+		if err != nil {
+			return fmt.Errorf("failed to create PGVector store: %v", err)
+		}
+
+		ragClient = rag.NewPGVector(cfg, providerManager, pgVectorStore)
 		log.Info().Msgf("Using PGVector for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
@@ -334,7 +337,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	controllerOptions := controller.Options{
 		Config:               cfg,
-		Store:                store,
+		Store:                postgresStore,
 		PubSub:               ps,
 		RAG:                  ragClient,
 		Extractor:            extractor,
@@ -365,7 +368,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient, browserPool)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)
 	if err != nil {
 		return err
 	}
@@ -376,7 +379,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
-	trigger := trigger.NewTriggerManager(cfg, store, appController)
+	trigger := trigger.NewTriggerManager(cfg, postgresStore, appController)
 	// Start integrations
 	go trigger.Start(ctx)
 
@@ -387,7 +390,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
+	server, err := server.NewServer(cfg, postgresStore, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
 	if err != nil {
 		return err
 	}
