@@ -210,7 +210,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
 			Name:          "Llama 3.3 70B",
-			Memory:        GB * 46,
+			Memory:        GB * 44,
 			ContextLength: 16384,
 			Description:   "Smarter but slower, from Meta - 4bit quantized, 16K context",
 			Hide:          false,
