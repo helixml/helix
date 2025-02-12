@@ -355,8 +355,7 @@ func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, erro
 
 	status, err := cache.Get()
 	if err != nil {
-		log.Error().Err(err).Msg("error getting status from cache")
-		return &types.RunnerStatus{}, err
+		return nil, err
 	}
 	return &status, nil
 }
@@ -500,8 +499,7 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 
 	slots, err := cache.Get()
 	if err != nil {
-		log.Error().Err(err).Msg("error getting slots from cache")
-		return &types.ListRunnerSlotsResponse{}, err
+		return nil, err
 	}
 	return &slots, nil
 }

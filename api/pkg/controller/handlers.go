@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.UserStatus, error) {
@@ -105,9 +106,11 @@ func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, 
 	}
 	runners := make([]*types.DashboardRunner, 0, len(runnerStatuses))
 	for _, runnerStatus := range runnerStatuses {
-		runnerSlots, err := c.scheduler.RunnerSlots(runnerStatus.ID)
+		var runnerSlots []*types.RunnerSlot
+		runnerSlots, err = c.scheduler.RunnerSlots(runnerStatus.ID)
 		if err != nil {
-			return nil, err
+			log.Warn().Err(err).Str("runner_id", runnerStatus.ID).Msg("error getting runner slots, this shouldn't happen, please investigate this runner")
+			runnerSlots = []*types.RunnerSlot{}
 		}
 		runners = append(runners, &types.DashboardRunner{
 			ID:          runnerStatus.ID,

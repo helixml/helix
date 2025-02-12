@@ -182,15 +182,20 @@ func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
 }
 
 func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
+	var err error
 	// Get a current list of runners
 	runners := s.controller.RunnerIDs()
 
 	// Get the current state of each runner
 	runnerStates := make([]*types.RunnerStatus, 0, len(runners))
 	for _, runnerID := range runners {
-		runnerStatus, err := s.controller.GetStatus(runnerID)
+		var runnerStatus *types.RunnerStatus
+		runnerStatus, err = s.controller.GetStatus(runnerID)
 		if err != nil {
-			return nil, err
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("error getting runner status, this shouldn't happen, please investigate this runner")
+			runnerStatus = &types.RunnerStatus{
+				ID: runnerID,
+			}
 		}
 		runnerStates = append(runnerStates, runnerStatus)
 	}
@@ -450,7 +455,8 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("unlocked slot mutex")
 
 			if err != nil {
-				log.Error().Err(err).Msg("failed to create new slot")
+				log.Error().Err(err).Msg("failed to create new slot, passing the job back on to the queue")
+				s.updateQueue([]*Workload{pending.Work})
 			}
 			close(pending.Created) // Signal that creation attempt is complete
 		}
