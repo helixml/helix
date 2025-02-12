@@ -85,12 +85,11 @@ services:
   # why run this as a different server?
   # because we want the quick path to something working without having to create a hard dependency on pgvector
   # being installed in our main database
-  # also - we would need to migrate our existing postgres 12 DB -> 15, which is a bit of a pain
+  # also - we would need to migrate our existing postgres 12 DB -> 17, which is a bit of a pain
   # TODO: figure out how to ship the pgvector extension with our main database
   # so we don't need to run what is essentially 2 versions of postgres
   pgvector:
-    profiles: [full]
-    image: ankane/pgvector
+    image: pgvector/pgvector:pg17
     restart: always
     ports:
       - 5433:5432
@@ -99,7 +98,7 @@ services:
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
   keycloak:
     image: quay.io/keycloak/keycloak:23.0
     restart: always
