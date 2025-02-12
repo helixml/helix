@@ -345,30 +345,24 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
-	status, err := c.fetchStatus(runnerID)
+	cache, loaded := c.statusCache.LoadOrStore(runnerID, NewCache(
+		c.ctx,
+		func() (types.RunnerStatus, error) {
+			return c.fetchStatus(runnerID)
+		},
+		CacheConfig{
+			updateInterval: cacheUpdateInterval,
+		},
+	))
+	if !loaded {
+		log.Trace().Str("runner_id", runnerID).Msg("created new status cache")
+	}
+
+	status, err := cache.Get()
 	if err != nil {
 		return nil, err
 	}
 	return &status, nil
-
-	// cache, loaded := c.statusCache.LoadOrStore(runnerID, NewCache(
-	// 	c.ctx,
-	// 	func() (types.RunnerStatus, error) {
-	// 		return c.fetchStatus(runnerID)
-	// 	},
-	// 	CacheConfig{
-	// 		updateInterval: cacheUpdateInterval,
-	// 	},
-	// ))
-	// if !loaded {
-	// 	log.Trace().Str("runner_id", runnerID).Msg("created new status cache")
-	// }
-
-	// status, err := cache.Get()
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return &status, nil
 }
 
 func (c *RunnerController) GetHealthz(runnerID string) error {
