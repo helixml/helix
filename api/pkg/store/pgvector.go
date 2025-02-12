@@ -85,7 +85,8 @@ func (s *PGVectorStore) autoMigratePGVector() error {
 		return fmt.Errorf("failed to create embedding1536 index: %w", err)
 	}
 
-	// Note: column cannot have more than 2000 dimensions for hnsw index hence skipping index creation for 3584
+	// Note: column cannot have more than 2000 dimensions for
+	// hnsw index hence skipping index creation for 3584
 
 	return nil
 }
