@@ -65,6 +65,14 @@ func ErrorLoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func DurationLoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Debug().Str("method", r.Method).Str("path", r.URL.Path).Dur("duration", time.Since(start)).Msg("request")
+	})
+}
+
 type flushResponseWriter struct {
 	*LoggingResponseWriter
 }
