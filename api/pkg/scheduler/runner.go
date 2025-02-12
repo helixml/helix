@@ -88,6 +88,7 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 			// Clean up slots cache
 			c.slotsCache.Range(func(runnerID string, cache *Cache[types.ListRunnerSlotsResponse]) bool {
 				if !slices.Contains(c.runners, runnerID) {
+					log.Trace().Str("runner_id", runnerID).Msg("closing slots cache")
 					cache.Close()
 					c.slotsCache.Delete(runnerID)
 				}
@@ -97,6 +98,7 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 			// Clean up status cache
 			c.statusCache.Range(func(runnerID string, cache *Cache[types.RunnerStatus]) bool {
 				if !slices.Contains(c.runners, runnerID) {
+					log.Trace().Str("runner_id", runnerID).Msg("closing status cache")
 					cache.Close()
 					c.statusCache.Delete(runnerID)
 				}
@@ -343,7 +345,7 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
-	cache, _ := c.statusCache.LoadOrStore(runnerID, NewCache(
+	cache, loaded := c.statusCache.LoadOrStore(runnerID, NewCache(
 		c.ctx,
 		func() (types.RunnerStatus, error) {
 			return c.fetchStatus(runnerID)
@@ -352,6 +354,9 @@ func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, erro
 			updateInterval: cacheUpdateInterval,
 		},
 	))
+	if !loaded {
+		log.Trace().Str("runner_id", runnerID).Msg("created new status cache")
+	}
 
 	status, err := cache.Get()
 	if err != nil {
@@ -486,7 +491,7 @@ func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, err
 }
 
 func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
-	cache, _ := c.slotsCache.LoadOrStore(runnerID, NewCache(
+	cache, loaded := c.slotsCache.LoadOrStore(runnerID, NewCache(
 		c.ctx,
 		func() (types.ListRunnerSlotsResponse, error) {
 			return c.fetchSlots(runnerID)
@@ -495,6 +500,9 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 			updateInterval: cacheUpdateInterval,
 		},
 	))
+	if !loaded {
+		log.Trace().Str("runner_id", runnerID).Msg("created new slots cache")
+	}
 
 	slots, err := cache.Get()
 	if err != nil {

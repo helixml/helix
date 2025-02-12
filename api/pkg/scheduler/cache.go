@@ -5,8 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 type CacheValue[T any] struct {
@@ -28,7 +26,6 @@ type Cache[T any] struct {
 }
 
 func NewCache[T any](ctx context.Context, fetch func() (T, error), config CacheConfig) *Cache[T] {
-	log.Trace().Str("update_interval", config.updateInterval.String()).Msg("creating cache")
 	c := &Cache[T]{
 		fetch:  fetch,
 		config: config,
