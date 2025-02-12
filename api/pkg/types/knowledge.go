@@ -273,13 +273,13 @@ type KnowledgeEmbeddingItem struct {
 	DocumentGroupID string `gorm:"index"`
 	DocumentID      string `gorm:"index"`
 	Source          string
-	Embedding384    pgvector.Vector `gorm:"type:vector(384)"`  // For 384 dimensions ("gte-small")
-	Embedding512    pgvector.Vector `gorm:"type:vector(512)"`  // For 512 dimensions ("gte-medium")
-	Embedding1024   pgvector.Vector `gorm:"type:vector(1024)"` // For 1024 dimensions ("gte-large")
-	Embedding1536   pgvector.Vector `gorm:"type:vector(1536)"` // For 1536 dimensions ("gte-small")
-	Embedding3584   pgvector.Vector `gorm:"type:vector(3584)"` // For 3584 dimensions ("gte-small")
-	Content         string          // Content of the knowledge
-	ContentOffset   int             // Offset of the content in the knowledge
+	Embedding384    *pgvector.Vector `gorm:"type:vector(384)"`  // For 384 dimensions ("gte-small")
+	Embedding512    *pgvector.Vector `gorm:"type:vector(512)"`  // For 512 dimensions ("gte-medium")
+	Embedding1024   *pgvector.Vector `gorm:"type:vector(1024)"` // For 1024 dimensions ("gte-large")
+	Embedding1536   *pgvector.Vector `gorm:"type:vector(1536)"` // For 1536 dimensions ("gte-small")
+	Embedding3584   *pgvector.Vector `gorm:"type:vector(3584)"` // For 3584 dimensions ("gte-small")
+	Content         string           // Content of the knowledge
+	ContentOffset   int              // Offset of the content in the knowledge
 }
 
 type Dimensions int
