@@ -43,7 +43,7 @@ func (suite *PGVectorTestSuite) SetupTest() {
 	suite.mockClient = openai.NewMockClient(ctrl)
 	cfg := &config.ServerConfig{}
 	cfg.RAG.PGVector.EmbeddingsModel = "thenlper/gte-small"
-	cfg.Embeddings.Provider = "vllm"
+	cfg.RAG.PGVector.Provider = "vllm"
 
 	suite.pg = NewPGVector(cfg, suite.mockProvider, suite.mockEmbeddingsStore)
 }

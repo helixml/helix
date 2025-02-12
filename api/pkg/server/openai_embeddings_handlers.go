@@ -44,7 +44,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 	}
 
 	client, err := s.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
-		Provider: s.Cfg.Embeddings.Provider,
+		Provider: s.Cfg.RAG.PGVector.Provider,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("error getting client")
