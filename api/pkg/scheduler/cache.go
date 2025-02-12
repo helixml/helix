@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,8 +15,6 @@ type CacheValue[T any] struct {
 
 type CacheConfig struct {
 	updateInterval time.Duration
-	maxRetries     int
-	retryDelay     time.Duration
 }
 
 type Cache[T any] struct {
@@ -26,25 +25,25 @@ type Cache[T any] struct {
 	done   chan struct{}
 }
 
-func NewCache[T any](fetch func() (T, error), config CacheConfig) *Cache[T] {
+func NewCache[T any](ctx context.Context, fetch func() (T, error), config CacheConfig) *Cache[T] {
 	c := &Cache[T]{
 		fetch:  fetch,
 		config: config,
 		done:   make(chan struct{}),
 	}
 
-	go c.backgroundUpdate()
+	go c.backgroundUpdate(ctx)
 	return c
 }
 
-func (c *Cache[T]) backgroundUpdate() {
-	ticker := time.NewTicker(c.config.updateInterval)
-	defer ticker.Stop()
-
+func (c *Cache[T]) backgroundUpdate(ctx context.Context) {
 	for {
 		select {
-		case <-ticker.C:
+		case <-time.After(c.config.updateInterval):
 			c.update()
+		case <-ctx.Done():
+			c.Close()
+			return
 		case <-c.done:
 			return
 		}

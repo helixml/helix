@@ -24,6 +24,7 @@ import (
 const (
 	submitChatCompletionRequestTimeout = 10 * time.Second
 	defaultRequestTimeout              = 10 * time.Second
+	cacheUpdateInterval                = 5 * time.Second
 )
 
 type RunnerController struct {
@@ -79,14 +80,11 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 }
 
 func (c *RunnerController) reconcileCaches(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-time.After(30 * time.Second):
 			// Clean up slots cache
 			c.slotsCache.Range(func(runnerID string, cache *Cache[types.ListRunnerSlotsResponse]) bool {
 				if !slices.Contains(c.runners, runnerID) {
@@ -346,13 +344,12 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
 	cache, _ := c.statusCache.LoadOrStore(runnerID, NewCache(
+		c.ctx,
 		func() (types.RunnerStatus, error) {
 			return c.fetchStatus(runnerID)
 		},
 		CacheConfig{
-			updateInterval: 5 * time.Second,
-			maxRetries:     3,
-			retryDelay:     time.Second,
+			updateInterval: cacheUpdateInterval,
 		},
 	))
 
@@ -490,13 +487,12 @@ func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, err
 
 func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
 	cache, _ := c.slotsCache.LoadOrStore(runnerID, NewCache(
+		c.ctx,
 		func() (types.ListRunnerSlotsResponse, error) {
 			return c.fetchSlots(runnerID)
 		},
 		CacheConfig{
-			updateInterval: 5 * time.Second,
-			maxRetries:     3,
-			retryDelay:     time.Second,
+			updateInterval: cacheUpdateInterval,
 		},
 	))
 
