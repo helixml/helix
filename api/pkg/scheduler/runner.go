@@ -16,7 +16,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/nats-io/nats.go"
-	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -33,8 +32,8 @@ type RunnerController struct {
 	ps          pubsub.PubSub
 	ctx         context.Context
 	fs          filestore.FileStore
-	slotsCache  *xsync.MapOf[string, *Cache[types.ListRunnerSlotsResponse]]
-	statusCache *xsync.MapOf[string, *Cache[types.RunnerStatus]]
+	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache *LockingRunnerMap[types.RunnerStatus]
 }
 
 type RunnerControllerConfig struct {
@@ -49,8 +48,8 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		fs:          cfg.FS,
 		runners:     []string{},
 		mu:          &sync.RWMutex{},
-		slotsCache:  xsync.NewMapOf[string, *Cache[types.ListRunnerSlotsResponse]](),
-		statusCache: xsync.NewMapOf[string, *Cache[types.RunnerStatus]](),
+		slotsCache:  NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -345,39 +344,11 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
-	// First try to just load
-	if cache, ok := c.statusCache.Load(runnerID); ok {
-		status, err := cache.Get()
-		if err != nil {
-			return nil, err
-		}
-		return &status, nil
-	}
-
-	// If not found, create under lock to ensure only one cache is created
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Check again in case another goroutine created it while we were waiting
-	if cache, ok := c.statusCache.Load(runnerID); ok {
-		status, err := cache.Get()
-		if err != nil {
-			return nil, err
-		}
-		return &status, nil
-	}
-
-	// Create new cache
-	cache := NewCache(
-		c.ctx,
-		func() (types.RunnerStatus, error) {
-			return c.fetchStatus(runnerID)
-		},
-		CacheConfig{
-			updateInterval: cacheUpdateInterval,
-		},
-	)
-	c.statusCache.Store(runnerID, cache)
+	cache := c.statusCache.GetOrCreateCache(c.ctx, runnerID, func() (types.RunnerStatus, error) {
+		return c.fetchStatus(runnerID)
+	}, CacheConfig{
+		updateInterval: cacheUpdateInterval,
+	})
 
 	status, err := cache.Get()
 	if err != nil {

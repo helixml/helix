@@ -7,6 +7,38 @@ import (
 	"time"
 )
 
+type LockingRunnerMap[T any] struct {
+	mu *sync.Mutex
+	m  map[string]*Cache[T]
+}
+
+func NewLockingRunnerMap[T any]() *LockingRunnerMap[T] {
+	return &LockingRunnerMap[T]{
+		mu: &sync.Mutex{},
+		m:  make(map[string]*Cache[T]),
+	}
+}
+
+func (m *LockingRunnerMap[T]) GetOrCreateCache(ctx context.Context, key string, fetch func() (T, error), config CacheConfig) *Cache[T] {
+	// Check if the cache already exists
+	if cache, ok := m.m[key]; ok {
+		return cache
+	}
+
+	// If it doesn't exist, lock the map and create it
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double check that another lock hasn't just created it
+	if cache, ok := m.m[key]; ok {
+		return cache
+	}
+
+	cache := NewCache(ctx, fetch, config)
+	m.m[key] = cache
+	return cache
+}
+
 type CacheValue[T any] struct {
 	data      T
 	timestamp time.Time
