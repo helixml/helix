@@ -446,7 +446,7 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			s.slotsMtx.Lock()
 			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
 			s.slotsMtx.Unlock()
-			withWorkContext(&log.Logger, pending.Work).Trace().Msg("unlocked slot mutex")
+			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
 
 			if err != nil {
 				retry, err := ErrorHandlingStrategy(err, pending.Work)
@@ -546,7 +546,7 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 		RunnerID: bestRunnerID,
 		Created:  make(chan struct{}),
 	}
-	withWorkContext(&log.Logger, work).Debug().Interface("pending", pending).Msg("pending")
+	withWorkContext(&log.Logger, work).Debug().Str("runner_id", bestRunnerID).Msg("adding pending slot creation request")
 	// Submit the pending slot for creation
 	select {
 	case s.pendingSlots <- pending:
