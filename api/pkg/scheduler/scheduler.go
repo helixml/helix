@@ -382,23 +382,22 @@ func (s *Scheduler) processQueueOnce(ctx context.Context) {
 	}
 	log.Trace().Int("num_work_items", len(workItems)).Msg("processing work items")
 
-	unscheduledWork := make([]*Workload, 0)
 	for _, work := range workItems {
-		err := s.start(ctx, work)
-		if err != nil {
-			retry, err := ErrorHandlingStrategy(err, work)
+		go func() {
+			withWorkContext(&log.Logger, work).Debug().Msg("starting work item")
+			err := s.start(ctx, work)
+			if err != nil {
+				retry, err := ErrorHandlingStrategy(err, work)
 
-			if retry {
-				unscheduledWork = append(unscheduledWork, work)
-				continue
+				if retry {
+					s.addWorkItem(work, false)
+					return
+				}
+				s.onSchedulingErr(work, err)
 			}
-
-			s.onSchedulingErr(work, err)
-		}
+			withWorkContext(&log.Logger, work).Debug().Msg("finished work item")
+		}()
 	}
-
-	// Update queue with only unscheduled items
-	s.updateQueue(unscheduledWork)
 }
 
 // getWorkItems safely retrieves and clears the current queue
