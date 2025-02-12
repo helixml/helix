@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +17,7 @@ import (
 )
 
 const (
-	pendingSlotsBufferSize    = 2 // The number of slot creation requests to buffer
+	pendingSlotsBufferSize    = 1 // The number of slot creation requests to buffer
 	runnerReconcileInterval   = 5 * time.Second
 	activityReconcileInterval = 100 * time.Millisecond
 	queueReconcileInterval    = 100 * time.Millisecond
@@ -45,7 +44,6 @@ type Scheduler struct {
 	controller      *RunnerController
 	queue           *WorkQueue
 	onSchedulingErr func(work *Workload, err error)
-	slotsMtx        *sync.Mutex // This is used to stop the slot reconciler from running until new slots are created
 	slots           *xsync.MapOf[uuid.UUID, *Slot]
 	modelStaleFunc  TimeoutFunc       // Function to check if models are stale
 	slotTimeoutFunc TimeoutFunc       // Function to check if slots have timed out due to error
@@ -86,7 +84,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		controller:      params.RunnerController,
 		queue:           NewWorkQueue(queueSize),
 		onSchedulingErr: params.OnSchedulingErr,
-		slotsMtx:        &sync.Mutex{},
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  NewTimeoutFunc(modelTTL),
 		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
@@ -267,9 +264,6 @@ func (s *Scheduler) reconcileRunnersOnce() {
 
 // reconcileSlotsOnce reconciles slots once.
 func (s *Scheduler) reconcileSlotsOnce() {
-	s.slotsMtx.Lock()
-	defer s.slotsMtx.Unlock()
-
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
 
@@ -336,6 +330,7 @@ func (s *Scheduler) reconcileSlotsOnce() {
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
+	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
 	// For each requirement, ensure we have enough slots for that work right now
 	for _, req := range requiredSlots {
 		// Check if we have enough slots for this work right now
@@ -369,7 +364,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Delete any stale slots on this runner if required
 		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload.Model().GetMemoryRequirements(req.ExampleWorkload.Mode()))
 		if err != nil {
-			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to delete stale slots")
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to delete stale slots")
 			continue
 		}
 
@@ -382,7 +377,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 
 		select {
 		case s.pendingSlots <- pending:
-			log.Debug().Str("runner_id", runnerID).Msg("queued slot creation")
+			log.Debug().Str("runner_id", runnerID).Str("model_name", req.ExampleWorkload.ModelName().String()).Msg("queued slot creation")
 		default:
 			log.Debug().Msg("pending slots channel full, skipping...")
 			return
@@ -426,9 +421,7 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			// Create an allocated slot, lock the reconciler to prevent it from running until the slot
 			// is created
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("taking slot mutex")
-			s.slotsMtx.Lock()
 			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
-			s.slotsMtx.Unlock()
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
 			if err != nil {
 				withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, calling error handler")
@@ -514,25 +507,32 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64) error {
+	totalMem := s.controller.TotalMemory(runnerID)
 	for {
 		var allSlots []*Slot
+		allocatedMem := uint64(0)
 		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 			if slot.RunnerID == runnerID {
 				allSlots = append(allSlots, slot)
+				allocatedMem += slot.Memory()
 			}
 			return true
 		})
 		staleSlots := Filter(allSlots, func(slot *Slot) bool {
 			return slot.IsStale()
 		})
+		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
+		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
 		// If there is enough free space on the runner, break out of the loop.
-		if requiredMem <= s.controller.FreeMemory(runnerID) {
+		if freeMem > 0 {
 			break
 		}
+
 		// Sort the slots by last activity time
 		slices.SortFunc(staleSlots, func(i, j *Slot) int {
 			return int(i.LastActivityTime.Sub(j.LastActivityTime))
 		})
+		log.Trace().Interface("stale_slots", staleSlots).Msg("stale slots")
 		if len(staleSlots) == 0 {
 			return ErrRunnersAreFull
 		}
