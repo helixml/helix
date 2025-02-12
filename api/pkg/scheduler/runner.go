@@ -89,6 +89,11 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 					c.statusCache.DeleteCache(runnerID)
 				}
 			}
+			for _, runnerID := range c.slotsCache.Keys() {
+				if !slices.Contains(c.runners, runnerID) {
+					c.slotsCache.DeleteCache(runnerID)
+				}
+			}
 		}
 	}
 }
@@ -469,29 +474,17 @@ func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, err
 }
 
 func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
-	slots, err := c.fetchSlots(runnerID)
+	cache := c.slotsCache.GetOrCreateCache(c.ctx, runnerID, func() (types.ListRunnerSlotsResponse, error) {
+		return c.fetchSlots(runnerID)
+	}, CacheConfig{
+		updateInterval: cacheUpdateInterval,
+	})
+
+	slots, err := cache.Get()
 	if err != nil {
 		return nil, err
 	}
 	return &slots, nil
-	// cache, loaded := c.slotsCache.LoadOrStore(runnerID, NewCache(
-	// 	c.ctx,
-	// 	func() (types.ListRunnerSlotsResponse, error) {
-	// 		return c.fetchSlots(runnerID)
-	// 	},
-	// 	CacheConfig{
-	// 		updateInterval: cacheUpdateInterval,
-	// 	},
-	// ))
-	// if !loaded {
-	// 	log.Trace().Str("runner_id", runnerID).Msg("created new slots cache")
-	// }
-
-	// slots, err := cache.Get()
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return &slots, nil
 }
 
 func (c *RunnerController) fetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {

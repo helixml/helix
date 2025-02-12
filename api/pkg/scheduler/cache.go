@@ -52,7 +52,10 @@ func (m *LockingRunnerMap[T]) Keys() []string {
 func (m *LockingRunnerMap[T]) DeleteCache(key string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.m, key)
+	if cache, ok := m.m[key]; ok {
+		cache.Close()
+		delete(m.m, key)
+	}
 }
 
 type CacheValue[T any] struct {
