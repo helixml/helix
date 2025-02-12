@@ -599,10 +599,19 @@ func (s *Scheduler) findBestRunner(work *Workload) (string, error) {
 		return "", ErrNoRunnersAvailable
 	}
 
-	// Reach out to the remaining runners and get their current load
+	// Calculate the scheduled load on each runner according to their slots
+	// Note: We discussed using real free memory by pinging the runner, but decided to use the
+	// control-plane's view of free memory to avoid the overhead of pinging the runner. This also
+	// has the added benefit of being able to over-commit memory slightly.
 	runnerLoad := make(map[string]uint64)
 	for _, runnerID := range filteredRunners {
-		runnerLoad[runnerID] = s.controller.FreeMemory(runnerID)
+		// Sum up all scheduled slots on the runner
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.RunnerID == runnerID {
+				runnerLoad[runnerID] += slot.Memory()
+			}
+			return true
+		})
 	}
 	withWorkContext(&log.Logger, work).Debug().Interface("runner_load", runnerLoad).Msg("runner load")
 
