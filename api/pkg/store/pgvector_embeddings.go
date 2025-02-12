@@ -26,12 +26,25 @@ func (s *PGVectorStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings
 		if embedding.KnowledgeID == "" {
 			return fmt.Errorf("knowledge ID is required")
 		}
+
+		err := validateEmbedding(embedding)
+		if err != nil {
+			return err
+		}
 	}
 
 	err := s.gdb.WithContext(ctx).Create(embeddings).Error
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func validateEmbedding(embedding *types.KnowledgeEmbeddingItem) error {
+	if embedding.Embedding384 == nil && embedding.Embedding512 == nil && embedding.Embedding1024 == nil && embedding.Embedding1536 == nil && embedding.Embedding3584 == nil {
+		return fmt.Errorf("no embedding provided")
+	}
+
 	return nil
 }
 
