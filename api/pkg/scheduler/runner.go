@@ -121,7 +121,7 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
 	duration := time.Since(start)
-	log.Trace().Str("runner_id", runnerID).Str("method", req.Method).Str("url", req.URL).Str("duration", duration.String()).Msg("request sent to runner")
+	log.Trace().Str("subject", pubsub.GetRunnerQueue(runnerID)).Str("runner_id", runnerID).Str("method", req.Method).Str("url", req.URL).Str("duration", duration.String()).Msg("request sent to runner")
 
 	var resp types.Response
 	if err := json.Unmarshal(response, &resp); err != nil {
