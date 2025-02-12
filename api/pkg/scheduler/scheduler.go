@@ -131,6 +131,8 @@ func (s *Scheduler) addWorkItem(work *Workload, priority bool) error {
 		return fmt.Errorf("queue is full")
 	}
 
+	withWorkContext(&log.Logger, work).Trace().Msg("adding work item to queue")
+
 	// Add with priority if requested
 	if priority {
 		s.queue = append([]*Workload{work}, s.queue...)
@@ -388,12 +390,11 @@ func (s *Scheduler) processQueueOnce(ctx context.Context) {
 			err := s.start(ctx, work)
 			if err != nil {
 				retry, err := ErrorHandlingStrategy(err, work)
-
 				if retry {
 					s.addWorkItem(work, false)
-					return
+				} else {
+					s.onSchedulingErr(work, err)
 				}
-				s.onSchedulingErr(work, err)
 			}
 			withWorkContext(&log.Logger, work).Debug().Msg("finished work item")
 		}()
