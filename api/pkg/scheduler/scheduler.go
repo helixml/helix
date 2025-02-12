@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -449,8 +450,13 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("unlocked slot mutex")
 
 			if err != nil {
-				log.Error().Err(err).Msg("failed to create new slot, passing the job back on to the queue")
-				s.updateQueue([]*Workload{pending.Work})
+				if strings.Contains(err.Error(), "not found, available models") {
+					log.Error().Err(err).Msg("runner does not have any available models, cancelling request")
+					s.onSchedulingErr(pending.Work, err)
+				} else {
+					log.Error().Err(err).Msg("failed to create new slot, passing the job back on to the queue")
+					s.updateQueue([]*Workload{pending.Work})
+				}
 			}
 			close(pending.Created) // Signal that creation attempt is complete
 		}
