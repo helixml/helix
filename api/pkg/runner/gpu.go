@@ -73,7 +73,7 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 	}
 
 	// Default to the user set max memory value
-	freeMemory := uint64(g.runnerOptions.MemoryBytes)
+	freeMemory := g.runnerOptions.MemoryBytes
 
 	switch runtime.GOOS {
 	case "linux":

@@ -22,14 +22,6 @@ func TestGPUManager(t *testing.T) {
 			},
 		},
 		{
-			name: "memory values are non-negative",
-			validate: func(t *testing.T, g *GPUManager) {
-				if free := g.GetFreeMemory(); free < 0 {
-					t.Errorf("Free memory should not be negative, got %d", free)
-				}
-			},
-		},
-		{
 			name: "free memory does not exceed total",
 			validate: func(t *testing.T, g *GPUManager) {
 				free := g.GetFreeMemory()

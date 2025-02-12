@@ -171,7 +171,7 @@ func (c *RunnerController) FreeMemory(runnerID string) uint64 {
 		log.Error().Err(err).Msg("error getting runner status")
 		return 0
 	}
-	return uint64(status.FreeMemory)
+	return status.FreeMemory
 }
 
 func (c *RunnerController) Version(runnerID string) string {
