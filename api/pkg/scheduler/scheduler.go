@@ -261,7 +261,8 @@ func (s *Scheduler) reconcileActivityOnce() {
 			return true
 		}
 		if slot.IsActive() {
-			remoteSlot, err := s.controller.GetSlot(slot.RunnerID, slotID)
+			// Get the live slot from the runner, don't use the cached copy
+			remoteSlot, err := s.controller.fetchSlot(slot.RunnerID, slotID)
 			if err != nil {
 				withSlotContext(&log.Logger, slot).Error().Err(err).Msg("failed to get slot, assuming it's finished")
 				slot.Release()
@@ -314,13 +315,14 @@ func (s *Scheduler) reconcileSlotsOnce() {
 	// Build a complete map of all actual slots across all runners
 	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
 	for _, runnerID := range runnerIDs {
-		actualSlots, err := s.controller.GetSlots(runnerID)
+		// Fetch the live slots from the runner, don't use the cached copy
+		actualSlots, err := s.controller.fetchSlots(runnerID)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get slots from runner")
 			continue
 		}
 
-		for _, slot := range actualSlots {
+		for _, slot := range actualSlots.Slots {
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
 				log.Warn().

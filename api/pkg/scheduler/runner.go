@@ -33,7 +33,6 @@ type RunnerController struct {
 	ctx         context.Context
 	fs          filestore.FileStore
 	slotsCache  *xsync.MapOf[string, *Cache[types.ListRunnerSlotsResponse]]
-	slotCache   *xsync.MapOf[string, *Cache[types.RunnerSlot]]
 	statusCache *xsync.MapOf[string, *Cache[types.RunnerStatus]]
 }
 
@@ -50,7 +49,6 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		runners:     []string{},
 		mu:          &sync.RWMutex{},
 		slotsCache:  xsync.NewMapOf[string, *Cache[types.ListRunnerSlotsResponse]](),
-		slotCache:   xsync.NewMapOf[string, *Cache[types.RunnerSlot]](),
 		statusCache: xsync.NewMapOf[string, *Cache[types.RunnerStatus]](),
 	}
 
@@ -103,15 +101,6 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 				if !slices.Contains(c.runners, runnerID) {
 					cache.Close()
 					c.statusCache.Delete(runnerID)
-				}
-				return true
-			})
-
-			// Clean up slot cache
-			c.slotCache.Range(func(runnerID string, cache *Cache[types.RunnerSlot]) bool {
-				if !slices.Contains(c.runners, runnerID) {
-					cache.Close()
-					c.slotCache.Delete(runnerID)
 				}
 				return true
 			})
@@ -350,27 +339,6 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 		return fmt.Errorf("error deleting slot: %s", resp.Body)
 	}
 	return nil
-}
-
-func (c *RunnerController) GetSlot(runnerID string, slotID uuid.UUID) (*types.RunnerSlot, error) {
-	key := fmt.Sprintf("%s:%s", runnerID, slotID.String())
-	cache, _ := c.slotCache.LoadOrStore(key, NewCache(
-		func() (types.RunnerSlot, error) {
-			return c.fetchSlot(runnerID, slotID)
-		},
-		CacheConfig{
-			updateInterval: 5 * time.Second,
-			maxRetries:     3,
-			retryDelay:     time.Second,
-		},
-	))
-
-	slot, err := cache.Get()
-	if err != nil {
-		log.Error().Err(err).Msg("error getting slot from cache")
-		return &types.RunnerSlot{}, err
-	}
-	return &slot, nil
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
