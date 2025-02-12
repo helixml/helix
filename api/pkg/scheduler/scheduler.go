@@ -389,6 +389,7 @@ func (s *Scheduler) processQueueOnce(ctx context.Context) {
 			withWorkContext(&log.Logger, work).Debug().Msg("starting work item")
 			err := s.start(ctx, work)
 			if err != nil {
+				withWorkContext(&log.Logger, work).Trace().Err(err).Msg("failed to start work item")
 				retry, err := ErrorHandlingStrategy(err, work)
 				if retry {
 					s.addWorkItem(work, false)
