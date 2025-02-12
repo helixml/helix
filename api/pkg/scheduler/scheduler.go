@@ -449,6 +449,15 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("unlocked slot mutex")
 
 			if err != nil {
+				retry, err := ErrorHandlingStrategy(err, pending.Work)
+				if retry {
+					withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, adding work item back to queue")
+					err = s.addWorkItem(pending.Work, true)
+					if err != nil {
+						withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to add work item back to queue")
+					}
+				}
+				withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, calling error handler")
 				s.onSchedulingErr(pending.Work, err)
 			}
 			close(pending.Created) // Signal that creation attempt is complete
@@ -783,7 +792,7 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *Workload) error {
 	// Create a new slot and schedule the workload.
 	slot := NewSlot(runnerID, req, s.modelStaleFunc, s.slotTimeoutFunc)
-	withWorkContext(&log.Logger, req).Info().Msg("creating new slot")
+	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("creating new slot")
 
 	err := s.controller.CreateSlot(slot)
 	if err != nil {
@@ -818,7 +827,7 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 		return fmt.Errorf("slot not ready after 120 seconds")
 	}
 
-	withWorkContext(&log.Logger, req).Info().Msg("slot created")
+	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("slot created")
 
 	// Ensure the slot is stored.
 	s.slots.Store(slot.ID, slot)
