@@ -115,10 +115,13 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 	}
 
 	// Publish the task to the "tasks" subject
+	start := time.Now()
 	response, err := c.ps.Request(ctx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
+	duration := time.Since(start)
+	log.Trace().Str("runner_id", runnerID).Str("method", req.Method).Str("url", req.URL).Str("duration", duration.String()).Msg("request sent to runner")
 
 	var resp types.Response
 	if err := json.Unmarshal(response, &resp); err != nil {
