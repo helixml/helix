@@ -345,24 +345,30 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
-	cache, loaded := c.statusCache.LoadOrStore(runnerID, NewCache(
-		c.ctx,
-		func() (types.RunnerStatus, error) {
-			return c.fetchStatus(runnerID)
-		},
-		CacheConfig{
-			updateInterval: cacheUpdateInterval,
-		},
-	))
-	if !loaded {
-		log.Trace().Str("runner_id", runnerID).Msg("created new status cache")
-	}
-
-	status, err := cache.Get()
+	status, err := c.fetchStatus(runnerID)
 	if err != nil {
 		return nil, err
 	}
 	return &status, nil
+
+	// cache, loaded := c.statusCache.LoadOrStore(runnerID, NewCache(
+	// 	c.ctx,
+	// 	func() (types.RunnerStatus, error) {
+	// 		return c.fetchStatus(runnerID)
+	// 	},
+	// 	CacheConfig{
+	// 		updateInterval: cacheUpdateInterval,
+	// 	},
+	// ))
+	// if !loaded {
+	// 	log.Trace().Str("runner_id", runnerID).Msg("created new status cache")
+	// }
+
+	// status, err := cache.Get()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return &status, nil
 }
 
 func (c *RunnerController) GetHealthz(runnerID string) error {
@@ -491,24 +497,29 @@ func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, err
 }
 
 func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
-	cache, loaded := c.slotsCache.LoadOrStore(runnerID, NewCache(
-		c.ctx,
-		func() (types.ListRunnerSlotsResponse, error) {
-			return c.fetchSlots(runnerID)
-		},
-		CacheConfig{
-			updateInterval: cacheUpdateInterval,
-		},
-	))
-	if !loaded {
-		log.Trace().Str("runner_id", runnerID).Msg("created new slots cache")
-	}
-
-	slots, err := cache.Get()
+	slots, err := c.fetchSlots(runnerID)
 	if err != nil {
 		return nil, err
 	}
 	return &slots, nil
+	// cache, loaded := c.slotsCache.LoadOrStore(runnerID, NewCache(
+	// 	c.ctx,
+	// 	func() (types.ListRunnerSlotsResponse, error) {
+	// 		return c.fetchSlots(runnerID)
+	// 	},
+	// 	CacheConfig{
+	// 		updateInterval: cacheUpdateInterval,
+	// 	},
+	// ))
+	// if !loaded {
+	// 	log.Trace().Str("runner_id", runnerID).Msg("created new slots cache")
+	// }
+
+	// slots, err := cache.Get()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return &slots, nil
 }
 
 func (c *RunnerController) fetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
