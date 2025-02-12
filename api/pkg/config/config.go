@@ -214,7 +214,6 @@ type RAG struct {
 	}
 
 	PGVector struct {
-		Enabled         bool             `envconfig:"RAG_PGVECTOR_ENABLED" default:"false" description:"Whether to use the PGVector RAG provider."`
 		EmbeddingsModel string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
 		Dimensions      types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
 	}
