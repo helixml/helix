@@ -43,9 +43,7 @@ type PendingSlot struct {
 type Scheduler struct {
 	ctx             context.Context
 	controller      *RunnerController
-	queue           []*Workload
-	queueMtx        *sync.RWMutex
-	queueSize       int
+	queue           *WorkQueue
 	onSchedulingErr func(work *Workload, err error)
 	slotsMtx        *sync.Mutex // This is used to stop the slot reconciler from running until new slots are created
 	slots           *xsync.MapOf[uuid.UUID, *Slot]
@@ -76,7 +74,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	if slotTTL == 0 {
 		slotTTL = 300 * time.Second
 	}
-	queueSize := 100
+	queueSize := 50
 	if params.QueueSize > 0 {
 		queueSize = params.QueueSize
 	}
@@ -86,9 +84,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	s := &Scheduler{
 		ctx:             ctx,
 		controller:      params.RunnerController,
-		queueSize:       queueSize,
-		queue:           make([]*Workload, 0, queueSize),
-		queueMtx:        &sync.RWMutex{},
+		queue:           NewWorkQueue(queueSize),
 		onSchedulingErr: params.OnSchedulingErr,
 		slotsMtx:        &sync.Mutex{},
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
@@ -115,51 +111,14 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	return s, nil
 }
 
-// addWorkItem safely adds a single work item to the queue
-func (s *Scheduler) addWorkItem(work *Workload, priority bool) error {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
-
-	// Check if the work is already in the queue
-	for _, w := range s.queue {
-		if w.ID() == work.ID() {
-			return fmt.Errorf("work already in queue")
-		}
-	}
-
-	if len(s.queue) >= s.queueSize {
-		return fmt.Errorf("queue is full")
-	}
-
-	withWorkContext(&log.Logger, work).Trace().Msg("adding work item to queue")
-
-	// Add with priority if requested
-	if priority {
-		s.queue = append([]*Workload{work}, s.queue...)
-	} else {
-		s.queue = append(s.queue, work)
-	}
-
-	return nil
-}
-
 func (s *Scheduler) Enqueue(work *Workload) error {
-	// Check if the work is a session and has priority
-	priority := false
-	if work.WorkloadType == WorkloadTypeSession {
-		if work.Session().Metadata.Priority {
-			priority = true
-		}
-	}
-
-	return s.addWorkItem(work, priority)
+	return s.queue.Add(work)
 }
 
 func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
-	s.queueMtx.RLock()
-	defer s.queueMtx.RUnlock()
-	queue := make([]*types.WorkloadSummary, 0, len(s.queue))
-	for _, w := range s.queue {
+	currentQueue := s.queue.Queue()
+	queue := make([]*types.WorkloadSummary, 0, len(currentQueue))
+	for _, w := range currentQueue {
 		summary := ""
 		switch w.WorkloadType {
 		case WorkloadTypeLLMInferenceRequest:
@@ -220,7 +179,7 @@ func (s *Scheduler) processQueue(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(queueReconcileInterval):
-			s.processQueueOnce(ctx)
+			s.processQueueOnce()
 		}
 	}
 }
@@ -374,64 +333,87 @@ func (s *Scheduler) reconcileSlotsOnce() {
 			}
 		}
 	}
-}
 
-func (s *Scheduler) processQueueOnce(ctx context.Context) {
-	// First, safely get work items from the queue
-	workItems := s.getWorkItems()
-	if len(workItems) == 0 {
-		return
-	}
-	log.Trace().Int("num_work_items", len(workItems)).Msg("processing work items")
-
-	for _, work := range workItems {
-		go func() {
-			withWorkContext(&log.Logger, work).Debug().Msg("starting work item")
-			err := s.start(ctx, work)
-			if err != nil {
-				withWorkContext(&log.Logger, work).Trace().Err(err).Msg("failed to start work item")
-				retry, err := ErrorHandlingStrategy(err, work)
-				if retry {
-					s.addWorkItem(work, false)
-				} else {
-					s.onSchedulingErr(work, err)
-				}
+	// Ensure new slots are created and ready to take work
+	requiredSlots := s.queue.GetRequiredSlots()
+	// For each requirement, ensure we have enough slots for that work right now
+	for _, req := range requiredSlots {
+		// Check if we have enough slots for this work right now
+		existingCount := 0
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.ModelName() == req.Model &&
+				slot.Runtime() == req.Runtime &&
+				slot.LoraDir() == req.LoraDir &&
+				!slot.IsActive() {
+				existingCount++
 			}
-			withWorkContext(&log.Logger, work).Debug().Msg("finished work item")
-		}()
+			return true
+		})
+
+		// If we need more slots, start creating them
+		slotsNeeded := req.Count - existingCount
+		if slotsNeeded > 0 {
+			s.ensureSlots(req, slotsNeeded)
+		}
 	}
 }
 
-// getWorkItems safely retrieves and clears the current queue
-func (s *Scheduler) getWorkItems() []*Workload {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
+func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
+	for i := 0; i < count; i++ {
+		// Find best runner for this slot
+		runnerID, err := s.pickBestRunner(req.ExampleWorkload)
+		if err != nil {
+			continue
+		}
 
-	if len(s.queue) == 0 {
-		return nil
+		// Delete any stale slots on this runner if required
+		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload.Model().GetMemoryRequirements(req.ExampleWorkload.Mode()))
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to delete stale slots")
+			continue
+		}
+
+		// Queue slot creation
+		pending := &PendingSlot{
+			RunnerID: runnerID,
+			Created:  make(chan struct{}),
+			Work:     req.ExampleWorkload,
+		}
+
+		select {
+		case s.pendingSlots <- pending:
+			log.Debug().Str("runner_id", runnerID).Msg("queued slot creation")
+		default:
+			log.Debug().Msg("pending slots channel full, skipping...")
+			return
+		}
 	}
-
-	// Make a copy of the current queue
-	workItems := make([]*Workload, len(s.queue))
-	copy(workItems, s.queue)
-
-	// Clear the queue
-	s.queue = make([]*Workload, 0, s.queueSize)
-
-	return workItems
 }
 
-// updateQueue safely updates the queue with unscheduled items
-func (s *Scheduler) updateQueue(unscheduledWork []*Workload) {
-	if len(unscheduledWork) == 0 {
-		return
+func (s *Scheduler) processQueueOnce() {
+	// Try to take next work item that has a warm slot available
+	work := s.queue.TakeNext(func(w *Workload) bool {
+		warmSlots := s.warmSlots(w)
+		return len(warmSlots) > 0
+	})
+
+	if work == nil {
+		return // Nothing can be scheduled right now
 	}
 
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
+	// We know we have a warm slot, so schedule the work
+	warmSlots := s.warmSlots(work)
+	slot := s.pickBestWarmSlot(warmSlots)
 
-	// Add unscheduled work back to the queue
-	s.queue = append(s.queue, unscheduledWork...)
+	err := s.allocateSlot(slot.ID, work)
+	if err != nil {
+		// If allocation fails, put work back in queue
+		err = s.queue.Add(work)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to add work back to queue")
+			s.onSchedulingErr(work, err)
+		}
+	}
 }
 
 // Add new method to handle slot creation
@@ -448,7 +430,6 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
 			s.slotsMtx.Unlock()
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
-
 			if err != nil {
 				withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, calling error handler")
 				s.onSchedulingErr(pending.Work, err)
@@ -458,111 +439,8 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 	}
 }
 
-// Modify the start method to handle async slot creation
-func (s *Scheduler) start(ctx context.Context, work *Workload) error {
-	if work == nil {
-		return fmt.Errorf("workload is nil")
-	}
-
-	// Validate session mode.
-	if work.Mode() == types.SessionModeNone {
-		return fmt.Errorf("session mode isn't set")
-	}
-
-	// Try to find warm warmSlots, which are ready to take new work.
-	warmSlots := s.warmSlots(work)
-	withWorkContext(&log.Logger, work).Debug().Interface("warm_slots", warmSlots).Msg("warm slots")
-
-	// If warm slots are available, select one from the least loaded runner.
-	if len(warmSlots) > 0 {
-		// Slots grouped by runner
-		runnerSlots := make(map[string][]*Slot)
-		for _, slot := range warmSlots {
-			runnerSlots[slot.RunnerID] = append(runnerSlots[slot.RunnerID], slot)
-		}
-
-		// Map of ALL active slots per runner (not just warm ones)
-		activeSlots := make(map[string]int)
-		// Get ALL slots from controller, not just warm ones
-		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-			if slot.IsActive() {
-				activeSlots[slot.RunnerID]++
-			}
-			return true
-		})
-
-		// List of runners
-		runnerIDs := make([]string, 0, len(runnerSlots))
-		for runnerID := range runnerSlots {
-			runnerIDs = append(runnerIDs, runnerID)
-		}
-
-		// Sort runners by:
-		// 1. Active slot count (ascending)
-		// 2. Number of warm slots available (descending)
-		// 3. Random shuffle for ties
-		slices.SortFunc(runnerIDs, func(a, b string) int {
-			if activeSlots[a] != activeSlots[b] {
-				return activeSlots[a] - activeSlots[b]
-			}
-			if len(runnerSlots[b]) != len(runnerSlots[a]) {
-				return len(runnerSlots[b]) - len(runnerSlots[a])
-			}
-			return rand.Intn(3) - 1 // Introduces random shuffle for true ties
-		})
-
-		withWorkContext(&log.Logger, work).Debug().Interface("runner_ids", runnerIDs).Msg("runner ids")
-
-		// Pick a random warm slot from the least loaded runner
-		leastLoadedRunnerSlots := runnerSlots[runnerIDs[0]]
-		slot := leastLoadedRunnerSlots[rand.Intn(len(leastLoadedRunnerSlots))]
-
-		return s.allocateSlot(slot.ID, work)
-	}
-
-	// If no warm slots are available, pick a runner to allocate a slot to.
-	bestRunnerID, err := s.findBestRunner(work)
-	if err != nil {
-		return err
-	}
-	withWorkContext(&log.Logger, work).Debug().Str("best_runner_id", bestRunnerID).Msg("best runner id")
-
-	// While there isn't enough free memory, delete the most stale slot.
-	err = s.deleteMostStaleStrategy(bestRunnerID, work.Model().GetMemoryRequirements(work.Mode()))
-	if err != nil {
-		return fmt.Errorf("unable to delete any stale slots: %w", err)
-	}
-
-	// Create a pending slot and wait for it to be created
-	pending := &PendingSlot{
-		Work:     work,
-		RunnerID: bestRunnerID,
-		Created:  make(chan struct{}),
-	}
-	withWorkContext(&log.Logger, work).Debug().Str("runner_id", bestRunnerID).Msg("adding pending slot creation request")
-	// Submit the pending slot for creation
-	select {
-	case s.pendingSlots <- pending:
-	default:
-		return ErrPendingSlotsFull
-	}
-
-	// Don't block the main thread waiting for the slot to be created
-	go func() {
-		select {
-		case <-ctx.Done():
-			withWorkContext(&log.Logger, work).Debug().Msg("context done")
-			return
-		case <-pending.Created:
-			withWorkContext(&log.Logger, work).Debug().Msg("slot created")
-			return
-		}
-	}()
-	return nil
-}
-
 // Add new helper method to find the best runner
-func (s *Scheduler) findBestRunner(work *Workload) (string, error) {
+func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 	// First get a list of all runners
 	allRunners := s.controller.RunnerIDs()
 
@@ -701,6 +579,49 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 		return true
 	})
 	return cosyWarm
+}
+
+func (s *Scheduler) pickBestWarmSlot(warmSlots []*Slot) *Slot {
+	// If we only have one slot, return it
+	if len(warmSlots) == 1 {
+		return warmSlots[0]
+	}
+
+	// Group slots by runner
+	runnerSlots := make(map[string][]*Slot)
+	for _, slot := range warmSlots {
+		runnerSlots[slot.RunnerID] = append(runnerSlots[slot.RunnerID], slot)
+	}
+
+	// Count active slots per runner
+	activeSlots := make(map[string]int)
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.IsActive() {
+			activeSlots[slot.RunnerID]++
+		}
+		return true
+	})
+
+	// Sort slots considering:
+	// 1. Runner load (prefer less loaded runners)
+	// 2. Last activity time (prefer more recently used slots)
+	// 3. Random factor for tie-breaking
+	slices.SortFunc(warmSlots, func(i, j *Slot) int {
+		// First compare runner load
+		if activeSlots[i.RunnerID] != activeSlots[j.RunnerID] {
+			return activeSlots[i.RunnerID] - activeSlots[j.RunnerID]
+		}
+
+		// Then prefer more recently used slots (reverse of current order)
+		if !i.LastActivityTime.Equal(j.LastActivityTime) {
+			return int(j.LastActivityTime.Sub(i.LastActivityTime))
+		}
+
+		// Random tie-breaker
+		return rand.Intn(3) - 1
+	})
+
+	return warmSlots[0]
 }
 
 // AllocateSlot assigns a workload to a specific slot, validating the model and slot before scheduling.
