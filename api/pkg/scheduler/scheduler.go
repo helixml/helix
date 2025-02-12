@@ -618,7 +618,7 @@ func (s *Scheduler) findBestRunner(work *Workload) (string, error) {
 	// Sort the runners by load, increasing, with a random shuffle for ties
 	slices.SortFunc(filteredRunners, func(a, b string) int {
 		if runnerLoad[a] != runnerLoad[b] {
-			return int(runnerLoad[b] - runnerLoad[a])
+			return int(runnerLoad[a] - runnerLoad[b])
 		}
 		return rand.Intn(3) - 1 // Introduces random shuffle for true ties
 	})
