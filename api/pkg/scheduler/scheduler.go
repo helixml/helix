@@ -18,7 +18,10 @@ import (
 )
 
 const (
-	pendingSlotsBufferSize = 2 // The number of slot creation requests to buffer
+	pendingSlotsBufferSize    = 2 // The number of slot creation requests to buffer
+	runnerReconcileInterval   = 5 * time.Second
+	activityReconcileInterval = 100 * time.Millisecond
+	queueReconcileInterval    = 100 * time.Millisecond
 )
 
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
@@ -214,10 +217,8 @@ func (s *Scheduler) processQueue(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(queueReconcileInterval):
 			s.processQueueOnce(ctx)
-			// Sleep for a while to allow others to access the queue
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -231,10 +232,8 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(runnerReconcileInterval):
 			s.reconcileSlotsOnce()
-			// Sleep for a while to allow others to access the queue
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -246,10 +245,8 @@ func (s *Scheduler) reconcileActivity(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(activityReconcileInterval):
 			s.reconcileActivityOnce()
-			// Sleep for a while to allow others to access the queue
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -287,10 +284,8 @@ func (s *Scheduler) reconcileRunners(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(runnerReconcileInterval):
 			s.reconcileRunnersOnce()
-			// Sleep for a while to allow others to access the queue
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -791,13 +786,11 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 	// Wait for the slot to be ready
 	slotReady := make(chan bool)
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-time.After(100 * time.Millisecond):
 				slots, err := s.controller.GetSlots(slot.RunnerID)
 				if err != nil {
 					log.Error().Err(err).Msg("unable to get slots")
