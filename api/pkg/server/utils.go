@@ -52,7 +52,7 @@ func ErrorLoggingMiddleware(next http.Handler) http.Handler {
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		start := time.Now()
 		next.ServeHTTP(flushWriter, r)
-		log.Trace().Str("method", r.Method).Str("path", r.URL.Path).Dur("duration", time.Since(start)).Msg("request")
+		log.Trace().Str("method", r.Method).Str("path", r.URL.Path).Dur("duration_ms", time.Since(start)).Msg("request")
 
 		switch lrw.statusCode {
 		case http.StatusForbidden:

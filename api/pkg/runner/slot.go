@@ -44,6 +44,8 @@ type CreateSlotParams struct {
 	Model         string
 }
 
+// If there is an error at any point during creation, we call Stop to kill the runtime. Otherwise it
+// can just sit there taking up GPU and doing nothing.
 func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 	var r Runtime
 	var err error
@@ -76,17 +78,20 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 	// Start the runtime
 	err = r.Start(ctx)
 	if err != nil {
+		r.Stop()
 		return nil, err
 	}
 
 	// Create OpenAI Client
 	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", r.URL()))
 	if err != nil {
+		r.Stop()
 		return nil, err
 	}
 	// Check that the model is available in this runtime
 	models, err := openAIClient.ListModels(ctx)
 	if err != nil {
+		r.Stop()
 		return nil, err
 	}
 	found := false
@@ -107,6 +112,7 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 	// Warm up the model
 	err = r.Warm(ctx, params.Model)
 	if err != nil {
+		r.Stop()
 		return nil, err
 	}
 
