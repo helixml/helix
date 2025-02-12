@@ -449,14 +449,6 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
 
 			if err != nil {
-				retry, err := ErrorHandlingStrategy(err, pending.Work)
-				if retry {
-					withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, adding work item back to queue")
-					err = s.addWorkItem(pending.Work, true)
-					if err != nil {
-						withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to add work item back to queue")
-					}
-				}
 				withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, calling error handler")
 				s.onSchedulingErr(pending.Work, err)
 			}

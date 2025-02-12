@@ -88,7 +88,7 @@ func killProcessTree(pid int) error {
 			for _, p := range allPids {
 				log.Info().Int("pid", p).Msg("force killing process")
 				if err := syscall.Kill(p, syscall.SIGKILL); err != nil {
-					log.Printf("failed sending SIGKILL to process with pid: %d", p)
+					log.Error().Err(err).Int("pid", p).Msg("failed to send SIGKILL to process")
 				}
 			}
 			return nil
