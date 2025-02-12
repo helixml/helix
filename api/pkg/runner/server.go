@@ -53,7 +53,7 @@ func NewHelixRunnerAPIServer(
 		runnerOptions: runnerOptions,
 		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
-		gpuManager:    NewGPUManager(runnerOptions),
+		gpuManager:    NewGPUManager(ctx, runnerOptions),
 	}, nil
 }
 

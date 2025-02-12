@@ -2,11 +2,13 @@ package runner
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -15,14 +17,33 @@ import (
 
 type GPUManager struct {
 	hasGPU        bool
+	gpuMemory     uint64
+	freeMemory    uint64
 	runnerOptions *Options
 }
 
-func NewGPUManager(runnerOptions *Options) *GPUManager {
+func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g := &GPUManager{
 		runnerOptions: runnerOptions,
 	}
+
+	// These are slow, but run on startup so it's probably fine
 	g.hasGPU = g.detectGPU()
+	g.gpuMemory = g.fetchTotalMemory()
+
+	// Start a background goroutine to refresh the free memory. We need to do this because it takes
+	// about 8 seconds to query nvidia-smi, so on hot paths that's just too long.
+	go func() {
+		for {
+			// Keep spinning until the context is cancelled
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+				g.freeMemory = g.fetchFreeMemory()
+			}
+		}
+	}()
 	return g
 }
 
@@ -42,13 +63,17 @@ func (g *GPUManager) detectGPU() bool {
 	return false
 }
 
-func (g *GPUManager) GetFreeMemory() int64 {
+func (g *GPUManager) GetFreeMemory() uint64 {
+	return g.freeMemory
+}
+
+func (g *GPUManager) fetchFreeMemory() uint64 {
 	if !g.hasGPU {
 		return 0
 	}
 
 	// Default to the user set max memory value
-	freeMemory := int64(g.runnerOptions.MemoryBytes)
+	freeMemory := uint64(g.runnerOptions.MemoryBytes)
 
 	switch runtime.GOOS {
 	case "linux":
@@ -56,7 +81,7 @@ func (g *GPUManager) GetFreeMemory() int64 {
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err == nil {
-			if free, err := strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64); err == nil {
+			if free, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err == nil {
 				actualFreeMemory := free * 1024 * 1024 // Convert MiB to bytes
 				if actualFreeMemory < freeMemory {
 					freeMemory = actualFreeMemory
@@ -82,8 +107,8 @@ func (g *GPUManager) GetFreeMemory() int64 {
 				log.Error().Err(err).Msg("failed to get Mac free memory")
 				return 0
 			}
-			if int64(free) < freeMemory {
-				freeMemory = int64(free)
+			if free < freeMemory {
+				freeMemory = free
 			}
 		}
 	case "windows":
@@ -93,7 +118,12 @@ func (g *GPUManager) GetFreeMemory() int64 {
 	return freeMemory
 }
 
+// Use a static value for the total memory, because that isn't going to change
 func (g *GPUManager) GetTotalMemory() uint64 {
+	return g.gpuMemory
+}
+
+func (g *GPUManager) fetchTotalMemory() uint64 {
 	totalMemory := g.getActualTotalMemory()
 
 	// If the user has manually set the total memory, then use that
