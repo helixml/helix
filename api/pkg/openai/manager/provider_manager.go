@@ -73,7 +73,8 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 		clients[types.ProviderTogetherAI] = &providerClient{client: loggedClient}
 	}
 
-	if cfg.Providers.VLLM.APIKey != "" {
+	// For VLLM, as long as the base URL is set, we can use it
+	if cfg.Providers.VLLM.BaseURL != "" {
 		log.Info().
 			Str("base_url", cfg.Providers.VLLM.BaseURL).
 			Msg("using VLLM provider for controller inference")
