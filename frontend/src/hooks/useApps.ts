@@ -1,6 +1,7 @@
 import React, { FC, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
+import { throttle } from 'lodash'
 
 import {
   IApp,
@@ -17,6 +18,7 @@ export const useApps = () => {
   const api = useApi()
   const account = useAccount()
   const mountedRef = useRef(true)
+  const [isLoading, setIsLoading] = useState(false)
   
   const [ data, setData ] = useState<IApp[]>([])
   const [ app, setApp ] = useState<IApp>()
@@ -26,9 +28,41 @@ export const useApps = () => {
   const [ connectError, setConnectError ] = useState('')
   const [ connectLoading, setConectLoading ] = useState(false)
 
+  // Create a ref for the throttled function
+  const throttledLoadRef = useRef<any>(null)
+  
+  // Initialize the throttled function once
   useEffect(() => {
+    throttledLoadRef.current = throttle(async (force = false) => {
+      if (isLoading) return
+      setIsLoading(true)
+      
+      try {
+        let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
+          snackbar: true,
+        })
+        if(result === null) result = []  
+        if(!mountedRef.current) return
+        setData(result)
+      } finally {
+        if(mountedRef.current) {
+          setIsLoading(false)
+        }
+      }
+    }, 1000, { leading: true, trailing: false })
+
+    // Cleanup
     return () => {
-      mountedRef.current = false
+      if (throttledLoadRef.current?.cancel) {
+        throttledLoadRef.current.cancel()
+      }
+    }
+  }, []) // Empty deps array - only create once
+
+  // Expose loadData as a wrapper around the throttled function
+  const loadData = useCallback(async (force = false) => {
+    if (throttledLoadRef.current) {
+      await throttledLoadRef.current(force)
     }
   }, [])
 
@@ -43,15 +77,6 @@ export const useApps = () => {
   }, [
     data,
   ])
-
-  const loadData = useCallback(async () => {
-    let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
-      snackbar: true,
-    })
-    if(result === null) result = []  
-    if(!result || !mountedRef.current) return
-    setData(result)
-  }, [])
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
     if(!id) return
@@ -255,6 +280,7 @@ export const useApps = () => {
     githubReposLoading,
     connectError,
     connectLoading,
+    isLoading,
   }
 }
 

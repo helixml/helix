@@ -35,6 +35,12 @@ type ServerConfig struct {
 	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// License key for deployment identification
+	LicenseKey string `envconfig:"LICENSE_KEY"`
+	// Launchpad URL for version pings
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -265,6 +271,15 @@ type FileStore struct {
 
 type PubSub struct {
 	StoreDir string `envconfig:"NATS_STORE_DIR" default:"/filestore/nats" description:"The directory to store nats data."`
+	Provider string `envconfig:"PUBSUB_PROVIDER" default:"nats" description:"The pubsub provider to use (nats or inmemory)."`
+	Server   struct {
+		EmbeddedNatsServerEnabled bool   `envconfig:"NATS_SERVER_EMBEDDED_ENABLED" default:"true" description:"Whether to enable the embedded NATS server."`
+		Host                      string `envconfig:"NATS_SERVER_HOST" default:"127.0.0.1" description:"The host to bind the NATS server to."`
+		Port                      int    `envconfig:"NATS_SERVER_PORT" default:"8433" description:"The port to bind the NATS server to."`
+		Token                     string `envconfig:"NATS_SERVER_TOKEN" description:"The authentication token for the NATS server."`
+		MaxPayload                int    `envconfig:"NATS_SERVER_MAX_PAYLOAD" default:"33554432" description:"The maximum payload size in bytes (default 32MB)."`
+		JetStream                 bool   `envconfig:"NATS_SERVER_JETSTREAM" default:"true" description:"Whether to enable JetStream."`
+	}
 }
 
 type Store struct {

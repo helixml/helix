@@ -20,7 +20,7 @@ const test_data = [
 // k6 run --vus 10 --duration 300s scripts/k6/openai.js
 export default function () {
   let data = {
-    "model": "llama3:instruct",
+    "model": "llama3.1:8b-instruct-q8_0",
     "messages": [
       {
         "role": "user",
@@ -30,7 +30,7 @@ export default function () {
     stream: false,
   };
 
-  let res = http.post("http://localhost:8080/v1/chat/completions", JSON.stringify(data), {
+  let res = http.post(__ENV.HELIX_URL ? __ENV.HELIX_URL + "/v1/chat/completions": "http://localhost:8080/v1/chat/completions", JSON.stringify(data), {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + __ENV.HELIX_API_KEY,
