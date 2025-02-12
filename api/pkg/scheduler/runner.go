@@ -345,7 +345,30 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
-	cache, loaded := c.statusCache.LoadOrStore(runnerID, NewCache(
+	// First try to just load
+	if cache, ok := c.statusCache.Load(runnerID); ok {
+		status, err := cache.Get()
+		if err != nil {
+			return nil, err
+		}
+		return &status, nil
+	}
+
+	// If not found, create under lock to ensure only one cache is created
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check again in case another goroutine created it while we were waiting
+	if cache, ok := c.statusCache.Load(runnerID); ok {
+		status, err := cache.Get()
+		if err != nil {
+			return nil, err
+		}
+		return &status, nil
+	}
+
+	// Create new cache
+	cache := NewCache(
 		c.ctx,
 		func() (types.RunnerStatus, error) {
 			return c.fetchStatus(runnerID)
@@ -353,10 +376,8 @@ func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, erro
 		CacheConfig{
 			updateInterval: cacheUpdateInterval,
 		},
-	))
-	if !loaded {
-		log.Trace().Str("runner_id", runnerID).Msg("created new status cache")
-	}
+	)
+	c.statusCache.Store(runnerID, cache)
 
 	status, err := cache.Get()
 	if err != nil {
