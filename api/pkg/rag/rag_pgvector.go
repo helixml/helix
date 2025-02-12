@@ -72,6 +72,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			DocumentGroupID: indexReq.DocumentGroupID,
 			Content:         indexReq.Content,
 			Source:          indexReq.Source,
+			EmbeddingsModel: p.cfg.RAG.PGVector.EmbeddingsModel,
 		}
 
 		dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)

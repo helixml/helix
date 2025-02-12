@@ -280,6 +280,7 @@ type KnowledgeEmbeddingItem struct {
 	Embedding3584   *pgvector.Vector `gorm:"type:vector(3584)"` // For 3584 dimensions ("gte-small")
 	Content         string           // Content of the knowledge
 	ContentOffset   int              // Offset of the content in the knowledge
+	EmbeddingsModel string           // Model used to embed the knowledge
 }
 
 type Dimensions int
