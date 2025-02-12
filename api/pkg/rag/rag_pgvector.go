@@ -42,7 +42,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 	var embeddings []*types.KnowledgeEmbeddingItem
 
 	client, err := p.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: p.cfg.Embeddings.Provider,
+		Provider: p.cfg.RAG.PGVector.Provider,
 	})
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error) {
 
 	client, err := p.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: p.cfg.Embeddings.Provider,
+		Provider: p.cfg.RAG.PGVector.Provider,
 	})
 	if err != nil {
 		return nil, err
