@@ -188,7 +188,7 @@ func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
 	// Get the current state of each runner
 	runnerStates := make([]*types.RunnerStatus, 0, len(runners))
 	for _, runnerID := range runners {
-		runnerStatus, err := s.controller.getStatus(runnerID)
+		runnerStatus, err := s.controller.GetStatus(runnerID)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +199,7 @@ func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
 }
 
 func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
-	return s.controller.Slots(runnerID)
+	return s.controller.GetSlots(runnerID)
 }
 
 // processQueue runs in a goroutine to processes the queue of requests.
@@ -261,7 +261,7 @@ func (s *Scheduler) reconcileActivityOnce() {
 			return true
 		}
 		if slot.IsActive() {
-			remoteSlot, err := s.controller.getSlot(slot.RunnerID, slotID)
+			remoteSlot, err := s.controller.GetSlot(slot.RunnerID, slotID)
 			if err != nil {
 				withSlotContext(&log.Logger, slot).Error().Err(err).Msg("failed to get slot, assuming it's finished")
 				slot.Release()
@@ -295,7 +295,7 @@ func (s *Scheduler) reconcileRunnersOnce() {
 
 	// Get the health of each runner
 	for _, runnerID := range runnerIDs {
-		err := s.controller.getHealthz(runnerID)
+		err := s.controller.GetHealthz(runnerID)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
 			s.controller.deleteRunner(runnerID)
@@ -314,7 +314,7 @@ func (s *Scheduler) reconcileSlotsOnce() {
 	// Build a complete map of all actual slots across all runners
 	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
 	for _, runnerID := range runnerIDs {
-		actualSlots, err := s.controller.Slots(runnerID)
+		actualSlots, err := s.controller.GetSlots(runnerID)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get slots from runner")
 			continue
@@ -790,7 +790,7 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				slots, err := s.controller.Slots(slot.RunnerID)
+				slots, err := s.controller.GetSlots(slot.RunnerID)
 				if err != nil {
 					log.Error().Err(err).Msg("unable to get slots")
 					return
