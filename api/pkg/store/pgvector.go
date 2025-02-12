@@ -91,7 +91,7 @@ func (s *PGVectorStore) autoMigratePGVector() error {
 	return nil
 }
 
-func (s *PGVectorStore) createIndex(columnName, indexName string) error {
+func (s *PGVectorStore) createIndex(columnName, _ string) error {
 	// Get the schema name from config, default to "public" if not set
 	schemaName := "public"
 	if cfg := s.cfg; cfg.Schema != "" {
