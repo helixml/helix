@@ -49,8 +49,6 @@ func ErrorLoggingMiddleware(next http.Handler) http.Handler {
 		// Create a custom ResponseWriter that supports flushing
 		flushWriter := &flushResponseWriter{lrw}
 
-		log.Trace().Str("method", r.Method).Str("path", r.URL.Path).Msg("request")
-
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		start := time.Now()
 		next.ServeHTTP(flushWriter, r)
