@@ -117,6 +117,13 @@ func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 			log.Error().Err(err).Msg("error watching and updating TogetherAI client")
 		}
 	}
+
+	if m.cfg.Providers.VLLM.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderVLLM, m.cfg.Providers.VLLM.APIKeyRefreshInterval, m.cfg.Providers.VLLM.BaseURL, m.cfg.Providers.VLLM.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating VLLM client")
+		}
+	}
 }
 
 func (m *MultiClientManager) watchAndUpdateClient(ctx context.Context, provider types.Provider, interval time.Duration, baseURL, keyFile string) error {
