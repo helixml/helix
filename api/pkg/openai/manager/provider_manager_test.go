@@ -25,11 +25,22 @@ func TestMultiClientManagerTestSuite(t *testing.T) {
 func (suite *MultiClientManagerTestSuite) SetupTest() {
 	suite.cfg = &config.ServerConfig{
 		Providers: config.Providers{
+			VLLM: config.VLLM{
+				BaseURL: "http://vllm:8000",
+				APIKey:  "vllm-key",
+			},
 			OpenAI: config.OpenAI{
 				APIKeyFromFile: "/app/api/secrets/openai-api-key",
 			},
 		},
 	}
+}
+
+func (suite *MultiClientManagerTestSuite) Test_VLLM() {
+	manager := NewProviderManager(suite.cfg, nil)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{Provider: types.ProviderVLLM})
+	suite.NoError(err)
+	suite.NotNil(client)
 }
 
 func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
