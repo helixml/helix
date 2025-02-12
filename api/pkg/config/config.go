@@ -59,6 +59,7 @@ type Providers struct {
 	OpenAI     OpenAI
 	TogetherAI TogetherAI
 	Helix      Helix
+	VLLM       VLLM
 }
 
 type OpenAI struct {
@@ -66,6 +67,13 @@ type OpenAI struct {
 	APIKey                string        `envconfig:"OPENAI_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
+}
+
+type VLLM struct {
+	BaseURL               string        `envconfig:"VLLM_BASE_URL"`
+	APIKey                string        `envconfig:"VLLM_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"VLLM_API_KEY_FILE"` // i.e. /run/secrets/vllm-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"VLLM_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type TogetherAI struct {
