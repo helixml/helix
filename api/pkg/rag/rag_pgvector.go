@@ -71,7 +71,6 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			DocumentID:      indexReq.DocumentID,
 			DocumentGroupID: indexReq.DocumentGroupID,
 			Content:         indexReq.Content,
-			Embedding384:    &vector,
 			Source:          indexReq.Source,
 		}
 
