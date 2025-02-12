@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // Slot is the crazy mirror equivalent of scheduler.Slot
@@ -78,20 +79,29 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 	// Start the runtime
 	err = r.Start(ctx)
 	if err != nil {
-		r.Stop()
+		stopErr := r.Stop()
+		if stopErr != nil {
+			log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+		}
 		return nil, err
 	}
 
 	// Create OpenAI Client
 	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", r.URL()))
 	if err != nil {
-		r.Stop()
+		stopErr := r.Stop()
+		if stopErr != nil {
+			log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+		}
 		return nil, err
 	}
 	// Check that the model is available in this runtime
 	models, err := openAIClient.ListModels(ctx)
 	if err != nil {
-		r.Stop()
+		stopErr := r.Stop()
+		if stopErr != nil {
+			log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+		}
 		return nil, err
 	}
 	found := false
@@ -112,7 +122,10 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 	// Warm up the model
 	err = r.Warm(ctx, params.Model)
 	if err != nil {
-		r.Stop()
+		stopErr := r.Stop()
+		if stopErr != nil {
+			log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+		}
 		return nil, err
 	}
 
