@@ -23,7 +23,7 @@ import (
 
 const (
 	submitChatCompletionRequestTimeout = 10 * time.Second
-	defaultRequestTimeout              = 1 * time.Second
+	defaultRequestTimeout              = 10 * time.Second
 )
 
 type RunnerController struct {
