@@ -84,25 +84,11 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(30 * time.Second):
-			// Clean up slots cache
-			c.slotsCache.Range(func(runnerID string, cache *Cache[types.ListRunnerSlotsResponse]) bool {
+			for _, runnerID := range c.statusCache.Keys() {
 				if !slices.Contains(c.runners, runnerID) {
-					log.Trace().Str("runner_id", runnerID).Msg("closing slots cache")
-					cache.Close()
-					c.slotsCache.Delete(runnerID)
+					c.statusCache.DeleteCache(runnerID)
 				}
-				return true
-			})
-
-			// Clean up status cache
-			c.statusCache.Range(func(runnerID string, cache *Cache[types.RunnerStatus]) bool {
-				if !slices.Contains(c.runners, runnerID) {
-					log.Trace().Str("runner_id", runnerID).Msg("closing status cache")
-					cache.Close()
-					c.statusCache.Delete(runnerID)
-				}
-				return true
-			})
+			}
 		}
 	}
 }

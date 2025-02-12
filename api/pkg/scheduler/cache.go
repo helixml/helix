@@ -39,6 +39,22 @@ func (m *LockingRunnerMap[T]) GetOrCreateCache(ctx context.Context, key string, 
 	return cache
 }
 
+func (m *LockingRunnerMap[T]) Keys() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keys := make([]string, 0, len(m.m))
+	for key := range m.m {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func (m *LockingRunnerMap[T]) DeleteCache(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.m, key)
+}
+
 type CacheValue[T any] struct {
 	data      T
 	timestamp time.Time
