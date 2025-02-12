@@ -80,12 +80,10 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
 	router.Use(server.ErrorLoggingMiddleware)
-	router.Use(server.DurationLoggingMiddleware)
 
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
 	subRouter.Use(server.ErrorLoggingMiddleware)
-	subRouter.Use(server.DurationLoggingMiddleware)
 	subRouter.HandleFunc("/healthz", apiServer.healthz).Methods(http.MethodGet)
 	subRouter.HandleFunc("/status", apiServer.status).Methods(http.MethodGet)
 	subRouter.HandleFunc("/slots", apiServer.createSlot).Methods(http.MethodPost)
