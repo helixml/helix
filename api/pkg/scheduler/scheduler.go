@@ -544,15 +544,18 @@ func (s *Scheduler) start(ctx context.Context, work *Workload) error {
 		return ErrPendingSlotsFull
 	}
 
-	// Wait for slot creation to complete
-	select {
-	case <-ctx.Done():
-		withWorkContext(&log.Logger, work).Debug().Msg("context done")
-		return ctx.Err()
-	case <-pending.Created:
-		withWorkContext(&log.Logger, work).Debug().Msg("slot created")
-		return nil
-	}
+	// Don't block the main thread waiting for the slot to be created
+	go func() {
+		select {
+		case <-ctx.Done():
+			withWorkContext(&log.Logger, work).Debug().Msg("context done")
+			return
+		case <-pending.Created:
+			withWorkContext(&log.Logger, work).Debug().Msg("slot created")
+			return
+		}
+	}()
+	return nil
 }
 
 // Add new helper method to find the best runner
