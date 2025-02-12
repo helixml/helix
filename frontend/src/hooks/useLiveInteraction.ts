@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { IInteraction } from '../types';
+import { IInteraction, INTERACTION_STATE_COMPLETE } from '../types';
 import { useStreaming } from '../contexts/streaming';
 
 interface LiveInteractionResult {
@@ -57,7 +57,7 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
     message: interaction?.message || '',
     status: interaction?.status || '',
     progress: interaction?.progress || 0,
-    isComplete: interaction?.state === 'complete',
+    isComplete: interaction?.state === INTERACTION_STATE_COMPLETE && interaction?.finished,
     isStale,
     stepInfos: stepInfos.get(sessionId) || [], // Add this line
   };

@@ -1,17 +1,28 @@
 package pubsub
 
-import "time"
+import (
+	"time"
+
+	"github.com/helixml/helix/api/pkg/config"
+)
 
 type Provider string
 
 const (
 	ProviderMemory Provider = "inmemory"
-	// TODO: NATS/Redis
+	ProviderNATS   Provider = "nats"
 )
 
-func New(_ string) (PubSub, error) {
-	// TODO: switch on the provider type
-	return NewInMemoryNats()
+// TODO(Phil): Clean this up, NewInMemoryNats is basically the same as NewNats
+func New(cfg *config.ServerConfig) (PubSub, error) {
+	switch cfg.PubSub.Provider {
+	case string(ProviderMemory):
+		return NewInMemoryNats()
+	case string(ProviderNATS):
+		return NewNats(cfg)
+	default:
+		return NewNats(cfg) // Default to NATS
+	}
 }
 
 type Config struct {

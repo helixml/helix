@@ -102,6 +102,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.LLMCall{},
 		&MigrationScript{},
 		&types.Secret{},
+		&types.LicenseKey{},
 	)
 	if err != nil {
 		return err
@@ -324,4 +325,13 @@ func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 			return db, nil
 		}
 	}
+}
+
+func (s *PostgresStore) GetAppCount() (int, error) {
+	var count int
+	err := s.gdb.Raw("SELECT COUNT(*) FROM apps").Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("error getting app count: %w", err)
+	}
+	return count, nil
 }

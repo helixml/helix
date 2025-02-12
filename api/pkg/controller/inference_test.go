@@ -46,7 +46,11 @@ func (suite *ControllerSuite) SetupTest() {
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New(suite.T().TempDir())
+	ps, err := pubsub.New(&config.ServerConfig{
+		PubSub: config.PubSub{
+			Provider: string(pubsub.ProviderMemory),
+		},
+	})
 	suite.NoError(err)
 
 	suite.pubsub = ps
@@ -70,7 +74,16 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
-	scheduler := scheduler.NewScheduler(suite.ctx, cfg, nil)
+	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
+		PubSub: suite.pubsub,
+		FS:     filestoreMock,
+	})
+	suite.NoError(err)
+	schedulerParams := &scheduler.Params{
+		RunnerController: runnerController,
+	}
+	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
+	suite.NoError(err)
 
 	c, err := NewController(context.Background(), Options{
 		Config:          cfg,

@@ -29,5 +29,5 @@ func TestImageInference(t *testing.T) {
 	require.NoError(t, err, "sending message should succeed")
 
 	helper.LogStep(t, "Waiting for image to be generated")
-	page.MustElementX(`//*[@id='helix-session-scroller']//img`)
+	page.MustElementX(`//main//img`)
 }

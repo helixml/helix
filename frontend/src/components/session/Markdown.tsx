@@ -152,7 +152,13 @@ ${trimmedContent}
           p(props) {
             const { children } = props;
             return (
-              <p>
+              <Box
+                component="p"
+                sx={{
+                  my: 0.5,
+                  lineHeight: 1.4,
+                }}
+              >
                 {React.Children.map(children, child => {
                   if (typeof child === 'string') {
                     return child.split('\n').map((line, i, arr) => (
@@ -164,7 +170,7 @@ ${trimmedContent}
                   }
                   return child;
                 })}
-              </p>
+              </Box>
             );
           }
         }}

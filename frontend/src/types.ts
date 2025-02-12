@@ -272,6 +272,20 @@ export interface IServerConfig {
   tools_enabled: boolean,
   apps_enabled: boolean,
   version?: string,
+  latest_version?: string,
+  deployment_id?: string,
+  license?: {
+    valid: boolean,
+    organization: string,
+    valid_until: string,
+    features: {
+      users: boolean,
+    },
+    limits: {
+      users: number,
+      machines: number,
+    },
+  },
 }
 
 export interface IConversation {
@@ -304,15 +318,15 @@ export interface IModelInstanceState {
   status?: string,
 }
 
-export interface IRunnerState {
+export interface IRunnerStatus {
   id: string,
   created: string,
+  updated: string,
+  version?: string,
   total_memory: number,
   free_memory: number,
   labels: Record<string, string>,
-  model_instances: IModelInstanceState[],
-  scheduling_decisions: string[],
-  version?: string,
+  slots: ISlot[],
 }
 
 export interface ISessionFilterModel {
@@ -340,27 +354,28 @@ export interface  IGlobalSchedulingDecision {
   model_name: string,
 }
 
+export interface IQueueItem {
+  id: string,
+  created: string,
+  updated: string,
+  model_name: string,
+  mode: string,
+  runtime: string,
+  lora_dir: string,
+  summary: string,
+}
+
 export interface IDashboardData {
-  session_queue: ISessionSummary[],
-  runners: IRunnerState[],
-  global_scheduling_decisions: IGlobalSchedulingDecision[],
-  desired_slots: ISlot[],
+  queue: IQueueItem[],
+  runners: IRunnerStatus[],
 }
 
 export interface ISlot {
   id: string,
-  data: ISlotData[],
-}
-
-export interface ISlotData {
-  id: string,
-  attributes: ISlotAttributes,
-}
-
-export interface ISlotAttributes {
+  runtime: string,
   model: string,
-  mode: ISessionMode,
-  workload: ISlotAttributesWorkload,
+  version: string,
+  active: boolean,
 }
 
 export interface LLMInferenceRequest {

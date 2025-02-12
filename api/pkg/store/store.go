@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -128,6 +129,11 @@ type Store interface {
 
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
+
+	GetLicenseKey(ctx context.Context) (*types.LicenseKey, error)
+	SetLicenseKey(ctx context.Context, licenseKey string) error
+
+	GetDecodedLicense(ctx context.Context) (*license.License, error)
 }
 
 type EmbeddingsStore interface {
