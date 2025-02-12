@@ -71,7 +71,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			DocumentID:      indexReq.DocumentID,
 			DocumentGroupID: indexReq.DocumentGroupID,
 			Content:         indexReq.Content,
-			Embedding384:    vector,
+			Embedding384:    &vector,
 			Source:          indexReq.Source,
 		}
 
@@ -82,15 +82,15 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 
 		switch dimensions {
 		case types.Dimensions384:
-			embedding.Embedding384 = vector
+			embedding.Embedding384 = &vector
 		case types.Dimensions512:
-			embedding.Embedding512 = vector
+			embedding.Embedding512 = &vector
 		case types.Dimensions1024:
-			embedding.Embedding1024 = vector
+			embedding.Embedding1024 = &vector
 		case types.Dimensions1536:
-			embedding.Embedding1536 = vector
+			embedding.Embedding1536 = &vector
 		case types.Dimensions3584:
-			embedding.Embedding3584 = vector
+			embedding.Embedding3584 = &vector
 		}
 
 		embeddings = append(embeddings, embedding)

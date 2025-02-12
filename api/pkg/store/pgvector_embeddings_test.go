@@ -47,7 +47,7 @@ func (suite *PGVectorStoreTestSuite) TestCreateKnowledgeEmbedding() {
 		KnowledgeID:     id,
 		DocumentGroupID: "test-document-group-id",
 		DocumentID:      "test-document-id",
-		Embedding384:    embedding384,
+		Embedding384:    &embedding384,
 	})
 	suite.NoError(err)
 
