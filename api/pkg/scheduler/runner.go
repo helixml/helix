@@ -288,14 +288,14 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	log.Debug().
 		Str("runner_id", slot.RunnerID).
 		Str("slot_id", slot.ID.String()).
-		Str("model", slot.ModelName().String()).
-		Str("runtime", string(slot.Runtime())).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Str("runtime", string(slot.InitialWork().Runtime())).
 		Msg("creating slot")
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
-			Runtime: slot.Runtime(),
-			Model:   slot.ModelName().String(),
+			Runtime: slot.InitialWork().Runtime(),
+			Model:   slot.InitialWork().ModelName().String(),
 		},
 	}
 	body, err := json.Marshal(req)

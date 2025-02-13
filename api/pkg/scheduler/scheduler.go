@@ -32,21 +32,14 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 	}
 }
 
-// Add these new types to track pending slot creation
-type PendingSlot struct {
-	Slot *Slot
-	Work *Workload
-}
-
 type Scheduler struct {
 	ctx             context.Context
 	controller      *RunnerController
 	queue           *WorkQueue
 	onSchedulingErr func(work *Workload, err error)
 	slots           *xsync.MapOf[uuid.UUID, *Slot]
-	modelStaleFunc  TimeoutFunc       // Function to check if models are stale
-	slotTimeoutFunc TimeoutFunc       // Function to check if slots have timed out due to error
-	pendingSlots    chan *PendingSlot // Channel for pending slot creations
+	modelStaleFunc  TimeoutFunc // Function to check if models are stale
+	slotTimeoutFunc TimeoutFunc // Function to check if slots have timed out due to error
 }
 
 type Params struct {
@@ -86,7 +79,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  NewTimeoutFunc(modelTTL),
 		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
-		pendingSlots:    make(chan *PendingSlot, pendingSlotsBufferSize),
 	}
 
 	// Start the queue processor
@@ -100,9 +92,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
-
-	// Start the slot creator
-	go s.runSlotCreator(ctx)
 
 	return s, nil
 }
@@ -190,7 +179,7 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(runnerReconcileInterval):
-			s.reconcileSlotsOnce()
+			s.reconcileSlotsOnce(ctx)
 		}
 	}
 }
@@ -262,7 +251,7 @@ func (s *Scheduler) reconcileRunnersOnce() {
 }
 
 // reconcileSlotsOnce reconciles slots once.
-func (s *Scheduler) reconcileSlotsOnce() {
+func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
 
@@ -295,17 +284,32 @@ func (s *Scheduler) reconcileSlotsOnce() {
 
 	// Clean up scheduler slots that don't exist on any runner
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
-		// If the slot isn't running yet, skip
-		if !slot.IsRunning() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping slot, not running yet")
-			return true
-		}
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			log.Warn().
 				Str("runner_id", slot.RunnerID).
 				Str("slot_id", slotID.String()).
-				Msg("found slot on the scheduler that doesn't exist on any runner, deleting...")
-			s.slots.Delete(slotID)
+				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
+
+			err := s.createNewSlot(ctx, slot)
+			if err != nil {
+				// Then see if we can retry
+				retry, err := ErrorHandlingStrategy(err, slot.InitialWork())
+				if retry {
+					withWorkContext(&log.Logger, slot.InitialWork()).Debug().Err(err).Msg("failed to create slot, but retrying later...")
+				} else {
+					withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
+
+					// First remove that slot, since it was never created
+					s.slots.Delete(slot.ID)
+
+					// Then remove the work from the queue if it exists
+					s.queue.Remove(slot.InitialWork())
+
+					// Then notify the error handler
+					s.onSchedulingErr(slot.InitialWork(), err)
+				}
+			}
+
 		} else if runnerID != slot.RunnerID {
 			// The slot exists but on a different runner than we thought
 			log.Warn().
@@ -342,9 +346,9 @@ func (s *Scheduler) reconcileSlotsOnce() {
 		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
 		// refactor so that warm and this are using the same logic.
 		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-			if slot.ModelName() == req.Model &&
-				slot.Runtime() == req.Runtime &&
-				slot.LoraDir() == req.LoraDir &&
+			if slot.InitialWork().ModelName() == req.Model &&
+				slot.InitialWork().Runtime() == req.Runtime &&
+				slot.InitialWork().LoraDir() == req.LoraDir &&
 				!slot.IsActive() {
 				existingCount++
 			}
@@ -394,14 +398,6 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 
 		// Store the slot
 		s.slots.Store(slot.ID, slot)
-
-		select {
-		case s.pendingSlots <- &PendingSlot{Slot: slot, Work: req.ExampleWorkload}:
-			log.Debug().Str("runner_id", runnerID).Str("model_name", req.ExampleWorkload.ModelName().String()).Msg("queued slot creation")
-		default:
-			log.Debug().Msg("pending slots channel full, skipping...")
-			return
-		}
 	}
 }
 
@@ -427,34 +423,6 @@ func (s *Scheduler) processQueueOnce() {
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to add work back to queue")
 			s.onSchedulingErr(work, err)
-		}
-	}
-}
-
-// Add new method to handle slot creation
-func (s *Scheduler) runSlotCreator(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case pending := <-s.pendingSlots:
-			// Create an allocated slot, lock the reconciler to prevent it from running until the slot
-			// is created
-			err := s.createNewSlot(ctx, pending.Slot)
-			if err != nil {
-				// First remove that slot, since it was never created
-				s.slots.Delete(pending.Slot.ID)
-
-				// Then see if we can retry
-				retry, err := ErrorHandlingStrategy(err, pending.Work)
-				if retry {
-					withWorkContext(&log.Logger, pending.Work).Debug().Err(err).Msg("failed to create slot, but retrying later...")
-				} else {
-					withWorkContext(&log.Logger, pending.Work).Warn().Err(err).Msg("failed to create slot, calling error handler")
-					s.onSchedulingErr(pending.Work, err)
-					s.queue.Remove(pending.Work)
-				}
-			}
 		}
 	}
 }
@@ -584,13 +552,13 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 		}
 
 		// If it's not the same model name, skip
-		if slot.ModelName() != req.ModelName() {
+		if slot.InitialWork().ModelName() != req.ModelName() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, model name mismatch")
 			return true
 		}
 
 		// If it's not the same runtime, skip
-		if slot.ModelName().InferenceRuntime() != req.ModelName().InferenceRuntime() {
+		if slot.InitialWork().Runtime() != req.Runtime() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, inference runtime mismatch")
 			return true
 		}
@@ -602,8 +570,8 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 		}
 
 		// If it doesn't have the right LoraDir then skip
-		if slot.LoraDir() != req.LoraDir() {
-			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
+		if slot.InitialWork().LoraDir() != req.LoraDir() {
+			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.InitialWork().LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
 			return true
 		}
 
@@ -772,7 +740,7 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 	}
 
 	// Mark the slot as running
-	slot.Running()
+	slot.SetRunning()
 	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
 
 	return nil
@@ -796,7 +764,7 @@ func withSlotContext(l *zerolog.Logger, s *Slot) *zerolog.Logger {
 	nextLogger := l.With().
 		Str("runner_id", s.RunnerID).
 		Str("slot_id", s.ID.String()).
-		Str("model_name", s.ModelName().String()).
+		Str("model_name", s.InitialWork().ModelName().String()).
 		Uint64("memory", s.Memory()).
 		Logger()
 	return &nextLogger
