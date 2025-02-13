@@ -34,9 +34,8 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 
 // Add these new types to track pending slot creation
 type PendingSlot struct {
-	Work     *Workload
-	RunnerID string
-	Created  chan struct{} // Channel to signal when slot is created
+	Slot *Slot
+	Work *Workload
 }
 
 type Scheduler struct {
@@ -385,15 +384,14 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			return
 		}
 
-		// Queue slot creation
-		pending := &PendingSlot{
-			RunnerID: runnerID,
-			Created:  make(chan struct{}),
-			Work:     req.ExampleWorkload,
-		}
+		// Create the control plane view of the slot
+		slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+
+		// Store the slot
+		s.slots.Store(slot.ID, slot)
 
 		select {
-		case s.pendingSlots <- pending:
+		case s.pendingSlots <- &PendingSlot{Slot: slot, Work: req.ExampleWorkload}:
 			log.Debug().Str("runner_id", runnerID).Str("model_name", req.ExampleWorkload.ModelName().String()).Msg("queued slot creation")
 		default:
 			log.Debug().Msg("pending slots channel full, skipping...")
@@ -437,8 +435,12 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 		case pending := <-s.pendingSlots:
 			// Create an allocated slot, lock the reconciler to prevent it from running until the slot
 			// is created
-			err := s.createNewSlot(ctx, pending.RunnerID, pending.Work)
+			err := s.createNewSlot(ctx, pending.Slot)
 			if err != nil {
+				// First remove that slot, since it was never created
+				s.slots.Delete(pending.Slot.ID)
+
+				// Then see if we can retry
 				retry, err := ErrorHandlingStrategy(err, pending.Work)
 				if retry {
 					withWorkContext(&log.Logger, pending.Work).Debug().Err(err).Msg("failed to create slot, but retrying later...")
@@ -448,7 +450,6 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 					s.queue.Remove(pending.Work)
 				}
 			}
-			close(pending.Created) // Signal that creation attempt is complete
 		}
 	}
 }
@@ -731,10 +732,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 }
 
 // createNewSlot creates a new slot for the given runner and workload.
-func (s *Scheduler) createNewSlot(ctx context.Context, runnerID string, req *Workload) error {
-	// Create a new slot and schedule the workload.
-	slot := NewSlot(runnerID, req, s.modelStaleFunc, s.slotTimeoutFunc)
-	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("creating new slot")
+func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
+	withSlotContext(&log.Logger, slot).Info().Msg("creating new slot on runner")
 
 	err := s.controller.CreateSlot(slot)
 	if err != nil {
@@ -761,10 +760,7 @@ func (s *Scheduler) createNewSlot(ctx context.Context, runnerID string, req *Wor
 		return fmt.Errorf("slot not ready after 120 seconds")
 	}
 
-	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("slot created")
-
-	// Ensure the slot is stored.
-	s.slots.Store(slot.ID, slot)
+	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
 
 	return nil
 }
