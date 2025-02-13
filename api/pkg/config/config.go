@@ -294,8 +294,6 @@ type Store struct {
 }
 
 type PGVectorStore struct {
-	Enabled bool `envconfig:"PGVECTOR_ENABLED" default:"false" description:"Whether to use the PGVector store."`
-
 	Host     string `envconfig:"PGVECTOR_HOST" default:"pgvector" description:"The host to connect to the postgres server."`
 	Port     int    `envconfig:"PGVECTOR_PORT" default:"5432" description:"The port to connect to the postgres server."`
 	Database string `envconfig:"PGVECTOR_DATABASE" default:"postgres" description:"The database to connect to the postgres server."`

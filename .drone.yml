@@ -130,7 +130,7 @@ services:
 - name: chrome
   image: ghcr.io/go-rod/rod:v0.115.0
 - name: pgvector
-  image: ghcr.io/pgvector/pgvector:pg17
+  image: pgvector/pgvector:pg17
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
