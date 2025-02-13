@@ -255,6 +255,32 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
 
+	// Ensure new slots are created and ready to take work
+	requiredSlots := s.queue.GetRequiredSlots()
+	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
+	// For each requirement, ensure we have enough slots for that work right now
+	for _, req := range requiredSlots {
+		// Check if we have enough slots for this work right now
+		existingCount := 0
+		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
+		// refactor so that warm and this are using the same logic.
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.InitialWork().ModelName() == req.Model &&
+				slot.InitialWork().Runtime() == req.Runtime &&
+				slot.InitialWork().LoraDir() == req.LoraDir &&
+				!slot.IsActive() {
+				existingCount++
+			}
+			return true
+		})
+
+		// If we need more slots, start creating them
+		slotsNeeded := req.Count - existingCount
+		if slotsNeeded > 0 {
+			s.ensureSlots(req, slotsNeeded)
+		}
+	}
+
 	// Build a complete map of all actual slots across all runners
 	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
 	for _, runnerID := range runnerIDs {
@@ -286,7 +312,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Clean up scheduler slots that don't exist on any runner
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
 		if runnerID, exists := allActualSlots[slotID]; !exists {
-			log.Warn().
+			log.Info().
 				Str("runner_id", slot.RunnerID).
 				Str("slot_id", slotID.String()).
 				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
@@ -336,32 +362,6 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			}
 		}
 	}
-
-	// Ensure new slots are created and ready to take work
-	requiredSlots := s.queue.GetRequiredSlots()
-	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
-	// For each requirement, ensure we have enough slots for that work right now
-	for _, req := range requiredSlots {
-		// Check if we have enough slots for this work right now
-		existingCount := 0
-		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
-		// refactor so that warm and this are using the same logic.
-		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-			if slot.InitialWork().ModelName() == req.Model &&
-				slot.InitialWork().Runtime() == req.Runtime &&
-				slot.InitialWork().LoraDir() == req.LoraDir &&
-				!slot.IsActive() {
-				existingCount++
-			}
-			return true
-		})
-
-		// If we need more slots, start creating them
-		slotsNeeded := req.Count - existingCount
-		if slotsNeeded > 0 {
-			s.ensureSlots(req, slotsNeeded)
-		}
-	}
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
@@ -376,19 +376,19 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			}
 			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
-			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slot requirement, not the entire queue full of them. It should clean up on the next time around.
 			return
 		}
 
 		// Delete any stale slots on this runner if required
-		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload.Model().GetMemoryRequirements(req.ExampleWorkload.Mode()))
+		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
 		if err != nil {
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
-				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, retrying...")
 				return
 			}
-			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
 			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
 			return
@@ -502,7 +502,7 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload.
-func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64) error {
+func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) error {
 	totalMem := s.controller.TotalMemory(runnerID)
 	for {
 		var allSlots []*Slot
@@ -514,15 +514,27 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 			}
 			return true
 		})
-		staleSlots := Filter(allSlots, func(slot *Slot) bool {
-			return slot.IsStale()
-		})
+
+		requiredMem := work.Model().GetMemoryRequirements(work.Mode())
 		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
 		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
 		// If there is enough free space on the runner, break out of the loop.
 		if freeMem > 0 {
 			break
 		}
+
+		// Only keep slots that are not the same as the required workload
+		// Since there's no point deleting slots that are already the same as the required workload
+		notSameWorkload := Filter(allSlots, func(slot *Slot) bool {
+			return slot.InitialWork().ModelName() != work.ModelName() &&
+				slot.InitialWork().Runtime() != work.Runtime() &&
+				slot.InitialWork().LoraDir() != work.LoraDir()
+		})
+
+		// Only keep the stale slots
+		staleSlots := Filter(notSameWorkload, func(slot *Slot) bool {
+			return slot.IsStale()
+		})
 
 		// Sort the slots by last activity time
 		slices.SortFunc(staleSlots, func(i, j *Slot) int {
