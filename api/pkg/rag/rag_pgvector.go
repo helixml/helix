@@ -119,6 +119,7 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 
 	query := &types.KnowledgeEmbeddingQuery{
 		DataEntityID: q.DataEntityID,
+		Limit:        q.MaxResults,
 	}
 
 	dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
