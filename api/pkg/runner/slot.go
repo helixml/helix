@@ -17,9 +17,9 @@ import (
 type Slot struct {
 	ID       uuid.UUID // Same as scheduler.Slot
 	RunnerID string    // Same as scheduler.Slot
-	Runtime  Runtime
-	Model    string // The model assigned to this slot
-	Active   bool   // True if the slot is active
+	Runtime  Runtime   // TODO(Phil): This is dangerous because it can be nil
+	Model    string    // The model assigned to this slot
+	Active   bool      // True if the slot is active
 }
 
 type PullProgress struct {
@@ -59,10 +59,12 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (s *Slot, err erro
 	// Safest to do this in a defer so that it always checks.
 	defer func() {
 		if err != nil {
-			log.Warn().Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error creating slot, stopping runtime")
-			stopErr := s.Runtime.Stop()
-			if stopErr != nil {
-				log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+			if s.Runtime != nil {
+				log.Warn().Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error creating slot, stopping runtime")
+				stopErr := s.Runtime.Stop()
+				if stopErr != nil {
+					log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+				}
 			}
 		}
 	}()

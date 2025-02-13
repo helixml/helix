@@ -182,10 +182,16 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.
 
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
+		runtime := types.Runtime("unknown")
+		version := "unknown"
+		if slot.Runtime != nil {
+			runtime = slot.Runtime.Runtime()
+			version = slot.Runtime.Version()
+		}
 		slotList = append(slotList, &types.RunnerSlot{
 			ID:      id,
-			Runtime: slot.Runtime.Runtime(),
-			Version: slot.Runtime.Version(),
+			Runtime: runtime,
+			Version: version,
 			Model:   slot.Model,
 			Active:  slot.Active,
 		})
@@ -253,11 +259,13 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 	// Delete slot first to ensure it is not used while we are stopping it
 	apiServer.slots.Delete(slotUUID)
 
-	err = slot.Runtime.Stop()
-	if err != nil {
-		log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if slot.Runtime != nil {
+		err = slot.Runtime.Stop()
+		if err != nil {
+			log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
