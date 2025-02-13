@@ -215,7 +215,7 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 	}
 
 	if slot.Runtime == nil {
-		// This should never happen. If the runtime has gone it should have been cleaned up.
+		// Slot runtime is not found. This might be because the slot is still starting up.
 		http.Error(w, "slot runtime not found", http.StatusInternalServerError)
 		return
 	}
