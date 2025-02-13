@@ -258,13 +258,14 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Build a complete map of all actual slots across all runners
 	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
 	for _, runnerID := range runnerIDs {
-		actualSlots, err := s.controller.GetSlots(runnerID)
+		// We need a live view of the slots here, otherwise we might get stale data
+		actualSlots, err := s.controller.fetchSlots(runnerID)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get slots from runner")
 			continue
 		}
 
-		for _, slot := range actualSlots {
+		for _, slot := range actualSlots.Slots {
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
 				log.Warn().
