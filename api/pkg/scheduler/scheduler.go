@@ -525,8 +525,8 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 		// Only keep slots that are not the same as the required workload
 		// Since there's no point deleting slots that are already the same as the required workload
 		notSameWorkload := Filter(allSlots, func(slot *Slot) bool {
-			return slot.InitialWork().ModelName() != work.ModelName() &&
-				slot.InitialWork().Runtime() != work.Runtime() &&
+			return slot.InitialWork().ModelName() != work.ModelName() ||
+				slot.InitialWork().Runtime() != work.Runtime() ||
 				slot.InitialWork().LoraDir() != work.LoraDir()
 		})
 
