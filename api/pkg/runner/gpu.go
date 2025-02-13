@@ -77,14 +77,17 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 
 	switch runtime.GOOS {
 	case "linux":
-		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits")
+		// We can't use memory.free because it's based on the actual GPU memory. The user may have
+		// chosen to specify a lesser value, so we need to calculate the virtual free memory.
+		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err == nil {
-			if free, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err == nil {
-				actualFreeMemory := free * 1024 * 1024 // Convert MiB to bytes
-				if actualFreeMemory < freeMemory {
-					freeMemory = actualFreeMemory
+			if used, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err == nil {
+				actualUsedMemory := used * 1024 * 1024 // Convert MiB to bytes
+				virtualFreeMemory := g.gpuMemory - actualUsedMemory
+				if virtualFreeMemory < freeMemory {
+					freeMemory = virtualFreeMemory
 				}
 			}
 		}

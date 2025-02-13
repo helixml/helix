@@ -214,6 +214,12 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if slot.Runtime == nil {
+		// This should never happen. If the runtime has gone it should have been cleaned up.
+		http.Error(w, "slot runtime not found", http.StatusInternalServerError)
+		return
+	}
+
 	response := &types.RunnerSlot{
 		ID:      slotUUID,
 		Runtime: slot.Runtime.Runtime(),
@@ -241,7 +247,8 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	// TODO(Phil): Check if the slot is being used by a running job before deleting it
+	// We must always delete the slot if we are told to, even if we think the slot is active,
+	// because some runtimes might be in a bad state and we need to clean up after them.
 
 	// Delete slot first to ensure it is not used while we are stopping it
 	apiServer.slots.Delete(slotUUID)
@@ -284,6 +291,11 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
 	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 		if !loaded {
+			return nil, false
+		}
+		// This might have been called after a runtime was killed mid-inference, so we need to check
+		// if the runtime is nil.
+		if oldValue.Runtime == nil {
 			return nil, false
 		}
 		oldValue.Active = false

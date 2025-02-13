@@ -70,6 +70,7 @@ func killProcessTree(pid int) error {
 	allPids := append(descendants, pid)
 
 	// First, try to terminate gracefully
+	log.Info().Interface("pids", allPids).Msg("killing process tree")
 	for _, p := range allPids {
 		if err := syscall.Kill(p, syscall.SIGTERM); err != nil {
 			log.Error().Err(err).Int("pid", p).Msg("failed to send SIGTERM to process")
