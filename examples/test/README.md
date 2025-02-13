@@ -254,7 +254,7 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 ## FAQs
 
 - Q: What is the status of this tool?
-  A: This is a proof of concept. APIs and usage may change at any time.
+  A: Helix test is in beta. APIs and usage may change at any time.
 - Q: How do I integrate this tool into my CI/CD pipeline?
   A: Since the tool exits with a non-zero status code when tests fail, you can incorporate it into your pipeline scripts to automatically fail builds when tests don’t pass.
 - Q: Can I test multiple assistants in one helix.yaml file?
