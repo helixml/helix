@@ -360,15 +360,27 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Find best runner for this slot
 		runnerID, err := s.pickBestRunner(req.ExampleWorkload)
 		if err != nil {
-			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement")
-			continue
+			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
+			if retry {
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
+				continue
+			} else {
+				log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+				s.onSchedulingErr(req.ExampleWorkload, err)
+			}
 		}
 
 		// Delete any stale slots on this runner if required
 		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload.Model().GetMemoryRequirements(req.ExampleWorkload.Mode()))
 		if err != nil {
-			log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to delete stale slots")
-			continue
+			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
+			if retry {
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
+				continue
+			} else {
+				log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+				s.onSchedulingErr(req.ExampleWorkload, err)
+			}
 		}
 
 		// Queue slot creation
