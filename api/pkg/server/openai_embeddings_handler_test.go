@@ -38,7 +38,7 @@ func (s *OpenAIEmbeddingsSuite) SetupTest() {
 	ctrl := gomock.NewController(s.T())
 
 	cfg := &config.ServerConfig{}
-	cfg.Embeddings.Provider = types.ProviderOpenAI
+	cfg.RAG.PGVector.Provider = types.ProviderOpenAI
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)

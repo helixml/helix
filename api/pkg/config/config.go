@@ -10,7 +10,6 @@ import (
 
 type ServerConfig struct {
 	Inference          Inference
-	Embeddings         Embeddings
 	Providers          Providers
 	Tools              Tools
 	Keycloak           Keycloak
@@ -23,6 +22,7 @@ type ServerConfig struct {
 	Controller         Controller
 	FileStore          FileStore
 	Store              Store
+	PGVectorStore      PGVectorStore
 	PubSub             PubSub
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
@@ -55,15 +55,12 @@ type Inference struct {
 	Provider types.Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 }
 
-type Embeddings struct {
-	Provider types.Provider `envconfig:"EMBEDDINGS_PROVIDER" default:"openai" description:"One of openai, or helix"`
-}
-
 // Providers is used to configure the various AI providers that we use
 type Providers struct {
 	OpenAI     OpenAI
 	TogetherAI TogetherAI
 	Helix      Helix
+	VLLM       VLLM
 }
 
 type OpenAI struct {
@@ -71,6 +68,13 @@ type OpenAI struct {
 	APIKey                string        `envconfig:"OPENAI_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
+}
+
+type VLLM struct {
+	BaseURL               string        `envconfig:"VLLM_BASE_URL"`
+	APIKey                string        `envconfig:"VLLM_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"VLLM_API_KEY_FILE"` // i.e. /run/secrets/vllm-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"VLLM_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type TogetherAI struct {
@@ -182,11 +186,19 @@ type TextExtractor struct {
 	}
 }
 
+type RAGProvider string
+
+const (
+	RAGProviderTypesense  RAGProvider = "typesense"
+	RAGProviderPGVector   RAGProvider = "pgvector"
+	RAGProviderLlamaindex RAGProvider = "llamaindex"
+)
+
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
 	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider string `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
+	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
@@ -194,6 +206,12 @@ type RAG struct {
 	Typesense struct {
 		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://typesense:8108" description:"The URL to the Typesense server."`
 		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
+	}
+
+	PGVector struct {
+		Provider        types.Provider   `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, or helix"`
+		EmbeddingsModel string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
+		Dimensions      types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
 	}
 
 	Llamaindex struct {
@@ -273,6 +291,22 @@ type Store struct {
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+}
+
+type PGVectorStore struct {
+	Host     string `envconfig:"PGVECTOR_HOST" default:"pgvector" description:"The host to connect to the postgres server."`
+	Port     int    `envconfig:"PGVECTOR_PORT" default:"5432" description:"The port to connect to the postgres server."`
+	Database string `envconfig:"PGVECTOR_DATABASE" default:"postgres" description:"The database to connect to the postgres server."`
+	Username string `envconfig:"PGVECTOR_USER" default:"postgres" description:"The username to connect to the postgres server."`
+	Password string `envconfig:"PGVECTOR_PASSWORD" default:"postgres" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"PGVECTOR_SSL" default:"false"`
+	Schema   string `envconfig:"PGVECTOR_SCHEMA"` // Defaults to public
+
+	AutoMigrate     bool          `envconfig:"PGVECTOR_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
+	MaxConns        int           `envconfig:"PGVECTOR_MAX_CONNS" default:"50"`
+	IdleConns       int           `envconfig:"PGVECTOR_IDLE_CONNS" default:"25"`
+	MaxConnLifetime time.Duration `envconfig:"PGVECTOR_MAX_CONN_LIFETIME" default:"1h"`
+	MaxConnIdleTime time.Duration `envconfig:"PGVECTOR_MAX_CONN_IDLE_TIME" default:"1m"`
 }
 
 type WebServer struct {

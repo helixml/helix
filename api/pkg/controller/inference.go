@@ -689,6 +689,7 @@ func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) ope
 }
 
 func (c *Controller) GetRagClient(_ context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
+	// TODO: remove this
 	if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
 		return rag.NewLlamaindex(&knowledge.RAGSettings), nil
 	}

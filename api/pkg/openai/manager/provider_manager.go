@@ -73,6 +73,21 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 		clients[types.ProviderTogetherAI] = &providerClient{client: loggedClient}
 	}
 
+	// For VLLM, as long as the base URL is set, we can use it
+	if cfg.Providers.VLLM.BaseURL != "" {
+		log.Info().
+			Str("base_url", cfg.Providers.VLLM.BaseURL).
+			Msg("using VLLM provider for controller inference")
+
+		vllmClient := openai.New(
+			cfg.Providers.VLLM.APIKey,
+			cfg.Providers.VLLM.BaseURL)
+
+		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, logStores...)
+
+		clients[types.ProviderVLLM] = &providerClient{client: loggedClient}
+	}
+
 	// Always configure Helix provider too
 
 	loggedClient := logger.Wrap(cfg, types.ProviderHelix, helixInference, logStores...)
@@ -101,6 +116,13 @@ func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 		err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
 		if err != nil {
 			log.Error().Err(err).Msg("error watching and updating TogetherAI client")
+		}
+	}
+
+	if m.cfg.Providers.VLLM.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderVLLM, m.cfg.Providers.VLLM.APIKeyRefreshInterval, m.cfg.Providers.VLLM.BaseURL, m.cfg.Providers.VLLM.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating VLLM client")
 		}
 	}
 }

@@ -136,4 +136,10 @@ type Store interface {
 	GetDecodedLicense(ctx context.Context) (*license.License, error)
 }
 
+type EmbeddingsStore interface {
+	CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error
+	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
+	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
+}
+
 var ErrNotFound = errors.New("not found")
