@@ -30,7 +30,7 @@ var (
 type HelixRunnerAPIServer struct {
 	runnerOptions *Options
 	cliContext    context.Context
-	slots         *xsync.MapOf[uuid.UUID, *Slot]
+	slots         *xsync.MapOf[uuid.UUID, Slot]
 	gpuManager    *GPUManager
 }
 
@@ -51,9 +51,9 @@ func NewHelixRunnerAPIServer(
 
 	return &HelixRunnerAPIServer{
 		runnerOptions: runnerOptions,
-		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
+		slots:         xsync.NewMapOf[uuid.UUID, Slot](),
 		cliContext:    ctx,
-		gpuManager:    NewGPUManager(runnerOptions),
+		gpuManager:    NewGPUManager(ctx, runnerOptions),
 	}, nil
 }
 
@@ -83,6 +83,7 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
+	subRouter.Use(server.ErrorLoggingMiddleware)
 	subRouter.HandleFunc("/healthz", apiServer.healthz).Methods(http.MethodGet)
 	subRouter.HandleFunc("/status", apiServer.status).Methods(http.MethodGet)
 	subRouter.HandleFunc("/slots", apiServer.createSlot).Methods(http.MethodPost)
@@ -130,8 +131,8 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 }
 
 func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http.Request) {
-	slot := &types.CreateRunnerSlotRequest{}
-	err := json.NewDecoder(r.Body).Decode(slot)
+	slotRequest := &types.CreateRunnerSlotRequest{}
+	err := json.NewDecoder(r.Body).Decode(slotRequest)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding create slot request")
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -139,28 +140,28 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	}
 
 	// Validate the request
-	if slot.ID == uuid.Nil {
+	if slotRequest.ID == uuid.Nil {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
-	if slot.Attributes.Runtime == "" {
+	if slotRequest.Attributes.Runtime == "" {
 		http.Error(w, "runtime is required", http.StatusBadRequest)
 		return
 	}
-	if slot.Attributes.Model == "" {
+	if slotRequest.Attributes.Model == "" {
 		http.Error(w, "model is required", http.StatusBadRequest)
 		return
 	}
 
-	log.Debug().Str("slot_id", slot.ID.String()).Msg("creating slot")
+	log.Debug().Str("slot_id", slotRequest.ID.String()).Msg("creating slot")
 
 	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
 	// long as the cli is running
 	s, err := CreateSlot(apiServer.cliContext, CreateSlotParams{
 		RunnerOptions: apiServer.runnerOptions,
-		ID:            slot.ID,
-		Runtime:       slot.Attributes.Runtime,
-		Model:         slot.Attributes.Model,
+		ID:            slotRequest.ID,
+		Runtime:       slotRequest.Attributes.Runtime,
+		Model:         slotRequest.Attributes.Model,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "pull model manifest: file does not exist") {
@@ -171,7 +172,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	apiServer.slots.Store(slot.ID, s)
+	apiServer.slots.Store(slotRequest.ID, s)
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
@@ -180,11 +181,17 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
 
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
-	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
+	apiServer.slots.Range(func(id uuid.UUID, slot Slot) bool {
+		runtime := types.Runtime("unknown")
+		version := "unknown"
+		if slot.Runtime != nil {
+			runtime = slot.Runtime.Runtime()
+			version = slot.Runtime.Version()
+		}
 		slotList = append(slotList, &types.RunnerSlot{
 			ID:      id,
-			Runtime: slot.Runtime.Runtime(),
-			Version: slot.Runtime.Version(),
+			Runtime: runtime,
+			Version: version,
 			Model:   slot.Model,
 			Active:  slot.Active,
 		})
@@ -210,6 +217,12 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 	slot, ok := apiServer.slots.Load(slotUUID)
 	if !ok {
 		http.Error(w, "slot not found", http.StatusNotFound)
+		return
+	}
+
+	if slot.Runtime == nil {
+		// Slot runtime is not found. This might be because the slot is still starting up.
+		http.Error(w, "slot runtime not found", http.StatusInternalServerError)
 		return
 	}
 
@@ -240,16 +253,19 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	// TODO(Phil): Check if the slot is being used by a running job before deleting it
+	// We must always delete the slot if we are told to, even if we think the slot is active,
+	// because some runtimes might be in a bad state and we need to clean up after them.
 
 	// Delete slot first to ensure it is not used while we are stopping it
 	apiServer.slots.Delete(slotUUID)
 
-	err = slot.Runtime.Stop()
-	if err != nil {
-		log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if slot.Runtime != nil {
+		err = slot.Runtime.Stop()
+		if err != nil {
+			log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -268,10 +284,10 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 			return
 		}
 
-		apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
+		apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
 			if !loaded {
 				http.Error(w, "slot not found", http.StatusNotFound)
-				return nil, false
+				return Slot{}, true
 			}
 			oldValue.Active = true
 			return oldValue, false
@@ -281,9 +297,14 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
-	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
+	apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
 		if !loaded {
-			return nil, false
+			return Slot{}, true
+		}
+		// This might have been called after a runtime was killed mid-inference, so we need to check
+		// if the runtime is nil.
+		if oldValue.Runtime == nil {
+			return Slot{}, true
 		}
 		oldValue.Active = false
 		return oldValue, false

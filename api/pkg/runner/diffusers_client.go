@@ -122,8 +122,12 @@ func (d *DiffusersClient) Warm(ctx context.Context, modelName string) error {
 		return fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("error reading response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("diffusers warm returned status %d", resp.StatusCode)
+		return fmt.Errorf("diffusers warm returned status %d: %s", resp.StatusCode, responseBody)
 	}
 	return nil
 }

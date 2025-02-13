@@ -122,9 +122,6 @@ func NewRunner(
 		log.Info().Msgf("Setting memoryBytes = %d", uint64(bytes))
 		options.MemoryBytes = uint64(bytes)
 	}
-	if options.MemoryBytes == 0 {
-		return nil, fmt.Errorf("memory is required")
-	}
 
 	server, err := NewHelixRunnerAPIServer(ctx, &options)
 	if err != nil {

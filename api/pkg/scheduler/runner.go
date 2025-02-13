@@ -22,14 +22,18 @@ import (
 
 const (
 	submitChatCompletionRequestTimeout = 10 * time.Second
+	defaultRequestTimeout              = 10 * time.Second
+	cacheUpdateInterval                = 5 * time.Second
 )
 
 type RunnerController struct {
-	runners []string
-	mu      *sync.RWMutex
-	ps      pubsub.PubSub
-	ctx     context.Context
-	fs      filestore.FileStore
+	runners     []string
+	mu          *sync.RWMutex
+	ps          pubsub.PubSub
+	ctx         context.Context
+	fs          filestore.FileStore
+	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache *LockingRunnerMap[types.RunnerStatus]
 }
 
 type RunnerControllerConfig struct {
@@ -39,11 +43,13 @@ type RunnerControllerConfig struct {
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
-		ctx:     ctx,
-		ps:      cfg.PubSub,
-		fs:      cfg.FS,
-		runners: []string{},
-		mu:      &sync.RWMutex{},
+		ctx:         ctx,
+		ps:          cfg.PubSub,
+		fs:          cfg.FS,
+		runners:     []string{},
+		mu:          &sync.RWMutex{},
+		slotsCache:  NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -67,7 +73,29 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		}
 	}()
 
+	go controller.reconcileCaches(ctx)
+
 	return controller, nil
+}
+
+func (c *RunnerController) reconcileCaches(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+			for _, runnerID := range c.statusCache.Keys() {
+				if !slices.Contains(c.runners, runnerID) {
+					c.statusCache.DeleteCache(runnerID)
+				}
+			}
+			for _, runnerID := range c.slotsCache.Keys() {
+				if !slices.Contains(c.runners, runnerID) {
+					c.slotsCache.DeleteCache(runnerID)
+				}
+			}
+		}
+	}
 }
 
 func (c *RunnerController) Send(ctx context.Context, runnerID string, headers map[string]string, req *types.Request, timeout time.Duration) (*types.Response, error) {
@@ -77,10 +105,13 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 	}
 
 	// Publish the task to the "tasks" subject
+	start := time.Now()
 	response, err := c.ps.Request(ctx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
+	duration := time.Since(start)
+	log.Trace().Str("subject", pubsub.GetRunnerQueue(runnerID)).Str("runner_id", runnerID).Str("method", req.Method).Str("url", req.URL).Str("duration", duration.String()).Msg("request sent to runner")
 
 	var resp types.Response
 	if err := json.Unmarshal(response, &resp); err != nil {
@@ -119,7 +150,7 @@ func (c *RunnerController) RunnerIDs() []string {
 }
 
 func (c *RunnerController) TotalMemory(runnerID string) uint64 {
-	status, err := c.getStatus(runnerID)
+	status, err := c.GetStatus(runnerID)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting runner status")
 		return 0
@@ -128,16 +159,16 @@ func (c *RunnerController) TotalMemory(runnerID string) uint64 {
 }
 
 func (c *RunnerController) FreeMemory(runnerID string) uint64 {
-	status, err := c.getStatus(runnerID)
+	status, err := c.GetStatus(runnerID)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting runner status")
 		return 0
 	}
-	return uint64(status.FreeMemory)
+	return status.FreeMemory
 }
 
 func (c *RunnerController) Version(runnerID string) string {
-	status, err := c.getStatus(runnerID)
+	status, err := c.GetStatus(runnerID)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting runner status")
 		return ""
@@ -145,7 +176,7 @@ func (c *RunnerController) Version(runnerID string) string {
 	return status.Version
 }
 
-func (c *RunnerController) Slots(runnerID string) ([]*types.RunnerSlot, error) {
+func (c *RunnerController) GetSlots(runnerID string) ([]*types.RunnerSlot, error) {
 	// Get the slots from the runner.
 	slots, err := c.getSlots(runnerID)
 	if err != nil {
@@ -293,7 +324,7 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "DELETE",
 		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, 5*time.Second)
+	}, defaultRequestTimeout)
 	if err != nil {
 		return err
 	}
@@ -303,34 +334,32 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 	return nil
 }
 
-func (c *RunnerController) getStatus(runnerID string) (*types.RunnerStatus, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/status",
-	}, 1*time.Second)
+func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
+	cache := c.statusCache.GetOrCreateCache(c.ctx, runnerID, func() (types.RunnerStatus, error) {
+		return c.fetchStatus(runnerID)
+	}, CacheConfig{
+		updateInterval: cacheUpdateInterval,
+	})
+
+	status, err := cache.Get()
 	if err != nil {
-		return nil, err
-	}
-	var status types.RunnerStatus
-	if err := json.Unmarshal(resp.Body, &status); err != nil {
 		return nil, err
 	}
 	return &status, nil
 }
 
-func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
+func (c *RunnerController) GetHealthz(runnerID string) error {
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "GET",
-		URL:    "/api/v1/slots",
-	}, 1*time.Second)
+		URL:    "/api/v1/healthz",
+	}, defaultRequestTimeout)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("error getting healthz: %w", err)
 	}
-	var slots types.ListRunnerSlotsResponse
-	if err := json.Unmarshal(resp.Body, &slots); err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
 	}
-	return &slots, nil
+	return nil
 }
 
 func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Session) error {
@@ -412,32 +441,63 @@ func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Se
 	return nil
 }
 
-func (c *RunnerController) getSlot(runnerID string, slotID uuid.UUID) (*types.RunnerSlot, error) {
+func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "GET",
 		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, 1*time.Second)
+	}, defaultRequestTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("error getting slot: %w", err)
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
 	}
 
 	var slot types.RunnerSlot
 	if err := json.Unmarshal(resp.Body, &slot); err != nil {
-		return nil, fmt.Errorf("error unmarshalling slot: %w", err)
+		return types.RunnerSlot{}, fmt.Errorf("error unmarshalling slot: %w", err)
 	}
-	return &slot, nil
+	return slot, nil
 }
 
-func (c *RunnerController) getHealthz(runnerID string) error {
+func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, error) {
 	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
 		Method: "GET",
-		URL:    "/api/v1/healthz",
-	}, 1*time.Second)
+		URL:    "/api/v1/status",
+	}, defaultRequestTimeout)
 	if err != nil {
-		return fmt.Errorf("error getting healthz: %w", err)
+		return types.RunnerStatus{}, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("runner %s is not healthy", runnerID)
+
+	var status types.RunnerStatus
+	if err := json.Unmarshal(resp.Body, &status); err != nil {
+		return types.RunnerStatus{}, err
 	}
-	return nil
+	return status, nil
+}
+
+func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
+	cache := c.slotsCache.GetOrCreateCache(c.ctx, runnerID, func() (types.ListRunnerSlotsResponse, error) {
+		return c.fetchSlots(runnerID)
+	}, CacheConfig{
+		updateInterval: cacheUpdateInterval,
+	})
+
+	slots, err := cache.Get()
+	if err != nil {
+		return nil, err
+	}
+	return &slots, nil
+}
+
+func (c *RunnerController) fetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
+	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/slots",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.ListRunnerSlotsResponse{}, err
+	}
+	var slots types.ListRunnerSlotsResponse
+	if err := json.Unmarshal(resp.Body, &slots); err != nil {
+		return types.ListRunnerSlotsResponse{}, err
+	}
+	return slots, nil
 }

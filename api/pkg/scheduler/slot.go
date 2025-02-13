@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,7 +15,6 @@ type Slot struct {
 	work             *Workload // The work that is currently assigned to this slot
 	LastActivityTime time.Time // Private because I don't want people misinterpreting this
 	isActive         bool      // Private because I don't want people misinterpreting this
-	mu               *sync.RWMutex
 	isStaleFunc      TimeoutFunc
 	isErrorFunc      TimeoutFunc
 }
@@ -31,7 +29,6 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 		work:             work,
 		LastActivityTime: time.Now(),
 		isActive:         false,
-		mu:               &sync.RWMutex{},
 		isStaleFunc:      staleTimeout,
 		isErrorFunc:      errorTimeout,
 	}
@@ -39,24 +36,14 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 
 // True if the model is not active and hasn't been active for at least ModelTTL
 func (s *Slot) IsStale() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// First if the work is active, or is scheduled...
+	// If work is active, check for error timeout
 	if s.isActive {
-		// ... then check if the slot has timed out due to an error
 		if s.isErrorFunc(s.RunnerID, s.LastActivityTime) {
-			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out due to an unknown error, releasing slot")
-			s.mu.RUnlock()
-			s.Release()
-			s.mu.RLock()
-			// If it has errored, then it is stale
+			// Don't release the slot while holding the read lock
+			// Instead, just return true and let the caller handle the release
+			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out due to an unknown error")
 			return true
 		}
-	}
-
-	// If work is active, not stale
-	if s.isActive {
 		return false
 	}
 
@@ -66,61 +53,37 @@ func (s *Slot) IsStale() bool {
 
 // True if this slot is currently active with work
 func (s *Slot) IsActive() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.isActive
 }
 
 // Sets a slot as no longer active
 func (s *Slot) Release() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.isActive = false
 	s.LastActivityTime = time.Now()
 }
 
 // Marks the work as started
 func (s *Slot) Start() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.LastActivityTime = time.Now()
 	s.isActive = true
 }
 
 func (s *Slot) Mode() types.SessionMode {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.work.Mode()
 }
 
 func (s *Slot) ModelName() model.Name {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.work.ModelName()
 }
 
 func (s *Slot) Memory() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.work.Model().GetMemoryRequirements(s.Mode())
 }
 
 func (s *Slot) LoraDir() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.work.LoraDir()
 }
 
 func (s *Slot) Runtime() types.Runtime {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.work.Runtime()
 }
