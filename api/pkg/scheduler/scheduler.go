@@ -363,10 +363,12 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
 				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
-				continue
+				return
 			} else {
 				log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
 				s.onSchedulingErr(req.ExampleWorkload, err)
+				s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+				return
 			}
 		}
 
@@ -376,10 +378,12 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
 				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
-				continue
+				return
 			} else {
 				log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
 				s.onSchedulingErr(req.ExampleWorkload, err)
+				s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+				return
 			}
 		}
 
@@ -439,12 +443,14 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
 			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
 			if err != nil {
-				withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, calling error handler")
-				s.onSchedulingErr(pending.Work, err)
-				// TODO(Phil): could do with a more nuanced approach here. It might fail because of
-				// a transient error, so we don't want to remove it from the queue.
-				// Remove error-ing work from queue, so it doesn't get retried
-				s.queue.Remove(pending.Work)
+				retry, err := ErrorHandlingStrategy(err, pending.Work)
+				if retry {
+					withWorkContext(&log.Logger, pending.Work).Debug().Err(err).Msg("failed to create slot, but retrying later...")
+				} else {
+					withWorkContext(&log.Logger, pending.Work).Warn().Err(err).Msg("failed to create slot, calling error handler")
+					s.onSchedulingErr(pending.Work, err)
+					s.queue.Remove(pending.Work)
+				}
 			}
 			close(pending.Created) // Signal that creation attempt is complete
 		}
