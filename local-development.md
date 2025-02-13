@@ -43,10 +43,6 @@ helix/
 │   ├── cmd/            # Standard golang project structure within here
 │   ├── pkg/            #
 │   ├── main.go         #
-├── llamaindex/         # llamaindex
-│   └── src/            #
-│   └── ...             # Other app-specific files
-├── unstructured        # Python Unstructured for parsing content
 ├── scripts             # Scripts to get stuff done
 ├── runner              # Runner configurations
 ├── frontend/           # Frontend in React, ts
