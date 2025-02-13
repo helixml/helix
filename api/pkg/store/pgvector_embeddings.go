@@ -23,8 +23,8 @@ func (s *PGVectorStore) CreateKnowledgeEmbedding(ctx context.Context, embeddings
 			return fmt.Errorf("document ID is required")
 		}
 
-		if embedding.KnowledgeID == "" {
-			return fmt.Errorf("knowledge ID is required")
+		if embedding.DataEntityID == "" {
+			return fmt.Errorf("data entity ID is required")
 		}
 
 		err := validateEmbedding(embedding)
@@ -48,12 +48,12 @@ func validateEmbedding(embedding *types.KnowledgeEmbeddingItem) error {
 	return nil
 }
 
-func (s *PGVectorStore) DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error {
-	if knowledgeID == "" {
-		return fmt.Errorf("knowledge ID is required")
+func (s *PGVectorStore) DeleteKnowledgeEmbedding(ctx context.Context, dataEntityID string) error {
+	if dataEntityID == "" {
+		return fmt.Errorf("data entity ID is required")
 	}
 
-	err := s.gdb.WithContext(ctx).Where("knowledge_id = ?", knowledgeID).Delete(&types.KnowledgeEmbeddingItem{}).Error
+	err := s.gdb.WithContext(ctx).Where("data_entity_id = ?", dataEntityID).Unscoped().Delete(&types.KnowledgeEmbeddingItem{}).Error
 	if err != nil {
 		return err
 	}
@@ -61,8 +61,8 @@ func (s *PGVectorStore) DeleteKnowledgeEmbedding(ctx context.Context, knowledgeI
 }
 
 func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) {
-	if q.KnowledgeID == "" {
-		return nil, fmt.Errorf("knowledge ID is required")
+	if q.DataEntityID == "" {
+		return nil, fmt.Errorf("data entity ID is required")
 	}
 
 	if q.Limit == 0 {
@@ -71,7 +71,7 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 
 	var items []*types.KnowledgeEmbeddingItem
 
-	query := s.gdb.WithContext(ctx).Where("knowledge_id = ?", q.KnowledgeID)
+	query := s.gdb.WithContext(ctx).Where("data_entity_id = ?", q.DataEntityID)
 
 	switch {
 	case len(q.Embedding384.Slice()) > 0:
