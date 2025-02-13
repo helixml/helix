@@ -32,6 +32,7 @@ func NewWorkQueue(capacity int) *WorkQueue {
 
 // Add adds work to the queue
 func (q *WorkQueue) Add(work *Workload) error {
+	// Acquire a full lock to edit the queue
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -73,15 +74,26 @@ func (q *WorkQueue) Queue() []*Workload {
 }
 
 func (q *WorkQueue) TakeNext(hasWarmSlot func(*Workload) bool) *Workload {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	// Get a copy of the copy of the queue with an RLock to reduce contention
+	items := q.Queue()
 
-	// Look for first work item that has a warm slot available
-	for i, work := range q.items {
+	// Check for warm slots without holding the queue lock
+	for i, work := range items {
+		// Its really important to not lock around hasWarmSlot because that function might call
+		// another queue or slot function which might deadlock
 		if hasWarmSlot(work) {
-			// Remove the item from the queue
-			q.items = append(q.items[:i], q.items[i+1:]...)
-			return work
+			// Acquire a full lock to edit the queue
+			q.mu.Lock()
+			// Verify the queue hasn't changed and the item is still at same position
+			if i < len(q.items) && q.items[i].ID() == work.ID() {
+				// Remove the item from the queue
+				q.items = append(q.items[:i], q.items[i+1:]...)
+				q.mu.Unlock()
+				return work
+			}
+			q.mu.Unlock()
+			// Queue changed while we were checking, try again
+			return q.TakeNext(hasWarmSlot)
 		}
 	}
 	return nil
@@ -89,13 +101,13 @@ func (q *WorkQueue) TakeNext(hasWarmSlot func(*Workload) bool) *Workload {
 
 // GetRequiredSlots analyzes the queue and returns the slot requirements
 func (q *WorkQueue) GetRequiredSlots() []SlotRequirement {
-	q.mu.RLock()
-	defer q.mu.RUnlock()
+	// Get a copy of the copy of the queue with an RLock to reduce contention
+	items := q.Queue()
 
 	// Map to accumulate requirements
 	reqMap := make(map[string]*SlotRequirement)
 
-	for _, work := range q.items {
+	for _, work := range items {
 		// Create a key that uniquely identifies this slot type
 		key := fmt.Sprintf("%s:%s:%s",
 			work.Runtime(),
