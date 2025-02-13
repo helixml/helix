@@ -129,6 +129,12 @@ services:
   image: apache/tika:2.9.2.1
 - name: chrome
   image: ghcr.io/go-rod/rod:v0.115.0
+- name: pgvector
+  image: pgvector/pgvector:pg17
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: postgres
 
 ---
 kind: pipeline

@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/pgvector/pgvector-go"
+	"gorm.io/gorm"
 )
 
 type AssistantKnowledge struct {
@@ -90,15 +93,17 @@ func (k *Knowledge) GetDataEntityID() string {
 }
 
 type KnowledgeVersion struct {
-	ID             string          `json:"id" gorm:"primaryKey"`
-	Created        time.Time       `json:"created"`
-	Updated        time.Time       `json:"updated"`
-	KnowledgeID    string          `json:"knowledge_id"`
-	Version        string          `json:"version"`
-	Size           int64           `json:"size"`
-	State          KnowledgeState  `json:"state"`
-	Message        string          `json:"message"` // Set if something wrong happens
-	CrawledSources *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
+	ID              string          `json:"id" gorm:"primaryKey"`
+	Created         time.Time       `json:"created"`
+	Updated         time.Time       `json:"updated"`
+	KnowledgeID     string          `json:"knowledge_id"`
+	Version         string          `json:"version"`
+	Size            int64           `json:"size"`
+	State           KnowledgeState  `json:"state"`
+	Message         string          `json:"message"` // Set if something wrong happens
+	CrawledSources  *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
+	EmbeddingsModel string          `json:"embeddings_model" yaml:"embeddings_model"` // Model used to embed the knowledge
+	Provider        string          `json:"provider" yaml:"provider"`
 }
 
 func (k *KnowledgeVersion) GetDataEntityID() string {
@@ -262,4 +267,41 @@ type KnowledgeProgress struct {
 	StartedAt      time.Time `json:"started_at"`
 	ElapsedSeconds int       `json:"elapsed_seconds"`
 	Message        string    `json:"message"`
+}
+
+type KnowledgeEmbeddingItem struct {
+	gorm.Model
+	DataEntityID    string `gorm:"index"` // Knowledge ID + Version
+	DocumentGroupID string `gorm:"index"`
+	DocumentID      string `gorm:"index"`
+	Source          string
+	Embedding384    *pgvector.Vector `gorm:"type:vector(384)"`  // For 384 dimensions ("gte-small")
+	Embedding512    *pgvector.Vector `gorm:"type:vector(512)"`  // For 512 dimensions ("gte-medium")
+	Embedding1024   *pgvector.Vector `gorm:"type:vector(1024)"` // For 1024 dimensions ("gte-large")
+	Embedding1536   *pgvector.Vector `gorm:"type:vector(1536)"` // For 1536 dimensions ("gte-small")
+	Embedding3584   *pgvector.Vector `gorm:"type:vector(3584)"` // For 3584 dimensions ("gte-small")
+	Content         string           // Content of the knowledge
+	ContentOffset   int              // Offset of the content in the knowledge
+	EmbeddingsModel string           // Model used to embed the knowledge
+}
+
+type Dimensions int
+
+const (
+	Dimensions384  Dimensions = 384
+	Dimensions512  Dimensions = 512
+	Dimensions1024 Dimensions = 1024
+	Dimensions1536 Dimensions = 1536
+	Dimensions3584 Dimensions = 3584
+)
+
+type KnowledgeEmbeddingQuery struct {
+	DataEntityID  string
+	Embedding384  pgvector.Vector // Query by embedding
+	Embedding512  pgvector.Vector // Query by embedding
+	Embedding1024 pgvector.Vector // Query by embedding
+	Embedding1536 pgvector.Vector // Query by embedding
+	Embedding3584 pgvector.Vector // Query by embedding
+	Content       string          // Optional for full text search
+	Limit         int             // Limit the number of results
 }

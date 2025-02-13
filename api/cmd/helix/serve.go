@@ -214,7 +214,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	store, err := store.NewPostgresStore(cfg.Store)
+	postgresStore, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	if !cfg.DisableLLMCallLogging {
 		logStores = []logger.LogStore{
-			store,
+			postgresStore,
 			// TODO: bigquery
 		}
 	}
@@ -335,7 +335,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var ragClient rag.RAG
 
 	switch cfg.RAG.DefaultRagProvider {
-	case "typesense":
+	case config.RAGProviderTypesense:
 		ragSettings := &types.RAGSettings{}
 		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
 		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
@@ -344,20 +344,28 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			return fmt.Errorf("failed to create typesense RAG client: %v", err)
 		}
 		log.Info().Msgf("Using Typesense for RAG")
-	case "llamaindex":
+	case config.RAGProviderLlamaindex:
 		ragClient = rag.NewLlamaindex(&types.RAGSettings{
 			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
 			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
 			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
 		})
 		log.Info().Msgf("Using Llamaindex for RAG")
+	case config.RAGProviderPGVector:
+		pgVectorStore, err := store.NewPGVectorStore(cfg)
+		if err != nil {
+			return fmt.Errorf("failed to create PGVector store: %v", err)
+		}
+
+		ragClient = rag.NewPGVector(cfg, providerManager, pgVectorStore)
+		log.Info().Msgf("Using PGVector for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
 
 	controllerOptions := controller.Options{
 		Config:               cfg,
-		Store:                store,
+		Store:                postgresStore,
 		PubSub:               ps,
 		RAG:                  ragClient,
 		Extractor:            extractor,
@@ -387,7 +395,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient, browserPool)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)
 	if err != nil {
 		return err
 	}
@@ -398,7 +406,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
-	trigger := trigger.NewTriggerManager(cfg, store, appController)
+	trigger := trigger.NewTriggerManager(cfg, postgresStore, appController)
 	// Start integrations
 	go trigger.Start(ctx)
 
@@ -412,14 +420,14 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Initialize ping service if not disabled
 	var pingService *version.PingService
 	if !cfg.DisableVersionPing {
-		pingService = version.NewPingService(store, cfg.LicenseKey, cfg.LaunchpadURL, &cfg.Keycloak)
+		pingService = version.NewPingService(postgresStore, cfg.LicenseKey, cfg.LaunchpadURL, &cfg.Keycloak)
 		pingService.Start(ctx)
 		defer pingService.Stop()
 	}
 
 	server, err := server.NewServer(
 		cfg,
-		store,
+		postgresStore,
 		ps,
 		gse,
 		providerManager,
