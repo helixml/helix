@@ -449,6 +449,9 @@ func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.R
 	if err != nil {
 		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot (status %d): %s", resp.StatusCode, resp.Body)
+	}
 
 	var slot types.RunnerSlot
 	if err := json.Unmarshal(resp.Body, &slot); err != nil {

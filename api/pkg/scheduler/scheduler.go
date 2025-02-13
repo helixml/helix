@@ -437,9 +437,7 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 		case pending := <-s.pendingSlots:
 			// Create an allocated slot, lock the reconciler to prevent it from running until the slot
 			// is created
-			withWorkContext(&log.Logger, pending.Work).Trace().Msg("taking slot mutex")
-			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
-			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
+			err := s.createNewSlot(ctx, pending.RunnerID, pending.Work)
 			if err != nil {
 				retry, err := ErrorHandlingStrategy(err, pending.Work)
 				if retry {
@@ -672,8 +670,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
 			err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
 			if err != nil {
-				// TODO(Phil): Need to pass on the error to the session for all these cases
-				log.Error().Err(err).Msg("error submitting chat completion request")
+				s.onSchedulingErr(req, err)
+				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
 			}
 		case WorkloadTypeSession:
 			switch req.Session().Mode {
@@ -683,7 +681,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting text2image request")
 					err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
 					if err != nil {
-						log.Error().Err(err).Msg("error submitting text2image request")
+						s.onSchedulingErr(req, err)
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting text2image request")
 					}
 				case types.SessionTypeText:
 					if req.Session().LoraDir != "" {
@@ -695,13 +694,16 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 						// Forward the request to the chat completion handler
 						err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
 						if err != nil {
-							log.Error().Err(err).Msg("error submitting text request")
+							s.onSchedulingErr(req, err)
+							withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting LORA inference request")
 						}
 					} else {
-						panic(fmt.Sprintf("not implemented: %s and no lora dir", req.Session().Type))
+						s.onSchedulingErr(req, fmt.Errorf("not implemented: %s and no lora dir", req.Session().Type))
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: no lora dir")
 					}
 				default:
-					panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
 				}
 			case types.SessionModeFinetune:
 				switch req.Session().Type {
@@ -709,13 +711,16 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting finetuning request")
 					err := s.controller.SubmitFinetuningRequest(slot, req.Session())
 					if err != nil {
-						log.Error().Err(err).Msg("error submitting finetuning request")
+						s.onSchedulingErr(req, err)
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting finetuning request")
 					}
 				default:
-					panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
 				}
 			default:
-				panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
+				s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Mode))
+				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session mode")
 			}
 		}
 
@@ -725,8 +730,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	return nil
 }
 
-// AllocateNewSlot creates a new slot for a workload and allocates it to the best available runner.
-func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *Workload) error {
+// createNewSlot creates a new slot for the given runner and workload.
+func (s *Scheduler) createNewSlot(ctx context.Context, runnerID string, req *Workload) error {
 	// Create a new slot and schedule the workload.
 	slot := NewSlot(runnerID, req, s.modelStaleFunc, s.slotTimeoutFunc)
 	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("creating new slot")
@@ -743,17 +748,9 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(100 * time.Millisecond):
-				slots, err := s.controller.GetSlots(slot.RunnerID)
-				if err != nil {
-					log.Error().Err(err).Msg("unable to get slots")
-					return
-				}
-				for _, s := range slots {
-					if s.ID == slot.ID {
-						slotReady <- true
-						return
-					}
+			case <-time.After(500 * time.Millisecond):
+				if _, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
+					slotReady <- true
 				}
 			}
 		}
@@ -769,8 +766,7 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 	// Ensure the slot is stored.
 	s.slots.Store(slot.ID, slot)
 
-	// Schedule and store the new slot.
-	return s.allocateSlot(slot.ID, req)
+	return nil
 }
 
 // AddWorkFields adds standard work-related fields to a log event
