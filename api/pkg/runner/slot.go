@@ -48,6 +48,13 @@ type CreateSlotParams struct {
 // If there is an error at any point during creation, we call Stop to kill the runtime. Otherwise it
 // can just sit there taking up GPU and doing nothing.
 func CreateSlot(ctx context.Context, params CreateSlotParams) (s *Slot, err error) {
+	s = &Slot{
+		ID:       params.ID,
+		RunnerID: params.RunnerOptions.ID,
+		Model:    params.Model,
+		Runtime:  nil,
+		Active:   true,
+	}
 	// Need to be very careful to shutdown the runtime if there is an error!
 	// Safest to do this in a defer so that it always checks.
 	defer func() {
@@ -124,5 +131,6 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (s *Slot, err erro
 	if err != nil {
 		return
 	}
+	s.Active = false
 	return
 }
