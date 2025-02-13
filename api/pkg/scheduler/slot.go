@@ -17,6 +17,7 @@ type Slot struct {
 	isActive         bool      // Private because I don't want people misinterpreting this
 	isStaleFunc      TimeoutFunc
 	isErrorFunc      TimeoutFunc
+	isRunning        bool
 }
 
 // NewSlot creates a new slot with the given runnerID and work
@@ -31,6 +32,7 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 		isActive:         false,
 		isStaleFunc:      staleTimeout,
 		isErrorFunc:      errorTimeout,
+		isRunning:        false,
 	}
 }
 
@@ -54,6 +56,14 @@ func (s *Slot) IsStale() bool {
 // True if this slot is currently active with work
 func (s *Slot) IsActive() bool {
 	return s.isActive
+}
+
+func (s *Slot) Running() {
+	s.isRunning = true
+}
+
+func (s *Slot) IsRunning() bool {
+	return s.isRunning
 }
 
 // Sets a slot as no longer active

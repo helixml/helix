@@ -572,6 +572,12 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		// If the slot isn't running yet, skip
+		if !slot.IsRunning() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
+			return true
+		}
+
 		// If it's not the same model name, skip
 		if slot.ModelName() != req.ModelName() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, model name mismatch")
@@ -760,6 +766,7 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 		return fmt.Errorf("slot not ready after 120 seconds")
 	}
 
+	slot.Running()
 	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
 
 	return nil
