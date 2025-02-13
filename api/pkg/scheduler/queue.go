@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/model"
@@ -135,4 +136,12 @@ func (q *WorkQueue) GetRequiredSlots() []SlotRequirement {
 	}
 
 	return requirements
+}
+
+func (q *WorkQueue) Remove(work *Workload) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = slices.DeleteFunc(q.items, func(w *Workload) bool {
+		return w.ID() == work.ID()
+	})
 }

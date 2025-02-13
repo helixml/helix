@@ -429,6 +429,10 @@ func (s *Scheduler) runSlotCreator(ctx context.Context) {
 			if err != nil {
 				withWorkContext(&log.Logger, pending.Work).Error().Err(err).Msg("failed to create slot, calling error handler")
 				s.onSchedulingErr(pending.Work, err)
+				// TODO(Phil): could do with a more nuanced approach here. It might fail because of
+				// a transient error, so we don't want to remove it from the queue.
+				// Remove error-ing work from queue, so it doesn't get retried
+				s.queue.Remove(pending.Work)
 			}
 			close(pending.Created) // Signal that creation attempt is complete
 		}
