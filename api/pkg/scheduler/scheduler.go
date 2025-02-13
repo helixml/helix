@@ -335,6 +335,8 @@ func (s *Scheduler) reconcileSlotsOnce() {
 	for _, req := range requiredSlots {
 		// Check if we have enough slots for this work right now
 		existingCount := 0
+		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
+		// refactor so that warm and this are using the same logic.
 		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 			if slot.ModelName() == req.Model &&
 				slot.Runtime() == req.Runtime &&
@@ -358,6 +360,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Find best runner for this slot
 		runnerID, err := s.pickBestRunner(req.ExampleWorkload)
 		if err != nil {
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement")
 			continue
 		}
 
