@@ -34,7 +34,7 @@ type RunnerStatus struct {
 	Updated     time.Time         `json:"updated"`
 	Version     string            `json:"version"`
 	TotalMemory uint64            `json:"total_memory"`
-	FreeMemory  int64             `json:"free_memory"`
+	FreeMemory  uint64            `json:"free_memory"`
 	Labels      map[string]string `json:"labels"`
 }
 

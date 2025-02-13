@@ -151,17 +151,17 @@ func (i *OllamaRuntime) URL() string {
 }
 
 func (i *OllamaRuntime) Stop() error {
+	defer i.cancel() // Cancel the context no matter what
+
 	if i.cmd == nil {
 		return nil
 	}
-	log.Info().Msg("Stopping Ollama runtime")
+	log.Info().Int("pid", i.cmd.Process.Pid).Msg("Stopping Ollama runtime")
 	if err := killProcessTree(i.cmd.Process.Pid); err != nil {
 		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
 		return err
 	}
-	i.cancel()
 	log.Info().Msg("Ollama runtime stopped")
-
 	return nil
 }
 

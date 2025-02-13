@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrRunnersAreFull     = errors.New("runners are full")
+	ErrRunnersAreFull     = errors.New("runner is full and no slots are stale")
 	ErrNoRunnersAvailable = errors.New("no runners available")
 	ErrModelWontFit       = errors.New("model won't fit in any runner")
 	ErrPendingSlotsFull   = errors.New("pending slots are full")

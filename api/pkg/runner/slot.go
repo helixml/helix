@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // Slot is the crazy mirror equivalent of scheduler.Slot
@@ -16,9 +17,9 @@ import (
 type Slot struct {
 	ID       uuid.UUID // Same as scheduler.Slot
 	RunnerID string    // Same as scheduler.Slot
-	Runtime  Runtime
-	Model    string // The model assigned to this slot
-	Active   bool   // True if the slot is active
+	Runtime  Runtime   // TODO(Phil): This is dangerous because it can be nil
+	Model    string    // The model assigned to this slot
+	Active   bool      // True if the slot is active
 }
 
 type PullProgress struct {
@@ -44,50 +45,72 @@ type CreateSlotParams struct {
 	Model         string
 }
 
-func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
-	var r Runtime
-	var err error
+// If there is an error at any point during creation, we call Stop to kill the runtime. Otherwise it
+// can just sit there taking up GPU and doing nothing.
+func CreateSlot(ctx context.Context, params CreateSlotParams) (s Slot, err error) {
+	s = Slot{
+		ID:       params.ID,
+		RunnerID: params.RunnerOptions.ID,
+		Model:    params.Model,
+		Runtime:  nil,
+		Active:   true,
+	}
+	// Need to be very careful to shutdown the runtime if there is an error!
+	// Safest to do this in a defer so that it always checks.
+	defer func() {
+		if err != nil {
+			if s.Runtime != nil {
+				log.Warn().Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error creating slot, stopping runtime")
+				stopErr := s.Runtime.Stop()
+				if stopErr != nil {
+					log.Error().Err(stopErr).Str("model", params.Model).Str("runtime", string(params.Runtime)).Msg("error stopping runtime, possible memory leak")
+				}
+			}
+		}
+	}()
+
 	switch params.Runtime {
 	case types.RuntimeOllama:
-		r, err = NewOllamaRuntime(ctx, OllamaRuntimeParams{
+		s.Runtime, err = NewOllamaRuntime(ctx, OllamaRuntimeParams{
 			CacheDir: &params.RunnerOptions.CacheDir,
 		}) // TODO(phil): Add params
 		if err != nil {
-			return nil, err
+			return
 		}
 	case types.RuntimeDiffusers:
-		r, err = NewDiffusersRuntime(ctx, DiffusersRuntimeParams{
+		s.Runtime, err = NewDiffusersRuntime(ctx, DiffusersRuntimeParams{
 			CacheDir: &params.RunnerOptions.CacheDir,
 		}) // TODO(phil): Add params
 		if err != nil {
-			return nil, err
+			return
 		}
 	case types.RuntimeAxolotl:
-		r, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
+		s.Runtime, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
 			RunnerOptions: params.RunnerOptions,
 		}) // TODO(phil): Add params
 		if err != nil {
-			return nil, err
+			return
 		}
 	default:
-		return nil, fmt.Errorf("unknown runtime: %s", params.Runtime)
+		err = fmt.Errorf("unknown runtime: %s", params.Runtime)
+		return
 	}
 
 	// Start the runtime
-	err = r.Start(ctx)
+	err = s.Runtime.Start(ctx)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Create OpenAI Client
-	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", r.URL()))
+	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", s.Runtime.URL()))
 	if err != nil {
-		return nil, err
+		return
 	}
 	// Check that the model is available in this runtime
 	models, err := openAIClient.ListModels(ctx)
 	if err != nil {
-		return nil, err
+		return
 	}
 	found := false
 	modelList := make([]string, 0, len(models.Models))
@@ -101,19 +124,15 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (*Slot, error) {
 	if !found {
 		// TODO(phil): I disabled model pulling for now because it's more work. But it is there if
 		// we need it
-		return nil, fmt.Errorf("model %s not found, available models: %s", params.Model, strings.Join(modelList, ", "))
+		err = fmt.Errorf("model %s not found, available models: %s", params.Model, strings.Join(modelList, ", "))
+		return
 	}
 
 	// Warm up the model
-	err = r.Warm(ctx, params.Model)
+	err = s.Runtime.Warm(ctx, params.Model)
 	if err != nil {
-		return nil, err
+		return
 	}
-
-	return &Slot{
-		ID:       params.ID,
-		RunnerID: params.RunnerOptions.ID,
-		Model:    params.Model,
-		Runtime:  r,
-	}, nil
+	s.Active = false
+	return
 }
