@@ -66,7 +66,7 @@ func (suite *PGVectorTestSuite) TestIndex_384_gte_small() {
 
 	vector := pgvector.NewVector([]float32{0.1, 0.2, 0.3})
 
-	suite.mockEmbeddingsStore.EXPECT().CreateKnowledgeEmbedding(suite.ctx, gomock.Any()).DoAndReturn(func(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
+	suite.mockEmbeddingsStore.EXPECT().CreateKnowledgeEmbedding(suite.ctx, gomock.Any()).DoAndReturn(func(_ context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
 		suite.Equal(embeddings[0].Embedding384, &vector)
 		suite.Nil(embeddings[0].Embedding512)
 		suite.Nil(embeddings[0].Embedding1024)
@@ -112,7 +112,7 @@ func (suite *PGVectorTestSuite) TestIndex_1536_text_embedding_3_small() {
 
 	vector := pgvector.NewVector([]float32{0.1, 0.2, 0.3})
 
-	suite.mockEmbeddingsStore.EXPECT().CreateKnowledgeEmbedding(suite.ctx, gomock.Any()).DoAndReturn(func(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
+	suite.mockEmbeddingsStore.EXPECT().CreateKnowledgeEmbedding(suite.ctx, gomock.Any()).DoAndReturn(func(_ context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
 		suite.Equal(embeddings[0].Embedding1536, &vector)
 
 		suite.Nil(embeddings[0].Embedding384)
