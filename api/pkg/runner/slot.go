@@ -94,7 +94,7 @@ func CreateSlot(ctx context.Context, params CreateSlotParams) (s *Slot, err erro
 	}
 
 	// Create OpenAI Client
-	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", r.URL()))
+	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", s.Runtime.URL()))
 	if err != nil {
 		return
 	}
