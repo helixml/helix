@@ -336,7 +336,6 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 					s.onSchedulingErr(slot.InitialWork(), err)
 				}
 			}
-
 		} else if runnerID != slot.RunnerID {
 			// The slot exists but on a different runner than we thought
 			log.Warn().
@@ -544,12 +543,8 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 		if len(staleSlots) == 0 {
 			return ErrRunnersAreFull
 		}
-		// Then delete the most stale slot
+		// Then delete the most stale slot, allow the reconciler to mop up
 		withSlotContext(&log.Logger, staleSlots[0]).Info().Msg("deleting stale slot")
-		err := s.controller.DeleteSlot(runnerID, staleSlots[0].ID)
-		if err != nil {
-			return fmt.Errorf("unable to delete stale slot: %w", err)
-		}
 		s.slots.Delete(staleSlots[0].ID)
 	}
 	return nil

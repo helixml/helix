@@ -37,8 +37,14 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 // True if the model is not active and hasn't been active for at least ModelTTL
 func (s *Slot) IsStale() bool {
 	// If work is not running yet, check for error timeout (it might never have started)
-	if !s.isRunning {
-		return s.isErrorFunc(s.RunnerID, s.LastActivityTime)
+	if !s.IsRunning() {
+		if s.isErrorFunc(s.RunnerID, s.LastActivityTime) {
+			// Don't release the slot while holding the read lock
+			// Instead, just return true and let the caller handle the release
+			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out during creation")
+			return true
+		}
+		return false
 	}
 
 	// If work is active, check for error timeout
