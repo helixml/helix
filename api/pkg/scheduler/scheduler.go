@@ -364,12 +364,11 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			if retry {
 				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
 				return
-			} else {
-				log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
-				s.onSchedulingErr(req.ExampleWorkload, err)
-				s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
-				return
 			}
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+			s.onSchedulingErr(req.ExampleWorkload, err)
+			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+			return
 		}
 
 		// Delete any stale slots on this runner if required
@@ -379,12 +378,11 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			if retry {
 				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
 				return
-			} else {
-				log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
-				s.onSchedulingErr(req.ExampleWorkload, err)
-				s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
-				return
 			}
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+			s.onSchedulingErr(req.ExampleWorkload, err)
+			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+			return
 		}
 
 		// Queue slot creation
