@@ -30,7 +30,7 @@ var (
 type HelixRunnerAPIServer struct {
 	runnerOptions *Options
 	cliContext    context.Context
-	slots         *xsync.MapOf[uuid.UUID, *Slot]
+	slots         *xsync.MapOf[uuid.UUID, Slot]
 	gpuManager    *GPUManager
 }
 
@@ -51,7 +51,7 @@ func NewHelixRunnerAPIServer(
 
 	return &HelixRunnerAPIServer{
 		runnerOptions: runnerOptions,
-		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
+		slots:         xsync.NewMapOf[uuid.UUID, Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(ctx, runnerOptions),
 	}, nil
@@ -131,8 +131,8 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 }
 
 func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http.Request) {
-	slot := &types.CreateRunnerSlotRequest{}
-	err := json.NewDecoder(r.Body).Decode(slot)
+	slotRequest := &types.CreateRunnerSlotRequest{}
+	err := json.NewDecoder(r.Body).Decode(slotRequest)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding create slot request")
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -140,28 +140,28 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	}
 
 	// Validate the request
-	if slot.ID == uuid.Nil {
+	if slotRequest.ID == uuid.Nil {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
-	if slot.Attributes.Runtime == "" {
+	if slotRequest.Attributes.Runtime == "" {
 		http.Error(w, "runtime is required", http.StatusBadRequest)
 		return
 	}
-	if slot.Attributes.Model == "" {
+	if slotRequest.Attributes.Model == "" {
 		http.Error(w, "model is required", http.StatusBadRequest)
 		return
 	}
 
-	log.Debug().Str("slot_id", slot.ID.String()).Msg("creating slot")
+	log.Debug().Str("slot_id", slotRequest.ID.String()).Msg("creating slot")
 
 	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
 	// long as the cli is running
 	s, err := CreateSlot(apiServer.cliContext, CreateSlotParams{
 		RunnerOptions: apiServer.runnerOptions,
-		ID:            slot.ID,
-		Runtime:       slot.Attributes.Runtime,
-		Model:         slot.Attributes.Model,
+		ID:            slotRequest.ID,
+		Runtime:       slotRequest.Attributes.Runtime,
+		Model:         slotRequest.Attributes.Model,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "pull model manifest: file does not exist") {
@@ -172,7 +172,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	apiServer.slots.Store(slot.ID, s)
+	apiServer.slots.Store(slotRequest.ID, s)
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
@@ -181,7 +181,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
 
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
-	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
+	apiServer.slots.Range(func(id uuid.UUID, slot Slot) bool {
 		runtime := types.Runtime("unknown")
 		version := "unknown"
 		if slot.Runtime != nil {
@@ -284,10 +284,10 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 			return
 		}
 
-		apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
+		apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
 			if !loaded {
 				http.Error(w, "slot not found", http.StatusNotFound)
-				return nil, false
+				return Slot{}, true
 			}
 			oldValue.Active = true
 			return oldValue, false
@@ -297,14 +297,14 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
-	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
+	apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
 		if !loaded {
-			return nil, false
+			return Slot{}, true
 		}
 		// This might have been called after a runtime was killed mid-inference, so we need to check
 		// if the runtime is nil.
 		if oldValue.Runtime == nil {
-			return nil, false
+			return Slot{}, true
 		}
 		oldValue.Active = false
 		return oldValue, false

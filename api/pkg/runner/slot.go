@@ -47,8 +47,8 @@ type CreateSlotParams struct {
 
 // If there is an error at any point during creation, we call Stop to kill the runtime. Otherwise it
 // can just sit there taking up GPU and doing nothing.
-func CreateSlot(ctx context.Context, params CreateSlotParams) (s *Slot, err error) {
-	s = &Slot{
+func CreateSlot(ctx context.Context, params CreateSlotParams) (s Slot, err error) {
+	s = Slot{
 		ID:       params.ID,
 		RunnerID: params.RunnerOptions.ID,
 		Model:    params.Model,
