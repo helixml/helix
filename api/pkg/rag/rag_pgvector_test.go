@@ -73,7 +73,7 @@ func (suite *PGVectorTestSuite) TestIndex_384_gte_small() {
 		suite.Nil(embeddings[0].Embedding1536)
 		suite.Nil(embeddings[0].Embedding3584)
 
-		suite.Equal("test-data-entity-id", embeddings[0].KnowledgeID)
+		suite.Equal("test-data-entity-id", embeddings[0].DataEntityID)
 		suite.Equal("test-document-id", embeddings[0].DocumentID)
 		suite.Equal("test-document-group-id", embeddings[0].DocumentGroupID)
 		suite.Equal("test-content", embeddings[0].Content)
@@ -120,7 +120,7 @@ func (suite *PGVectorTestSuite) TestIndex_1536_text_embedding_3_small() {
 		suite.Nil(embeddings[0].Embedding1024)
 		suite.Nil(embeddings[0].Embedding3584)
 
-		suite.Equal("test-data-entity-id", embeddings[0].KnowledgeID)
+		suite.Equal("test-data-entity-id", embeddings[0].DataEntityID)
 		suite.Equal("test-document-id", embeddings[0].DocumentID)
 		suite.Equal("test-document-group-id", embeddings[0].DocumentGroupID)
 		suite.Equal("test-content", embeddings[0].Content)

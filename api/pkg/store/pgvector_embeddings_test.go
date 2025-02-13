@@ -44,7 +44,7 @@ func (suite *PGVectorStoreTestSuite) TestCreateKnowledgeEmbedding() {
 	embedding384 := pgvector.NewVector(make([]float32, 384))
 
 	err := suite.db.CreateKnowledgeEmbedding(suite.ctx, &types.KnowledgeEmbeddingItem{
-		KnowledgeID:     id,
+		DataEntityID:    id,
 		DocumentGroupID: "test-document-group-id",
 		DocumentID:      "test-document-id",
 		Embedding384:    &embedding384,
@@ -53,7 +53,7 @@ func (suite *PGVectorStoreTestSuite) TestCreateKnowledgeEmbedding() {
 
 	// Query the embedding
 	items, err := suite.db.QueryKnowledgeEmbeddings(suite.ctx, &types.KnowledgeEmbeddingQuery{
-		KnowledgeID: id,
+		DataEntityID: id,
 	})
 	suite.NoError(err)
 	suite.Equal(1, len(items))

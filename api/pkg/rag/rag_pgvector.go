@@ -67,7 +67,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 		vector := pgvector.NewVector(generated.Data[0].Embedding)
 
 		embedding := &types.KnowledgeEmbeddingItem{
-			KnowledgeID:     indexReq.DataEntityID,
+			DataEntityID:    indexReq.DataEntityID,
 			DocumentID:      indexReq.DocumentID,
 			DocumentGroupID: indexReq.DocumentGroupID,
 			Content:         indexReq.Content,
@@ -118,7 +118,7 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 	}
 
 	query := &types.KnowledgeEmbeddingQuery{
-		KnowledgeID: q.DataEntityID,
+		DataEntityID: q.DataEntityID,
 	}
 
 	dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)

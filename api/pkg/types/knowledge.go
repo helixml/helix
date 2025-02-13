@@ -93,15 +93,17 @@ func (k *Knowledge) GetDataEntityID() string {
 }
 
 type KnowledgeVersion struct {
-	ID             string          `json:"id" gorm:"primaryKey"`
-	Created        time.Time       `json:"created"`
-	Updated        time.Time       `json:"updated"`
-	KnowledgeID    string          `json:"knowledge_id"`
-	Version        string          `json:"version"`
-	Size           int64           `json:"size"`
-	State          KnowledgeState  `json:"state"`
-	Message        string          `json:"message"` // Set if something wrong happens
-	CrawledSources *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
+	ID              string          `json:"id" gorm:"primaryKey"`
+	Created         time.Time       `json:"created"`
+	Updated         time.Time       `json:"updated"`
+	KnowledgeID     string          `json:"knowledge_id"`
+	Version         string          `json:"version"`
+	Size            int64           `json:"size"`
+	State           KnowledgeState  `json:"state"`
+	Message         string          `json:"message"` // Set if something wrong happens
+	CrawledSources  *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
+	EmbeddingsModel string          `json:"embeddings_model" yaml:"embeddings_model"` // Model used to embed the knowledge
+	Provider        string          `json:"provider" yaml:"provider"`
 }
 
 func (k *KnowledgeVersion) GetDataEntityID() string {
@@ -269,7 +271,7 @@ type KnowledgeProgress struct {
 
 type KnowledgeEmbeddingItem struct {
 	gorm.Model
-	KnowledgeID     string `gorm:"index"`
+	DataEntityID    string `gorm:"index"` // Knowledge ID + Version
 	DocumentGroupID string `gorm:"index"`
 	DocumentID      string `gorm:"index"`
 	Source          string
@@ -294,7 +296,7 @@ const (
 )
 
 type KnowledgeEmbeddingQuery struct {
-	KnowledgeID   string          `json:"knowledge_id"`
+	DataEntityID  string
 	Embedding384  pgvector.Vector // Query by embedding
 	Embedding512  pgvector.Vector // Query by embedding
 	Embedding1024 pgvector.Vector // Query by embedding

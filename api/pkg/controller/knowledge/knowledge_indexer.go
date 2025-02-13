@@ -81,11 +81,13 @@ func (r *Reconciler) index(ctx context.Context) error {
 
 				// Create a failed version too just for logs
 				_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
-					KnowledgeID: k.ID,
-					Version:     version,
-					Size:        k.Size,
-					State:       types.KnowledgeStateError,
-					Message:     err.Error(),
+					KnowledgeID:     k.ID,
+					Version:         version,
+					Size:            k.Size,
+					State:           types.KnowledgeStateError,
+					Message:         err.Error(),
+					EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+					Provider:        string(r.config.RAG.DefaultRagProvider),
 				})
 				return
 			}
@@ -182,11 +184,13 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	}
 
 	_, err = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
-		KnowledgeID:    k.ID,
-		Version:        version,
-		Size:           k.Size,
-		State:          types.KnowledgeStateReady,
-		CrawledSources: k.CrawledSources,
+		KnowledgeID:     k.ID,
+		Version:         version,
+		Size:            k.Size,
+		State:           types.KnowledgeStateReady,
+		CrawledSources:  k.CrawledSources,
+		EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+		Provider:        string(r.config.RAG.DefaultRagProvider),
 	})
 	if err != nil {
 		log.Warn().
