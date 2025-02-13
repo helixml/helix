@@ -295,6 +295,11 @@ func (s *Scheduler) reconcileSlotsOnce() {
 
 	// Clean up scheduler slots that don't exist on any runner
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		// If the slot isn't running yet, skip
+		if !slot.IsRunning() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping slot, not running yet")
+			return true
+		}
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			log.Warn().
 				Str("runner_id", slot.RunnerID).
@@ -766,6 +771,7 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 		return fmt.Errorf("slot not ready after 120 seconds")
 	}
 
+	// Mark the slot as running
 	slot.Running()
 	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
 
