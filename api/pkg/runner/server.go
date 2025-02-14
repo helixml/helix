@@ -176,6 +176,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		}
 		return
 	}
+	apiServer.slots.Store(slotRequest.ID, *s)
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
