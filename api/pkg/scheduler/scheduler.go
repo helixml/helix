@@ -754,8 +754,10 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 			case <-ctx.Done():
 				return
 			case <-time.After(500 * time.Millisecond):
-				if _, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
-					slotReady <- true
+				if s, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
+					if s.Ready {
+						slotReady <- true
+					}
 				}
 			}
 		}
