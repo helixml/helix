@@ -54,6 +54,10 @@ func (a *AxolotlRuntime) Warm(_ context.Context, _ string) error {
 	panic("unimplemented")
 }
 
+func (a *AxolotlRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
+}
+
 var _ Runtime = &DiffusersRuntime{}
 
 type DiffusersRuntime struct {
@@ -95,6 +99,10 @@ func (d *DiffusersRuntime) Warm(_ context.Context, _ string) error {
 	panic("unimplemented")
 }
 
+func (d *DiffusersRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
+}
+
 type OllamaRuntime struct{}
 
 type OllamaRuntimeParams struct {
@@ -132,5 +140,9 @@ func (o *OllamaRuntime) Version() string {
 }
 
 func (o *OllamaRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (a *OllamaRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
