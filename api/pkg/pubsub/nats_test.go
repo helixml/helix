@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/config"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/sourcegraph/conc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,15 +18,7 @@ func setupTestNats(t *testing.T) (*Nats, func()) {
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats-test")
 	require.NoError(t, err)
 
-	cfg := &config.ServerConfig{}
-	cfg.PubSub.StoreDir = tmpDir
-	cfg.PubSub.Server.Host = "0.0.0.0"
-	cfg.PubSub.Server.Port = server.RANDOM_PORT
-	cfg.PubSub.Server.JetStream = true
-	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
-	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
-
-	nats, err := NewNats(cfg)
+	nats, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -48,15 +38,7 @@ func setupAuthTestNats(t *testing.T) (*Nats, func()) {
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "helix-nats-test")
 	require.NoError(t, err)
 
-	cfg := &config.ServerConfig{}
-	cfg.PubSub.StoreDir = tmpDir
-	cfg.PubSub.Server.Host = "0.0.0.0"
-	cfg.PubSub.Server.Port = server.RANDOM_PORT
-	cfg.PubSub.Server.JetStream = true
-	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
-	cfg.PubSub.Server.Token = "test"
-	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
-	nats, err := NewNats(cfg)
+	nats, err := NewInMemoryNats()
 	require.NoError(t, err)
 
 	cleanup := func() {

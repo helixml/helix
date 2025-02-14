@@ -270,7 +270,8 @@ type PubSub struct {
 	Server   struct {
 		EmbeddedNatsServerEnabled bool   `envconfig:"NATS_SERVER_EMBEDDED_ENABLED" default:"true" description:"Whether to enable the embedded NATS server."`
 		Host                      string `envconfig:"NATS_SERVER_HOST" default:"127.0.0.1" description:"The host to bind the NATS server to."`
-		Port                      int    `envconfig:"NATS_SERVER_PORT" default:"8433" description:"The port to bind the NATS server to."`
+		Port                      int    `envconfig:"NATS_SERVER_PORT" default:"4222" description:"The port to bind the NATS server to."`
+		WebsocketPort             int    `envconfig:"NATS_SERVER_WEBSOCKET_PORT" default:"8433" description:"The websocket port used as a proxy to the NATS server."`
 		Token                     string `envconfig:"NATS_SERVER_TOKEN" description:"The authentication token for the NATS server."`
 		MaxPayload                int    `envconfig:"NATS_SERVER_MAX_PAYLOAD" default:"33554432" description:"The maximum payload size in bytes (default 32MB)."`
 		JetStream                 bool   `envconfig:"NATS_SERVER_JETSTREAM" default:"true" description:"Whether to enable JetStream."`
