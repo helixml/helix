@@ -32,7 +32,7 @@ func (s *HelixRunnerAPIServer) listModels(rw http.ResponseWriter, r *http.Reques
 	}
 
 	// Create the openai client
-	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)

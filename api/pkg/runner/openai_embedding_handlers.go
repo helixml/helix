@@ -77,7 +77,7 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 	})
 
 	// Create the openai client
-	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
