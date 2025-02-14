@@ -42,7 +42,7 @@ export const ModelInstanceSummary: FC<{
       return '#F4D35E'
     }
     if (!slot.ready) {
-      return '#C60606'
+      return '#E28000'
     }
     return '#e5e5e5'
   }, [slot.ready, slot.active])
