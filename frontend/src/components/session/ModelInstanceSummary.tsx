@@ -37,12 +37,22 @@ export const ModelInstanceSummary: FC<{
 
   const [ historyViewing, setHistoryViewing ] = useState(false)
 
+  const statusColor = useMemo(() => {
+    if (slot.active) {
+      return '#F4D35E'
+    }
+    if (!slot.ready) {
+      return '#C60606'
+    }
+    return '#e5e5e5'
+  }, [slot.ready, slot.active])
+
   return (
     <Box
       sx={{
         width: '100%',
         p: 1,
-        border: `1px solid ${slot.active ? "#F4D35E" : '#e5e5e5'}`,
+        border: `1px solid ${statusColor}`,
         mt: 1,
         mb: 1,
       }}
