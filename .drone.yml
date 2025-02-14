@@ -85,7 +85,8 @@ steps:
     - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
     - |
       if [ -n "$DRONE_TAG" ]; then
-        RELEASE=$(gh release list | grep "^$DRONE_TAG" | head -n 1 | awk '{print $1}')
+        # Look for either exact match or tag followed by space and description
+        RELEASE=$(gh release list | awk -v tag="$DRONE_TAG" '$1 == tag || $1 ~ "^"tag" " {print $1; exit}')
         if [ -n "$RELEASE" ]; then
           echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
           gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
