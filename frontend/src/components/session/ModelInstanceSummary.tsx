@@ -56,6 +56,11 @@ export const ModelInstanceSummary: FC<{
           <Typography variant="caption" gutterBottom>{ slot.id }</Typography>
         </Cell>
       </Row>
+      <Row>
+        <Cell>
+          <Typography variant="caption" gutterBottom>{ slot.status }</Typography>
+        </Cell>
+      </Row>
     </Box>
   )
 }

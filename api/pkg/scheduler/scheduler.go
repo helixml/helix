@@ -244,7 +244,7 @@ func (s *Scheduler) reconcileRunnersOnce() {
 	for _, runnerID := range runnerIDs {
 		err := s.controller.GetHealthz(runnerID)
 		if err != nil {
-			log.Error().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
 			s.controller.deleteRunner(runnerID)
 
 			// Delete all slots belonging to this runner

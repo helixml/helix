@@ -181,7 +181,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
+func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.Request) {
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
@@ -191,6 +191,7 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.
 			Model:   slot.Model,
 			Active:  slot.Active,
 			Ready:   slot.Ready,
+			Status:  slot.Status(r.Context()),
 		})
 		return true
 	})
@@ -224,6 +225,7 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 		Model:   slot.Model,
 		Active:  slot.Active,
 		Ready:   slot.Ready,
+		Status:  slot.Status(r.Context()),
 	}
 
 	err = json.NewEncoder(w).Encode(response)

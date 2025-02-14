@@ -37,6 +37,7 @@ type Runtime interface {
 	PullModel(ctx context.Context, model string, progress func(PullProgress) error) error
 	Warm(ctx context.Context, model string) error
 	Version() string
+	Status(ctx context.Context) string // To hold general status information like ollama ps output
 	Runtime() types.Runtime
 	URL() string
 }
@@ -167,6 +168,13 @@ func (s *Slot) Runtime() types.Runtime {
 		return s.runningRuntime.Runtime()
 	}
 	return types.Runtime("unknown")
+}
+
+func (s *Slot) Status(ctx context.Context) string {
+	if s.runningRuntime != nil {
+		return s.runningRuntime.Status(ctx)
+	}
+	return "unknown"
 }
 
 func (s *Slot) URL() string {
