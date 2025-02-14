@@ -246,7 +246,26 @@ func (s *Scheduler) reconcileRunnersOnce() {
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
 			s.controller.deleteRunner(runnerID)
+
+			// Delete all slots belonging to this runner
+			s.deleteRunnerSlots(runnerID)
 		}
+	}
+}
+
+func (s *Scheduler) deleteRunnerSlots(runnerID string) {
+	// First collect the slots to delete
+	var slotsToDelete []uuid.UUID
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runnerID {
+			slotsToDelete = append(slotsToDelete, slot.ID)
+		}
+		return true
+	})
+
+	// Then delete them after the range is complete
+	for _, slotID := range slotsToDelete {
+		s.slots.Delete(slotID)
 	}
 }
 

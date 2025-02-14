@@ -53,7 +53,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
-		log.Info().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner connected")
+		log.Info().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner ping")
 		runnerID, err := pubsub.ParseRunnerID(msg.Subject)
 		if err != nil {
 			log.Error().Err(err).Str("subject", msg.Subject).Msg("error parsing runner ID")
