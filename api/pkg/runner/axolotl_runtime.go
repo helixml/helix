@@ -25,6 +25,7 @@ import (
 
 var (
 	axolotlCommander Commander = &RealCommander{}
+	_                Runtime   = &AxolotlRuntime{}
 )
 
 type AxolotlRuntime struct {
@@ -36,7 +37,6 @@ type AxolotlRuntime struct {
 	startTimeout  time.Duration
 	runnerOptions *Options
 }
-
 type AxolotlRuntimeParams struct {
 	Port          *int           // If nil, will be assigned a random port
 	StartTimeout  *time.Duration // How long to wait for axolotl to start
@@ -282,6 +282,13 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	}()
 
 	return cmd, nil
+}
+
+func (d *AxolotlRuntime) Status(_ context.Context) string {
+	if d.version == "" {
+		return "not ready"
+	}
+	return "ready"
 }
 
 func (d *AxolotlRuntime) waitUntilReady(ctx context.Context) error {

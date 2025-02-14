@@ -68,7 +68,7 @@ func (s *HelixRunnerAPIServer) createHelixImageGeneration(w http.ResponseWriter,
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	diffusersClient, err := NewDiffusersClient(r.Context(), slot.Runtime.URL())
+	diffusersClient, err := NewDiffusersClient(r.Context(), slot.URL())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create diffusers client: %s", err.Error()), http.StatusInternalServerError)
 		return

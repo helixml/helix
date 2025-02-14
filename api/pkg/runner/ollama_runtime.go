@@ -4,9 +4,11 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +25,7 @@ import (
 
 var (
 	ollamaCommander Commander = &RealCommander{}
+	_               Runtime   = &OllamaRuntime{}
 )
 
 type OllamaRuntime struct {
@@ -221,6 +224,22 @@ func (i *OllamaRuntime) Runtime() types.Runtime {
 
 func (i *OllamaRuntime) Version() string {
 	return i.version
+}
+
+func (i *OllamaRuntime) Status(ctx context.Context) string {
+	ps, err := i.ollamaClient.ListRunning(ctx)
+	if err != nil {
+		return fmt.Sprintf("error getting ollama status: %s", err.Error())
+	}
+	buf := bytes.NewBufferString("")
+	for _, m := range ps.Models {
+		sizeCPU := m.Size - m.SizeVRAM
+		cpuPercent := math.Round(float64(sizeCPU) / float64(m.Size) * 100)
+		procStr := fmt.Sprintf("%s %d%%/%d%% CPU/GPU", m.Name, int(cpuPercent), int(100-cpuPercent))
+		buf.WriteString(fmt.Sprintf(" %s", procStr))
+		buf.WriteString("\n")
+	}
+	return buf.String()
 }
 
 func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout time.Duration) error {

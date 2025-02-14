@@ -32,22 +32,14 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 	}
 }
 
-// Add these new types to track pending slot creation
-type PendingSlot struct {
-	Work     *Workload
-	RunnerID string
-	Created  chan struct{} // Channel to signal when slot is created
-}
-
 type Scheduler struct {
 	ctx             context.Context
 	controller      *RunnerController
 	queue           *WorkQueue
 	onSchedulingErr func(work *Workload, err error)
 	slots           *xsync.MapOf[uuid.UUID, *Slot]
-	modelStaleFunc  TimeoutFunc       // Function to check if models are stale
-	slotTimeoutFunc TimeoutFunc       // Function to check if slots have timed out due to error
-	pendingSlots    chan *PendingSlot // Channel for pending slot creations
+	modelStaleFunc  TimeoutFunc // Function to check if models are stale
+	slotTimeoutFunc TimeoutFunc // Function to check if slots have timed out due to error
 }
 
 type Params struct {
@@ -87,7 +79,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
 		modelStaleFunc:  NewTimeoutFunc(modelTTL),
 		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
-		pendingSlots:    make(chan *PendingSlot, pendingSlotsBufferSize),
 	}
 
 	// Start the queue processor
@@ -101,9 +92,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
-
-	// Start the slot creator
-	go s.runSlotCreator(ctx)
 
 	return s, nil
 }
@@ -191,7 +179,7 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(runnerReconcileInterval):
-			s.reconcileSlotsOnce()
+			s.reconcileSlotsOnce(ctx)
 		}
 	}
 }
@@ -256,27 +244,73 @@ func (s *Scheduler) reconcileRunnersOnce() {
 	for _, runnerID := range runnerIDs {
 		err := s.controller.GetHealthz(runnerID)
 		if err != nil {
-			log.Error().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
 			s.controller.deleteRunner(runnerID)
+
+			// Delete all slots belonging to this runner
+			s.deleteRunnerSlots(runnerID)
 		}
 	}
 }
 
+func (s *Scheduler) deleteRunnerSlots(runnerID string) {
+	// First collect the slots to delete
+	var slotsToDelete []uuid.UUID
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runnerID {
+			slotsToDelete = append(slotsToDelete, slot.ID)
+		}
+		return true
+	})
+
+	// Then delete them after the range is complete
+	for _, slotID := range slotsToDelete {
+		s.slots.Delete(slotID)
+	}
+}
+
 // reconcileSlotsOnce reconciles slots once.
-func (s *Scheduler) reconcileSlotsOnce() {
+func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
+
+	// Ensure new slots are created and ready to take work
+	requiredSlots := s.queue.GetRequiredSlots()
+	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
+	// For each requirement, ensure we have enough slots for that work right now
+	for _, req := range requiredSlots {
+		// Check if we have enough slots for this work right now
+		existingCount := 0
+		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
+		// refactor so that warm and this are using the same logic.
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.InitialWork().ModelName() == req.Model &&
+				slot.InitialWork().Runtime() == req.Runtime &&
+				slot.InitialWork().LoraDir() == req.LoraDir &&
+				!slot.IsActive() {
+				existingCount++
+			}
+			return true
+		})
+
+		// If we need more slots, start creating them
+		slotsNeeded := req.Count - existingCount
+		if slotsNeeded > 0 {
+			s.ensureSlots(req, slotsNeeded)
+		}
+	}
 
 	// Build a complete map of all actual slots across all runners
 	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
 	for _, runnerID := range runnerIDs {
-		actualSlots, err := s.controller.GetSlots(runnerID)
+		// We need a live view of the slots here, otherwise we might get stale data
+		actualSlots, err := s.controller.fetchSlots(runnerID)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get slots from runner")
 			continue
 		}
 
-		for _, slot := range actualSlots {
+		for _, slot := range actualSlots.Slots {
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
 				log.Warn().
@@ -297,11 +331,30 @@ func (s *Scheduler) reconcileSlotsOnce() {
 	// Clean up scheduler slots that don't exist on any runner
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
 		if runnerID, exists := allActualSlots[slotID]; !exists {
-			log.Warn().
+			log.Info().
 				Str("runner_id", slot.RunnerID).
 				Str("slot_id", slotID.String()).
-				Msg("found slot on the scheduler that doesn't exist on any runner, deleting...")
-			s.slots.Delete(slotID)
+				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
+
+			err := s.createNewSlot(ctx, slot)
+			if err != nil {
+				// Then see if we can retry
+				retry, err := ErrorHandlingStrategy(err, slot.InitialWork())
+				if retry {
+					withWorkContext(&log.Logger, slot.InitialWork()).Debug().Err(err).Msg("failed to create slot, but retrying later...")
+				} else {
+					withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
+
+					// First remove that slot, since it was never created
+					s.slots.Delete(slot.ID)
+
+					// Then remove the work from the queue if it exists
+					s.queue.Remove(slot.InitialWork())
+
+					// Then notify the error handler
+					s.onSchedulingErr(slot.InitialWork(), err)
+				}
+			}
 		} else if runnerID != slot.RunnerID {
 			// The slot exists but on a different runner than we thought
 			log.Warn().
@@ -327,32 +380,6 @@ func (s *Scheduler) reconcileSlotsOnce() {
 			}
 		}
 	}
-
-	// Ensure new slots are created and ready to take work
-	requiredSlots := s.queue.GetRequiredSlots()
-	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
-	// For each requirement, ensure we have enough slots for that work right now
-	for _, req := range requiredSlots {
-		// Check if we have enough slots for this work right now
-		existingCount := 0
-		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
-		// refactor so that warm and this are using the same logic.
-		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-			if slot.ModelName() == req.Model &&
-				slot.Runtime() == req.Runtime &&
-				slot.LoraDir() == req.LoraDir &&
-				!slot.IsActive() {
-				existingCount++
-			}
-			return true
-		})
-
-		// If we need more slots, start creating them
-		slotsNeeded := req.Count - existingCount
-		if slotsNeeded > 0 {
-			s.ensureSlots(req, slotsNeeded)
-		}
-	}
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
@@ -367,38 +394,29 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			}
 			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
-			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slot requirement, not the entire queue full of them. It should clean up on the next time around.
 			return
 		}
 
 		// Delete any stale slots on this runner if required
-		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload.Model().GetMemoryRequirements(req.ExampleWorkload.Mode()))
+		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
 		if err != nil {
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
-				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, retrying...")
 				return
 			}
-			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
 			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
 			return
 		}
 
-		// Queue slot creation
-		pending := &PendingSlot{
-			RunnerID: runnerID,
-			Created:  make(chan struct{}),
-			Work:     req.ExampleWorkload,
-		}
+		// Create the control plane view of the slot
+		slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
 
-		select {
-		case s.pendingSlots <- pending:
-			log.Debug().Str("runner_id", runnerID).Str("model_name", req.ExampleWorkload.ModelName().String()).Msg("queued slot creation")
-		default:
-			log.Debug().Msg("pending slots channel full, skipping...")
-			return
-		}
+		// Store the slot
+		s.slots.Store(slot.ID, slot)
 	}
 }
 
@@ -424,33 +442,6 @@ func (s *Scheduler) processQueueOnce() {
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to add work back to queue")
 			s.onSchedulingErr(work, err)
-		}
-	}
-}
-
-// Add new method to handle slot creation
-func (s *Scheduler) runSlotCreator(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case pending := <-s.pendingSlots:
-			// Create an allocated slot, lock the reconciler to prevent it from running until the slot
-			// is created
-			withWorkContext(&log.Logger, pending.Work).Trace().Msg("taking slot mutex")
-			err := s.allocateNewSlot(ctx, pending.RunnerID, pending.Work)
-			withWorkContext(&log.Logger, pending.Work).Trace().Msg("returned slot mutex")
-			if err != nil {
-				retry, err := ErrorHandlingStrategy(err, pending.Work)
-				if retry {
-					withWorkContext(&log.Logger, pending.Work).Debug().Err(err).Msg("failed to create slot, but retrying later...")
-				} else {
-					withWorkContext(&log.Logger, pending.Work).Warn().Err(err).Msg("failed to create slot, calling error handler")
-					s.onSchedulingErr(pending.Work, err)
-					s.queue.Remove(pending.Work)
-				}
-			}
-			close(pending.Created) // Signal that creation attempt is complete
 		}
 	}
 }
@@ -529,7 +520,7 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload.
-func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64) error {
+func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) error {
 	totalMem := s.controller.TotalMemory(runnerID)
 	for {
 		var allSlots []*Slot
@@ -541,15 +532,27 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 			}
 			return true
 		})
-		staleSlots := Filter(allSlots, func(slot *Slot) bool {
-			return slot.IsStale()
-		})
+
+		requiredMem := work.Model().GetMemoryRequirements(work.Mode())
 		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
 		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
 		// If there is enough free space on the runner, break out of the loop.
 		if freeMem > 0 {
 			break
 		}
+
+		// Only keep slots that are not the same as the required workload
+		// Since there's no point deleting slots that are already the same as the required workload
+		notSameWorkload := Filter(allSlots, func(slot *Slot) bool {
+			return slot.InitialWork().ModelName() != work.ModelName() ||
+				slot.InitialWork().Runtime() != work.Runtime() ||
+				slot.InitialWork().LoraDir() != work.LoraDir()
+		})
+
+		// Only keep the stale slots
+		staleSlots := Filter(notSameWorkload, func(slot *Slot) bool {
+			return slot.IsStale()
+		})
 
 		// Sort the slots by last activity time
 		slices.SortFunc(staleSlots, func(i, j *Slot) int {
@@ -559,12 +562,8 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 		if len(staleSlots) == 0 {
 			return ErrRunnersAreFull
 		}
-		// Then delete the most stale slot
+		// Then delete the most stale slot, allow the reconciler to mop up
 		withSlotContext(&log.Logger, staleSlots[0]).Info().Msg("deleting stale slot")
-		err := s.controller.DeleteSlot(runnerID, staleSlots[0].ID)
-		if err != nil {
-			return fmt.Errorf("unable to delete stale slot: %w", err)
-		}
 		s.slots.Delete(staleSlots[0].ID)
 	}
 	return nil
@@ -573,14 +572,20 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, requiredMem uint64)
 func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		// If the slot isn't running yet, skip
+		if !slot.IsRunning() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
+			return true
+		}
+
 		// If it's not the same model name, skip
-		if slot.ModelName() != req.ModelName() {
+		if slot.InitialWork().ModelName() != req.ModelName() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, model name mismatch")
 			return true
 		}
 
 		// If it's not the same runtime, skip
-		if slot.ModelName().InferenceRuntime() != req.ModelName().InferenceRuntime() {
+		if slot.InitialWork().Runtime() != req.Runtime() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, inference runtime mismatch")
 			return true
 		}
@@ -592,8 +597,8 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 		}
 
 		// If it doesn't have the right LoraDir then skip
-		if slot.LoraDir() != req.LoraDir() {
-			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
+		if slot.InitialWork().LoraDir() != req.LoraDir() {
+			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.InitialWork().LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
 			return true
 		}
 
@@ -672,8 +677,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
 			err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
 			if err != nil {
-				// TODO(Phil): Need to pass on the error to the session for all these cases
-				log.Error().Err(err).Msg("error submitting chat completion request")
+				s.onSchedulingErr(req, err)
+				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
 			}
 		case WorkloadTypeSession:
 			switch req.Session().Mode {
@@ -683,7 +688,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting text2image request")
 					err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
 					if err != nil {
-						log.Error().Err(err).Msg("error submitting text2image request")
+						s.onSchedulingErr(req, err)
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting text2image request")
 					}
 				case types.SessionTypeText:
 					if req.Session().LoraDir != "" {
@@ -695,13 +701,16 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 						// Forward the request to the chat completion handler
 						err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
 						if err != nil {
-							log.Error().Err(err).Msg("error submitting text request")
+							s.onSchedulingErr(req, err)
+							withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting LORA inference request")
 						}
 					} else {
-						panic(fmt.Sprintf("not implemented: %s and no lora dir", req.Session().Type))
+						s.onSchedulingErr(req, fmt.Errorf("not implemented: %s and no lora dir", req.Session().Type))
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: no lora dir")
 					}
 				default:
-					panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
 				}
 			case types.SessionModeFinetune:
 				switch req.Session().Type {
@@ -709,13 +718,16 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting finetuning request")
 					err := s.controller.SubmitFinetuningRequest(slot, req.Session())
 					if err != nil {
-						log.Error().Err(err).Msg("error submitting finetuning request")
+						s.onSchedulingErr(req, err)
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting finetuning request")
 					}
 				default:
-					panic(fmt.Sprintf("not implemented: %s", req.Session().Type))
+					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
 				}
 			default:
-				panic(fmt.Sprintf("not implemented: %s", req.Session().Mode))
+				s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Mode))
+				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session mode")
 			}
 		}
 
@@ -725,11 +737,9 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	return nil
 }
 
-// AllocateNewSlot creates a new slot for a workload and allocates it to the best available runner.
-func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *Workload) error {
-	// Create a new slot and schedule the workload.
-	slot := NewSlot(runnerID, req, s.modelStaleFunc, s.slotTimeoutFunc)
-	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("creating new slot")
+// createNewSlot creates a new slot for the given runner and workload.
+func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
+	withSlotContext(&log.Logger, slot).Info().Msg("creating new slot on runner")
 
 	err := s.controller.CreateSlot(slot)
 	if err != nil {
@@ -743,16 +753,10 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(100 * time.Millisecond):
-				slots, err := s.controller.GetSlots(slot.RunnerID)
-				if err != nil {
-					log.Error().Err(err).Msg("unable to get slots")
-					return
-				}
-				for _, s := range slots {
-					if s.ID == slot.ID {
+			case <-time.After(500 * time.Millisecond):
+				if s, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
+					if s.Ready {
 						slotReady <- true
-						return
 					}
 				}
 			}
@@ -764,13 +768,11 @@ func (s *Scheduler) allocateNewSlot(ctx context.Context, runnerID string, req *W
 		return fmt.Errorf("slot not ready after 120 seconds")
 	}
 
-	withSlotAndWorkContext(&log.Logger, slot, req).Info().Msg("slot created")
+	// Mark the slot as running
+	slot.SetRunning()
+	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
 
-	// Ensure the slot is stored.
-	s.slots.Store(slot.ID, slot)
-
-	// Schedule and store the new slot.
-	return s.allocateSlot(slot.ID, req)
+	return nil
 }
 
 // AddWorkFields adds standard work-related fields to a log event
@@ -791,7 +793,7 @@ func withSlotContext(l *zerolog.Logger, s *Slot) *zerolog.Logger {
 	nextLogger := l.With().
 		Str("runner_id", s.RunnerID).
 		Str("slot_id", s.ID.String()).
-		Str("model_name", s.ModelName().String()).
+		Str("model_name", s.InitialWork().ModelName().String()).
 		Uint64("memory", s.Memory()).
 		Logger()
 	return &nextLogger

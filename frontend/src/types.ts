@@ -376,6 +376,8 @@ export interface ISlot {
   model: string,
   version: string,
   active: boolean,
+  ready: boolean,
+  status: string,
 }
 
 export interface LLMInferenceRequest {

@@ -53,7 +53,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
-		log.Info().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner connected")
+		log.Debug().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner ping")
 		runnerID, err := pubsub.ParseRunnerID(msg.Subject)
 		if err != nil {
 			log.Error().Err(err).Str("subject", msg.Subject).Msg("error parsing runner ID")
@@ -111,12 +111,18 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
 	duration := time.Since(start)
-	log.Trace().Str("subject", pubsub.GetRunnerQueue(runnerID)).Str("runner_id", runnerID).Str("method", req.Method).Str("url", req.URL).Str("duration", duration.String()).Msg("request sent to runner")
 
 	var resp types.Response
 	if err := json.Unmarshal(response, &resp); err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %w", err)
 	}
+	log.Trace().
+		Str("subject", pubsub.GetRunnerQueue(runnerID)).
+		Str("runner_id", runnerID).Str("method", req.Method).
+		Str("url", req.URL).
+		Str("duration", duration.String()).
+		Int("status_code", resp.StatusCode).
+		Msg("request sent to runner")
 
 	return &resp, nil
 }
@@ -288,14 +294,14 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	log.Debug().
 		Str("runner_id", slot.RunnerID).
 		Str("slot_id", slot.ID.String()).
-		Str("model", slot.ModelName().String()).
-		Str("runtime", string(slot.Runtime())).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Str("runtime", string(slot.InitialWork().Runtime())).
 		Msg("creating slot")
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
-			Runtime: slot.Runtime(),
-			Model:   slot.ModelName().String(),
+			Runtime: slot.InitialWork().Runtime(),
+			Model:   slot.InitialWork().ModelName().String(),
 		},
 	}
 	body, err := json.Marshal(req)
@@ -448,6 +454,9 @@ func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.R
 	}, defaultRequestTimeout)
 	if err != nil {
 		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot (status %d): %s", resp.StatusCode, resp.Body)
 	}
 
 	var slot types.RunnerSlot

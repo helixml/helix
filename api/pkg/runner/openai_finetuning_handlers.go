@@ -81,7 +81,7 @@ func (s *HelixRunnerAPIServer) createFinetuningJob(rw http.ResponseWriter, r *ht
 		finetuningRequest.TrainingFile = localPath
 	}
 
-	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -122,7 +122,7 @@ func (s *HelixRunnerAPIServer) listFinetuningJobs(rw http.ResponseWriter, r *htt
 		return
 	}
 
-	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -166,7 +166,7 @@ func (s *HelixRunnerAPIServer) retrieveFinetuningJob(rw http.ResponseWriter, r *
 		return
 	}
 
-	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -208,7 +208,7 @@ func (s *HelixRunnerAPIServer) listFinetuningJobEvents(rw http.ResponseWriter, r
 		return
 	}
 
-	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
