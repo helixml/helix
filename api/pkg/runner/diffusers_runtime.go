@@ -24,6 +24,7 @@ import (
 
 var (
 	diffusersCommander Commander = &RealCommander{}
+	_                  Runtime   = &DiffusersRuntime{}
 )
 
 type DiffusersRuntime struct {
@@ -171,6 +172,13 @@ func (d *DiffusersRuntime) Runtime() types.Runtime {
 
 func (d *DiffusersRuntime) Version() string {
 	return d.version
+}
+
+func (d *DiffusersRuntime) Status(_ context.Context) string {
+	if d.version == "" {
+		return "not ready"
+	}
+	return "ready"
 }
 
 func startDiffusersCmd(ctx context.Context, commander Commander, port int, cacheDir string) (*exec.Cmd, error) {

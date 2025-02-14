@@ -62,6 +62,8 @@ type RunnerSlot struct {
 	Model   string    `json:"model"`
 	Version string    `json:"version"`
 	Active  bool      `json:"active"`
+	Ready   bool      `json:"ready"`
+	Status  string    `json:"status"`
 }
 
 type ListRunnerSlotsResponse struct {

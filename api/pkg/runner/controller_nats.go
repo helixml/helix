@@ -50,11 +50,6 @@ func NewNatsController(ctx context.Context, config *NatsControllerConfig) (*Nats
 		switch status {
 		case pubsub.Connected:
 			log.Info().Str("runner_id", config.RunnerID).Msg("nats connection established")
-			// No need to resubscribe - NATS handles this automatically
-			// Just announce our presence
-			if err := controller.pubsub.Publish(ctx, pubsub.GetRunnerConnectedQueue(config.RunnerID), []byte("connected")); err != nil {
-				log.Error().Err(err).Msg("failed to publish connected message after reconnect")
-			}
 		case pubsub.Disconnected:
 			log.Warn().Str("runner_id", config.RunnerID).Msg("nats connection lost")
 		case pubsub.Reconnecting:
@@ -66,6 +61,20 @@ func NewNatsController(ctx context.Context, config *NatsControllerConfig) (*Nats
 	if err := controller.setupSubscription(ctx, config.RunnerID); err != nil {
 		return nil, err
 	}
+
+	// goroutine to periodically ping the scheduler
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+				if err := controller.pubsub.Publish(ctx, pubsub.GetRunnerConnectedQueue(config.RunnerID), []byte("ping")); err != nil {
+					log.Error().Err(err).Msg("failed to publish runner ping")
+				}
+			}
+		}
+	}()
 
 	return controller, nil
 }

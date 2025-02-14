@@ -30,7 +30,7 @@ var (
 type HelixRunnerAPIServer struct {
 	runnerOptions *Options
 	cliContext    context.Context
-	slots         *xsync.MapOf[uuid.UUID, Slot]
+	slots         *xsync.MapOf[uuid.UUID, *Slot]
 	gpuManager    *GPUManager
 }
 
@@ -51,7 +51,7 @@ func NewHelixRunnerAPIServer(
 
 	return &HelixRunnerAPIServer{
 		runnerOptions: runnerOptions,
-		slots:         xsync.NewMapOf[uuid.UUID, Slot](),
+		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(ctx, runnerOptions),
 	}, nil
@@ -155,15 +155,20 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 
 	log.Debug().Str("slot_id", slotRequest.ID.String()).Msg("creating slot")
 
-	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
-	// long as the cli is running
-	s, err := CreateSlot(apiServer.cliContext, CreateSlotParams{
+	s := NewEmptySlot(CreateSlotParams{
 		RunnerOptions: apiServer.runnerOptions,
 		ID:            slotRequest.ID,
 		Runtime:       slotRequest.Attributes.Runtime,
 		Model:         slotRequest.Attributes.Model,
 	})
+	apiServer.slots.Store(slotRequest.ID, s)
+
+	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
+	// long as the cli is running
+	err = s.Create(apiServer.cliContext)
 	if err != nil {
+		log.Error().Err(err).Msg("error creating slot, deleting...")
+		apiServer.slots.Delete(slotRequest.ID)
 		if strings.Contains(err.Error(), "pull model manifest: file does not exist") {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
@@ -172,28 +177,21 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	apiServer.slots.Store(slotRequest.ID, s)
-
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
-
+func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.Request) {
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
-	apiServer.slots.Range(func(id uuid.UUID, slot Slot) bool {
-		runtime := types.Runtime("unknown")
-		version := "unknown"
-		if slot.Runtime != nil {
-			runtime = slot.Runtime.Runtime()
-			version = slot.Runtime.Version()
-		}
+	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
 			ID:      id,
-			Runtime: runtime,
-			Version: version,
+			Runtime: slot.Runtime(),
+			Version: slot.Version(),
 			Model:   slot.Model,
 			Active:  slot.Active,
+			Ready:   slot.Ready,
+			Status:  slot.Status(r.Context()),
 		})
 		return true
 	})
@@ -220,18 +218,14 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if slot.Runtime == nil {
-		// Slot runtime is not found. This might be because the slot is still starting up.
-		http.Error(w, "slot runtime not found", http.StatusInternalServerError)
-		return
-	}
-
 	response := &types.RunnerSlot{
 		ID:      slotUUID,
-		Runtime: slot.Runtime.Runtime(),
-		Version: slot.Runtime.Version(),
+		Runtime: slot.Runtime(),
+		Version: slot.Version(),
 		Model:   slot.Model,
 		Active:  slot.Active,
+		Ready:   slot.Ready,
+		Status:  slot.Status(r.Context()),
 	}
 
 	err = json.NewEncoder(w).Encode(response)
@@ -259,13 +253,12 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 	// Delete slot first to ensure it is not used while we are stopping it
 	apiServer.slots.Delete(slotUUID)
 
-	if slot.Runtime != nil {
-		err = slot.Runtime.Stop()
-		if err != nil {
-			log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Then delete the slot (to stop the runtime)
+	err = slot.Delete()
+	if err != nil {
+		log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -284,10 +277,10 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 			return
 		}
 
-		apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
+		apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 			if !loaded {
 				http.Error(w, "slot not found", http.StatusNotFound)
-				return Slot{}, true
+				return nil, true
 			}
 			oldValue.Active = true
 			return oldValue, false
@@ -297,14 +290,9 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
-	apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
+	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 		if !loaded {
-			return Slot{}, true
-		}
-		// This might have been called after a runtime was killed mid-inference, so we need to check
-		// if the runtime is nil.
-		if oldValue.Runtime == nil {
-			return Slot{}, true
+			return nil, true
 		}
 		oldValue.Active = false
 		return oldValue, false

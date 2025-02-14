@@ -114,7 +114,7 @@ func (s *HelixRunnerAPIServer) createHelixFinetuningJob(w http.ResponseWriter, r
 
 	finetuningRequest.TrainingFile = localPath
 
-	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.Runtime.URL()))
+	openAIClient, err := CreateOpenaiClient(r.Context(), fmt.Sprintf("%s/v1", slot.URL()))
 	if err != nil {
 		log.Error().Err(err).Msg("error creating openai client")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
