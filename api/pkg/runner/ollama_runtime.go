@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -231,8 +232,11 @@ func (i *OllamaRuntime) Status(ctx context.Context) string {
 		return fmt.Sprintf("error getting ollama status: %s", err.Error())
 	}
 	buf := bytes.NewBufferString("")
-	for _, p := range ps.Models {
-		buf.WriteString(fmt.Sprintf("%s %s %d %d", p.Name, p.Model, p.Size, p.SizeVRAM))
+	for _, m := range ps.Models {
+		sizeCPU := m.Size - m.SizeVRAM
+		cpuPercent := math.Round(float64(sizeCPU) / float64(m.Size) * 100)
+		procStr := fmt.Sprintf("%s %d%%/%d%% CPU/GPU", m.Name, int(cpuPercent), int(100-cpuPercent))
+		buf.WriteString(fmt.Sprintf(" %s", procStr))
 		buf.WriteString("\n")
 	}
 	return buf.String()
