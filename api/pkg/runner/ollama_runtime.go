@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/ollama/ollama/api"
@@ -235,7 +236,8 @@ func (i *OllamaRuntime) Status(ctx context.Context) string {
 	for _, m := range ps.Models {
 		sizeCPU := m.Size - m.SizeVRAM
 		cpuPercent := math.Round(float64(sizeCPU) / float64(m.Size) * 100)
-		procStr := fmt.Sprintf("%s %d%%/%d%% CPU/GPU", m.Name, int(cpuPercent), int(100-cpuPercent))
+		gpuRAM := float64(m.SizeVRAM) / float64(model.GB)
+		procStr := fmt.Sprintf("%s %d%%/%d%% CPU/GPU (%.2fGB GPU RAM)", m.Name, int(cpuPercent), int(100-cpuPercent), gpuRAM)
 		buf.WriteString(fmt.Sprintf(" %s", procStr))
 		buf.WriteString("\n")
 	}
