@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"net"
+
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -103,8 +107,8 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		opts := &server.Options{
 			Debug:         true,
 			Trace:         true,
-			Host:          "127.0.0.1",        // For internal use only
-			Port:          server.RANDOM_PORT, // Random port
+			Host:          "127.0.0.1", // For internal use only
+			Port:          cfg.PubSub.Server.Port,
 			JetStream:     cfg.PubSub.Server.JetStream,
 			StoreDir:      cfg.PubSub.StoreDir,
 			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
@@ -112,10 +116,22 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			AllowNonTLS:   true, // TLS is terminated at the reverse proxy
 			Websocket: server.WebsocketOpts{
 				Host:  cfg.PubSub.Server.Host,
-				Port:  cfg.PubSub.Server.Port,
+				Port:  cfg.PubSub.Server.WebsocketPort,
 				NoTLS: true,
 				Token: cfg.PubSub.Server.Token,
 			},
+		}
+
+		// Check store directory permissions
+		if err := checkStoreDir(cfg.PubSub.StoreDir); err != nil {
+			return nil, fmt.Errorf("nats store directory issue: %w", err)
+		}
+
+		// Check if ports are in use
+		for _, port := range []int{cfg.PubSub.Server.Port, cfg.PubSub.Server.WebsocketPort} {
+			if err := checkPortAvailable(port); err != nil {
+				return nil, fmt.Errorf("port %d is in use: %w", port, err)
+			}
 		}
 
 		// Initialize new server with options
@@ -125,12 +141,24 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		}
 
 		// Start the server via goroutine
-		log.Info().Str("internal_url", ns.ClientURL()).Str("external_url", fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.Port)).Msg("starting nats server")
+		log.Info().
+			Str("internal_url", ns.ClientURL()).
+			Str("external_url", fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.WebsocketPort)).
+			Str("store_dir", cfg.PubSub.StoreDir).
+			Msg("starting nats server")
+
 		go ns.Start()
 
 		// Wait for server to be ready for connections
 		if !ns.ReadyForConnections(4 * time.Second) {
-			return nil, fmt.Errorf("failed to start nats server")
+			log.Error().
+				Bool("running", ns.Running()).
+				Str("client_url", ns.ClientURL()).
+				Str("store_dir", cfg.PubSub.StoreDir).
+				Int("websocket_port", cfg.PubSub.Server.WebsocketPort).
+				Msg("nats server failed to start")
+
+			return nil, fmt.Errorf("failed to start nats server: running=%v", ns.Running())
 		}
 	}
 
@@ -239,10 +267,16 @@ func NewInMemoryNats() (*Nats, error) {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
+	randomPort, err := freeport.GetFreePort()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get free port: %w", err)
+	}
+
 	cfg := &config.ServerConfig{}
 	cfg.PubSub.StoreDir = tmpDir
 	cfg.PubSub.Server.Host = "0.0.0.0"
-	cfg.PubSub.Server.Port = server.RANDOM_PORT
+	cfg.PubSub.Server.Port = randomPort
+	cfg.PubSub.Server.WebsocketPort = randomPort + 1
 	cfg.PubSub.Server.JetStream = true
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
 	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
@@ -587,4 +621,35 @@ func gcJetStream(js jetstream.JetStream) {
 			}
 		}
 	}
+}
+
+func checkStoreDir(dir string) error {
+	// Check if directory exists
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		// Try to create it
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create store directory: %w", err)
+		}
+	}
+
+	// Check if directory is writable
+	testFile := filepath.Join(dir, ".write_test")
+	f, err := os.Create(testFile)
+	if err != nil {
+		return fmt.Errorf("directory not writable: %w", err)
+	}
+	f.Close()
+	os.Remove(testFile)
+
+	return nil
+}
+
+func checkPortAvailable(port int) error {
+	addr := fmt.Sprintf(":%d", port)
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("port %d is in use", port)
+	}
+	l.Close()
+	return nil
 }

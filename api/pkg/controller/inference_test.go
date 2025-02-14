@@ -41,7 +41,7 @@ type ControllerSuite struct {
 	controller *Controller
 }
 
-func (suite *ControllerSuite) SetupTest() {
+func (suite *ControllerSuite) SetupSuite() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.ctx = context.Background()
