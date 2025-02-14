@@ -30,7 +30,7 @@ var (
 type HelixRunnerAPIServer struct {
 	runnerOptions *Options
 	cliContext    context.Context
-	slots         *xsync.MapOf[uuid.UUID, Slot]
+	slots         *xsync.MapOf[uuid.UUID, *Slot]
 	gpuManager    *GPUManager
 }
 
@@ -51,7 +51,7 @@ func NewHelixRunnerAPIServer(
 
 	return &HelixRunnerAPIServer{
 		runnerOptions: runnerOptions,
-		slots:         xsync.NewMapOf[uuid.UUID, Slot](),
+		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(ctx, runnerOptions),
 	}, nil
@@ -161,7 +161,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		Runtime:       slotRequest.Attributes.Runtime,
 		Model:         slotRequest.Attributes.Model,
 	})
-	apiServer.slots.Store(slotRequest.ID, *s)
+	apiServer.slots.Store(slotRequest.ID, s)
 
 	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
 	// long as the cli is running
@@ -176,7 +176,6 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		}
 		return
 	}
-	apiServer.slots.Store(slotRequest.ID, *s)
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
@@ -184,7 +183,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, _ *http.Request) {
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
-	apiServer.slots.Range(func(id uuid.UUID, slot Slot) bool {
+	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
 			ID:      id,
 			Runtime: slot.Runtime(),
@@ -276,10 +275,10 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 			return
 		}
 
-		apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
+		apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 			if !loaded {
 				http.Error(w, "slot not found", http.StatusNotFound)
-				return Slot{}, true
+				return nil, true
 			}
 			oldValue.Active = true
 			return oldValue, false
@@ -289,9 +288,9 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
-	apiServer.slots.Compute(slotUUID, func(oldValue Slot, loaded bool) (Slot, bool) {
+	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 		if !loaded {
-			return Slot{}, true
+			return nil, true
 		}
 		oldValue.Active = false
 		return oldValue, false
