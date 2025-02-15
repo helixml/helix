@@ -1,0 +1,90 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
+)
+
+func (s *PostgresStore) CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+	if providerEndpoint.ID == "" {
+		providerEndpoint.ID = system.GenerateProviderEndpointID()
+	}
+
+	if providerEndpoint.Owner == "" {
+		return nil, fmt.Errorf("owner not specified")
+	}
+
+	providerEndpoint.Created = time.Now()
+
+	err := s.gdb.WithContext(ctx).Create(providerEndpoint).Error
+	if err != nil {
+		return nil, err
+	}
+	return s.GetProviderEndpoint(ctx, providerEndpoint.ID)
+}
+
+func (s *PostgresStore) UpdateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+	if providerEndpoint.ID == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
+	if providerEndpoint.Owner == "" {
+		return nil, fmt.Errorf("owner not specified")
+	}
+
+	providerEndpoint.Updated = time.Now()
+
+	err := s.gdb.WithContext(ctx).Save(&providerEndpoint).Error
+	if err != nil {
+		return nil, err
+	}
+	return s.GetProviderEndpoint(ctx, providerEndpoint.ID)
+}
+
+func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error) {
+	var providerEndpoint types.ProviderEndpoint
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&providerEndpoint).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &providerEndpoint, nil
+}
+
+func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
+	var providerEndpoints []*types.ProviderEndpoint
+	query := s.gdb.WithContext(ctx)
+
+	if q != nil {
+		if q.Owner != "" {
+			query = query.Where("owner = ?", q.Owner)
+		}
+		if q.EndpointType != "" {
+			query = query.Where("endpoint_type = ?", q.EndpointType)
+		}
+	}
+
+	err := query.Find(&providerEndpoints).Error
+	if err != nil {
+		return nil, err
+	}
+	return providerEndpoints, nil
+}
+
+func (s *PostgresStore) DeleteProviderEndpoint(ctx context.Context, id string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.ProviderEndpoint{
+		ID: id,
+	}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
