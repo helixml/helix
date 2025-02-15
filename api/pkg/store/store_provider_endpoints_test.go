@@ -35,6 +35,8 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointCreate() {
 
 func (suite *PostgresStoreTestSuite) TestProviderEndpointList() {
 	owner := "test-owner-" + system.GenerateUUID()
+	anotherOwner := "another-owner-" + system.GenerateUUID()
+
 	endpoints := []*types.ProviderEndpoint{
 		{
 			Name:         "endpoint1",
@@ -57,35 +59,49 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointList() {
 			BaseURL:      "https://api3.example.com",
 			APIKey:       "key3",
 		},
+		{
+			Name:         "endpoint4",
+			Owner:        anotherOwner,
+			EndpointType: types.ProviderEndpointTypeUser,
+			BaseURL:      "https://api4.example.com",
+			APIKey:       "key4",
+		},
 	}
 
 	for _, e := range endpoints {
-		_, err := suite.db.CreateProviderEndpoint(suite.ctx, e)
+		created, err := suite.db.CreateProviderEndpoint(suite.ctx, e)
 		require.NoError(suite.T(), err)
+
+		suite.T().Cleanup(func() {
+			err := suite.db.DeleteProviderEndpoint(suite.ctx, created.ID)
+			assert.NoError(suite.T(), err)
+		})
 	}
 
 	// Test listing all endpoints for owner
 	listedEndpoints, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
-		Owner: owner,
+		Owner:      owner,
+		WithGlobal: true,
 	})
 	require.NoError(suite.T(), err)
-	assert.Len(suite.T(), listedEndpoints, len(endpoints))
+	assert.Len(suite.T(), listedEndpoints, 3, "should list all user endpoints and a global one")
 
-	// Test listing endpoints by type
+	// Test listing endpoints for user only
 	userEndpoints, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
-		Owner:        owner,
-		EndpointType: types.ProviderEndpointTypeUser,
+		Owner:      owner,
+		OwnerType:  types.OwnerTypeUser,
+		WithGlobal: false,
 	})
 	require.NoError(suite.T(), err)
 	assert.Len(suite.T(), userEndpoints, 2)
 
-	// Clean up
-	suite.T().Cleanup(func() {
-		for _, e := range listedEndpoints {
-			err := suite.db.DeleteProviderEndpoint(suite.ctx, e.ID)
-			assert.NoError(suite.T(), err)
-		}
+	// Test listing for another owner
+	anotherOwnerEndpoints, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+		Owner:      anotherOwner,
+		WithGlobal: false,
 	})
+	require.NoError(suite.T(), err)
+	assert.Len(suite.T(), anotherOwnerEndpoints, 1)
 }
 
 func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {

@@ -56,8 +56,10 @@ type ListDataEntitiesQuery struct {
 }
 
 type ListProviderEndpointsQuery struct {
-	Owner        string                     `json:"owner"`
-	EndpointType types.ProviderEndpointType `json:"endpoint_type"`
+	Owner     string
+	OwnerType types.OwnerType
+
+	WithGlobal bool
 }
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
