@@ -24,7 +24,17 @@ type RunActionResponse struct {
 	Error      string `json:"error"`
 }
 
-func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*RunActionResponse, error) {
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptAction(ctx, tool, history, action)
@@ -38,20 +48,30 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			retry.Context(ctx),
 		)
 	case types.ToolTypeZapier:
-		return c.RunZapierAction(ctx, tool, history, action)
+		return c.RunZapierAction(ctx, opts.client, tool, history, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
 }
 
-func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*openai.ChatCompletionStream, error) {
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runAPIActionStream(ctx, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
-		return c.RunZapierActionStream(ctx, tool, history, action)
+		return c.RunZapierActionStream(ctx, opts.client, tool, history, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
@@ -144,13 +164,23 @@ func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID st
 // RunAPIActionWithParameters executes the API request with the given parameters. This method (compared to RunAction) doesn't require
 // invoking any LLM, neither for request formation nor for response interpretation.
 // In this mode Helix is acting as a plumbing only
-func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest) (*types.RunAPIActionResponse, error) {
+func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest, options ...Option) (*types.RunAPIActionResponse, error) {
 	if req.Tool == nil {
 		return nil, fmt.Errorf("tool is required")
 	}
 
 	if req.Action == "" {
 		return nil, fmt.Errorf("action is required")
+	}
+
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if req.Parameters == nil {
