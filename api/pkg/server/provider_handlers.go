@@ -234,5 +234,5 @@ func (apiServer *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	rw.WriteHeader(http.StatusNoContent)
+	rw.WriteHeader(http.StatusOK)
 }
