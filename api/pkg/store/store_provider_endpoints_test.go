@@ -128,7 +128,7 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	updatedEndpoint, err = suite.db.UpdateProviderEndpoint(suite.ctx, updatedEndpoint)
 	require.NoError(suite.T(), err)
 
-	fetchedEndpoint, err := suite.db.GetProviderEndpoint(suite.ctx, createdEndpoint.ID)
+	fetchedEndpoint, err := suite.db.GetProviderEndpoint(suite.ctx, &GetProviderEndpointsQuery{ID: createdEndpoint.ID})
 	require.NoError(suite.T(), err)
 	assert.Equal(suite.T(), updatedEndpoint.Name, fetchedEndpoint.Name)
 	assert.Equal(suite.T(), updatedEndpoint.EndpointType, fetchedEndpoint.EndpointType)
@@ -159,7 +159,7 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointDelete() {
 	require.NoError(suite.T(), err)
 
 	// Verify the endpoint is deleted
-	_, err = suite.db.GetProviderEndpoint(suite.ctx, createdEndpoint.ID)
+	_, err = suite.db.GetProviderEndpoint(suite.ctx, &GetProviderEndpointsQuery{ID: createdEndpoint.ID})
 	assert.Error(suite.T(), err)
 	assert.Equal(suite.T(), ErrNotFound, err)
 }

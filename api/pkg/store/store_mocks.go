@@ -499,18 +499,18 @@ func (mr *MockStoreMockRecorder) GetLicenseKey(ctx any) *gomock.Call {
 }
 
 // GetProviderEndpoint mocks base method.
-func (m *MockStore) GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error) {
+func (m *MockStore) GetProviderEndpoint(ctx context.Context, q *GetProviderEndpointsQuery) (*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetProviderEndpoint", ctx, id)
+	ret := m.ctrl.Call(m, "GetProviderEndpoint", ctx, q)
 	ret0, _ := ret[0].(*types.ProviderEndpoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetProviderEndpoint indicates an expected call of GetProviderEndpoint.
-func (mr *MockStoreMockRecorder) GetProviderEndpoint(ctx, id any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetProviderEndpoint(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProviderEndpoint", reflect.TypeOf((*MockStore)(nil).GetProviderEndpoint), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProviderEndpoint", reflect.TypeOf((*MockStore)(nil).GetProviderEndpoint), ctx, q)
 }
 
 // GetSecret mocks base method.
