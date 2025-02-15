@@ -184,6 +184,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/api-actions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with API action name and parameters.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/gptscript": {
             "post": {
                 "security": [
@@ -219,7 +247,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List LLM calls with pagination and optional session filtering",
+                "description": "List user's LLM calls with pagination and optional session filtering for a specific app",
                 "produces": [
                     "application/json"
                 ],
@@ -253,6 +281,90 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.PaginatedLLMCalls"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/providers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Provider"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/providers-endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ProviderEndpoint"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProviderEndpoint"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/providers-endpoints/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProviderEndpoint"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
@@ -466,6 +578,39 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/embeddings": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an embedding vector representing the input text",
+                "tags": [
+                    "embeddings"
+                ],
+                "summary": "Creates an embedding vector representing the input text",
+                "parameters": [
+                    {
+                        "description": "Request body with options for embeddings.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/openai.EmbeddingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/openai.EmbeddingResponse"
                         }
                     }
                 }
@@ -996,6 +1141,118 @@ const docTemplate = `{
                 }
             }
         },
+        "openai.Embedding": {
+            "type": "object",
+            "properties": {
+                "embedding": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "object": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.EmbeddingEncodingFormat": {
+            "type": "string",
+            "enum": [
+                "float",
+                "base64"
+            ],
+            "x-enum-varnames": [
+                "EmbeddingEncodingFormatFloat",
+                "EmbeddingEncodingFormatBase64"
+            ]
+        },
+        "openai.EmbeddingModel": {
+            "type": "string",
+            "enum": [
+                "text-similarity-ada-001",
+                "text-similarity-babbage-001",
+                "text-similarity-curie-001",
+                "text-similarity-davinci-001",
+                "text-search-ada-doc-001",
+                "text-search-ada-query-001",
+                "text-search-babbage-doc-001",
+                "text-search-babbage-query-001",
+                "text-search-curie-doc-001",
+                "text-search-curie-query-001",
+                "text-search-davinci-doc-001",
+                "text-search-davinci-query-001",
+                "code-search-ada-code-001",
+                "code-search-ada-text-001",
+                "code-search-babbage-code-001",
+                "code-search-babbage-text-001",
+                "text-embedding-ada-002",
+                "text-embedding-3-small",
+                "text-embedding-3-large"
+            ],
+            "x-enum-varnames": [
+                "AdaSimilarity",
+                "BabbageSimilarity",
+                "CurieSimilarity",
+                "DavinciSimilarity",
+                "AdaSearchDocument",
+                "AdaSearchQuery",
+                "BabbageSearchDocument",
+                "BabbageSearchQuery",
+                "CurieSearchDocument",
+                "CurieSearchQuery",
+                "DavinciSearchDocument",
+                "DavinciSearchQuery",
+                "AdaCodeSearchCode",
+                "AdaCodeSearchText",
+                "BabbageCodeSearchCode",
+                "BabbageCodeSearchText",
+                "AdaEmbeddingV2",
+                "SmallEmbedding3",
+                "LargeEmbedding3"
+            ]
+        },
+        "openai.EmbeddingRequest": {
+            "type": "object",
+            "properties": {
+                "dimensions": {
+                    "description": "Dimensions The number of dimensions the resulting output embeddings should have.\nOnly supported in text-embedding-3 and later models.",
+                    "type": "integer"
+                },
+                "encoding_format": {
+                    "$ref": "#/definitions/openai.EmbeddingEncodingFormat"
+                },
+                "input": {},
+                "model": {
+                    "$ref": "#/definitions/openai.EmbeddingModel"
+                },
+                "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.EmbeddingResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.Embedding"
+                    }
+                },
+                "model": {
+                    "$ref": "#/definitions/openai.EmbeddingModel"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
+                }
+            }
+        },
         "types.App": {
             "type": "object",
             "properties": {
@@ -1156,15 +1413,12 @@ const docTemplate = `{
                     }
                 },
                 "request_prep_template": {
-                    "description": "Template for request preparation, leave empty for default",
                     "type": "string"
                 },
                 "response_error_template": {
-                    "description": "Template for error response, leave empty for default",
                     "type": "string"
                 },
                 "response_success_template": {
-                    "description": "Template for successful response, leave empty for default",
                     "type": "string"
                 },
                 "schema": {
@@ -1179,7 +1433,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "apis": {
-                    "description": "the list of api tools this assistant will use",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.AssistantAPI"
@@ -1192,7 +1445,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "gptscripts": {
-                    "description": "the list of gpt scripts this assistant will use",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.AssistantGPTScript"
@@ -1205,18 +1457,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "is_actionable_template": {
-                    "description": "Template for determining if the request is actionable or informative",
                     "type": "string"
                 },
                 "knowledge": {
-                    "description": "Knowledge available to the assistant",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.AssistantKnowledge"
                     }
                 },
                 "lora_id": {
-                    "description": "the data entity ID that we have created for the lora fine tune",
                     "type": "string"
                 },
                 "model": {
@@ -1226,34 +1475,39 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider": {
-                    "description": "openai, togetherai, helix, etc.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.Provider"
-                        }
-                    ]
+                    "$ref": "#/definitions/types.Provider"
                 },
                 "rag_source_id": {
-                    "description": "the data entity ID that we have created as the RAG source",
                     "type": "string"
                 },
                 "system_prompt": {
                     "type": "string"
                 },
+                "tests": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "steps": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/types.TestStep"
+                                }
+                            }
+                        }
+                    }
+                },
                 "tools": {
-                    "description": "these are populated from the APIs and GPTScripts on create and update\nwe include tools in the JSON that we send to the browser\nbut we don't include it in the yaml which feeds this struct because\nwe populate the tools array from the APIs and GPTScripts arrays\nso - Tools is readonly - hence only JSON for the frontend to see",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                     }
                 },
                 "type": {
-                    "description": "so we can have fine tuned image assistants or system prompt augmentedimage inference\ndefaults to text",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SessionType"
-                        }
-                    ]
+                    "$ref": "#/definitions/types.SessionType"
                 },
                 "zapier": {
                     "type": "array",
@@ -1736,6 +1990,9 @@ const docTemplate = `{
         "types.LLMCall": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "type": "string"
+                },
                 "completionTokens": {
                     "type": "integer"
                 },
@@ -1937,10 +2194,12 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "user",
+                "runner",
                 "system"
             ],
             "x-enum-varnames": [
                 "OwnerTypeUser",
+                "OwnerTypeRunner",
                 "OwnerTypeSystem"
             ]
         },
@@ -1972,12 +2231,81 @@ const docTemplate = `{
             "enum": [
                 "openai",
                 "togetherai",
-                "helix"
+                "helix",
+                "vllm"
             ],
             "x-enum-varnames": [
                 "ProviderOpenAI",
                 "ProviderTogetherAI",
-                "ProviderHelix"
+                "ProviderHelix",
+                "ProviderVLLM"
+            ]
+        },
+        "types.ProviderEndpoint": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "api_key_file": {
+                    "description": "Must be mounted to the container",
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "endpoint_type": {
+                    "description": "global, user (TODO: orgs, teams)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderEndpointType"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "models": {
+                    "description": "Optional",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProviderEndpointType": {
+            "type": "string",
+            "enum": [
+                "global",
+                "user"
+            ],
+            "x-enum-varnames": [
+                "ProviderEndpointTypeGlobal",
+                "ProviderEndpointTypeUser"
             ]
         },
         "types.RAGSettings": {
@@ -2072,6 +2400,32 @@ const docTemplate = `{
                 "ResponseFormatTypeJSONObject",
                 "ResponseFormatTypeText"
             ]
+        },
+        "types.RunAPIActionRequest": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.RunAPIActionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Raw response from the API",
+                    "type": "string"
+                }
+            }
         },
         "types.Secret": {
             "type": "object",
@@ -2490,6 +2844,17 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
+        "types.TestStep": {
+            "type": "object",
+            "properties": {
+                "expected_output": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                }
+            }
+        },
         "types.TextDataPrepStage": {
             "type": "string",
             "enum": [
@@ -2524,7 +2889,7 @@ const docTemplate = `{
                 "TextSplitterTypeText"
             ]
         },
-        "types.ToolApiAction": {
+        "types.ToolAPIAction": {
             "type": "object",
             "properties": {
                 "description": {
@@ -2541,14 +2906,14 @@ const docTemplate = `{
                 }
             }
         },
-        "types.ToolApiConfig": {
+        "types.ToolAPIConfig": {
             "type": "object",
             "properties": {
                 "actions": {
                     "description": "Read-only, parsed from schema on creation",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.ToolApiAction"
+                        "$ref": "#/definitions/types.ToolAPIAction"
                     }
                 },
                 "headers": {
@@ -2593,7 +2958,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "api": {
-                    "$ref": "#/definitions/types.ToolApiConfig"
+                    "$ref": "#/definitions/types.ToolAPIConfig"
                 },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
@@ -2650,12 +3015,11 @@ const docTemplate = `{
                 "firecrawl": {
                     "$ref": "#/definitions/types.Firecrawl"
                 },
+                "ignore_robots_txt": {
+                    "type": "boolean"
+                },
                 "max_depth": {
                     "description": "Limit crawl depth to avoid infinite crawling",
-                    "type": "integer"
-                },
-                "max_pages": {
-                    "description": "Limit number of pages to crawl to avoid infinite crawling (max 500 by default)",
                     "type": "integer"
                 },
                 "readability": {
