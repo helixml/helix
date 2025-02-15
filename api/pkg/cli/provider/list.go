@@ -32,7 +32,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Description", "Type", "Owner", "Base URL", "Created"}
+		header := []string{"ID", "Name", "Description", "Type", "Base URL", "Created"}
 
 		table.SetHeader(header)
 
@@ -49,14 +49,18 @@ var listCmd = &cobra.Command{
 		table.SetNoWhiteSpace(false)
 
 		for _, e := range endpoints {
+			created := e.Created.Format(time.RFC3339)
+			if e.Created.IsZero() {
+				created = "-"
+			}
+
 			row := []string{
 				e.ID,
 				e.Name,
 				e.Description,
 				string(e.EndpointType),
-				fmt.Sprintf("%s (%s)", e.Owner, e.OwnerType),
 				e.BaseURL,
-				e.Created.Format(time.RFC3339),
+				created,
 			}
 
 			table.Append(row)

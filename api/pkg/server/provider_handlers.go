@@ -62,6 +62,25 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 		providerEndpoints[idx].APIKey = "*****"
 	}
 
+	// Get global ones from the provider manager
+	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx)
+	if err != nil {
+		log.Err(err).Msg("error listing providers")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for _, provider := range globalProviderEndpoints {
+		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
+			ID:           "-",
+			Name:         string(provider),
+			Description:  "",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+			Owner:        string(types.OwnerTypeSystem),
+			APIKey:       "*****",
+		})
+	}
+
 	rw.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(rw).Encode(providerEndpoints)
 	if err != nil {
