@@ -30,7 +30,7 @@ func (s *PostgresStore) CreateProviderEndpoint(ctx context.Context, providerEndp
 	if err != nil {
 		return nil, err
 	}
-	return s.GetProviderEndpoint(ctx, providerEndpoint.ID)
+	return s.GetProviderEndpoint(ctx, &GetProviderEndpointsQuery{ID: providerEndpoint.ID})
 }
 
 func (s *PostgresStore) UpdateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
@@ -52,12 +52,30 @@ func (s *PostgresStore) UpdateProviderEndpoint(ctx context.Context, providerEndp
 	if err != nil {
 		return nil, err
 	}
-	return s.GetProviderEndpoint(ctx, providerEndpoint.ID)
+	return s.GetProviderEndpoint(ctx, &GetProviderEndpointsQuery{ID: providerEndpoint.ID})
 }
 
-func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error) {
+func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, q *GetProviderEndpointsQuery) (*types.ProviderEndpoint, error) {
 	var providerEndpoint types.ProviderEndpoint
-	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&providerEndpoint).Error
+	query := s.gdb.WithContext(ctx)
+
+	if q.ID != "" {
+		query = query.Where("id = ?", q.ID)
+	}
+
+	if q.Name != "" {
+		query = query.Where("name = ?", q.Name)
+	}
+
+	if q.Owner != "" {
+		query = query.Where("owner = ?", q.Owner)
+	}
+
+	if q.OwnerType != "" {
+		query = query.Where("owner_type = ?", q.OwnerType)
+	}
+
+	err := query.First(&providerEndpoint).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound

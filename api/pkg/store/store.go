@@ -62,6 +62,13 @@ type ListProviderEndpointsQuery struct {
 	WithGlobal bool
 }
 
+type GetProviderEndpointsQuery struct {
+	Owner     string
+	OwnerType types.OwnerType
+	ID        string
+	Name      string
+}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
@@ -97,7 +104,7 @@ type Store interface {
 	// provider endpoints
 	CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	UpdateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
-	GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error)
+	GetProviderEndpoint(ctx context.Context, q *GetProviderEndpointsQuery) (*types.ProviderEndpoint, error)
 	ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error)
 	DeleteProviderEndpoint(ctx context.Context, id string) error
 
