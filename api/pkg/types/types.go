@@ -1010,7 +1010,7 @@ type AssistantConfig struct {
 	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
 	Avatar      string      `json:"avatar,omitempty" yaml:"avatar,omitempty"`
 	Image       string      `json:"image,omitempty" yaml:"image,omitempty"`
-	Provider    Provider    `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Provider    string      `json:"provider,omitempty" yaml:"provider,omitempty"`
 	Model       string      `json:"model,omitempty" yaml:"model,omitempty"`
 	Type        SessionType `json:"type,omitempty" yaml:"type,omitempty"`
 
