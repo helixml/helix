@@ -20,6 +20,10 @@ func (s *PostgresStore) CreateProviderEndpoint(ctx context.Context, providerEndp
 		return nil, fmt.Errorf("owner not specified")
 	}
 
+	if providerEndpoint.EndpointType == "" {
+		return nil, fmt.Errorf("endpoint type not specified")
+	}
+
 	providerEndpoint.Created = time.Now()
 
 	err := s.gdb.WithContext(ctx).Create(providerEndpoint).Error
@@ -36,6 +40,10 @@ func (s *PostgresStore) UpdateProviderEndpoint(ctx context.Context, providerEndp
 
 	if providerEndpoint.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
+	}
+
+	if providerEndpoint.EndpointType == "" {
+		return nil, fmt.Errorf("endpoint type not specified")
 	}
 
 	providerEndpoint.Updated = time.Now()
@@ -61,15 +69,12 @@ func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, id string) (*ty
 
 func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
 	var providerEndpoints []*types.ProviderEndpoint
-	query := s.gdb.WithContext(ctx)
+	query := s.gdb.Debug().WithContext(ctx)
 
-	if q != nil {
-		if q.Owner != "" {
-			query = query.Where("owner = ?", q.Owner)
-		}
-		if q.EndpointType != "" {
-			query = query.Where("endpoint_type = ?", q.EndpointType)
-		}
+	query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeUser)
+
+	if q.WithGlobal {
+		query = query.Or("endpoint_type = ?", types.ProviderEndpointTypeGlobal)
 	}
 
 	err := query.Find(&providerEndpoints).Error
