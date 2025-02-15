@@ -16,24 +16,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// listProviders returns currently configured providers
-func (apiServer *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) {
-	providers, err := apiServer.providerManager.ListProviders(r.Context())
-	if err != nil {
-		log.Err(err).Msg("error listing providers")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(providers)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-}
-
 // Updated listModels function
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
 	provider := types.Provider(r.URL.Query().Get("provider"))
