@@ -1,6 +1,10 @@
 package types
 
-import "time"
+import (
+	"time"
+
+	"github.com/lib/pq"
+)
 
 type Provider string
 
@@ -23,6 +27,8 @@ type ProviderEndpoint struct {
 	Created        time.Time            `json:"created"`
 	Updated        time.Time            `json:"updated"`
 	Name           string               `json:"name"`
+	Description    string               `json:"description"`
+	Models         pq.StringArray       `gorm:"type:text[]"`   // Optional
 	EndpointType   ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
 	Owner          string               `json:"owner"`
 	OwnerType      OwnerType            `json:"owner_type"` // user, system, org
