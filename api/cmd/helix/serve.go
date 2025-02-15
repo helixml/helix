@@ -321,7 +321,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}
 
-	providerManager := manager.NewProviderManager(cfg, helixInference, logStores...)
+	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)
 
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
