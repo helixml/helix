@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/olekukonko/tablewriter"
@@ -32,7 +33,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Description", "Type", "Base URL", "Created"}
+		header := []string{"ID", "Name", "Type", "Base URL", "Models", "Created"}
 
 		table.SetHeader(header)
 
@@ -57,9 +58,9 @@ var listCmd = &cobra.Command{
 			row := []string{
 				e.ID,
 				e.Name,
-				e.Description,
 				string(e.EndpointType),
 				e.BaseURL,
+				strings.Join(e.Models, ", "),
 				created,
 			}
 
