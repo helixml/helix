@@ -5,9 +5,10 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "provider",
-	Short: "Manage provider endpoints",
-	Long:  `Commands for managing provider endpoints in Helix.`,
+	Use:     "provider",
+	Short:   "Manage provider endpoints",
+	Long:    `Commands for managing provider endpoints in Helix.`,
+	Aliases: []string{"providers"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// By default run the list command
 		return listCmd.RunE(cmd, args)
