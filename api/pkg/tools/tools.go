@@ -22,13 +22,13 @@ import (
 type Planner interface {
 	IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, options ...Option) (*IsActionableResponse, error)
 	// TODO: RAG lookup
-	RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error)
-	RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*oai.ChatCompletionStream, error)
+	RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*RunActionResponse, error)
+	RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*oai.ChatCompletionStream, error)
 	// Validation and defaulting
 	ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 
 	// Low level methods for Model Context Protocol (MCP)
-	RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest) (*types.RunAPIActionResponse, error)
+	RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest, options ...Option) (*types.RunAPIActionResponse, error)
 	// TODO: GPTScript, Zapier.
 }
 
@@ -36,8 +36,9 @@ type Planner interface {
 var _ Planner = &ChainStrategy{}
 
 type ChainStrategy struct {
-	cfg                  *config.ServerConfig
-	store                store.Store
+	cfg   *config.ServerConfig
+	store store.Store
+
 	apiClient            openai.Client
 	httpClient           *http.Client
 	gptScriptExecutor    gptscript.Executor
@@ -56,8 +57,8 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExec
 	retryClient := system.NewRetryClient(3)
 	return &ChainStrategy{
 		cfg:                  cfg,
-		apiClient:            client,
 		store:                store,
+		apiClient:            client,
 		gptScriptExecutor:    gptScriptExecutor,
 		httpClient:           retryClient.StandardClient(),
 		isActionableTemplate: isActionableTemplate,
