@@ -156,7 +156,7 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 	endpointID := mux.Vars(r)["id"]
 
 	// Get existing endpoint
-	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, endpointID)
+	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
@@ -224,7 +224,7 @@ func (apiServer *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, 
 	endpointID := mux.Vars(r)["id"]
 
 	// Get existing endpoint
-	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, endpointID)
+	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
