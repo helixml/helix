@@ -99,6 +99,12 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 		endpoint.EndpointType = types.ProviderEndpointTypeUser
 	}
 
+	// Only admins can add global endpoints
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !apiServer.isAdmin(r) {
+		http.Error(rw, "Only admins can add global endpoints", http.StatusForbidden)
+		return
+	}
+
 	createdEndpoint, err := apiServer.Store.CreateProviderEndpoint(ctx, &endpoint)
 	if err != nil {
 		log.Err(err).Msg("error creating provider endpoint")
