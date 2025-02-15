@@ -103,6 +103,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&MigrationScript{},
 		&types.Secret{},
 		&types.LicenseKey{},
+		&types.ProviderEndpoint{},
 	)
 	if err != nil {
 		return err
