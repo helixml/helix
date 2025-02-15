@@ -22,6 +22,7 @@ const (
 	SecretPrefix              = "sec_"
 	TestRunPrefix             = "testrun_"
 	OpenAIResponsePrefix      = "oai_"
+	ProviderEndpointPrefix    = "pe_"
 )
 
 func GenerateUUID() string {
@@ -89,4 +90,8 @@ func GenerateTestRunID() string {
 
 func GenerateOpenAIResponseID() string {
 	return fmt.Sprintf("%s%s", OpenAIResponsePrefix, newID())
+}
+
+func GenerateProviderEndpointID() string {
+	return fmt.Sprintf("%s%s", ProviderEndpointPrefix, newID())
 }
