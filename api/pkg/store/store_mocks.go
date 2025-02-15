@@ -132,6 +132,21 @@ func (mr *MockStoreMockRecorder) CreateLLMCall(ctx, call any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateLLMCall", reflect.TypeOf((*MockStore)(nil).CreateLLMCall), ctx, call)
 }
 
+// CreateProviderEndpoint mocks base method.
+func (m *MockStore) CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateProviderEndpoint", ctx, providerEndpoint)
+	ret0, _ := ret[0].(*types.ProviderEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateProviderEndpoint indicates an expected call of CreateProviderEndpoint.
+func (mr *MockStoreMockRecorder) CreateProviderEndpoint(ctx, providerEndpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProviderEndpoint", reflect.TypeOf((*MockStore)(nil).CreateProviderEndpoint), ctx, providerEndpoint)
+}
+
 // CreateScriptRun mocks base method.
 func (m *MockStore) CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error) {
 	m.ctrl.T.Helper()
@@ -275,6 +290,20 @@ func (m *MockStore) DeleteKnowledgeVersion(ctx context.Context, id string) error
 func (mr *MockStoreMockRecorder) DeleteKnowledgeVersion(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).DeleteKnowledgeVersion), ctx, id)
+}
+
+// DeleteProviderEndpoint mocks base method.
+func (m *MockStore) DeleteProviderEndpoint(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteProviderEndpoint", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteProviderEndpoint indicates an expected call of DeleteProviderEndpoint.
+func (mr *MockStoreMockRecorder) DeleteProviderEndpoint(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProviderEndpoint", reflect.TypeOf((*MockStore)(nil).DeleteProviderEndpoint), ctx, id)
 }
 
 // DeleteScriptRun mocks base method.
@@ -469,6 +498,21 @@ func (mr *MockStoreMockRecorder) GetLicenseKey(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLicenseKey", reflect.TypeOf((*MockStore)(nil).GetLicenseKey), ctx)
 }
 
+// GetProviderEndpoint mocks base method.
+func (m *MockStore) GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProviderEndpoint", ctx, id)
+	ret0, _ := ret[0].(*types.ProviderEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProviderEndpoint indicates an expected call of GetProviderEndpoint.
+func (mr *MockStoreMockRecorder) GetProviderEndpoint(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProviderEndpoint", reflect.TypeOf((*MockStore)(nil).GetProviderEndpoint), ctx, id)
+}
+
 // GetSecret mocks base method.
 func (m *MockStore) GetSecret(ctx context.Context, id string) (*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -650,6 +694,21 @@ func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, q)
 }
 
+// ListProviderEndpoints mocks base method.
+func (m *MockStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProviderEndpoints", ctx, q)
+	ret0, _ := ret[0].([]*types.ProviderEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProviderEndpoints indicates an expected call of ListProviderEndpoints.
+func (mr *MockStoreMockRecorder) ListProviderEndpoints(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpoints", reflect.TypeOf((*MockStore)(nil).ListProviderEndpoints), ctx, q)
+}
+
 // ListScriptRuns mocks base method.
 func (m *MockStore) ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error) {
 	m.ctrl.T.Helper()
@@ -781,6 +840,21 @@ func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state t
 func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message)
+}
+
+// UpdateProviderEndpoint mocks base method.
+func (m *MockStore) UpdateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProviderEndpoint", ctx, providerEndpoint)
+	ret0, _ := ret[0].(*types.ProviderEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateProviderEndpoint indicates an expected call of UpdateProviderEndpoint.
+func (mr *MockStoreMockRecorder) UpdateProviderEndpoint(ctx, providerEndpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProviderEndpoint", reflect.TypeOf((*MockStore)(nil).UpdateProviderEndpoint), ctx, providerEndpoint)
 }
 
 // UpdateSecret mocks base method.
