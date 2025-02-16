@@ -18,15 +18,15 @@ import (
 
 // Updated listModels function
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
-	provider := types.Provider(r.URL.Query().Get("provider"))
+	provider := r.URL.Query().Get("provider")
 	if provider == "" {
-		provider = types.Provider(apiServer.Cfg.Inference.Provider)
+		provider = apiServer.Cfg.Inference.Provider
 	}
 
 	user := getRequestUser(r)
 
 	client, err := apiServer.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
-		Provider: string(provider),
+		Provider: provider,
 		Owner:    user.ID,
 	})
 	if err != nil {
