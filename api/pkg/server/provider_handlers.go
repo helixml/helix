@@ -104,6 +104,13 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 	ctx := r.Context()
 	user := getRequestUser(r)
 
+	isAdmin := apiServer.isAdmin(r)
+
+	if !isAdmin && !apiServer.Cfg.Providers.EnableCustomUserProviders {
+		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
+		return
+	}
+
 	var endpoint types.ProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&endpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
@@ -121,8 +128,14 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 	}
 
 	// Only admins can add global endpoints
-	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !apiServer.isAdmin(r) {
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !isAdmin {
 		http.Error(rw, "Only admins can add global endpoints", http.StatusForbidden)
+		return
+	}
+
+	// Only admins can add endpoints with API key path auth
+	if endpoint.APIKeyFromFile != "" && !isAdmin {
+		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
 		return
 	}
 
@@ -157,6 +170,11 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
 
+	if !user.Admin && !apiServer.Cfg.Providers.EnableCustomUserProviders {
+		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
+		return
+	}
+
 	// Get existing endpoint
 	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
 	if err != nil {
@@ -175,16 +193,22 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	// For global endpoints, only allow updates by admins
-	if existingEndpoint.EndpointType == types.ProviderEndpointTypeGlobal && !user.Admin {
-		http.Error(rw, "Only admins can update global endpoints", http.StatusForbidden)
-		return
-	}
-
 	var updatedEndpoint types.ProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&updatedEndpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// For global endpoints, only allow updates by admins
+	if updatedEndpoint.EndpointType == types.ProviderEndpointTypeGlobal && !user.Admin {
+		http.Error(rw, "Only admins can update global endpoints", http.StatusForbidden)
+		return
+	}
+
+	// Only admins can add endpoints with API key path auth
+	if existingEndpoint.APIKeyFromFile != "" && !user.Admin {
+		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
 		return
 	}
 
