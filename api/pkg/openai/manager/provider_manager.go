@@ -219,6 +219,12 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 		providers = append(providers, provider)
 	}
 
+	// If no owner is provided, return only the global providers configured
+	// from the environment
+	if owner == "" {
+		return providers, nil
+	}
+
 	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      owner,
 		WithGlobal: true,
