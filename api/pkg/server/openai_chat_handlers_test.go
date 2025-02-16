@@ -92,7 +92,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = types.ProviderTogetherAI
+	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
 	providerManager := manager.NewMockProviderManager(ctrl)
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
