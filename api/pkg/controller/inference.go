@@ -74,10 +74,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
-	}
-
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
@@ -168,8 +164,14 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 func (c *Controller) getClient(ctx context.Context, owner, provider string) (oai.Client, error) {
 	if provider == "" {
-		provider = string(c.Options.Config.Inference.Provider)
+		// If not set, use the default provider
+		provider = c.Options.Config.Inference.Provider
 	}
+
+	log.Trace().
+		Str("provider", provider).
+		Str("owner", owner).
+		Msg("getting OpenAI API client")
 
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: provider,
