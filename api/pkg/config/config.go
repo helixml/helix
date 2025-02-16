@@ -57,10 +57,11 @@ type Inference struct {
 
 // Providers is used to configure the various AI providers that we use
 type Providers struct {
-	OpenAI     OpenAI
-	TogetherAI TogetherAI
-	Helix      Helix
-	VLLM       VLLM
+	OpenAI                    OpenAI
+	TogetherAI                TogetherAI
+	Helix                     Helix
+	VLLM                      VLLM
+	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
 }
 
 type OpenAI struct {
