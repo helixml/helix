@@ -19,7 +19,9 @@ import (
 // @Router /api/v1/providers [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) {
-	providers, err := apiServer.providerManager.ListProviders(r.Context())
+	user := getRequestUser(r)
+
+	providers, err := apiServer.providerManager.ListProviders(r.Context(), user.ID)
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -63,7 +65,7 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	// Get global ones from the provider manager
-	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx)
+	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx, user.ID)
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
