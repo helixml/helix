@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
+
+	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -41,7 +43,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
 			func() (*RunActionResponse, error) {
-				return c.runAPIAction(ctx, sessionID, interactionID, tool, history, action)
+				return c.runAPIAction(ctx, opts.client, sessionID, interactionID, tool, history, action)
 			},
 			retry.Attempts(apiActionRetries),
 			retry.Delay(delayBetweenAPIRetries),
@@ -69,7 +71,7 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
-		return c.runAPIActionStream(ctx, sessionID, interactionID, tool, history, action)
+		return c.runAPIActionStream(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
 		return c.RunZapierActionStream(ctx, opts.client, tool, history, action)
 	default:
@@ -77,27 +79,27 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	}
 }
 
-func (c *ChainStrategy) runAPIAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
-	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, action)
+func (c *ChainStrategy) runAPIAction(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+	resp, err := c.callAPI(ctx, client, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call api: %w", err)
 	}
 	defer resp.Body.Close()
 
-	return c.interpretResponse(ctx, sessionID, interactionID, tool, history, resp)
+	return c.interpretResponse(ctx, client, sessionID, interactionID, tool, history, resp)
 }
 
-func (c *ChainStrategy) runAPIActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
-	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, action)
+func (c *ChainStrategy) runAPIActionStream(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+	resp, err := c.callAPI(ctx, client, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call api: %w", err)
 	}
 	defer resp.Body.Close()
 
-	return c.interpretResponseStream(ctx, sessionID, interactionID, tool, history, resp)
+	return c.interpretResponseStream(ctx, client, sessionID, interactionID, tool, history, resp)
 }
 
-func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
+func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -119,7 +121,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID st
 	started := time.Now()
 
 	// Get API request parameters
-	params, err := c.getAPIRequestParameters(ctx, sessionID, interactionID, tool, history, action)
+	params, err := c.getAPIRequestParameters(ctx, client, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api request parameters: %w", err)
 	}

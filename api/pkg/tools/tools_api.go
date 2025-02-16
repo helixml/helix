@@ -98,7 +98,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getAPISystemPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -152,7 +152,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		Step: types.LLMCallStepPrepareAPIRequest,
 	})
 
-	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}

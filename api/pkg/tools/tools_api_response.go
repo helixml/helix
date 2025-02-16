@@ -13,26 +13,26 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*RunActionResponse, error) {
+func (c *ChainStrategy) interpretResponse(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*RunActionResponse, error) {
 	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return c.handleErrorResponse(ctx, sessionID, interactionID, tool, resp.StatusCode, bts)
+		return c.handleErrorResponse(ctx, client, sessionID, interactionID, tool, resp.StatusCode, bts)
 	}
 
-	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, history, bts)
+	return c.handleSuccessResponse(ctx, client, sessionID, interactionID, tool, history, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) (*RunActionResponse, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
 	req := c.prepareChatCompletionRequest(messages, false, tool.Config.API.Model)
 
 	ctx = c.setContextAndStep(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse)
 
-	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
@@ -47,7 +47,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 	}, nil
 }
 
-func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) (*openai.ChatCompletionStream, error) {
 	messages := c.prepareSuccessMessages(tool, history, body)
 	req := c.prepareChatCompletionRequest(messages, true, tool.Config.API.Model)
 
@@ -55,7 +55,7 @@ func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, session
 
 	started := time.Now()
 
-	resp, err := c.apiClient.CreateChatCompletionStream(ctx, req)
+	resp, err := client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
@@ -65,7 +65,7 @@ func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, session
 	return resp, nil
 }
 
-func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleErrorResponse(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
 	systemPrompt := errorResponsePrompt
 	if tool.Config.API.ResponseErrorTemplate != "" {
 		systemPrompt = tool.Config.API.ResponseErrorTemplate
@@ -102,7 +102,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 		Step: types.LLMCallStepInterpretResponse,
 	})
 
-	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
@@ -117,17 +117,17 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 	}, nil
 }
 
-func (c *ChainStrategy) interpretResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) interpretResponseStream(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*openai.ChatCompletionStream, error) {
 	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, bts)
+		return c.handleSuccessResponseStream(ctx, client, sessionID, interactionID, tool, history, bts)
 	}
 
-	return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, bts)
+	return c.handleSuccessResponseStream(ctx, client, sessionID, interactionID, tool, history, bts)
 }
 
 func (c *ChainStrategy) prepareSuccessMessages(tool *types.Tool, history []*types.ToolHistoryMessage, body []byte) []openai.ChatCompletionMessage {
