@@ -40,6 +40,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, err
 	}
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	if len(assistant.Tools) > 0 {
 		// Check whether the app is configured for the call,
 		// if yes, execute the tools and return the response
@@ -102,6 +106,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	if err != nil {
 		log.Info().Msg("no assistant found")
 		return nil, nil, err
+	}
+
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
 	}
 
 	if len(assistant.Tools) > 0 {
