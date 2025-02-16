@@ -39,7 +39,7 @@ type ChainStrategy struct {
 	cfg   *config.ServerConfig
 	store store.Store
 
-	apiClient            openai.Client
+	apiClient            openai.Client // Default API client is none is passed through the options
 	httpClient           *http.Client
 	gptScriptExecutor    gptscript.Executor
 	isActionableTemplate string
