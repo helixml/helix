@@ -29,7 +29,7 @@ type ProviderManager interface {
 	// GetClient returns a client for the given provider
 	GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error)
 	// ListProviders returns a list of providers that are available
-	ListProviders(ctx context.Context) ([]types.Provider, error)
+	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
 }
 
 type providerClient struct {
@@ -210,13 +210,25 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	return nil
 }
 
-func (m *MultiClientManager) ListProviders(_ context.Context) ([]types.Provider, error) {
+func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
 	m.globalClientsMu.RLock()
 	defer m.globalClientsMu.RUnlock()
 
 	providers := make([]types.Provider, 0, len(m.globalClients))
 	for provider := range m.globalClients {
 		providers = append(providers, provider)
+	}
+
+	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      owner,
+		WithGlobal: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, provider := range userProviders {
+		providers = append(providers, types.Provider(provider.Name))
 	}
 
 	return providers, nil
