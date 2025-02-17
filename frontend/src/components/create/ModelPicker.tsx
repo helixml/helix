@@ -28,7 +28,7 @@ const ModelPicker: FC<{
   const loadedProviderRef = useRef<string | undefined>()
 
   useEffect(() => {
-    if (!loadedProviderRef.current || loadedProviderRef.current !== provider) {
+    if (loadedProviderRef.current !== provider) {
       console.log('fetching models for provider', provider)
       loadedProviderRef.current = provider
       fetchModels(provider)      
