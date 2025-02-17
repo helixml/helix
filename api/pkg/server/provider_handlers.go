@@ -65,7 +65,7 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	// Get global ones from the provider manager
-	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx, user.ID)
+	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx, "")
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
