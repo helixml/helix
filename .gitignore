@@ -10,7 +10,7 @@ venv
 dist
 api/runs
 kubeconfig
-./helix
+helix
 .vscode
 integration-test/frontend/screenshots
 instructions.txt
@@ -18,4 +18,3 @@ build-errors.log
 .DS_Store
 vendor
 */**/out.md
-./helix
