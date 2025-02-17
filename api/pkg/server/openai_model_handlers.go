@@ -110,7 +110,7 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 		}
 
 		// Log the response body for debugging purposes
-		log.Trace().Str("provider", string(apiServer.Cfg.Inference.Provider)).Msg("Response from provider's models endpoint")
+		log.Trace().Str("provider", apiServer.Cfg.Inference.Provider).Msg("Response from provider's models endpoint")
 		log.Trace().RawJSON("response_body", body).Msg("Models response")
 
 		var models []model.OpenAIModel
