@@ -32,9 +32,7 @@ const ProviderEndpointPicker: FC<{
 
   const handleCloseMenu = () => {
     setModelMenuAnchorEl(undefined)
-  }
-
-  console.log('providerEndpoint: ', providerEndpoint)
+  }  
 
   let providerData = providerEndpoints.find(p => p.name === providerEndpoint)
 
