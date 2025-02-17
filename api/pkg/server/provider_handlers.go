@@ -83,6 +83,13 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 		})
 	}
 
+	// Set default
+	for idx := range providerEndpoints {
+		if providerEndpoints[idx].Name == apiServer.Cfg.Inference.Provider {
+			providerEndpoints[idx].Default = true
+		}
+	}
+
 	rw.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(rw).Encode(providerEndpoints)
 	if err != nil {
