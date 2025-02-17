@@ -19,7 +19,6 @@ import DevelopersSection from '../components/app/DevelopersSection'
 import GPTScriptsSection from '../components/app/GPTScriptsSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
-import ToolEditor from '../components/app/ToolEditor'
 import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -49,7 +48,6 @@ import {
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
-  ITool,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
@@ -85,7 +83,6 @@ const App: FC = () => {
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
   const [ hasInitialised, setHasInitialised ] = useState(false)
-  //const [ assistants, setAssistants ] = useState<IAssistantConfig[]>([])
   const [ description, setDescription ] = useState('')
   const [ shared, setShared ] = useState(false)
   const [ global, setGlobal ] = useState(false)
@@ -656,6 +653,17 @@ const App: FC = () => {
     setHasLoaded(true);
   }, [app])
 
+  useEffect(() => {
+    // When provider changes, check if current model exists in new provider's models
+    const currentProviderModels = account.models;
+    const currentModelExists = currentProviderModels.some(m => m.id === model);
+
+    // If current model doesn't exist in new provider's models, select the first available model
+    if (!currentModelExists && currentProviderModels.length > 0) {
+      setModel(currentProviderModels[0].id);
+    }
+  }, [providerEndpoint, account.models, model]);
+
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
@@ -735,38 +743,6 @@ const App: FC = () => {
       snackbar.error('No API key available');
     }
   }, [account.apiKeys, snackbar]);  
-
-  const onDeleteTool = useCallback(async (toolId: string) => {
-    if (!app) {
-      console.error('App is not initialized');
-      snackbar.error('Unable to delete tool: App is not initialized, save it first');
-      return;
-    }
-
-    const updatedAssistants = (app.config.helix.assistants || []).map(assistant => ({
-      ...assistant,
-      tools: (assistant.tools || []).filter(tool => tool.id !== toolId),
-      gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
-    }));
-
-    const updatedApp = {
-      ...app,
-      config: {
-        ...app.config,
-        helix: {
-          ...app.config.helix,
-          assistants: updatedAssistants,
-        },
-      },
-    }
-
-    const result = await apps.updateApp(app.id, updatedApp);
-    if (result) {
-      setApp(result);
-    }  
-
-    snackbar.success('Tool deleted successfully');
-  }, [app, snackbar, onSave]);
 
   const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
     if (!app) return;
