@@ -1,0 +1,16 @@
+name: custom-provider-api-tools
+description: |
+  A simple app that demonstrates how Helix can use 3rd party APIs and a custom provider endpoint.
+assistants:
+- name: Helix
+  description: Responds knowing about the hiring pipeline
+  # Create a new provider:
+  # helix provider create --name ollama --base-url http://<ollama-host>/v1 --models llama3.1
+  provider: ollama
+  model: llama3.1
+  apis:
+  - name: Demo Hiring Pipeline API
+    description: List all job vacancies, optionally filter by job title and/or candidate name
+    url: https://demos.tryhelix.ai
+    schema: ./openapi/jobvacancies.yaml
+
