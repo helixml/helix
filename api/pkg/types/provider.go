@@ -34,5 +34,6 @@ type ProviderEndpoint struct {
 	OwnerType      OwnerType            `json:"owner_type"` // user, system, org
 	BaseURL        string               `json:"base_url"`
 	APIKey         string               `json:"api_key"`
-	APIKeyFromFile string               `json:"api_key_file"` // Must be mounted to the container
+	APIKeyFromFile string               `json:"api_key_file"`     // Must be mounted to the container
+	Default        bool                 `json:"default" gorm:"-"` // Set from environment variable
 }
