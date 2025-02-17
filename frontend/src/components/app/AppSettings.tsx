@@ -99,6 +99,7 @@ const AppSettings: React.FC<AppSettingsProps> = ({
         <ModelPicker
           type="text"
           model={model}
+          provider={providerEndpoint}
           onSetModel={setModel}
         />
       </Box>

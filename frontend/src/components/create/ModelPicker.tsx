@@ -5,7 +5,7 @@ import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
-import React, { FC, useContext, useState, useMemo } from 'react'
+import React, { FC, useContext, useState, useMemo, useEffect, useRef } from 'react'
 import { AccountContext } from '../../contexts/account'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -13,16 +13,27 @@ import useLightTheme from '../../hooks/useLightTheme'
 const ModelPicker: FC<{
   type: string,
   model: string,
+  provider: string | undefined, // Optional model when non-default provider is selected
   onSetModel: (model: string) => void,
 }> = ({
   type,
   model,
+  provider,
   onSetModel
 }) => {
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
-  const { models } = useContext(AccountContext)
+  const { models, fetchModels } = useContext(AccountContext)
+  const loadedProviderRef = useRef<string | undefined>()
+
+  useEffect(() => {
+    if (!loadedProviderRef.current || loadedProviderRef.current !== provider) {
+      console.log('fetching models for provider', provider)
+      loadedProviderRef.current = provider
+      fetchModels(provider)      
+    }
+  }, [provider, fetchModels])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
