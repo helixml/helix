@@ -152,7 +152,7 @@ export const useAccountContext = (): IAccountContext => {
   const fetchProviderEndpoints = useCallback(async () => {
     const response = await api.get('/api/v1/provider-endpoints')
     if(!response) return
-    setProviderEndpoints(response.data)
+    setProviderEndpoints(response)
   }, [])
 
   const loadAll = useCallback(async () => {

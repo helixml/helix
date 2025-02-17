@@ -116,7 +116,7 @@ const App: FC = () => {
 
   const [model, setModel] = useState(account.models[0]?.id || '');
 
-  const [provider, setProvider] = useState(account.providerEndpoints && account.providerEndpoints.length > 0 ? account.providerEndpoints[0]?.name : '');
+  const [providerEndpoint, setProviderEndpoint] = useState(account.providerEndpoints && account.providerEndpoints.length > 0 ? account.providerEndpoints[0] : undefined);
 
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -484,7 +484,7 @@ const App: FC = () => {
       type: SESSION_TYPE_TEXT,
       system_prompt: systemPrompt,
       model: model,
-      provider: provider,
+      provider: providerEndpoint?.name || '', // If not set, using default provider from the system
       knowledge: [],
     }
   }
@@ -1002,8 +1002,9 @@ const App: FC = () => {
                       setGlobal={setGlobal}
                       model={model}
                       setModel={setModel}
-                      provider={provider}
-                      setProvider={setProvider}
+                      providerEndpoint={providerEndpoint}
+                      setProviderEndpoint={setProviderEndpoint}
+                      providerEndpoints={account.providerEndpoints}
                       readOnly={readOnly}
                       isReadOnly={isReadOnly}
                       showErrors={showErrors}
