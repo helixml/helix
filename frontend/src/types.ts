@@ -590,6 +590,7 @@ export interface IAssistantConfig {
   description?: string;
   avatar?: string;
   image?: string;
+  provider?: string;
   model?: string;
   type?: ISessionType;
   system_prompt?: string;
@@ -919,4 +920,5 @@ export interface IProviderEndpoint {
   base_url: string
   api_key: string
   api_key_file?: string
+  default: boolean
 }
