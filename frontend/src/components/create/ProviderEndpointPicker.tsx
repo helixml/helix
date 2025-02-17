@@ -34,7 +34,7 @@ const ProviderEndpointPicker: FC<{
     setModelMenuAnchorEl(undefined)
   }
 
-  console.log('providerEndpoints', providerEndpoints)
+  console.log('providerEndpoint', providerEndpoint)
 
   const providerData = providerEndpoint || {
     id: '',
@@ -93,7 +93,7 @@ const ProviderEndpointPicker: FC<{
           {
             providerEndpoints && providerEndpoints.map(provider => (
               <MenuItem
-                key={provider.id}
+                key={provider.name}
                 sx={{fontSize: "large"}}
                 onClick={() => {
                   onSetProviderEndpoint(provider)

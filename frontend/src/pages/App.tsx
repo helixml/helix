@@ -114,9 +114,11 @@ const App: FC = () => {
 
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
 
-  const [model, setModel] = useState(account.models[0]?.id || '');
+  const [model, setModel] = useState(account.models[0]?.id || '');  
 
-  const [providerEndpoint, setProviderEndpoint] = useState(account.providerEndpoints && account.providerEndpoints.length > 0 ? account.providerEndpoints[0] : undefined);
+  const provider = app?.config?.helix?.assistants?.[0]?.provider
+
+  const [providerEndpoint, setProviderEndpoint] = useState(provider ? account.providerEndpoints.find(p => p.name === provider) : undefined);
 
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
