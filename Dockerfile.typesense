@@ -1,4 +1,4 @@
-FROM typesense/typesense:27.1
+FROM typesense/typesense:28.0
 RUN apt update && apt install -y curl
 RUN mkdir -p /models/all-MiniLM-L12-v2 && cd /models/all-MiniLM-L12-v2 && \
     curl -sL -O https://huggingface.co/typesense/models/resolve/main/all-MiniLM-L12-v2/config.json && \
