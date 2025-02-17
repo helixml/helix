@@ -903,3 +903,20 @@ export interface ISecret {
   created: string,
   updated: string,
 }
+
+export type IProviderEndpointType = 'global' | 'user'
+
+export interface IProviderEndpoint {
+  id: string
+  created: string
+  updated: string
+  name: string
+  description: string
+  models?: string[]
+  endpoint_type: IProviderEndpointType
+  owner: string
+  owner_type: IOwnerType
+  base_url: string
+  api_key: string
+  api_key_file?: string
+}
