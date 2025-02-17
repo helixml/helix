@@ -9,8 +9,8 @@ type Option func(*Options) error
 type Options struct {
 	isActionableTemplate string
 	model                string
-	owner                string
 	client               openai.Client
+	//owner               string // For later
 }
 
 func WithIsActionableTemplate(isActionableTemplate string) Option {

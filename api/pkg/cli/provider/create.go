@@ -19,8 +19,12 @@ func init() {
 	createCmd.Flags().StringP("api-key-file", "f", "", "Path to file containing API key")
 	createCmd.Flags().StringSliceP("models", "m", []string{}, "Comma-separated list of supported models")
 
-	createCmd.MarkFlagRequired("name")
-	createCmd.MarkFlagRequired("base-url")
+	if err := createCmd.MarkFlagRequired("name"); err != nil {
+		return
+	}
+	if err := createCmd.MarkFlagRequired("base-url"); err != nil {
+		return
+	}
 
 	rootCmd.AddCommand(createCmd)
 }
@@ -29,7 +33,7 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new provider endpoint",
 	Long:  ``,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
