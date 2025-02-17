@@ -39,7 +39,8 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   models: IHelixModel[],
-  fetchModels: () => Promise<void>,
+  fetchModels: (provider?: string) => Promise<void>,
+  providerEndpoints: IProviderEndpoint[],  
   fetchProviderEndpoints: () => Promise<void>,
 }
 
@@ -66,8 +67,9 @@ export const AccountContext = createContext<IAccountContext>({
   onLogin: () => {},
   onLogout: () => {},
   loadApiKeys: () => {},
-  models: [],
+  models: [],  
   fetchModels: async () => {},
+  providerEndpoints: [],
   fetchProviderEndpoints: async () => {},
 })
 
@@ -232,9 +234,10 @@ export const useAccountContext = (): IAccountContext => {
     setInitialized(true)
   }, [])
 
-  const fetchModels = useCallback(async () => {
+  const fetchModels = useCallback(async (provider?: string) => {
     try {
-      const response = await api.get('/v1/models')
+      const url = provider ? `/v1/models?provider=${encodeURIComponent(provider)}` : '/v1/models'
+      const response = await api.get(url)
       
       let modelData: IHelixModel[] = [];
       if (response && Array.isArray(response.data)) {
@@ -293,6 +296,7 @@ export const useAccountContext = (): IAccountContext => {
     models,
     fetchModels,
     fetchProviderEndpoints,
+    providerEndpoints,
   }
 }
 

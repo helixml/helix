@@ -116,6 +116,8 @@ const App: FC = () => {
 
   const [model, setModel] = useState(account.models[0]?.id || '');
 
+  const [provider, setProvider] = useState(account.providerEndpoints && account.providerEndpoints.length > 0 ? account.providerEndpoints[0]?.name : '');
+
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
@@ -482,6 +484,7 @@ const App: FC = () => {
       type: SESSION_TYPE_TEXT,
       system_prompt: systemPrompt,
       model: model,
+      provider: provider,
       knowledge: [],
     }
   }
@@ -999,6 +1002,8 @@ const App: FC = () => {
                       setGlobal={setGlobal}
                       model={model}
                       setModel={setModel}
+                      provider={provider}
+                      setProvider={setProvider}
                       readOnly={readOnly}
                       isReadOnly={isReadOnly}
                       showErrors={showErrors}
