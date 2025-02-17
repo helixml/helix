@@ -25,6 +25,8 @@ interface AppSettingsProps {
   setGlobal: (global: boolean) => void;
   model: string;
   setModel: (model: string) => void;
+  provider: string;
+  setProvider: (provider: string) => void;
   readOnly: boolean;
   isReadOnly: boolean;
   showErrors: boolean;
@@ -48,6 +50,8 @@ const AppSettings: React.FC<AppSettingsProps> = ({
   setGlobal,
   model,
   setModel,
+  provider,
+  setProvider,
   readOnly,
   isReadOnly,
   showErrors,
