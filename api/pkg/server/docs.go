@@ -1475,7 +1475,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider": {
-                    "$ref": "#/definitions/types.Provider"
+                    "type": "string"
                 },
                 "rag_source_id": {
                     "type": "string"
