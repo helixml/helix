@@ -14,8 +14,8 @@ import {
 } from '../../types'
 
 const ProviderEndpointPicker: FC<{  
-  providerEndpoint: IProviderEndpoint | undefined,
-  onSetProviderEndpoint: (providerEndpoint: IProviderEndpoint) => void,
+  providerEndpoint: string | undefined,
+  onSetProviderEndpoint: (providerEndpoint: string) => void,
   providerEndpoints: IProviderEndpoint[],
 }> = ({  
   providerEndpoint,
@@ -34,12 +34,31 @@ const ProviderEndpointPicker: FC<{
     setModelMenuAnchorEl(undefined)
   }
 
-  console.log('providerEndpoint', providerEndpoint)
+  console.log('providerEndpoint: ', providerEndpoint)
 
-  const providerData = providerEndpoint || {
-    id: '',
-    name: 'Default Provider',
-    description: '',
+  let providerData = providerEndpoints.find(p => p.name === providerEndpoint)
+
+  // If not found, find the provider with "default" = true
+  if (!providerData) {
+    providerData = providerEndpoints.find(p => p.default)
+  }
+
+  // If it still not found, set it as "default"
+  if (!providerData) {
+    providerData = {
+      created: '',
+      updated: '',
+      name: 'default',
+      description: '',
+      endpoint_type: 'global',
+      models: [],
+      owner: '',
+      owner_type: 'user',
+      base_url: '',
+      api_key: '',
+      id: '',          
+      default: true,      
+    }
   }
 
   return (
@@ -96,7 +115,7 @@ const ProviderEndpointPicker: FC<{
                 key={provider.name}
                 sx={{fontSize: "large"}}
                 onClick={() => {
-                  onSetProviderEndpoint(provider)
+                  onSetProviderEndpoint(provider.name)
                   handleCloseMenu()
                 }}
               >

@@ -116,9 +116,7 @@ const App: FC = () => {
 
   const [model, setModel] = useState(account.models[0]?.id || '');  
 
-  const provider = app?.config?.helix?.assistants?.[0]?.provider
-
-  const [providerEndpoint, setProviderEndpoint] = useState(provider ? account.providerEndpoints.find(p => p.name === provider) : undefined);
+  const [providerEndpoint, setProviderEndpoint] = useState('');
 
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -486,7 +484,7 @@ const App: FC = () => {
       type: SESSION_TYPE_TEXT,
       system_prompt: systemPrompt,
       model: model,
-      provider: providerEndpoint?.name || '', // If not set, using default provider from the system
+      provider: providerEndpoint || '', // If not set, using default provider from the system
       knowledge: [],
     }
   }
@@ -652,6 +650,7 @@ const App: FC = () => {
     setAvatar(app.config.helix.avatar || '');
     setImage(app.config.helix.image || '');
     setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
+    setProviderEndpoint(app.config.helix.assistants ? app.config.helix.assistants[0]?.provider || '' : '');
     setHasLoaded(true);
   }, [app])
 

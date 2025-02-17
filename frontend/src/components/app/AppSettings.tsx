@@ -26,8 +26,8 @@ interface AppSettingsProps {
   setGlobal: (global: boolean) => void;
   model: string;
   setModel: (model: string) => void;
-  providerEndpoint: IProviderEndpoint | undefined;
-  setProviderEndpoint: (providerEndpoint: IProviderEndpoint) => void;
+  providerEndpoint: string | undefined;
+  setProviderEndpoint: (providerEndpoint: string) => void;
   providerEndpoints: IProviderEndpoint[];
   readOnly: boolean;
   isReadOnly: boolean;
