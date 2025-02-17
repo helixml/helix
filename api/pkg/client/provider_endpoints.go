@@ -13,7 +13,7 @@ import (
 // ListProviderEndpoints retrieves a list of provider endpoints for the authenticated user
 func (c *HelixClient) ListProviderEndpoints(ctx context.Context) ([]*types.ProviderEndpoint, error) {
 	var endpoints []*types.ProviderEndpoint
-	err := c.makeRequest(ctx, http.MethodGet, "/providers-endpoints", nil, &endpoints)
+	err := c.makeRequest(ctx, http.MethodGet, "/provider-endpoints", nil, &endpoints)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list provider endpoints: %w", err)
 	}
@@ -23,7 +23,7 @@ func (c *HelixClient) ListProviderEndpoints(ctx context.Context) ([]*types.Provi
 // GetProviderEndpoint retrieves a specific provider endpoint by ID
 func (c *HelixClient) GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error) {
 	var endpoint *types.ProviderEndpoint
-	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/providers-endpoints/%s", id), nil, &endpoint)
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/provider-endpoints/%s", id), nil, &endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider endpoint: %w", err)
 	}
@@ -39,7 +39,7 @@ func (c *HelixClient) CreateProviderEndpoint(ctx context.Context, endpoint *type
 		return nil, fmt.Errorf("failed to marshal endpoint: %w", err)
 	}
 
-	err = c.makeRequest(ctx, http.MethodPost, "/providers-endpoints", bytes.NewBuffer(bts), &createdEndpoint)
+	err = c.makeRequest(ctx, http.MethodPost, "/provider-endpoints", bytes.NewBuffer(bts), &createdEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider endpoint: %w", err)
 	}
@@ -55,7 +55,7 @@ func (c *HelixClient) UpdateProviderEndpoint(ctx context.Context, endpoint *type
 		return nil, fmt.Errorf("failed to marshal endpoint: %w", err)
 	}
 
-	err = c.makeRequest(ctx, http.MethodPut, fmt.Sprintf("/providers-endpoints/%s", endpoint.ID), bytes.NewBuffer(bts), &updatedEndpoint)
+	err = c.makeRequest(ctx, http.MethodPut, fmt.Sprintf("/provider-endpoints/%s", endpoint.ID), bytes.NewBuffer(bts), &updatedEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update provider endpoint: %w", err)
 	}
@@ -64,7 +64,7 @@ func (c *HelixClient) UpdateProviderEndpoint(ctx context.Context, endpoint *type
 
 // DeleteProviderEndpoint deletes a provider endpoint by ID
 func (c *HelixClient) DeleteProviderEndpoint(ctx context.Context, id string) error {
-	err := c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/providers-endpoints/%s", id), nil, nil)
+	err := c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/provider-endpoints/%s", id), nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to delete provider endpoint: %w", err)
 	}

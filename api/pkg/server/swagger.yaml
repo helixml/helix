@@ -628,7 +628,7 @@ definitions:
       name:
         type: string
       provider:
-        $ref: '#/definitions/types.Provider'
+        type: string
       rag_source_id:
         type: string
       system_prompt:
