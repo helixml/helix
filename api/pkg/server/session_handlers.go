@@ -115,7 +115,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
@@ -310,7 +310,7 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		return
 	}
 
-	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
