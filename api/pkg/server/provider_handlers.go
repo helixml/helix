@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -123,6 +124,21 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 		log.Err(err).Msg("error decoding request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Check for duplicate names
+	existingProviders, err := apiServer.providerManager.ListProviders(r.Context(), user.ID)
+	if err != nil {
+		log.Err(err).Msg("error listing providers")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for _, provider := range existingProviders {
+		if string(provider) == endpoint.Name {
+			http.Error(rw, fmt.Sprintf("Provider with name %s already exists", endpoint.Name), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Set owner information
