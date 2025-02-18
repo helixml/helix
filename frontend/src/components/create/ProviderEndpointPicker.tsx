@@ -116,7 +116,7 @@ const ProviderEndpointPicker: FC<{
                   onSetProviderEndpoint(provider.name)
                   handleCloseMenu()
                 }}
-                selected={provider.name === providerData.name}
+                selected={provider.name === providerEndpoint}
               >
                 {provider.name} {provider.description && <>&nbsp; <small>({provider.description})</small></>}
               </MenuItem>
