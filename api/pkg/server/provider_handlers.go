@@ -136,7 +136,7 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 
 	for _, provider := range existingProviders {
 		if string(provider) == endpoint.Name {
-			http.Error(rw, fmt.Sprintf("Provider with name %s already exists", endpoint.Name), http.StatusBadRequest)
+			http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", endpoint.Name), http.StatusBadRequest)
 			return
 		}
 	}
@@ -232,6 +232,11 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 	// Only admins can add endpoints with API key path auth
 	if existingEndpoint.APIKeyFromFile != "" && !user.Admin {
 		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
+		return
+	}
+
+	if existingEndpoint.Name != updatedEndpoint.Name {
+		http.Error(rw, "Cannot change the name of a provider endpoint, create a new one", http.StatusBadRequest)
 		return
 	}
 
