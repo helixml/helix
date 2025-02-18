@@ -120,10 +120,12 @@ services:
       - api
   tika:
     image: apache/tika:2.9.2.1
+    restart: always
     ports:
       - 9998:9998
   typesense:
     image: registry.helix.ml/helix/typesense:latest
+    restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     ports:
       - 8108:8108
