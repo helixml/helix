@@ -16,33 +16,18 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// listProviders returns currently configured providers
-func (apiServer *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) {
-	providers, err := apiServer.providerManager.ListProviders(r.Context())
-	if err != nil {
-		log.Err(err).Msg("error listing providers")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(providers)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-}
-
 // Updated listModels function
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
-	provider := types.Provider(r.URL.Query().Get("provider"))
+	provider := r.URL.Query().Get("provider")
 	if provider == "" {
 		provider = apiServer.Cfg.Inference.Provider
 	}
 
+	user := getRequestUser(r)
+
 	client, err := apiServer.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
 		Provider: provider,
+		Owner:    user.ID,
 	})
 	if err != nil {
 		log.Err(err).Msg("error getting client")
@@ -74,15 +59,15 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 // Updated function to determine models
 func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) {
 	// If configured to proxy through to LLM provider, return their models
-	if apiServer.Cfg.Inference.Provider != types.ProviderHelix {
+	if apiServer.Cfg.Inference.Provider != string(types.ProviderHelix) {
 		var baseURL string
 		var apiKey string
 		switch apiServer.Cfg.Inference.Provider {
-		case types.ProviderOpenAI:
+		case string(types.ProviderOpenAI):
 			baseURL = apiServer.Cfg.Providers.OpenAI.BaseURL
 
 			provider, err := apiServer.providerManager.GetClient(context.Background(), &manager.GetClientRequest{
-				Provider: types.ProviderOpenAI,
+				Provider: string(types.ProviderOpenAI),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to get openai client: %w", err)
@@ -90,11 +75,11 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 
 			apiKey = provider.APIKey()
 
-		case types.ProviderTogetherAI:
+		case string(types.ProviderTogetherAI):
 			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
 
 			provider, err := apiServer.providerManager.GetClient(context.Background(), &manager.GetClientRequest{
-				Provider: types.ProviderTogetherAI,
+				Provider: string(types.ProviderTogetherAI),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to get togetherai client: %w", err)
@@ -125,7 +110,7 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 		}
 
 		// Log the response body for debugging purposes
-		log.Trace().Str("provider", string(apiServer.Cfg.Inference.Provider)).Msg("Response from provider's models endpoint")
+		log.Trace().Str("provider", apiServer.Cfg.Inference.Provider).Msg("Response from provider's models endpoint")
 		log.Trace().RawJSON("response_body", body).Msg("Models response")
 
 		var models []model.OpenAIModel

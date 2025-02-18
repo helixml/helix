@@ -38,7 +38,7 @@ func (s *OpenAIEmbeddingsSuite) SetupTest() {
 	ctrl := gomock.NewController(s.T())
 
 	cfg := &config.ServerConfig{}
-	cfg.RAG.PGVector.Provider = types.ProviderOpenAI
+	cfg.RAG.PGVector.Provider = string(types.ProviderOpenAI)
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)
@@ -72,7 +72,7 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddings() {
 	rec := httptest.NewRecorder()
 
 	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
-		Provider: types.ProviderOpenAI,
+		Provider: string(types.ProviderOpenAI),
 	}).Return(s.openAiClient, nil)
 
 	s.openAiClient.EXPECT().CreateEmbeddings(gomock.Any(), gomock.Any()).

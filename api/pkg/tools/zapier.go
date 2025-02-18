@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	oai "github.com/helixml/helix/api/pkg/openai"
 	helix_langchain "github.com/helixml/helix/api/pkg/openai/langchain"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
@@ -17,8 +18,9 @@ import (
 	"github.com/tmc/langchaingo/tools/zapier"
 )
 
-func (c *ChainStrategy) RunZapierAction(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
-	llm, err := helix_langchain.New(c.apiClient, tool.Config.Zapier.Model)
+func (c *ChainStrategy) RunZapierAction(ctx context.Context, apiClient oai.Client, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+
+	llm, err := helix_langchain.New(apiClient, tool.Config.Zapier.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +97,7 @@ func (c *ChainStrategy) RunZapierAction(ctx context.Context, tool *types.Tool, h
 	}, nil
 }
 
-func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, apiClient oai.Client, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
 	downstream, downstreamWriter, err := transport.NewOpenAIStreamingAdapter(openai.ChatCompletionRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create streaming adapter: %w", err)
@@ -106,7 +108,7 @@ func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.T
 
 		var result string
 
-		resp, err := c.RunZapierAction(ctx, tool, history, action)
+		resp, err := c.RunZapierAction(ctx, apiClient, tool, history, action)
 		if err != nil {
 			log.Err(err).
 				Str("action", action).

@@ -1,0 +1,8 @@
+name: custom-provider-endpoint
+description: |
+  A simple app to demonstrate using custom provider endpoints.
+assistants:
+- name: Helix  
+  model: llama3.1
+  provider: ollama  
+

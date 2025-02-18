@@ -5,35 +5,26 @@ import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
-import React, { FC, useContext, useState, useMemo, useEffect, useRef } from 'react'
-import { AccountContext } from '../../contexts/account'
+import React, { FC, useState } from 'react'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
 
-const ModelPicker: FC<{
-  type: string,
-  model: string,
-  provider: string | undefined, // Optional model when non-default provider is selected
-  onSetModel: (model: string) => void,
-}> = ({
-  type,
-  model,
-  provider,
-  onSetModel
+import {
+  IProviderEndpoint
+} from '../../types'
+
+const ProviderEndpointPicker: FC<{  
+  providerEndpoint: string | undefined,
+  onSetProviderEndpoint: (providerEndpoint: string) => void,
+  providerEndpoints: IProviderEndpoint[],
+}> = ({  
+  providerEndpoint,
+  onSetProviderEndpoint,
+  providerEndpoints,
 }) => {
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
-  const { models, fetchModels } = useContext(AccountContext)
-  const loadedProviderRef = useRef<string | undefined>()
-
-  useEffect(() => {
-    if (loadedProviderRef.current !== provider) {
-      console.log('fetching models for provider', provider)
-      loadedProviderRef.current = provider
-      fetchModels(provider)      
-    }
-  }, [provider, fetchModels])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
@@ -41,13 +32,32 @@ const ModelPicker: FC<{
 
   const handleCloseMenu = () => {
     setModelMenuAnchorEl(undefined)
+  }  
+
+  let providerData = providerEndpoints.find(p => p.name === providerEndpoint)
+
+  // If not found, find the provider with "default" = true
+  if (!providerData) {
+    providerData = providerEndpoints.find(p => p.default)
   }
 
-  const modelData = models.find(m => m.id === model) || models[0];
-
-  const filteredModels = useMemo(() => {
-    return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
-  }, [models, type])
+  // If it still not found, set it as "default"
+  if (!providerData) {
+    providerData = {
+      created: '',
+      updated: '',
+      name: 'default',
+      description: '',
+      endpoint_type: 'global',
+      models: [],
+      owner: '',
+      owner_type: 'user',
+      base_url: '',
+      api_key: '',
+      id: '',          
+      default: true,      
+    }
+  }
 
   return (
     <>
@@ -70,7 +80,7 @@ const ModelPicker: FC<{
             },
           }}
         >
-          {modelData?.name || 'Default Model'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+          {providerData.name} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
         </Typography>
       ) : (
         <IconButton
@@ -98,16 +108,17 @@ const ModelPicker: FC<{
           }}
         >
           {
-            filteredModels.map(model => (
+            providerEndpoints && providerEndpoints.map(provider => (
               <MenuItem
-                key={model.id}
+                key={provider.name}
                 sx={{fontSize: "large"}}
                 onClick={() => {
-                  onSetModel(model.id)
+                  onSetProviderEndpoint(provider.name)
                   handleCloseMenu()
                 }}
+                selected={provider.name === providerEndpoint}
               >
-                {model.name} {model.description && <>&nbsp; <small>({model.description})</small></>}
+                {provider.name} {provider.description && <>&nbsp; <small>({provider.description})</small></>}
               </MenuItem>
             ))
           }
@@ -117,4 +128,4 @@ const ModelPicker: FC<{
   )
 }
 
-export default ModelPicker
+export default ProviderEndpointPicker

@@ -172,7 +172,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 	// 		return call, nil
 	// 	})
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, suite.strategy.apiClient, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -209,7 +209,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		},
 	}
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, suite.strategy.apiClient, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
