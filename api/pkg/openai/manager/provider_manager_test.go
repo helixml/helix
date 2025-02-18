@@ -9,13 +9,16 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/logger"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
+	gomock "go.uber.org/mock/gomock"
 )
 
 type MultiClientManagerTestSuite struct {
 	suite.Suite
-	cfg *config.ServerConfig
+	store *store.MockStore
+	cfg   *config.ServerConfig
 }
 
 func TestMultiClientManagerTestSuite(t *testing.T) {
@@ -23,6 +26,9 @@ func TestMultiClientManagerTestSuite(t *testing.T) {
 }
 
 func (suite *MultiClientManagerTestSuite) SetupTest() {
+	ctrl := gomock.NewController(suite.T())
+	suite.store = store.NewMockStore(ctrl)
+
 	suite.cfg = &config.ServerConfig{
 		Providers: config.Providers{
 			VLLM: config.VLLM{
@@ -37,8 +43,8 @@ func (suite *MultiClientManagerTestSuite) SetupTest() {
 }
 
 func (suite *MultiClientManagerTestSuite) Test_VLLM() {
-	manager := NewProviderManager(suite.cfg, nil)
-	client, err := manager.GetClient(context.Background(), &GetClientRequest{Provider: types.ProviderVLLM})
+	manager := NewProviderManager(suite.cfg, suite.store, nil)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{Provider: string(types.ProviderVLLM)})
 	suite.NoError(err)
 	suite.NotNil(client)
 }
@@ -51,7 +57,7 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	suite.NoError(err)
 
 	// Create manager with initial key
-	manager := NewProviderManager(suite.cfg, nil)
+	manager := NewProviderManager(suite.cfg, suite.store, nil)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,7 +81,7 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 		time.Sleep(interval * 2)
 
 		// Get the client and verify the API key
-		client, err := manager.GetClient(ctx, &GetClientRequest{Provider: types.ProviderOpenAI})
+		client, err := manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
 		suite.NoError(err)
 
 		// Type assert to access the underlying client
@@ -102,7 +108,7 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile(
 	}()
 
 	// Create manager with initial key
-	manager := NewProviderManager(suite.cfg, nil)
+	manager := NewProviderManager(suite.cfg, suite.store, nil)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())
@@ -119,7 +125,7 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile(
 	time.Sleep(time.Second)
 
 	// Get the client and verify the API key
-	client, err := manager.GetClient(ctx, &GetClientRequest{Provider: types.ProviderOpenAI})
+	client, err := manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
 	suite.NoError(err)
 
 	// Type assert to access the underlying client

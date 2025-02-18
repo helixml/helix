@@ -393,6 +393,95 @@ definitions:
       reasoning_tokens:
         type: integer
     type: object
+  openai.Embedding:
+    properties:
+      embedding:
+        items:
+          type: number
+        type: array
+      index:
+        type: integer
+      object:
+        type: string
+    type: object
+  openai.EmbeddingEncodingFormat:
+    enum:
+    - float
+    - base64
+    type: string
+    x-enum-varnames:
+    - EmbeddingEncodingFormatFloat
+    - EmbeddingEncodingFormatBase64
+  openai.EmbeddingModel:
+    enum:
+    - text-similarity-ada-001
+    - text-similarity-babbage-001
+    - text-similarity-curie-001
+    - text-similarity-davinci-001
+    - text-search-ada-doc-001
+    - text-search-ada-query-001
+    - text-search-babbage-doc-001
+    - text-search-babbage-query-001
+    - text-search-curie-doc-001
+    - text-search-curie-query-001
+    - text-search-davinci-doc-001
+    - text-search-davinci-query-001
+    - code-search-ada-code-001
+    - code-search-ada-text-001
+    - code-search-babbage-code-001
+    - code-search-babbage-text-001
+    - text-embedding-ada-002
+    - text-embedding-3-small
+    - text-embedding-3-large
+    type: string
+    x-enum-varnames:
+    - AdaSimilarity
+    - BabbageSimilarity
+    - CurieSimilarity
+    - DavinciSimilarity
+    - AdaSearchDocument
+    - AdaSearchQuery
+    - BabbageSearchDocument
+    - BabbageSearchQuery
+    - CurieSearchDocument
+    - CurieSearchQuery
+    - DavinciSearchDocument
+    - DavinciSearchQuery
+    - AdaCodeSearchCode
+    - AdaCodeSearchText
+    - BabbageCodeSearchCode
+    - BabbageCodeSearchText
+    - AdaEmbeddingV2
+    - SmallEmbedding3
+    - LargeEmbedding3
+  openai.EmbeddingRequest:
+    properties:
+      dimensions:
+        description: |-
+          Dimensions The number of dimensions the resulting output embeddings should have.
+          Only supported in text-embedding-3 and later models.
+        type: integer
+      encoding_format:
+        $ref: '#/definitions/openai.EmbeddingEncodingFormat'
+      input: {}
+      model:
+        $ref: '#/definitions/openai.EmbeddingModel'
+      user:
+        type: string
+    type: object
+  openai.EmbeddingResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/openai.Embedding'
+        type: array
+      model:
+        $ref: '#/definitions/openai.EmbeddingModel'
+      object:
+        type: string
+      usage:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.Usage'
+    type: object
   types.App:
     properties:
       app_source:
@@ -498,13 +587,10 @@ definitions:
           type: string
         type: object
       request_prep_template:
-        description: Template for request preparation, leave empty for default
         type: string
       response_error_template:
-        description: Template for error response, leave empty for default
         type: string
       response_success_template:
-        description: Template for successful response, leave empty for default
         type: string
       schema:
         type: string
@@ -514,7 +600,6 @@ definitions:
   types.AssistantConfig:
     properties:
       apis:
-        description: the list of api tools this assistant will use
         items:
           $ref: '#/definitions/types.AssistantAPI'
         type: array
@@ -523,7 +608,6 @@ definitions:
       description:
         type: string
       gptscripts:
-        description: the list of gpt scripts this assistant will use
         items:
           $ref: '#/definitions/types.AssistantGPTScript'
         type: array
@@ -532,45 +616,40 @@ definitions:
       image:
         type: string
       is_actionable_template:
-        description: Template for determining if the request is actionable or informative
         type: string
       knowledge:
-        description: Knowledge available to the assistant
         items:
           $ref: '#/definitions/types.AssistantKnowledge'
         type: array
       lora_id:
-        description: the data entity ID that we have created for the lora fine tune
         type: string
       model:
         type: string
       name:
         type: string
       provider:
-        allOf:
-        - $ref: '#/definitions/types.Provider'
-        description: openai, togetherai, helix, etc.
+        type: string
       rag_source_id:
-        description: the data entity ID that we have created as the RAG source
         type: string
       system_prompt:
         type: string
+      tests:
+        items:
+          properties:
+            name:
+              type: string
+            steps:
+              items:
+                $ref: '#/definitions/types.TestStep'
+              type: array
+          type: object
+        type: array
       tools:
-        description: |-
-          these are populated from the APIs and GPTScripts on create and update
-          we include tools in the JSON that we send to the browser
-          but we don't include it in the yaml which feeds this struct because
-          we populate the tools array from the APIs and GPTScripts arrays
-          so - Tools is readonly - hence only JSON for the frontend to see
         items:
           $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
         type: array
       type:
-        allOf:
-        - $ref: '#/definitions/types.SessionType'
-        description: |-
-          so we can have fine tuned image assistants or system prompt augmentedimage inference
-          defaults to text
+        $ref: '#/definitions/types.SessionType'
       zapier:
         items:
           $ref: '#/definitions/types.AssistantZapier'
@@ -914,6 +993,8 @@ definitions:
     type: object
   types.LLMCall:
     properties:
+      app_id:
+        type: string
       completionTokens:
         type: integer
       created:
@@ -1057,10 +1138,12 @@ definitions:
   types.OwnerType:
     enum:
     - user
+    - runner
     - system
     type: string
     x-enum-varnames:
     - OwnerTypeUser
+    - OwnerTypeRunner
     - OwnerTypeSystem
   types.PaginatedLLMCalls:
     properties:
@@ -1082,11 +1165,56 @@ definitions:
     - openai
     - togetherai
     - helix
+    - vllm
     type: string
     x-enum-varnames:
     - ProviderOpenAI
     - ProviderTogetherAI
     - ProviderHelix
+    - ProviderVLLM
+  types.ProviderEndpoint:
+    properties:
+      api_key:
+        type: string
+      api_key_file:
+        description: Must be mounted to the container
+        type: string
+      base_url:
+        type: string
+      created:
+        type: string
+      description:
+        type: string
+      endpoint_type:
+        allOf:
+        - $ref: '#/definitions/types.ProviderEndpointType'
+        description: 'global, user (TODO: orgs, teams)'
+      id:
+        type: string
+      models:
+        description: Optional
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      owner:
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: user, system, org
+      updated:
+        type: string
+    type: object
+  types.ProviderEndpointType:
+    enum:
+    - global
+    - user
+    type: string
+    x-enum-varnames:
+    - ProviderEndpointTypeGlobal
+    - ProviderEndpointTypeUser
   types.RAGSettings:
     properties:
       chunk_overflow:
@@ -1157,6 +1285,23 @@ definitions:
     x-enum-varnames:
     - ResponseFormatTypeJSONObject
     - ResponseFormatTypeText
+  types.RunAPIActionRequest:
+    properties:
+      action:
+        type: string
+      parameters:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  types.RunAPIActionResponse:
+    properties:
+      error:
+        type: string
+      response:
+        description: Raw response from the API
+        type: string
+    type: object
   types.Secret:
     properties:
       app_id:
@@ -1459,6 +1604,13 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.TestStep:
+    properties:
+      expected_output:
+        type: string
+      prompt:
+        type: string
+    type: object
   types.TextDataPrepStage:
     enum:
     - ""
@@ -1487,7 +1639,7 @@ definitions:
     x-enum-varnames:
     - TextSplitterTypeMarkdown
     - TextSplitterTypeText
-  types.ToolApiAction:
+  types.ToolAPIAction:
     properties:
       description:
         type: string
@@ -1498,12 +1650,12 @@ definitions:
       path:
         type: string
     type: object
-  types.ToolApiConfig:
+  types.ToolAPIConfig:
     properties:
       actions:
         description: Read-only, parsed from schema on creation
         items:
-          $ref: '#/definitions/types.ToolApiAction'
+          $ref: '#/definitions/types.ToolAPIAction'
         type: array
       headers:
         additionalProperties:
@@ -1535,7 +1687,7 @@ definitions:
   types.ToolConfig:
     properties:
       api:
-        $ref: '#/definitions/types.ToolApiConfig'
+        $ref: '#/definitions/types.ToolAPIConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
       zapier:
@@ -1572,12 +1724,10 @@ definitions:
         type: boolean
       firecrawl:
         $ref: '#/definitions/types.Firecrawl'
+      ignore_robots_txt:
+        type: boolean
       max_depth:
         description: Limit crawl depth to avoid infinite crawling
-        type: integer
-      max_pages:
-        description: Limit number of pages to crawl to avoid infinite crawling (max
-          500 by default)
         type: integer
       readability:
         description: Apply readability middleware to the HTML content
@@ -1671,6 +1821,22 @@ paths:
             $ref: '#/definitions/types.App'
       security:
       - BearerAuth: []
+  /api/v1/apps/{id}/api-actions:
+    post:
+      parameters:
+      - description: Request body with API action name and parameters.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.RunAPIActionRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunAPIActionResponse'
+      security:
+      - BearerAuth: []
   /api/v1/apps/{id}/gptscript:
     post:
       parameters:
@@ -1710,7 +1876,8 @@ paths:
       - BearerAuth: []
   /api/v1/llm_calls:
     get:
-      description: List LLM calls with pagination and optional session filtering
+      description: List user's LLM calls with pagination and optional session filtering
+        for a specific app
       parameters:
       - description: Page number
         in: query
@@ -1736,6 +1903,51 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/providers:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Provider'
+            type: array
+      security:
+      - BearerAuth: []
+  /api/v1/providers-endpoints:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ProviderEndpoint'
+            type: array
+      security:
+      - BearerAuth: []
+    post:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+      security:
+      - BearerAuth: []
+  /api/v1/providers-endpoints/{id}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+    put:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+      security:
+      - BearerAuth: []
   /api/v1/secrets:
     get:
       description: List secrets for the user.
@@ -1865,6 +2077,26 @@ paths:
       summary: Stream responses for chat
       tags:
       - chat
+  /v1/embeddings:
+    post:
+      description: Creates an embedding vector representing the input text
+      parameters:
+      - description: Request body with options for embeddings.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/openai.EmbeddingRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/openai.EmbeddingResponse'
+      security:
+      - BearerAuth: []
+      summary: Creates an embedding vector representing the input text
+      tags:
+      - embeddings
 schemes:
 - https
 swagger: "2.0"

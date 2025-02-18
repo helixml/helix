@@ -178,7 +178,7 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 		hasFinetune := startReq.LoraDir != ""
 		ragEnabled := newSession.RAGSourceID != ""
 
-		processedModel, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
+		processedModel, err := model.ProcessModelName(s.Cfg.Inference.Provider, useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return

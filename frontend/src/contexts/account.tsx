@@ -12,7 +12,8 @@ import {
   IHelixModel,
   IKeycloakUser,
   IServerConfig,
-  IUserConfig
+  IUserConfig,
+  IProviderEndpoint
 } from '../types'
 
 const REALM = 'helix'
@@ -38,7 +39,9 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   models: IHelixModel[],
-  fetchModels: () => Promise<void>,
+  fetchModels: (provider?: string) => Promise<void>,
+  providerEndpoints: IProviderEndpoint[],  
+  fetchProviderEndpoints: () => Promise<void>,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -64,8 +67,10 @@ export const AccountContext = createContext<IAccountContext>({
   onLogin: () => {},
   onLogout: () => {},
   loadApiKeys: () => {},
-  models: [],
+  models: [],  
   fetchModels: async () => {},
+  providerEndpoints: [],
+  fetchProviderEndpoints: async () => {},
 })
 
 export const useAccount = () => {
@@ -96,6 +101,7 @@ export const useAccountContext = (): IAccountContext => {
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
   const [ models, setModels ] = useState<IHelixModel[]>([])
+  const [ providerEndpoints, setProviderEndpoints ] = useState<IProviderEndpoint[]>([])
   const [ latestVersion, setLatestVersion ] = useState<string>()
 
   const keycloak = useMemo(() => {
@@ -143,14 +149,22 @@ export const useAccountContext = (): IAccountContext => {
     setApiKeys(result)
   }, [])
 
+  const fetchProviderEndpoints = useCallback(async () => {
+    const response = await api.get('/api/v1/provider-endpoints')
+    if(!response) return
+    setProviderEndpoints(response)
+  }, [])
+
   const loadAll = useCallback(async () => {
     await bluebird.all([
       loadStatus(),
       loadServerConfig(),
+      fetchProviderEndpoints(),
     ])
   }, [
     loadStatus,
     loadServerConfig,
+    fetchProviderEndpoints,
   ])
 
   const onLogin = useCallback(() => {
@@ -220,9 +234,10 @@ export const useAccountContext = (): IAccountContext => {
     setInitialized(true)
   }, [])
 
-  const fetchModels = useCallback(async () => {
+  const fetchModels = useCallback(async (provider?: string) => {
     try {
-      const response = await api.get('/v1/models')
+      const url = provider ? `/v1/models?provider=${encodeURIComponent(provider)}` : '/v1/models'
+      const response = await api.get(url)
       
       let modelData: IHelixModel[] = [];
       if (response && Array.isArray(response.data)) {
@@ -280,6 +295,8 @@ export const useAccountContext = (): IAccountContext => {
     loadApiKeys,
     models,
     fetchModels,
+    fetchProviderEndpoints,
+    providerEndpoints,
   }
 }
 

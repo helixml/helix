@@ -42,6 +42,12 @@ type Client interface {
 	FilestoreList(ctx context.Context, path string) ([]filestore.Item, error)
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
+
+	ListProviderEndpoints(ctx context.Context) ([]*types.ProviderEndpoint, error)
+	GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error)
+	CreateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
+	UpdateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
+	DeleteProviderEndpoint(ctx context.Context, id string) error
 }
 
 // HelixClient is the client for the helix api

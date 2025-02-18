@@ -28,6 +28,7 @@ const CreateToolbar: FC<{
   type: ISessionType,
   model?: string,
   app?: IApp,
+  provider?: string,
   onOpenConfig: () => void,
   onSetMode: (mode: ISessionMode) => void,
   onSetModel: (model: string) => void,
@@ -36,6 +37,7 @@ const CreateToolbar: FC<{
   type,
   model,
   app,
+  provider,
   onOpenConfig,
   onSetMode,
   onSetModel,
@@ -95,6 +97,7 @@ const CreateToolbar: FC<{
             <ModelPicker
               type={type}
               model={model || ''}
+              provider={provider}
               onSetModel={onSetModel}
             />
           )
