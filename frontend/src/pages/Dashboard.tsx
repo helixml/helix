@@ -31,6 +31,7 @@ import {
   ISession,
   ISessionSummary
 } from '../types'
+import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 
 const START_ACTIVE = true
 
@@ -166,6 +167,7 @@ const Dashboard: FC = () => {
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="LLM Calls" />
             <Tab label="Dashboard" />
+            <Tab label="Providers" />
           </Tabs>
         </Box>
 
@@ -332,6 +334,18 @@ const Dashboard: FC = () => {
               )}
             </Box>
             <LLMCallsTable sessionFilter={sessionFilter} />
+          </Box>
+        )}
+
+        {activeTab === 2 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <ProviderEndpointsTable />
           </Box>
         )}
 
