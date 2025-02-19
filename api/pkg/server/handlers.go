@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) getConfig(_ context.Context) (types.ServerConfigForFrontend, error) {
+func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
@@ -205,28 +205,30 @@ func (apiServer *HelixAPIServer) getConfig(_ context.Context) (types.ServerConfi
 
 	// Add license information
 	var licenseInfo *types.FrontendLicenseInfo
-	decodedLicense, err := apiServer.Store.GetDecodedLicense(context.Background())
-	if err == nil && decodedLicense != nil {
-		licenseInfo = &types.FrontendLicenseInfo{
-			Valid:        decodedLicense.Valid && !decodedLicense.Expired(),
-			Organization: decodedLicense.Organization,
-			ValidUntil:   decodedLicense.ValidUntil,
-			Features: struct {
-				Users bool `json:"users"`
-			}{
-				Users: decodedLicense.Features.Users,
-			},
-			Limits: struct {
-				Users    int64 `json:"users"`
-				Machines int64 `json:"machines"`
-			}{
-				Users:    decodedLicense.Limits.Users,
-				Machines: decodedLicense.Limits.Machines,
-			},
+	if apiServer.pingService != nil {
+		decodedLicense, err := apiServer.pingService.GetLicenseInfo(ctx)
+		if err == nil && decodedLicense != nil {
+			licenseInfo = &types.FrontendLicenseInfo{
+				Valid:        decodedLicense.Valid && !decodedLicense.Expired(),
+				Organization: decodedLicense.Organization,
+				ValidUntil:   decodedLicense.ValidUntil,
+				Features: struct {
+					Users bool `json:"users"`
+				}{
+					Users: decodedLicense.Features.Users,
+				},
+				Limits: struct {
+					Users    int64 `json:"users"`
+					Machines int64 `json:"machines"`
+				}{
+					Users:    decodedLicense.Limits.Users,
+					Machines: decodedLicense.Limits.Machines,
+				},
+			}
+		} else {
+			// if license is not valid, allow user to upload a new one
+			deploymentID = "unknown"
 		}
-	} else {
-		// if license is not valid, allow user to upload a new one
-		deploymentID = "unknown"
 	}
 
 	config := types.ServerConfigForFrontend{
