@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, useState, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -9,25 +9,51 @@ import {
   Paper,
   Typography,
   Box,
+  Button,
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useAccount from '../../hooks/useAccount';
+import AddIcon from '@mui/icons-material/Add';
+import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
+import useEndpointProviders from '../../hooks/useEndpointProviders';
 
 const ProviderEndpointsTable: FC = () => {
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const account = useAccount();
-
+  
   if (!account.providerEndpoints || account.providerEndpoints.length === 0) {
     return (
       <Paper sx={{ p: 2, width: '100%' }}>
-        <Typography variant="body1">No provider endpoints configured.</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="body1">No provider endpoints configured.</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setCreateDialogOpen(true)}
+          >
+            Add Endpoint
+          </Button>
+        </Box>
+        <CreateProviderEndpointDialog
+          open={createDialogOpen}
+          onClose={() => setCreateDialogOpen(false)}
+          existingEndpoints={account.providerEndpoints}
+        />
       </Paper>
     );
   }
 
   return (
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">Provider Endpoints</Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreateDialogOpen(true)}
+        >
+          Add Endpoint
+        </Button>
       </Box>
       <TableContainer>
         <Table stickyHeader aria-label="provider endpoints table">
@@ -43,7 +69,7 @@ const ProviderEndpointsTable: FC = () => {
           </TableHead>
           <TableBody>
             {account.providerEndpoints.map((endpoint: IProviderEndpoint) => (
-              <TableRow key={endpoint.id}>
+              <TableRow key={endpoint.name}>
                 <TableCell>
                   <Typography variant="body2">
                     {endpoint.name}
@@ -64,6 +90,11 @@ const ProviderEndpointsTable: FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      <CreateProviderEndpointDialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        existingEndpoints={account.providerEndpoints}
+      />
     </Paper>
   );
 };
