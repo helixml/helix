@@ -55,7 +55,7 @@ const ProviderEndpointsTable: FC = () => {
                   </Typography>
                 </TableCell>
                 <TableCell>{endpoint.endpoint_type}</TableCell>
-                <TableCell>{`${endpoint.owner} (${endpoint.owner_type})`}</TableCell>
+                <TableCell>{endpoint.owner_type ? `${endpoint.owner} (${endpoint.owner_type})` : endpoint.owner}</TableCell>
                 <TableCell>{endpoint.base_url}</TableCell>
                 <TableCell>{endpoint.api_key_file || 'N/A'}</TableCell>
                 <TableCell>{endpoint.default ? 'Yes' : 'No'}</TableCell>
