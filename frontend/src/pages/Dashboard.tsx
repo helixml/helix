@@ -246,23 +246,7 @@ const Dashboard: FC = () => {
                       Helix Control Plane version: {account.serverConfig.version}
                     </Typography>
                   </Box>
-                )}
-                {/* {data?.runners.map((runner) => {
-                  const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
-                    return modelInstance.current_session ? [...allSessions, modelInstance.current_session] : allSessions
-                  }, [])
-                  return allSessions.length > 0 ? (
-                    <React.Fragment key={runner.id}>
-                      <Typography variant="h6">Running: {runner.id}</Typography>
-                      {allSessions.map(session => (
-                        <SessionSummary
-                          key={session.session_id}
-                          session={session}
-                          onViewSession={onViewSession} />
-                      ))}
-                    </React.Fragment>
-                  ) : null
-                })} */}
+                )}               
                 {data.queue.length > 0 && (
                   <Typography variant="h6">Queued Jobs</Typography>
                 )}
@@ -286,18 +270,7 @@ const Dashboard: FC = () => {
                       }
                       onViewSession={onViewSession} />
                   )
-                })}
-                {/* {data.global_scheduling_decisions.length > 0 && (
-                  <Typography variant="h6">Global Scheduling</Typography>
-                )}
-                {data.global_scheduling_decisions.map((decision, i) => {
-                  return (
-                    <SchedulingDecisionSummary
-                      key={i}
-                      decision={decision}
-                      onViewSession={onViewSession} />
-                  )
-                })} */}
+                })}             
               </Box>
               <Box
                 sx={{
