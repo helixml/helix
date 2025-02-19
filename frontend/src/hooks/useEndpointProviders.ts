@@ -20,7 +20,7 @@ export const useEndpointProviders = () => {
       setIsLoading(true)
       
       try {
-        let result = await api.get<IProviderEndpoint[]>('/api/v1/providers-endpoints', undefined, {
+        let result = await api.get<IProviderEndpoint[]>('/api/v1/provider-endpoints', undefined, {
           snackbar: true,
         })
         if(result === null) result = []
@@ -51,7 +51,7 @@ export const useEndpointProviders = () => {
 
   const createEndpoint = useCallback(async (endpoint: Partial<IProviderEndpoint>): Promise<IProviderEndpoint | undefined> => {
     try {
-      const result = await api.post<Partial<IProviderEndpoint>, IProviderEndpoint>('/api/v1/providers-endpoints', endpoint, {}, {
+      const result = await api.post<Partial<IProviderEndpoint>, IProviderEndpoint>('/api/v1/provider-endpoints', endpoint, {}, {
         snackbar: true,
       })
       if (!result) return undefined
@@ -65,7 +65,7 @@ export const useEndpointProviders = () => {
 
   const updateEndpoint = useCallback(async (id: string, updatedEndpoint: Partial<IProviderEndpoint>): Promise<IProviderEndpoint | undefined> => {
     try {
-      const result = await api.put<Partial<IProviderEndpoint>, IProviderEndpoint>(`/api/v1/providers-endpoints/${id}`, updatedEndpoint, {}, {
+      const result = await api.put<Partial<IProviderEndpoint>, IProviderEndpoint>(`/api/v1/provider-endpoints/${id}`, updatedEndpoint, {}, {
         snackbar: true,
       })
       if (!result) return undefined
@@ -79,7 +79,7 @@ export const useEndpointProviders = () => {
 
   const deleteEndpoint = useCallback(async (id: string): Promise<boolean> => {
     try {
-      await api.delete(`/api/v1/providers-endpoints/${id}`, {}, {
+      await api.delete(`/api/v1/provider-endpoints/${id}`, {}, {
         snackbar: true,
       })
       await loadData()
@@ -92,7 +92,7 @@ export const useEndpointProviders = () => {
 
   const getEndpoint = useCallback(async (id: string, showErrors: boolean = true): Promise<void> => {
     if (!id) return
-    const result = await api.get<IProviderEndpoint>(`/api/v1/providers-endpoints/${id}`, undefined, {
+    const result = await api.get<IProviderEndpoint>(`/api/v1/provider-endpoints/${id}`, undefined, {
       snackbar: showErrors,
     })
     if (!result || !mountedRef.current) return
