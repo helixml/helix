@@ -13,6 +13,7 @@ import {
   IconButton,
   Menu,
   MenuItem,
+  Tooltip,
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useAccount from '../../hooks/useAccount';
@@ -49,6 +50,10 @@ const ProviderEndpointsTable: FC = () => {
     setDeleteDialogOpen(false);
     setSelectedEndpoint(null);
     handleMenuClose();
+  };
+
+  const isSystemEndpoint = (endpoint: IProviderEndpoint) => {
+    return endpoint.endpoint_type === 'global' && endpoint.owner === 'system';
   };
 
   if (!account.providerEndpoints || account.providerEndpoints.length === 0) {
@@ -117,12 +122,25 @@ const ProviderEndpointsTable: FC = () => {
                 <TableCell>{endpoint.api_key_file || 'N/A'}</TableCell>
                 <TableCell>{endpoint.default ? 'Yes' : 'No'}</TableCell>
                 <TableCell>
-                  <IconButton
-                    aria-label="more"
-                    onClick={(e) => handleMenuOpen(e, endpoint)}
-                  >
-                    <MoreVertIcon />
-                  </IconButton>
+                  {isSystemEndpoint(endpoint) ? (
+                    <Tooltip title="System endpoints can only be configured through environment variables in your Helix instance">
+                      <span>
+                        <IconButton
+                          aria-label="more"
+                          disabled={true}
+                        >
+                          <MoreVertIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  ) : (
+                    <IconButton
+                      aria-label="more"
+                      onClick={(e) => handleMenuOpen(e, endpoint)}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
