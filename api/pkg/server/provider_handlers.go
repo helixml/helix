@@ -200,7 +200,7 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 // @Description Update a provider endpoint. Global endpoints can only be updated by admins.
 // @Tags    providers
 
-// @Success 200 {object} types.ProviderEndpoint
+// @Success 200 {object} types.UpdateProviderEndpoint
 // @Router /api/v1/providers-endpoints/{id} [put]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
@@ -231,7 +231,7 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	var updatedEndpoint types.ProviderEndpoint
+	var updatedEndpoint types.UpdateProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&updatedEndpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
@@ -250,18 +250,20 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	if existingEndpoint.Name != updatedEndpoint.Name {
-		http.Error(rw, "Cannot change the name of a provider endpoint, create a new one", http.StatusBadRequest)
-		return
+	// Preserve ID and ownership information
+	existingEndpoint.Description = updatedEndpoint.Description
+	existingEndpoint.Models = updatedEndpoint.Models
+	existingEndpoint.BaseURL = updatedEndpoint.BaseURL
+	if updatedEndpoint.APIKey != nil {
+		existingEndpoint.APIKey = *updatedEndpoint.APIKey
 	}
 
-	// Preserve ID and ownership information
-	updatedEndpoint.ID = endpointID
-	updatedEndpoint.Owner = existingEndpoint.Owner
-	updatedEndpoint.OwnerType = existingEndpoint.OwnerType
+	if updatedEndpoint.APIKeyFromFile != nil {
+		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
+	}
 
 	// Update the endpoint
-	savedEndpoint, err := apiServer.Store.UpdateProviderEndpoint(ctx, &updatedEndpoint)
+	savedEndpoint, err := apiServer.Store.UpdateProviderEndpoint(ctx, existingEndpoint)
 	if err != nil {
 		log.Err(err).Msg("error updating provider endpoint")
 		http.Error(rw, "Error updating provider endpoint: "+err.Error(), http.StatusInternalServerError)

@@ -117,8 +117,8 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       await updateEndpoint(endpoint.id, {
         name: endpoint.name,
         base_url: formData.base_url,
-        api_key: formData.auth_type === 'api_key' ? formData.api_key : undefined,
-        api_key_file: formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
+        api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
+        api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
         endpoint_type: formData.endpoint_type as 'global' | 'user',
       });
       await account.fetchProviderEndpoints();
