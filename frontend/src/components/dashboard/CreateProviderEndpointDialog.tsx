@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
-
+import useAccount from '../../hooks/useAccount';
 interface CreateProviderEndpointDialogProps {
   open: boolean;
   onClose: () => void;
@@ -28,6 +28,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   existingEndpoints,
 }) => {
   const { createEndpoint } = useEndpointProviders();
+  const account = useAccount();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -86,6 +87,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         endpoint_type: formData.endpoint_type,
         description: formData.description,
       });
+      account.fetchProviderEndpoints();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create endpoint');
