@@ -70,6 +70,11 @@ const ProviderEndpointsTable: FC = () => {
   };
 
   const renderAuthCell = (endpoint: IProviderEndpoint) => {
+    // If endpoint is global, don't show anything
+    if (isSystemEndpoint(endpoint)) {
+      return null;
+    }
+
     if (endpoint.api_key === '********') {
       return (
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
