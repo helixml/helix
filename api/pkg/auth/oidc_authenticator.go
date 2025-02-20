@@ -53,12 +53,19 @@ func (o *OIDCAuthenticator) ValidateAndReturnUser(ctx context.Context, tokenStri
 	acc := account{
 		token: &tokenAcct{claims: claims, userID: sub},
 	}
+	givenName := claims["given_name"].(string)
+	familyName := claims["family_name"].(string)
+
+	var fullName string
+	if givenName != nil && familyName != nil {
+		fullName = fmt.printf("%s %s", claims["given_name"], claims["family_name"])
+	}
 
 	return &types.User{
 		ID:        sub,
 		Username:  sub,
 		Email:     claims["email"].(string),
-		FullName:  claims["full_name"].(string),
+		FullName:  fullName,
 		Token:     tokenString,
 		TokenType: types.TokenTypeKeycloak,
 		Type:      types.OwnerTypeUser,
