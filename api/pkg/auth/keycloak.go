@@ -279,3 +279,4 @@ func addr[T any](t T) *T { return &t }
 
 // Compile-time interface check:
 var _ Authenticator = (*KeycloakAuthenticator)(nil)
+
