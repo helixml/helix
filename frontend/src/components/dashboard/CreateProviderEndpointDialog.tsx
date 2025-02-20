@@ -12,15 +12,22 @@ import {
   MenuItem,
   Alert,
   Stack,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  FormLabel,
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
 import useAccount from '../../hooks/useAccount';
+
 interface CreateProviderEndpointDialogProps {
   open: boolean;
   onClose: () => void;
   existingEndpoints: IProviderEndpoint[];
 }
+
+type AuthType = 'api_key' | 'api_key_file' | 'none';
 
 const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> = ({
   open,
@@ -38,6 +45,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
     api_key_file: '',
     endpoint_type: 'user' as const,
     description: '',
+    auth_type: 'none' as AuthType,
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>) => {
@@ -47,6 +55,18 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       [name as string]: value,
     }));
     // Clear error when user makes changes
+    setError('');
+  };
+
+  const handleAuthTypeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value as AuthType;
+    setFormData((prev) => ({
+      ...prev,
+      auth_type: value,
+      // Clear the other auth fields when switching types
+      api_key: value === 'api_key' ? prev.api_key : '',
+      api_key_file: value === 'api_key_file' ? prev.api_key_file : '',
+    }));
     setError('');
   };
 
@@ -88,13 +108,13 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       await createEndpoint({
         name: formData.name,
         base_url: formData.base_url,
-        api_key: formData.api_key,
-        api_key_file: formData.api_key_file || undefined,
+        api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
+        api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
         endpoint_type: formData.endpoint_type,
         description: formData.description,
       });
       account.fetchProviderEndpoints();
-      onClose();
+      handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create endpoint');
     } finally {
@@ -110,6 +130,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       api_key_file: '',
       endpoint_type: 'user',
       description: '',
+      auth_type: 'none',
     });
     setError('');
     onClose();
@@ -143,24 +164,41 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             helperText="Enter a valid HTTP or HTTPS URL"
           />
 
-          <TextField
-            name="api_key"
-            label="API Key"
-            value={formData.api_key}
-            onChange={handleInputChange}
-            fullWidth
-            type="password"
-            autoComplete="off"
-          />
+          <FormControl component="fieldset">
+            <FormLabel component="legend">Authentication Method</FormLabel>
+            <RadioGroup
+              name="auth_type"
+              value={formData.auth_type}
+              onChange={handleAuthTypeChange}
+            >
+              <FormControlLabel value="api_key" control={<Radio />} label="API Key" />
+              <FormControlLabel value="api_key_file" control={<Radio />} label="API Key File" />
+              <FormControlLabel value="none" control={<Radio />} label="None" />
+            </RadioGroup>
+          </FormControl>
 
-          <TextField
-            name="api_key_file"
-            label="API Key File Path"
-            value={formData.api_key_file}
-            onChange={handleInputChange}
-            fullWidth
-            helperText="Either provide an API key directly or specify a file path containing the key. Leave blank if the endpoint is unprotected"
-          />
+          {formData.auth_type === 'api_key' && (
+            <TextField
+              name="api_key"
+              label="API Key"
+              value={formData.api_key}
+              onChange={handleInputChange}
+              fullWidth
+              type="password"
+              autoComplete="off"
+            />
+          )}
+
+          {formData.auth_type === 'api_key_file' && (
+            <TextField
+              name="api_key_file"
+              label="API Key File Path"
+              value={formData.api_key_file}
+              onChange={handleInputChange}
+              fullWidth
+              helperText="Specify a file path containing the API key"
+            />
+          )}
 
           <FormControl fullWidth>
             <InputLabel>Type</InputLabel>
