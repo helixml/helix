@@ -54,7 +54,9 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         api_key: '',
         api_key_file: endpoint.api_key_file || '',
         endpoint_type: endpoint.endpoint_type,
-        auth_type: endpoint.api_key_file ? 'api_key_file' : endpoint.api_key ? 'api_key' : 'none',
+        auth_type: (!endpoint.api_key && !endpoint.api_key_file) ? 'none' : 
+                  endpoint.api_key_file ? 'api_key_file' : 
+                  endpoint.api_key ? 'api_key' : 'none',
       });
     }
   }, [endpoint]);
