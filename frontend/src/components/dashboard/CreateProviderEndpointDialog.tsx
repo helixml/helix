@@ -118,7 +118,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
           
           <TextField
             name="name"
-            label="Name"
+            label="Provider name"
             value={formData.name}
             onChange={handleInputChange}
             fullWidth
@@ -126,21 +126,23 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
           />
 
           <TextField
-            name="base_url"
+            name="provider_base_url"
             label="Base URL"
             value={formData.base_url}
             onChange={handleInputChange}
             fullWidth
             required
+            autoComplete="off"
           />
 
           <TextField
-            name="api_key"
+            name="provider_api_key"
             label="API Key"
             value={formData.api_key}
             onChange={handleInputChange}
             fullWidth
             type="password"
+            autoComplete="off"
           />
 
           <TextField
@@ -160,8 +162,8 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
               onChange={(e) => handleInputChange(e as React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>)}
               label="Type"
             >
-              <MenuItem value="user">User</MenuItem>
-              <MenuItem value="global">Global</MenuItem>
+              <MenuItem value="user">User (available to you only)</MenuItem>
+              <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
             </Select>
           </FormControl>
         </Stack>
