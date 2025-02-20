@@ -39,9 +39,9 @@ func (d ApiKeyAuthenticator) ValidateAndReturnUser(ctx context.Context, token st
 
 		acct := account{userID: apiKey.Owner}
 
-		var app_id string
+		var appId string
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
-			app_id = apiKey.AppID.String
+			appId = apiKey.AppID.String
 		}
 
 		return &types.User{
@@ -50,7 +50,7 @@ func (d ApiKeyAuthenticator) ValidateAndReturnUser(ctx context.Context, token st
 			Token:     token,
 			TokenType: types.TokenTypeAPIKey,
 			Admin:     acct.isAdmin(d.AdminConfig),
-			AppID:     app_id,
+			AppID:     appId,
 			FullName:  userResponse.FullName,
 			Email:     userResponse.Email,
 			Username:  userResponse.Username,
