@@ -239,12 +239,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create user retriever: %v", err)
 	}
 
-	adminConfig := auth.AdminConfig{
-		AdminUserIDs: cfg.WebServer.AdminIDs,
-		AdminUserSrc: cfg.WebServer.AdminSrc,
-	}
-
-
 	notifier, err := notification.New(&cfg.Notifications, userRetriever)
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
@@ -437,7 +431,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
-	var oidcAuthenticator auth.BearerAuthenticator
+	adminConfig := auth.AdminConfig{
+		AdminUserIDs: cfg.WebServer.AdminIDs,
+		AdminUserSrc: cfg.WebServer.AdminSrc,
+	}
+
+	var oidcAuthenticator auth.OIDCAuthenticator
 
 	if cfg.OIDC.Enabled {
 		oidcAuthenticator, err = auth.NewCustomOIDCAuthenticator(&cfg.OIDC, &adminConfig)
@@ -456,7 +455,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
 		}
 	}
-
 
 	authConfig := &server.AuthConfig {
 		OIDCAuth: oidcAuthenticator,
