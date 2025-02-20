@@ -49,7 +49,7 @@ type Notifier interface {
 }
 
 type NotificationsProvider struct {
-	user_retriever auth.UserRetriever
+	userRetriever auth.UserRetriever
 
 	email *Email
 }
