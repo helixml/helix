@@ -10,14 +10,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-type CustomOIDCAuthenticator struct {
+type OIDCJwtAuthenticator struct {
 	cfg      *config.OIDC
 	verifier *oidc.IDTokenVerifier
 
 	adminConfig *AdminConfig
 }
 
-func NewCustomOIDCAuthenticator(cfg *config.OIDC, adminConfig *AdminConfig) (*CustomOIDCAuthenticator, error) {
+func NewOIDCJwtAuthenticator(cfg *config.OIDC, adminConfig *AdminConfig) (*OIDCJwtAuthenticator, error) {
 	ctx := context.Background()
 
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
@@ -27,14 +27,14 @@ func NewCustomOIDCAuthenticator(cfg *config.OIDC, adminConfig *AdminConfig) (*Cu
 
 	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.APIClientID})
 
-	return &CustomOIDCAuthenticator{
+	return &OIDCJwtAuthenticator{
 		cfg:         cfg,
 		verifier:    verifier,
 		adminConfig: adminConfig,
 	}, nil
 }
 
-func (o *CustomOIDCAuthenticator) ValidateAndReturnUser(ctx context.Context, tokenString string) (*types.User, error) {
+func (o *OIDCJwtAuthenticator) ValidateAndReturnUser(ctx context.Context, tokenString string) (*types.User, error) {
 	token, err := o.verifier.Verify(ctx, tokenString)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
@@ -75,5 +75,5 @@ func (o *CustomOIDCAuthenticator) ValidateAndReturnUser(ctx context.Context, tok
 }
 
 // Compile-time interface check:
-var _ Authenticator = (*CustomOIDCAuthenticator)(nil)
-var _ OIDCAuthenticator = (*CustomOIDCAuthenticator)(nil)
+var _ Authenticator = (*OIDCJwtAuthenticator)(nil)
+var _ OIDCAuthenticator = (*OIDCJwtAuthenticator)(nil)
