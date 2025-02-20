@@ -47,7 +47,7 @@ func (o *CustomOIDCAuthenticator) ValidateAndReturnUser(ctx context.Context, tok
 
 	sub, err := claims.GetSubject()
 	if err != nil {
-		return nil, fmt.Errorf("subject missing from token: %w", err)
+		return nil, fmt.Errorf("subject missing from token: %w", ErrNoUserIDFound)
 	}
 
 	acc := account{

@@ -135,7 +135,7 @@ func (k *KeycloakAuthenticator) ValidateAndReturnUser(ctx context.Context, token
 
 	sub, err := j.Claims.GetSubject()
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract subject from keycloak token")
+		return nil, fmt.Errorf("subject missing from token: %w", ErrNoUserIDFound)
 	}
 
 	user, err := k.userRetriever.GetUserByID(ctx, sub)

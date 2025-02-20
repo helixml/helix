@@ -456,13 +456,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}
 
-	authConfig := &server.AuthConfig {
-		OIDCAuth: oidcAuthenticator,
-		RunnerAuth: auth.RunnerTokenAuthenticator { RunnerToken: cfg.WebServer.RunnerToken },
-		ApiKeyAuth: auth.ApiKeyAuthenticator {
-			Store: store,
+	authConfig := &server.AuthConfig{
+		OIDCAuth:   oidcAuthenticator,
+		RunnerAuth: auth.RunnerTokenAuthenticator{RunnerToken: cfg.WebServer.RunnerToken},
+		ApiKeyAuth: auth.ApiKeyAuthenticator{
+			Store:         postgresStore,
 			UserRetriever: userRetriever,
-			AdminConfig: &adminConfig,
+			AdminConfig:   &adminConfig,
 		},
 	}
 

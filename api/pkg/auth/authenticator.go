@@ -2,8 +2,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"github.com/helixml/helix/api/pkg/types"
+)
+
+var (
+	ErrNoUserIDFound = errors.New("no user ID found")
 )
 
 type Authenticator interface {
