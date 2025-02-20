@@ -74,10 +74,23 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	for _, provider := range globalProviderEndpoints {
+		var baseURL string
+		switch provider {
+		case types.ProviderOpenAI:
+			baseURL = apiServer.Cfg.Providers.OpenAI.BaseURL
+		case types.ProviderTogetherAI:
+			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
+		case types.ProviderVLLM:
+			baseURL = apiServer.Cfg.Providers.VLLM.BaseURL
+		case types.ProviderHelix:
+			baseURL = "internal"
+		}
+
 		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
 			ID:           "-",
 			Name:         string(provider),
 			Description:  "",
+			BaseURL:      baseURL,
 			EndpointType: types.ProviderEndpointTypeGlobal,
 			Owner:        string(types.OwnerTypeSystem),
 			APIKey:       "*****",
