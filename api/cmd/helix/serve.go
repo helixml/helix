@@ -439,7 +439,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var oidcAuthenticator auth.OIDCAuthenticator
 
 	if cfg.OIDC.Enabled {
-		oidcAuthenticator, err = auth.NewCustomOIDCAuthenticator(&cfg.OIDC, &adminConfig)
+		oidcAuthenticator, err = auth.NewOIDCJwtAuthenticator(&cfg.OIDC, &adminConfig)
 		if err != nil {
 			return fmt.Errorf("unable to create oidc authenticator: %v", err)
 		}
