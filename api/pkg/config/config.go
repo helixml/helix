@@ -129,8 +129,6 @@ type OIDC struct {
 	Enabled          bool   `envconfig:"OIDC_ENABLED" default:"false"` // If set, disables keycloak authentication
 	IssuerURL        string `envconfig:"OIDC_ISSUER"`
 	APIClientID      string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
-	ClientSecret     string `envconfig:"KEYCLOAK_CLIENT_SECRET"`
-	FrontEndClientID string `envconfig:"KEYCLOAK_FRONTEND_CLIENT_ID" default:"frontend"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
