@@ -99,10 +99,15 @@ const Dashboard: FC = () => {
   ])
 
   useEffect(() => {
-    if (tab === 'llm_calls') {
-      setActiveTab(1)
-    } else {
-      setActiveTab(0)
+    switch (tab) {
+      case 'llm_calls':
+        setActiveTab(1)
+        break
+      case 'providers':
+        setActiveTab(2)
+        break
+      default:
+        setActiveTab(0)
     }
   }, [tab])
 
@@ -114,10 +119,15 @@ const Dashboard: FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
-    if (newValue === 1) {
-      router.setParams({ tab: 'llm_calls' })
-    } else {
-      router.removeParams(['tab'])
+    switch (newValue) {
+      case 1:
+        router.setParams({ tab: 'llm_calls' })
+        break
+      case 2:
+        router.setParams({ tab: 'providers' })
+        break
+      default:
+        router.removeParams(['tab'])
     }
   }
 
