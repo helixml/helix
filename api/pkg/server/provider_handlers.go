@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -38,6 +39,8 @@ func (apiServer *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.R
 	}
 }
 
+var blankAPIKey = "********"
+
 // listProviderEndpoints godoc
 // @Summary List currently configured provider endpoints
 // @Description List currently configured providers
@@ -62,8 +65,15 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	for idx := range providerEndpoints {
-		providerEndpoints[idx].APIKey = "*****"
+		if providerEndpoints[idx].APIKey != "" {
+			providerEndpoints[idx].APIKey = blankAPIKey
+		}
 	}
+
+	// Sort endpoints by name, we will attach global ones to the end
+	sort.Slice(providerEndpoints, func(i, j int) bool {
+		return providerEndpoints[i].Name < providerEndpoints[j].Name
+	})
 
 	// Get global ones from the provider manager
 	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx, "")
@@ -74,13 +84,26 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	for _, provider := range globalProviderEndpoints {
+		var baseURL string
+		switch provider {
+		case types.ProviderOpenAI:
+			baseURL = apiServer.Cfg.Providers.OpenAI.BaseURL
+		case types.ProviderTogetherAI:
+			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
+		case types.ProviderVLLM:
+			baseURL = apiServer.Cfg.Providers.VLLM.BaseURL
+		case types.ProviderHelix:
+			baseURL = "internal"
+		}
+
 		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
 			ID:           "-",
 			Name:         string(provider),
 			Description:  "",
+			BaseURL:      baseURL,
 			EndpointType: types.ProviderEndpointTypeGlobal,
 			Owner:        string(types.OwnerTypeSystem),
-			APIKey:       "*****",
+			APIKey:       "",
 		})
 	}
 
@@ -185,7 +208,7 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 // @Description Update a provider endpoint. Global endpoints can only be updated by admins.
 // @Tags    providers
 
-// @Success 200 {object} types.ProviderEndpoint
+// @Success 200 {object} types.UpdateProviderEndpoint
 // @Router /api/v1/providers-endpoints/{id} [put]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
@@ -216,7 +239,7 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	var updatedEndpoint types.ProviderEndpoint
+	var updatedEndpoint types.UpdateProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&updatedEndpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
@@ -235,18 +258,31 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	if existingEndpoint.Name != updatedEndpoint.Name {
-		http.Error(rw, "Cannot change the name of a provider endpoint, create a new one", http.StatusBadRequest)
-		return
+	// Preserve ID and ownership information
+	existingEndpoint.Description = updatedEndpoint.Description
+	existingEndpoint.Models = updatedEndpoint.Models
+	existingEndpoint.BaseURL = updatedEndpoint.BaseURL
+	if updatedEndpoint.APIKey != nil {
+		existingEndpoint.APIKey = *updatedEndpoint.APIKey
 	}
 
-	// Preserve ID and ownership information
-	updatedEndpoint.ID = endpointID
-	updatedEndpoint.Owner = existingEndpoint.Owner
-	updatedEndpoint.OwnerType = existingEndpoint.OwnerType
+	if updatedEndpoint.APIKeyFromFile != nil {
+		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
+	}
+
+	switch {
+	case updatedEndpoint.APIKey != nil:
+		// If from key, clear the API key file
+		existingEndpoint.APIKey = *updatedEndpoint.APIKey
+		existingEndpoint.APIKeyFromFile = ""
+	case updatedEndpoint.APIKeyFromFile != nil:
+		// If from file, clear the API key
+		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
+		existingEndpoint.APIKey = ""
+	}
 
 	// Update the endpoint
-	savedEndpoint, err := apiServer.Store.UpdateProviderEndpoint(ctx, &updatedEndpoint)
+	savedEndpoint, err := apiServer.Store.UpdateProviderEndpoint(ctx, existingEndpoint)
 	if err != nil {
 		log.Err(err).Msg("error updating provider endpoint")
 		http.Error(rw, "Error updating provider endpoint: "+err.Error(), http.StatusInternalServerError)
