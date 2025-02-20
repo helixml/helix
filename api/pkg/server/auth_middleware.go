@@ -26,24 +26,24 @@ var (
 )
 
 type authMiddleware struct {
-	bearer_auth auth.BearerAuthenticator
-	runner_auth auth.RunnerTokenAuthenticator
-	apikey_auth auth.ApiKeyAuthenticator
+	oidcAuth auth.OIDCAuthenticator
+	runnerAuth auth.RunnerTokenAuthenticator
+	apikeyAuth auth.ApiKeyAuthenticator
 
 	store store.Store
 }
 
 func newAuthMiddleware(
-	bearer_auth auth.BearerAuthenticator,
-	runner_auth auth.RunnerTokenAuthenticator,
-	apikey_auth auth.ApiKeyAuthenticator,
+	oidcAuth auth.OIDCAuthenticator,
+	runnerAuth auth.RunnerTokenAuthenticator,
+	apikeyAuth auth.ApiKeyAuthenticator,
 
 	store store.Store,
 ) *authMiddleware {
 	return &authMiddleware{
-		bearer_auth: bearer_auth,
-		runner_auth: runner_auth,
-		apikey_auth: apikey_auth,
+		oidcAuth: oidcAuth,
+		runnerAuth: runnerAuth,
+		apikeyAuth: apikeyAuth,
 
 		store: store,
 	}
@@ -54,7 +54,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return nil, nil
 	}
 
-	result, err := auth.runner_auth.ValidateAndReturnUser(ctx, token)
+	result, err := auth.runnerAuth.ValidateAndReturnUser(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("runner token auth caused an error: %s", err)
 	}
@@ -62,7 +62,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return result, nil
 	}
 
-	result, err = auth.apikey_auth.ValidateAndReturnUser(ctx, token)
+	result, err = auth.apikeyAuth.ValidateAndReturnUser(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("api key auth caused an error: %s", err)
 	}
@@ -70,9 +70,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return result, nil
 	}
 
-	result, err = auth.bearer_auth.ValidateAndReturnUser(ctx, token)
+	result, err = auth.oidcAuth.ValidateAndReturnUser(ctx, token)
 	if err != nil {
-		return nil, fmt.Errorf("bearer auth caused an error: %s", err)
+		return nil, fmt.Errorf("oidc auth caused an error: %s", err)
 	}
 
 	return result, nil
