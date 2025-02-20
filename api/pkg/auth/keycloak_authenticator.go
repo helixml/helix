@@ -18,16 +18,16 @@ var keycloakConfig embed.FS
 type KeycloakAuthenticator struct {
 	cfg            *config.Keycloak
 	gocloak        *gocloak.GoCloak
-	user_retriever UserRetriever
-	admin_config   *AdminConfig
+	userRetriever UserRetriever
+	adminConfig   *AdminConfig
 }
 
 func NewKeycloakAuthenticator(
 	gocloak *gocloak.GoCloak,
 	cfg *config.Keycloak,
 	token *gocloak.JWT,
-	user_retriever UserRetriever,
-	admin_config *AdminConfig,
+	userRetriever UserRetriever,
+	adminConfig *AdminConfig,
 ) (*KeycloakAuthenticator, error) {
 	err := setFrontEndClientConfigurations(gocloak, token.AccessToken, cfg)
 	if err != nil {
@@ -44,8 +44,8 @@ func NewKeycloakAuthenticator(
 	return &KeycloakAuthenticator{
 		cfg:            cfg,
 		gocloak:        gocloak,
-		admin_config:   admin_config,
-		user_retriever: user_retriever,
+		adminConfig:   adminConfig,
+		userRetriever: userRetriever,
 	}, nil
 }
 
