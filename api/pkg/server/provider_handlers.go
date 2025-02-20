@@ -70,6 +70,11 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 		}
 	}
 
+	// Sort endpoints by name, we will attach global ones to the end
+	sort.Slice(providerEndpoints, func(i, j int) bool {
+		return providerEndpoints[i].Name < providerEndpoints[j].Name
+	})
+
 	// Get global ones from the provider manager
 	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx, "")
 	if err != nil {
@@ -108,11 +113,6 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 			providerEndpoints[idx].Default = true
 		}
 	}
-
-	// Sort endpoints by name
-	sort.Slice(providerEndpoints, func(i, j int) bool {
-		return providerEndpoints[i].Name < providerEndpoints[j].Name
-	})
 
 	rw.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(rw).Encode(providerEndpoints)
