@@ -228,12 +228,24 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak)
+	gocloak_client, err := auth.NewGoCloakClient(&cfg.Keycloak)
 	if err != nil {
-		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+		return fmt.Errorf("failed to create keycloak client: %v", err)
 	}
 
-	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)
+	userRetriever, err := auth.NewKeycloakUserRetriever(gocloak_client.Client, &cfg.Keycloak)
+
+	if err != nil {
+		return fmt.Errorf("failed to create user retriever: %v", err)
+	}
+
+	adminConfig := auth.AdminConfig{
+		AdminUserIDs: cfg.WebServer.AdminIDs,
+		AdminUserSrc: cfg.WebServer.AdminSrc,
+	}
+
+
+	notifier, err := notification.New(&cfg.Notifications, userRetriever)
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
@@ -425,6 +437,37 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
+	var oidcAuthenticator auth.BearerAuthenticator
+
+	if cfg.OIDC.Enabled {
+		oidcAuthenticator, err = auth.NewOIDCAuthenticator(&cfg.OIDC, &adminConfig)
+		if err != nil {
+			return fmt.Errorf("unable to create oidc authenticator: %v", err)
+		}
+	} else {
+		oidcAuthenticator, err = auth.NewKeycloakAuthenticator(
+			gocloak_client.Client,
+			&cfg.Keycloak,
+			gocloak_client.Token,
+			userRetriever,
+			&adminConfig,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+		}
+	}
+
+
+	authConfig := &server.AuthConfig {
+		BearerAuth: oidcAuthenticator,
+		RunnerAuth: auth.RunnerTokenAuthenticator { RunnerToken: cfg.WebServer.RunnerToken },
+		ApiKeyAuth: auth.ApiKeyAuthenticator {
+			Store: store,
+			UserRetriever: userRetriever,
+			AdminConfig: &adminConfig,
+		},
+	}
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
@@ -432,7 +475,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		gse,
 		providerManager,
 		helixInference,
-		keycloakAuthenticator,
+		authConfig,
 		stripe,
 		appController,
 		janitor,
