@@ -13,6 +13,10 @@ import {
   Alert,
   Stack,
   SelectChangeEvent,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  FormLabel,
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
@@ -23,6 +27,8 @@ interface EditProviderEndpointDialogProps {
   endpoint: IProviderEndpoint | null;
   onClose: () => void;
 }
+
+type AuthType = 'api_key' | 'api_key_file' | 'none';
 
 const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   open,
@@ -35,18 +41,20 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     base_url: endpoint?.base_url || '',
-    api_key: endpoint?.api_key || '',
+    api_key: '',
     api_key_file: endpoint?.api_key_file || '',
     endpoint_type: endpoint?.endpoint_type || 'user',
+    auth_type: (endpoint?.api_key_file ? 'api_key_file' : endpoint?.api_key ? 'api_key' : 'none') as AuthType,
   });
 
   React.useEffect(() => {
     if (endpoint) {
       setFormData({       
         base_url: endpoint.base_url,
-        api_key: endpoint.api_key,
+        api_key: '',
         api_key_file: endpoint.api_key_file || '',
         endpoint_type: endpoint.endpoint_type,
+        auth_type: endpoint.api_key_file ? 'api_key_file' : endpoint.api_key ? 'api_key' : 'none',
       });
     }
   }, [endpoint]);
@@ -65,6 +73,18 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     setFormData((prev) => ({
       ...prev,
       [name]: value,
+    }));
+    setError('');
+  };
+
+  const handleAuthTypeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value as AuthType;
+    setFormData((prev) => ({
+      ...prev,
+      auth_type: value,
+      // Clear the other auth fields when switching types
+      api_key: value === 'api_key' ? prev.api_key : '',
+      api_key_file: value === 'api_key_file' ? prev.api_key_file : '',
     }));
     setError('');
   };
@@ -97,8 +117,8 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       await updateEndpoint(endpoint.id, {
         name: endpoint.name,
         base_url: formData.base_url,
-        api_key: formData.api_key || undefined,
-        api_key_file: formData.api_key_file || undefined,
+        api_key: formData.auth_type === 'api_key' ? formData.api_key : undefined,
+        api_key_file: formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
         endpoint_type: formData.endpoint_type as 'global' | 'user',
       });
       await account.fetchProviderEndpoints();
@@ -116,6 +136,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       api_key: '',
       api_key_file: endpoint?.api_key_file || '',
       endpoint_type: endpoint?.endpoint_type || 'user',
+      auth_type: endpoint?.api_key_file ? 'api_key_file' : endpoint?.api_key ? 'api_key' : 'none',
     });
     setError('');
     onClose();
@@ -142,25 +163,42 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
             helperText="Enter a valid HTTP or HTTPS URL"
           />
 
-          <TextField
-            name="api_key"
-            label="API Key"
-            value={formData.api_key}
-            onChange={handleTextFieldChange}
-            fullWidth
-            type="password"
-            autoComplete="off"
-            helperText="Leave blank to keep the existing API key"
-          />
+          <FormControl component="fieldset">
+            <FormLabel component="legend">Authentication Method</FormLabel>
+            <RadioGroup
+              name="auth_type"
+              value={formData.auth_type}
+              onChange={handleAuthTypeChange}
+            >
+              <FormControlLabel value="api_key" control={<Radio />} label="API Key" />
+              <FormControlLabel value="api_key_file" control={<Radio />} label="API Key File" />
+              <FormControlLabel value="none" control={<Radio />} label="None" />
+            </RadioGroup>
+          </FormControl>
 
-          <TextField
-            name="api_key_file"
-            label="API Key File Path"
-            value={formData.api_key_file}
-            onChange={handleTextFieldChange}
-            fullWidth
-            helperText="Either provide an API key directly or specify a file path containing the key"
-          />
+          {formData.auth_type === 'api_key' && (
+            <TextField
+              name="api_key"
+              label="API Key"
+              value={formData.api_key}
+              onChange={handleTextFieldChange}
+              fullWidth
+              type="password"
+              autoComplete="off"
+              helperText="Leave blank to keep the existing API key"
+            />
+          )}
+
+          {formData.auth_type === 'api_key_file' && (
+            <TextField
+              name="api_key_file"
+              label="API Key File Path"
+              value={formData.api_key_file}
+              onChange={handleTextFieldChange}
+              fullWidth
+              helperText="Specify a file path containing the API key"
+            />
+          )}
 
           <FormControl fullWidth>
             <InputLabel>Type</InputLabel>
