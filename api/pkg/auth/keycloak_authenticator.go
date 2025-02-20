@@ -162,4 +162,4 @@ func addr[T any](t T) *T { return &t }
 
 // Compile-time interface check:
 var _ Authenticator = (*KeycloakAuthenticator)(nil)
-var _ BearerAuthenticator = (*KeycloakAuthenticator)(nil)
+var _ OIDCAuthenticator = (*KeycloakAuthenticator)(nil)
