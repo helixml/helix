@@ -440,7 +440,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var oidcAuthenticator auth.BearerAuthenticator
 
 	if cfg.OIDC.Enabled {
-		oidcAuthenticator, err = auth.NewOIDCAuthenticator(&cfg.OIDC, &adminConfig)
+		oidcAuthenticator, err = auth.NewCustomOIDCAuthenticator(&cfg.OIDC, &adminConfig)
 		if err != nil {
 			return fmt.Errorf("unable to create oidc authenticator: %v", err)
 		}
@@ -459,7 +459,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 
 	authConfig := &server.AuthConfig {
-		BearerAuth: oidcAuthenticator,
+		OIDCAuth: oidcAuthenticator,
 		RunnerAuth: auth.RunnerTokenAuthenticator { RunnerToken: cfg.WebServer.RunnerToken },
 		ApiKeyAuth: auth.ApiKeyAuthenticator {
 			Store: store,
