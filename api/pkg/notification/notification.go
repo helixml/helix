@@ -54,20 +54,20 @@ type NotificationsProvider struct {
 	email *Email
 }
 
-func New(cfg *config.Notifications, user_retriever auth.UserRetriever) (Notifier, error) {
+func New(cfg *config.Notifications, userRetriever auth.UserRetriever) (Notifier, error) {
 	email, err := NewEmail(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &NotificationsProvider{
-		user_retriever: user_retriever,
-		email:          email,
+		userRetriever: userRetriever,
+		email:         email,
 	}, nil
 }
 
 func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notification) error {
-	user, err := n.user_retriever.GetUserByID(ctx, notification.Session.Owner)
+	user, err := n.userRetriever.GetUserByID(ctx, notification.Session.Owner)
 	if err != nil {
 		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
 	}
