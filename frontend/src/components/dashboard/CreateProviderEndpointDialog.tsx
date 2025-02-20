@@ -180,7 +180,8 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         <Button onClick={handleClose}>Cancel</Button>
         <Button 
           onClick={handleSubmit} 
-          variant="contained" 
+          variant="outlined"
+          color="secondary"
           disabled={loading}
         >
           Create
