@@ -677,10 +677,10 @@
     estree-walker "^2.0.1"
     picomatch "^2.2.2"
 
-"@rudderstack/analytics-js@^3.0.3":
-  version "3.11.17"
-  resolved "https://registry.yarnpkg.com/@rudderstack/analytics-js/-/analytics-js-3.11.17.tgz#1cc18c8d556413d20edd85eefa41a7d042232a89"
-  integrity sha512-w783VwspIcRPS2AplGJ/Mapl4iLb+giq5Xl8XMN1h+yBhGbtvXr1BW7bwl4ytyB9iqvxvQcjAeUIa+ksLs8YVg==
+"@rudderstack/analytics-js@^3.15.1":
+  version "3.15.1"
+  resolved "https://registry.yarnpkg.com/@rudderstack/analytics-js/-/analytics-js-3.15.1.tgz#70d968e69e1cb555c145b67af12a706cd4bf97cb"
+  integrity sha512-r0KkX1FChd09CJddoSlG46Z0LIIqEafynWm5V9HMx/RR74vxJuQ4sTlFjUoHjpo9/8u1ezlJAEXoW6is+HM3bQ==
 
 "@sentry-internal/browser-utils@8.50.0":
   version "8.50.0"
