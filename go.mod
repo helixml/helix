@@ -103,6 +103,7 @@ require (
 	github.com/bodgit/sevenzip v1.5.2 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
+	github.com/coreos/go-oidc v2.3.0+incompatible // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/docker/cli v27.2.1+incompatible // indirect
@@ -187,6 +188,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/pquerna/cachecontrol v0.2.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rjz/githubhook v0.1.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
@@ -245,6 +247,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/grpc v1.64.1 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
+	gopkg.in/go-jose/go-jose.v2 v2.6.3 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gorm.io/driver/mysql v1.5.6 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect

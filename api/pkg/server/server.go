@@ -78,6 +78,12 @@ type HelixAPIServer struct {
 	pingService       *version.PingService
 }
 
+type AuthConfig struct {
+	OIDCAuth auth.OIDCAuthenticator
+	RunnerAuth auth.RunnerTokenAuthenticator
+	ApiKeyAuth auth.ApiKeyAuthenticator
+}
+
 func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
@@ -85,7 +91,7 @@ func NewServer(
 	gptScriptExecutor gptscript.Executor,
 	providerManager manager.ProviderManager,
 	inferenceServer *openai.InternalHelixServer,
-	authenticator auth.Authenticator,
+	authConfig *AuthConfig,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
@@ -118,13 +124,10 @@ func NewServer(
 		gptScriptExecutor: gptScriptExecutor,
 		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
-			authenticator,
+			authConfig.OIDCAuth,
+			authConfig.RunnerAuth,
+			authConfig.ApiKeyAuth,
 			store,
-			authMiddlewareConfig{
-				adminUserIDs: cfg.WebServer.AdminIDs,
-				adminUserSrc: cfg.WebServer.AdminSrc,
-				runnerToken:  cfg.WebServer.RunnerToken,
-			},
 		),
 		providerManager:  providerManager,
 		pubsub:           ps,
