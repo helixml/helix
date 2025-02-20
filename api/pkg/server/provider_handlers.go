@@ -64,7 +64,9 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	for idx := range providerEndpoints {
-		providerEndpoints[idx].APIKey = blankAPIKey
+		if providerEndpoints[idx].APIKey != "" {
+			providerEndpoints[idx].APIKey = blankAPIKey
+		}
 	}
 
 	// Get global ones from the provider manager
@@ -95,7 +97,7 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 			BaseURL:      baseURL,
 			EndpointType: types.ProviderEndpointTypeGlobal,
 			Owner:        string(types.OwnerTypeSystem),
-			APIKey:       blankAPIKey,
+			APIKey:       "",
 		})
 	}
 
