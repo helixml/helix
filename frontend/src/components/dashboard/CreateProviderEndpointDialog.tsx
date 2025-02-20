@@ -66,8 +66,14 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       return false;
     }
 
-    if (!formData.api_key && !formData.api_key_file) {
-      setError('Either API key or API key file path is required');
+    try {
+      const url = new URL(formData.base_url);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        setError('Base URL must use HTTP or HTTPS protocol');
+        return false;
+      }
+    } catch (err) {
+      setError('Please enter a valid URL');
       return false;
     }
 
@@ -126,13 +132,15 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
           />
 
           <TextField
-            name="provider_base_url"
+            name="base_url"
             label="Base URL"
             value={formData.base_url}
             onChange={handleInputChange}
             fullWidth
             required
             autoComplete="off"
+            placeholder="https://api.example.com"
+            helperText="Enter a valid HTTP or HTTPS URL"
           />
 
           <TextField
@@ -151,7 +159,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             value={formData.api_key_file}
             onChange={handleInputChange}
             fullWidth
-            helperText="Either provide an API key directly or specify a file path containing the key"
+            helperText="Either provide an API key directly or specify a file path containing the key. Leave blank if the endpoint is unprotected"
           />
 
           <FormControl fullWidth>
