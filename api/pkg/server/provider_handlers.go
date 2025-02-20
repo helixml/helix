@@ -264,6 +264,17 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
 	}
 
+	switch {
+	case updatedEndpoint.APIKey != nil:
+		// If from key, clear the API key file
+		existingEndpoint.APIKey = *updatedEndpoint.APIKey
+		existingEndpoint.APIKeyFromFile = ""
+	case updatedEndpoint.APIKeyFromFile != nil:
+		// If from file, clear the API key
+		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
+		existingEndpoint.APIKey = ""
+	}
+
 	// Update the endpoint
 	savedEndpoint, err := apiServer.Store.UpdateProviderEndpoint(ctx, existingEndpoint)
 	if err != nil {
