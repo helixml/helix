@@ -144,7 +144,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
           />
 
           <TextField
-            name="provider_api_key"
+            name="api_key"
             label="API Key"
             value={formData.api_key}
             onChange={handleInputChange}
