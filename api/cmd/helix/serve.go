@@ -228,12 +228,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	gocloak_client, err := auth.NewGoCloakClient(&cfg.Keycloak)
+	gocloakClient, err := auth.NewGoCloakClient(&cfg.Keycloak)
 	if err != nil {
 		return fmt.Errorf("failed to create keycloak client: %v", err)
 	}
 
-	userRetriever, err := auth.NewKeycloakUserRetriever(gocloak_client.Client, &cfg.Keycloak)
+	userRetriever, err := auth.NewKeycloakUserRetriever(gocloakClient.Client, &cfg.Keycloak)
 
 	if err != nil {
 		return fmt.Errorf("failed to create user retriever: %v", err)
@@ -446,9 +446,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	} else {
 		oidcAuthenticator, err = auth.NewKeycloakAuthenticator(
-			gocloak_client.Client,
+			gocloakClient.Client,
 			&cfg.Keycloak,
-			gocloak_client.Token,
+			gocloakClient.Token,
 			userRetriever,
 			&adminConfig,
 		)
