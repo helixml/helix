@@ -16,8 +16,8 @@ import (
 var keycloakConfig embed.FS
 
 type KeycloakAuthenticator struct {
-	cfg            *config.Keycloak
-	gocloak        *gocloak.GoCloak
+	cfg           *config.Keycloak
+	gocloak       *gocloak.GoCloak
 	userRetriever UserRetriever
 	adminConfig   *AdminConfig
 }
@@ -42,8 +42,8 @@ func NewKeycloakAuthenticator(
 	}
 
 	return &KeycloakAuthenticator{
-		cfg:            cfg,
-		gocloak:        gocloak,
+		cfg:           cfg,
+		gocloak:       gocloak,
 		adminConfig:   adminConfig,
 		userRetriever: userRetriever,
 	}, nil
@@ -138,7 +138,7 @@ func (k *KeycloakAuthenticator) ValidateAndReturnUser(ctx context.Context, token
 		return nil, fmt.Errorf("unable to extract subject from keycloak token")
 	}
 
-	user, err := k.user_retriever.GetUserByID(ctx, sub)
+	user, err := k.userRetriever.GetUserByID(ctx, sub)
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch user information: %w", err)
@@ -154,7 +154,7 @@ func (k *KeycloakAuthenticator) ValidateAndReturnUser(ctx context.Context, token
 		Token:     token,
 		TokenType: types.TokenTypeKeycloak,
 		Type:      types.OwnerTypeUser,
-		Admin:     account.isAdmin(k.admin_config),
+		Admin:     account.isAdmin(k.adminConfig),
 	}, nil
 }
 

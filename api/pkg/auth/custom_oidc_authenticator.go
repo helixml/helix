@@ -28,8 +28,8 @@ func NewCustomOIDCAuthenticator(cfg *config.OIDC, adminConfig *AdminConfig) (*Cu
 	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.APIClientID})
 
 	return &CustomOIDCAuthenticator{
-		cfg: cfg,
-		verifier: verifier,
+		cfg:         cfg,
+		verifier:    verifier,
 		adminConfig: adminConfig,
 	}, nil
 }
@@ -53,12 +53,13 @@ func (o *CustomOIDCAuthenticator) ValidateAndReturnUser(ctx context.Context, tok
 	acc := account{
 		token: &tokenAcct{claims: claims, userID: sub},
 	}
-	givenName := claims["given_name"].(string)
-	familyName := claims["family_name"].(string)
+
+	givenName, givenNameSuccess := claims["given_name"].(string)
+	familyName, familyNameSuccess := claims["family_name"].(string)
 
 	var fullName string
-	if givenName != nil && familyName != nil {
-		fullName = fmt.printf("%s %s", claims["given_name"], claims["family_name"])
+	if givenNameSuccess && familyNameSuccess {
+		fullName = fmt.Sprintf("%s %s", givenName, familyName)
 	}
 
 	return &types.User{
