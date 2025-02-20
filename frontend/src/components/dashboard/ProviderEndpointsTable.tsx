@@ -10,17 +10,47 @@ import {
   Typography,
   Box,
   Button,
+  IconButton,
+  Menu,
+  MenuItem,
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useAccount from '../../hooks/useAccount';
 import AddIcon from '@mui/icons-material/Add';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
+import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
 
 const ProviderEndpointsTable: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const account = useAccount();
-  
+  const { loadData } = useEndpointProviders();
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, endpoint: IProviderEndpoint) => {
+    setAnchorEl(event.currentTarget);
+    setSelectedEndpoint(endpoint);
+    console.log('handleMenuOpen', endpoint)
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedEndpoint(null);
+  };
+
+  const handleDeleteClick = () => {
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteDialogClose = () => {
+    setDeleteDialogOpen(false);
+    setSelectedEndpoint(null);
+    handleMenuClose();
+  };
+
   if (!account.providerEndpoints || account.providerEndpoints.length === 0) {
     return (
       <Paper sx={{ p: 2, width: '100%' }}>
@@ -65,6 +95,7 @@ const ProviderEndpointsTable: FC = () => {
               <TableCell>Base URL</TableCell>
               <TableCell>API Key File</TableCell>
               <TableCell>Default</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -85,6 +116,14 @@ const ProviderEndpointsTable: FC = () => {
                 <TableCell>{endpoint.base_url}</TableCell>
                 <TableCell>{endpoint.api_key_file || 'N/A'}</TableCell>
                 <TableCell>{endpoint.default ? 'Yes' : 'No'}</TableCell>
+                <TableCell>
+                  <IconButton
+                    aria-label="more"
+                    onClick={(e) => handleMenuOpen(e, endpoint)}
+                  >
+                    <MoreVertIcon />
+                  </IconButton>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -94,6 +133,19 @@ const ProviderEndpointsTable: FC = () => {
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
         existingEndpoints={account.providerEndpoints}
+      />
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
+      </Menu>
+      <DeleteProviderEndpointDialog
+        open={deleteDialogOpen}
+        endpoint={selectedEndpoint}
+        onClose={handleDeleteDialogClose}
+        onDeleted={loadData}
       />
     </Paper>
   );
