@@ -62,7 +62,8 @@ const ProviderEndpointsTable: FC = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No provider endpoints configured.</Typography>
           <Button
-            variant="contained"
+            variant="outlined"
+            color="secondary"
             startIcon={<AddIcon />}
             onClick={() => setCreateDialogOpen(true)}
           >
@@ -83,7 +84,8 @@ const ProviderEndpointsTable: FC = () => {
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">Provider Endpoints</Typography>
         <Button
-          variant="contained"
+          variant="outlined"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={() => setCreateDialogOpen(true)}
         >
