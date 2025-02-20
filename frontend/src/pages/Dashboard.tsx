@@ -31,6 +31,7 @@ import {
   ISession,
   ISessionSummary
 } from '../types'
+import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 
 const START_ACTIVE = true
 
@@ -98,10 +99,15 @@ const Dashboard: FC = () => {
   ])
 
   useEffect(() => {
-    if (tab === 'llm_calls') {
-      setActiveTab(1)
-    } else {
-      setActiveTab(0)
+    switch (tab) {
+      case 'llm_calls':
+        setActiveTab(1)
+        break
+      case 'providers':
+        setActiveTab(2)
+        break
+      default:
+        setActiveTab(0)
     }
   }, [tab])
 
@@ -113,10 +119,15 @@ const Dashboard: FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
-    if (newValue === 1) {
-      router.setParams({ tab: 'llm_calls' })
-    } else {
-      router.removeParams(['tab'])
+    switch (newValue) {
+      case 1:
+        router.setParams({ tab: 'llm_calls' })
+        break
+      case 2:
+        router.setParams({ tab: 'providers' })
+        break
+      default:
+        router.removeParams(['tab'])
     }
   }
 
@@ -166,6 +177,7 @@ const Dashboard: FC = () => {
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="LLM Calls" />
             <Tab label="Dashboard" />
+            <Tab label="Providers" />
           </Tabs>
         </Box>
 
@@ -246,23 +258,7 @@ const Dashboard: FC = () => {
                       Helix Control Plane version: {account.serverConfig.version}
                     </Typography>
                   </Box>
-                )}
-                {/* {data?.runners.map((runner) => {
-                  const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
-                    return modelInstance.current_session ? [...allSessions, modelInstance.current_session] : allSessions
-                  }, [])
-                  return allSessions.length > 0 ? (
-                    <React.Fragment key={runner.id}>
-                      <Typography variant="h6">Running: {runner.id}</Typography>
-                      {allSessions.map(session => (
-                        <SessionSummary
-                          key={session.session_id}
-                          session={session}
-                          onViewSession={onViewSession} />
-                      ))}
-                    </React.Fragment>
-                  ) : null
-                })} */}
+                )}               
                 {data.queue.length > 0 && (
                   <Typography variant="h6">Queued Jobs</Typography>
                 )}
@@ -286,18 +282,7 @@ const Dashboard: FC = () => {
                       }
                       onViewSession={onViewSession} />
                   )
-                })}
-                {/* {data.global_scheduling_decisions.length > 0 && (
-                  <Typography variant="h6">Global Scheduling</Typography>
-                )}
-                {data.global_scheduling_decisions.map((decision, i) => {
-                  return (
-                    <SchedulingDecisionSummary
-                      key={i}
-                      decision={decision}
-                      onViewSession={onViewSession} />
-                  )
-                })} */}
+                })}             
               </Box>
               <Box
                 sx={{
@@ -359,6 +344,18 @@ const Dashboard: FC = () => {
               )}
             </Box>
             <LLMCallsTable sessionFilter={sessionFilter} />
+          </Box>
+        )}
+
+        {activeTab === 2 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <ProviderEndpointsTable />
           </Box>
         )}
 
