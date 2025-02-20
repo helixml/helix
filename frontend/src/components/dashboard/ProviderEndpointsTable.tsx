@@ -19,6 +19,8 @@ import { IProviderEndpoint } from '../../types';
 import useAccount from '../../hooks/useAccount';
 import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
@@ -67,6 +69,30 @@ const ProviderEndpointsTable: FC = () => {
     return endpoint.endpoint_type === 'global' && endpoint.owner === 'system';
   };
 
+  const renderAuthCell = (endpoint: IProviderEndpoint) => {
+    if (endpoint.api_key === '********') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <LockIcon fontSize="small" sx={{ mr: 1 }} />
+          <Typography variant="body2">token</Typography>
+        </Box>
+      );
+    }
+    if (endpoint.api_key_file) {
+      return (
+        <Typography variant="body2">
+          File: {endpoint.api_key_file}
+        </Typography>
+      );
+    }
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <LockOpenIcon fontSize="small" sx={{ mr: 1 }} />
+        <Typography variant="body2">none</Typography>
+      </Box>
+    );
+  };
+
   if (!account.providerEndpoints || account.providerEndpoints.length === 0) {
     return (
       <Paper sx={{ p: 2, width: '100%' }}>
@@ -111,7 +137,7 @@ const ProviderEndpointsTable: FC = () => {
               <TableCell>Type</TableCell>
               <TableCell>Owner</TableCell>
               <TableCell>Base URL</TableCell>
-              <TableCell>API Key File</TableCell>
+              <TableCell>Auth</TableCell>
               <TableCell>Default</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
@@ -132,7 +158,7 @@ const ProviderEndpointsTable: FC = () => {
                 <TableCell>{endpoint.endpoint_type}</TableCell>
                 <TableCell>{endpoint.owner_type ? `${endpoint.owner} (${endpoint.owner_type})` : endpoint.owner}</TableCell>
                 <TableCell>{endpoint.base_url}</TableCell>
-                <TableCell>{endpoint.api_key_file || 'N/A'}</TableCell>
+                <TableCell>{renderAuthCell(endpoint)}</TableCell>
                 <TableCell>{endpoint.default ? 'Yes' : 'No'}</TableCell>
                 <TableCell>
                   {isSystemEndpoint(endpoint) ? (
