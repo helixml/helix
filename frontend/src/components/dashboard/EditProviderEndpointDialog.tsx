@@ -22,6 +22,27 @@ import { IProviderEndpoint } from '../../types';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
 import useAccount from '../../hooks/useAccount';
 
+// Helper function to determine auth type from endpoint
+export const getEndpointAuthType = (endpoint: IProviderEndpoint | null): AuthType => {
+  // If both are empty, return none
+  if (!endpoint?.api_key && !endpoint?.api_key_file) {
+    return 'none';
+  }
+
+  // If api_key_file is set, return api_key_file
+  if (endpoint?.api_key_file) {
+    return 'api_key_file';
+  }
+
+  // If api_key is set, return api_key
+  if (endpoint?.api_key) {
+    return 'api_key';
+  }
+
+  // If neither are set, return none
+  return 'none';
+}
+
 interface EditProviderEndpointDialogProps {
   open: boolean;
   endpoint: IProviderEndpoint | null;
@@ -44,7 +65,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     api_key: '',
     api_key_file: endpoint?.api_key_file || '',
     endpoint_type: endpoint?.endpoint_type || 'user',
-    auth_type: (endpoint?.api_key_file ? 'api_key_file' : endpoint?.api_key ? 'api_key' : 'none') as AuthType,
+    auth_type: getEndpointAuthType(endpoint),
   });
 
   React.useEffect(() => {
@@ -54,9 +75,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         api_key: '',
         api_key_file: endpoint.api_key_file || '',
         endpoint_type: endpoint.endpoint_type,
-        auth_type: (!endpoint.api_key || endpoint.api_key === '********') && !endpoint.api_key_file ? 'none' : 
-                  endpoint.api_key_file ? 'api_key_file' : 
-                  endpoint.api_key ? 'api_key' : 'none',
+        auth_type: getEndpointAuthType(endpoint),
       });
     }
   }, [endpoint]);
@@ -138,7 +157,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       api_key: '',
       api_key_file: endpoint?.api_key_file || '',
       endpoint_type: endpoint?.endpoint_type || 'user',
-      auth_type: endpoint?.api_key_file ? 'api_key_file' : endpoint?.api_key ? 'api_key' : 'none',
+      auth_type: getEndpointAuthType(endpoint),
     });
     setError('');
     onClose();

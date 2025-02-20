@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -107,6 +108,11 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 			providerEndpoints[idx].Default = true
 		}
 	}
+
+	// Sort endpoints by name
+	sort.Slice(providerEndpoints, func(i, j int) bool {
+		return providerEndpoints[i].Name < providerEndpoints[j].Name
+	})
 
 	rw.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(rw).Encode(providerEndpoints)
