@@ -38,6 +38,8 @@ func (apiServer *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.R
 	}
 }
 
+var blankAPIKey = "********"
+
 // listProviderEndpoints godoc
 // @Summary List currently configured provider endpoints
 // @Description List currently configured providers
@@ -62,7 +64,7 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	}
 
 	for idx := range providerEndpoints {
-		providerEndpoints[idx].APIKey = "*****"
+		providerEndpoints[idx].APIKey = blankAPIKey
 	}
 
 	// Get global ones from the provider manager

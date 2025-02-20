@@ -21,11 +21,13 @@ import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
+import EditProviderEndpointDialog from './EditProviderEndpointDialog';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
 
 const ProviderEndpointsTable: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const account = useAccount();
@@ -34,7 +36,6 @@ const ProviderEndpointsTable: FC = () => {
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, endpoint: IProviderEndpoint) => {
     setAnchorEl(event.currentTarget);
     setSelectedEndpoint(endpoint);
-    console.log('handleMenuOpen', endpoint)
   };
 
   const handleMenuClose = () => {
@@ -46,8 +47,18 @@ const ProviderEndpointsTable: FC = () => {
     setDeleteDialogOpen(true);
   };
 
+  const handleEditClick = () => {
+    setEditDialogOpen(true);
+  };
+
   const handleDeleteDialogClose = () => {
     setDeleteDialogOpen(false);
+    setSelectedEndpoint(null);
+    handleMenuClose();
+  };
+
+  const handleEditDialogClose = () => {
+    setEditDialogOpen(false);
     setSelectedEndpoint(null);
     handleMenuClose();
   };
@@ -159,6 +170,7 @@ const ProviderEndpointsTable: FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
+        <MenuItem onClick={handleEditClick}>Edit</MenuItem>
         <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
       </Menu>
       <DeleteProviderEndpointDialog
@@ -166,6 +178,11 @@ const ProviderEndpointsTable: FC = () => {
         endpoint={selectedEndpoint}
         onClose={handleDeleteDialogClose}
         onDeleted={loadData}
+      />
+      <EditProviderEndpointDialog
+        open={editDialogOpen}
+        endpoint={selectedEndpoint}
+        onClose={handleEditDialogClose}
       />
     </Paper>
   );
