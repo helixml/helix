@@ -79,7 +79,7 @@ type HelixAPIServer struct {
 }
 
 type AuthConfig struct {
-	BearerAuth auth.BearerAuthenticator
+	OIDCAuth auth.OIDCAuthenticator
 	RunnerAuth auth.RunnerTokenAuthenticator
 	ApiKeyAuth auth.ApiKeyAuthenticator
 }
@@ -124,7 +124,7 @@ func NewServer(
 		gptScriptExecutor: gptScriptExecutor,
 		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
-			authConfig.BearerAuth,
+			authConfig.OIDCAuth,
 			authConfig.RunnerAuth,
 			authConfig.ApiKeyAuth,
 			store,
