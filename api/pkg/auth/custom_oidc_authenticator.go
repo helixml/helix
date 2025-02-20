@@ -74,5 +74,5 @@ func (o *CustomOIDCAuthenticator) ValidateAndReturnUser(ctx context.Context, tok
 }
 
 // Compile-time interface check:
-var _ Authenticator = (*OIDCAuthenticator)(nil)
-var _ BearerAuthenticator = (*OIDCAuthenticator)(nil)
+var _ Authenticator = (*CustomOIDCAuthenticator)(nil)
+var _ OIDCAuthenticator = (*CustomOIDCAuthenticator)(nil)
