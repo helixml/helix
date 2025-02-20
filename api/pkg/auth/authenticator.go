@@ -10,7 +10,7 @@ type Authenticator interface {
 	ValidateAndReturnUser(ctx context.Context, token string) (*types.User, error)
 }
 
-type BearerAuthenticator interface {
+type OIDCAuthenticator interface {
 	ValidateAndReturnUser(ctx context.Context, token string) (*types.User, error)
 }
 
