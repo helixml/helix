@@ -97,7 +97,8 @@ func NewController(
 		scheduler:           options.Scheduler,
 	}
 
-	toolsOpenAIClient, err := controller.getClient(ctx, options.Config.Inference.Provider)
+	// Default provider
+	toolsOpenAIClient, err := controller.getClient(ctx, "", options.Config.Inference.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}

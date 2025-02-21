@@ -7,7 +7,8 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import React from 'react';
 import ModelPicker from '../create/ModelPicker';
-
+import ProviderEndpointPicker from '../create/ProviderEndpointPicker';
+import { IProviderEndpoint } from '../../types';
 interface AppSettingsProps {
   name: string;
   setName: (name: string) => void;
@@ -25,6 +26,9 @@ interface AppSettingsProps {
   setGlobal: (global: boolean) => void;
   model: string;
   setModel: (model: string) => void;
+  providerEndpoint: string | undefined;
+  setProviderEndpoint: (providerEndpoint: string) => void;
+  providerEndpoints: IProviderEndpoint[];
   readOnly: boolean;
   isReadOnly: boolean;
   showErrors: boolean;
@@ -48,6 +52,9 @@ const AppSettings: React.FC<AppSettingsProps> = ({
   setGlobal,
   model,
   setModel,
+  providerEndpoint,
+  setProviderEndpoint,
+  providerEndpoints,
   readOnly,
   isReadOnly,
   showErrors,
@@ -80,10 +87,19 @@ const AppSettings: React.FC<AppSettingsProps> = ({
         helperText="Enter a short description of what this app does"
       />
       <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>Provider</Typography>
+        <ProviderEndpointPicker
+          providerEndpoint={providerEndpoint}
+          onSetProviderEndpoint={setProviderEndpoint}
+          providerEndpoints={providerEndpoints}
+        />
+      </Box>
+      <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Model</Typography>
         <ModelPicker
           type="text"
           model={model}
+          provider={providerEndpoint}
           onSetModel={setModel}
         />
       </Box>

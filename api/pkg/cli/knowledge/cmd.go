@@ -14,8 +14,9 @@ var rootCmd = &cobra.Command{
 	Short:   "Helix knowledge management",
 	Aliases: []string{"k"},
 	Long:    `TODO`,
-	Run: func(*cobra.Command, []string) {
-		// Do Stuff Here
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// By default run the list command
+		return listCmd.RunE(cmd, args)
 	},
 }
 
