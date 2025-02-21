@@ -14,10 +14,10 @@ import (
 
 /*
 
-Organization is the top level entity in the hierarchy.
-
-
-
+- Organization is the top level entity in the hierarchy.
+- Users join the organization through OrganizationMembership and are assigned a role, either owner or member.
+- Owners can create teams within organization.
+- Teams can have multiple members and multiple roles (roles provide permissions to resources)
 
 */
 
@@ -56,11 +56,13 @@ type Team struct {
 	Name      string         `json:"name"`
 }
 
+// Role - a role is a collection of permissions that can be assigned to a user or team.
+// Roles are defined within an organization and can be used across teams.
 type Role struct {
 	ID          string    `json:"id" yaml:"id" gorm:"primaryKey"`
 	CreatedAt   time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" yaml:"updated_at"`
-	TeamID      string    `json:"team_id" yaml:"team_id" gorm:"index"`
+	OrgID       string    `json:"org_id" yaml:"org_id" gorm:"index"`
 	Name        string    `json:"name" yaml:"name"`
 	Description string    `json:"description" yaml:"description"`
 	Config      Config    `json:"config" yaml:"config"`
