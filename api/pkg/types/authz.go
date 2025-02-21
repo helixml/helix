@@ -101,6 +101,33 @@ type MembershipRoleBinding struct {
 	Team Team `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
 }
 
+// ResourceAccessBinding grant access to a resource for a team or user. This allows users
+// to share their application, knowledge, provider endpoint, etc with other users or teams.
+type ResourceAccessBinding struct {
+	ID         string   `json:"id" yaml:"id" gorm:"primaryKey"`
+	Resource   Resource `json:"resource" yaml:"resource"`       // Kind of resource
+	ResourceID string   `json:"resource_id" yaml:"resource_id"` // App ID, Knowledge ID, etc
+	TeamID     string   `json:"team_id" yaml:"team_id"`         // If granted to a team
+	UserID     string   `json:"user_id" yaml:"user_id"`         // If granted to a user
+	Roles      []Role   `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
+}
+
+// ResourceAccessRoleBinding grants a role to the resource access binding
+type ResourceAccessRoleBinding struct {
+	ID     string `json:"id" yaml:"id" gorm:"primaryKey"`
+	RoleID string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
+
+	OrgID string `json:"org_id" yaml:"org_id" gorm:"index"`
+
+	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
+
+	// extra data fields (optional)
+	User User `json:"user,omitempty" yaml:"user,omitempty" gorm:"-"`
+	Role Role `json:"role,omitempty" yaml:"role,omitempty" gorm:"-"`
+	Team Team `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
+}
+
 // this lives in the database
 // the ID is the keycloak user ID
 // there might not be a record for every user
