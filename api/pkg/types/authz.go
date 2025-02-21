@@ -18,6 +18,10 @@ import (
 - Users join the organization through OrganizationMembership and are assigned a role, either owner or member.
 - Owners can create teams within organization.
 - Teams can have multiple members and multiple roles (roles provide permissions to resources)
+- Members of a team example:
+	1. User1 has Read role - can see and access most of the resources
+	2. User2 has Write role - can see and access most of the resources, update and delete apps
+	3. User3 has Admin role - can see and access all resources, invite new members
 
 */
 
@@ -158,6 +162,7 @@ const (
 	ResourceMembership            Resource = "Membership"
 	ResourceMembershipRoleBinding Resource = "MembershipRoleBinding"
 	ResourceApplication           Resource = "Application"
+	ResourceKnowledge             Resource = "Knowledge"
 	ResourceUser                  Resource = "User"
 	ResourceAny                   Resource = "*"
 )
