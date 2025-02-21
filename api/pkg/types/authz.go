@@ -23,6 +23,8 @@ import (
 	2. User2 has Write role - can see and access most of the resources, update and delete apps
 	3. User3 has Admin role - can see and access all resources, invite new members
 
+- Users grant access to Apps using ResourceAccessBinding. You can create many instances of ResourceAccessBinding for multiple
+  users and teams. Each instance can have different roles.
 */
 
 type Organization struct {
@@ -121,11 +123,6 @@ type ResourceAccessRoleBinding struct {
 
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
-
-	// extra data fields (optional)
-	User User `json:"user,omitempty" yaml:"user,omitempty" gorm:"-"`
-	Role Role `json:"role,omitempty" yaml:"role,omitempty" gorm:"-"`
-	Team Team `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
 }
 
 // this lives in the database
