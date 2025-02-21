@@ -35,6 +35,7 @@ type Organization struct {
 	Owner     string         `json:"owner"` // Who created the org
 }
 
+// OrganizationMembership - organization membership is simple, once added, the user is either an owner or a member
 type OrganizationMembership struct {
 	UserID string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
 	OrgID  string `json:"org_id" yaml:"org_id" gorm:"primaryKey"`
