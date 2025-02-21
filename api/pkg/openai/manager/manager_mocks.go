@@ -58,16 +58,16 @@ func (mr *MockProviderManagerMockRecorder) GetClient(ctx, req any) *gomock.Call 
 }
 
 // ListProviders mocks base method.
-func (m *MockProviderManager) ListProviders(ctx context.Context) ([]types.Provider, error) {
+func (m *MockProviderManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListProviders", ctx)
+	ret := m.ctrl.Call(m, "ListProviders", ctx, owner)
 	ret0, _ := ret[0].([]types.Provider)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListProviders indicates an expected call of ListProviders.
-func (mr *MockProviderManagerMockRecorder) ListProviders(ctx any) *gomock.Call {
+func (mr *MockProviderManagerMockRecorder) ListProviders(ctx, owner any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviders", reflect.TypeOf((*MockProviderManager)(nil).ListProviders), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviders", reflect.TypeOf((*MockProviderManager)(nil).ListProviders), ctx, owner)
 }

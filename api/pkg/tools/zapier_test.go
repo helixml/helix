@@ -19,7 +19,7 @@ func (suite *ActionTestSuite) TestAction_GetLastEmail() {
 		},
 	}
 
-	resp, err := suite.strategy.RunZapierAction(suite.ctx, &types.Tool{
+	resp, err := suite.strategy.RunZapierAction(suite.ctx, suite.strategy.apiClient, &types.Tool{
 		Config: types.ToolConfig{
 			Zapier: &types.ToolZapierConfig{
 				APIKey:        suite.zapierAPIKey,

@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
+
+	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -24,60 +26,80 @@ type RunActionResponse struct {
 	Error      string `json:"error"`
 }
 
-func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*RunActionResponse, error) {
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptAction(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
 			func() (*RunActionResponse, error) {
-				return c.runAPIAction(ctx, sessionID, interactionID, tool, history, action)
+				return c.runAPIAction(ctx, opts.client, sessionID, interactionID, tool, history, action)
 			},
 			retry.Attempts(apiActionRetries),
 			retry.Delay(delayBetweenAPIRetries),
 			retry.Context(ctx),
 		)
 	case types.ToolTypeZapier:
-		return c.RunZapierAction(ctx, tool, history, action)
+		return c.RunZapierAction(ctx, opts.client, tool, history, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
 }
 
-func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*openai.ChatCompletionStream, error) {
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
-		return c.runAPIActionStream(ctx, sessionID, interactionID, tool, history, action)
+		return c.runAPIActionStream(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
-		return c.RunZapierActionStream(ctx, tool, history, action)
+		return c.RunZapierActionStream(ctx, opts.client, tool, history, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
 }
 
-func (c *ChainStrategy) runAPIAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
-	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, action)
+func (c *ChainStrategy) runAPIAction(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*RunActionResponse, error) {
+	resp, err := c.callAPI(ctx, client, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call api: %w", err)
 	}
 	defer resp.Body.Close()
 
-	return c.interpretResponse(ctx, sessionID, interactionID, tool, history, resp)
+	return c.interpretResponse(ctx, client, sessionID, interactionID, tool, history, resp)
 }
 
-func (c *ChainStrategy) runAPIActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
-	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, action)
+func (c *ChainStrategy) runAPIActionStream(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
+	resp, err := c.callAPI(ctx, client, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call api: %w", err)
 	}
 	defer resp.Body.Close()
 
-	return c.interpretResponseStream(ctx, sessionID, interactionID, tool, history, resp)
+	return c.interpretResponseStream(ctx, client, sessionID, interactionID, tool, history, resp)
 }
 
-func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
+func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -99,7 +121,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID st
 	started := time.Now()
 
 	// Get API request parameters
-	params, err := c.getAPIRequestParameters(ctx, sessionID, interactionID, tool, history, action)
+	params, err := c.getAPIRequestParameters(ctx, client, sessionID, interactionID, tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api request parameters: %w", err)
 	}
@@ -144,13 +166,23 @@ func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID st
 // RunAPIActionWithParameters executes the API request with the given parameters. This method (compared to RunAction) doesn't require
 // invoking any LLM, neither for request formation nor for response interpretation.
 // In this mode Helix is acting as a plumbing only
-func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest) (*types.RunAPIActionResponse, error) {
+func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest, options ...Option) (*types.RunAPIActionResponse, error) {
 	if req.Tool == nil {
 		return nil, fmt.Errorf("tool is required")
 	}
 
 	if req.Action == "" {
 		return nil, fmt.Errorf("action is required")
+	}
+
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if req.Parameters == nil {

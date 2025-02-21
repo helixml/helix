@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	submitChatCompletionRequestTimeout = 10 * time.Second
-	defaultRequestTimeout              = 10 * time.Second
+	submitChatCompletionRequestTimeout = 300 * time.Second
+	defaultRequestTimeout              = 300 * time.Second
 	cacheUpdateInterval                = 5 * time.Second
 )
 

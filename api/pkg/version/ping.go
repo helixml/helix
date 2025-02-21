@@ -14,6 +14,7 @@ import (
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/rs/zerolog/log"
 )
@@ -176,4 +177,26 @@ func (s *PingService) GetDeploymentID() string {
 
 	// Fall back to environment license key if no valid database license
 	return hashLicenseKey(s.envLicenseKey)
+}
+
+// GetLicenseInfo returns the decoded license information from either the database or environment
+func (s *PingService) GetLicenseInfo(ctx context.Context) (*license.License, error) {
+	// First try to get from database
+	if dbLicense, err := s.db.GetDecodedLicense(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to get decoded license from database")
+	} else if dbLicense != nil {
+		return dbLicense, nil
+	}
+
+	// If no valid database license, try to decode from environment
+	if s.envLicenseKey != "" {
+		validator := license.NewLicenseValidator()
+		decodedLicense, err := validator.Validate(s.envLicenseKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode environment license key: %w", err)
+		}
+		return decodedLicense, nil
+	}
+
+	return nil, nil
 }

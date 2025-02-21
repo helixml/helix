@@ -19,7 +19,6 @@ import DevelopersSection from '../components/app/DevelopersSection'
 import GPTScriptsSection from '../components/app/GPTScriptsSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
-import ToolEditor from '../components/app/ToolEditor'
 import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -49,7 +48,6 @@ import {
   IKnowledgeSearchResult,
   IKnowledgeSource,
   ISession,
-  ITool,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
@@ -85,7 +83,6 @@ const App: FC = () => {
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
   const [ hasInitialised, setHasInitialised ] = useState(false)
-  //const [ assistants, setAssistants ] = useState<IAssistantConfig[]>([])
   const [ description, setDescription ] = useState('')
   const [ shared, setShared ] = useState(false)
   const [ global, setGlobal ] = useState(false)
@@ -114,7 +111,9 @@ const App: FC = () => {
 
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
 
-  const [model, setModel] = useState(account.models[0]?.id || '');
+  const [model, setModel] = useState(account.models[0]?.id || '');  
+
+  const [providerEndpoint, setProviderEndpoint] = useState('');
 
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -243,6 +242,7 @@ const App: FC = () => {
               description: "",
               avatar: "",
               image: "",
+              provider: "",
               model: "",
               type: SESSION_TYPE_TEXT,
               system_prompt: "",
@@ -386,7 +386,8 @@ const App: FC = () => {
               ...assistant,
               system_prompt: systemPrompt,
               knowledge: knowledgeSources,
-              model: model,
+              provider: providerEndpoint,
+              model: model,              
             })),
           },
           secrets,
@@ -482,6 +483,7 @@ const App: FC = () => {
       type: SESSION_TYPE_TEXT,
       system_prompt: systemPrompt,
       model: model,
+      provider: providerEndpoint || '', // If not set, using default provider from the system
       knowledge: [],
     }
   }
@@ -647,8 +649,20 @@ const App: FC = () => {
     setAvatar(app.config.helix.avatar || '');
     setImage(app.config.helix.image || '');
     setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
+    setProviderEndpoint(app.config.helix.assistants ? app.config.helix.assistants[0]?.provider || '' : '');
     setHasLoaded(true);
   }, [app])
+
+  useEffect(() => {
+    // When provider changes, check if current model exists in new provider's models
+    const currentProviderModels = account.models;
+    const currentModelExists = currentProviderModels.some(m => m.id === model);
+
+    // If current model doesn't exist in new provider's models, select the first available model
+    if (!currentModelExists && currentProviderModels.length > 0) {
+      setModel(currentProviderModels[0].id);
+    }
+  }, [providerEndpoint, account.models, model]);
 
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
@@ -729,38 +743,6 @@ const App: FC = () => {
       snackbar.error('No API key available');
     }
   }, [account.apiKeys, snackbar]);  
-
-  const onDeleteTool = useCallback(async (toolId: string) => {
-    if (!app) {
-      console.error('App is not initialized');
-      snackbar.error('Unable to delete tool: App is not initialized, save it first');
-      return;
-    }
-
-    const updatedAssistants = (app.config.helix.assistants || []).map(assistant => ({
-      ...assistant,
-      tools: (assistant.tools || []).filter(tool => tool.id !== toolId),
-      gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
-    }));
-
-    const updatedApp = {
-      ...app,
-      config: {
-        ...app.config,
-        helix: {
-          ...app.config.helix,
-          assistants: updatedAssistants,
-        },
-      },
-    }
-
-    const result = await apps.updateApp(app.id, updatedApp);
-    if (result) {
-      setApp(result);
-    }  
-
-    snackbar.success('Tool deleted successfully');
-  }, [app, snackbar, onSave]);
 
   const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
     if (!app) return;
@@ -999,6 +981,9 @@ const App: FC = () => {
                       setGlobal={setGlobal}
                       model={model}
                       setModel={setModel}
+                      providerEndpoint={providerEndpoint}
+                      setProviderEndpoint={setProviderEndpoint}
+                      providerEndpoints={account.providerEndpoints}
                       readOnly={readOnly}
                       isReadOnly={isReadOnly}
                       showErrors={showErrors}

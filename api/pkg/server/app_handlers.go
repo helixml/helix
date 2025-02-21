@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
@@ -116,6 +117,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.Owner = user.ID
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
+
+	err = s.validateProviderAndModel(ctx, user, &app)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	// if the create query param is truthy, set the name to the ID
 	// this is so the frontend can quickly create the app before redirecting to the edit page for the new app
@@ -228,6 +234,36 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	return created, nil
+}
+
+// validateProviderAndModel checks if the provider and model are valid. Provider
+// can be empty, however model is required
+func (s *HelixAPIServer) validateProviderAndModel(ctx context.Context, user *types.User, app *types.App) error {
+	if len(app.Config.Helix.Assistants) == 0 {
+		return fmt.Errorf("app must have at least one assistant")
+	}
+
+	providers, err := s.providerManager.ListProviders(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list models: %w", err)
+	}
+
+	// Validate providers
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.Model == "" {
+			return fmt.Errorf("assistant '%s' must have a model", assistant.Name)
+		}
+
+		// If provider set, check if we have it
+		if assistant.Provider != "" {
+			if !slices.Contains(providers, types.Provider(assistant.Provider)) {
+				return fmt.Errorf("provider '%s' is not available", assistant.Provider)
+			}
+			// OK
+		}
+	}
+
+	return nil
 }
 
 func (s *HelixAPIServer) validateKnowledge(k *types.AssistantKnowledge) error {
@@ -412,6 +448,11 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		if existing.Owner != user.ID {
 			return nil, system.NewHTTPError403("you do not have permission to update this app")
 		}
+	}
+
+	err = s.validateProviderAndModel(r.Context(), user, &update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 
 	err = s.validateTriggers(update.Config.Helix.Triggers)

@@ -72,7 +72,7 @@ func (suite *ControllerSuite) SetupSuite() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = types.ProviderTogetherAI
+	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
 	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
 		PubSub: suite.pubsub,

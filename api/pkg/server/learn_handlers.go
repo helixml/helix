@@ -82,7 +82,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		defaultModel = allModels[0].ID
 	}
 
-	model, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), defaultModel, types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
+	model, err := model.ProcessModelName(s.Cfg.Inference.Provider, defaultModel, types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return

@@ -60,6 +60,7 @@ func TestOpenAIChatSuite(t *testing.T) {
 type OpenAIChatSuite struct {
 	suite.Suite
 
+	ctrl         *gomock.Controller
 	store        *store.MockStore
 	pubsub       pubsub.PubSub
 	openAiClient *openai.MockClient
@@ -73,7 +74,7 @@ type OpenAIChatSuite struct {
 
 func (suite *OpenAIChatSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
-
+	suite.ctrl = ctrl
 	suite.store = store.NewMockStore(ctrl)
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
@@ -92,7 +93,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = types.ProviderTogetherAI
+	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
 	providerManager := manager.NewMockProviderManager(ctrl)
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
@@ -441,6 +442,107 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 	suite.NoError(err)
 
 	suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", resp.Model)
+	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
+	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
+	suite.Equal("assistant", resp.Choices[0].Message.Role)
+	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
+
+	app := &types.App{
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Provider:     "custom-endpoint",
+						Model:        "custom-model",
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	// Override provider manager
+	providerManager := manager.NewMockProviderManager(suite.ctrl)
+	providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "custom-endpoint",
+		Owner:    suite.userID,
+	}).Return(suite.openAiClient, nil).AnyTimes()
+
+	suite.server.providerManager = providerManager
+
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.userID,
+	}).Return([]*types.Secret{}, nil)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
+		"model": "custom-model",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("custom-model", req.Model)
+
+			suite.Require().Equal(2, len(req.Messages))
+
+			suite.Equal("system", req.Messages[0].Role)
+			suite.Equal("you are very custom assistant", req.Messages[0].Content)
+
+			suite.Equal("user", req.Messages[1].Role)
+
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal(ownerID, vals.OwnerID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
+			suite.Equal("n/a", vals.InteractionID)
+
+			return oai.ChatCompletionResponse{
+				Model: "custom-model",
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Role:    "assistant",
+							Content: "**model-result**",
+						},
+						FinishReason: "stop",
+					},
+				},
+			}, nil
+		})
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp oai.ChatCompletionResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	suite.NoError(err)
+
+	suite.Equal("custom-model", resp.Model)
 	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
 	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
 	suite.Equal("assistant", resp.Choices[0].Message.Role)

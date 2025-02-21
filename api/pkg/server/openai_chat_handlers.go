@@ -65,7 +65,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	modelName, err := model.ProcessModelName(
-		string(s.Cfg.Inference.Provider),
+		s.Cfg.Inference.Provider,
 		chatCompletionRequest.Model,
 		types.SessionModeInference,
 		types.SessionTypeText,

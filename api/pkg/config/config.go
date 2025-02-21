@@ -52,15 +52,16 @@ func LoadServerConfig() (ServerConfig, error) {
 }
 
 type Inference struct {
-	Provider types.Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 }
 
 // Providers is used to configure the various AI providers that we use
 type Providers struct {
-	OpenAI     OpenAI
-	TogetherAI TogetherAI
-	Helix      Helix
-	VLLM       VLLM
+	OpenAI                    OpenAI
+	TogetherAI                TogetherAI
+	Helix                     Helix
+	VLLM                      VLLM
+	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
 }
 
 type OpenAI struct {
@@ -209,7 +210,7 @@ type RAG struct {
 	}
 
 	PGVector struct {
-		Provider        types.Provider   `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, or helix"`
+		Provider        string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
 		EmbeddingsModel string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
 		Dimensions      types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
 	}
