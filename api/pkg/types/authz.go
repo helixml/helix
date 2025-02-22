@@ -96,20 +96,22 @@ type Membership struct {
 // ResourceAccessBinding grant access to a resource for a team or user. This allows users
 // to share their application, knowledge, provider endpoint, etc with other users or teams.
 type ResourceAccessBinding struct {
-	ID         string   `json:"id" yaml:"id" gorm:"primaryKey"`
-	Resource   Resource `json:"resource" yaml:"resource"`       // Kind of resource
-	ResourceID string   `json:"resource_id" yaml:"resource_id"` // App ID, Knowledge ID, etc
-	TeamID     string   `json:"team_id" yaml:"team_id"`         // If granted to a team
-	UserID     string   `json:"user_id" yaml:"user_id"`         // If granted to a user
-	Roles      []Role   `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
+	ID             string   `json:"id" yaml:"id" gorm:"primaryKey"`
+	Resource       Resource `json:"resource" yaml:"resource"`               // Kind of resource (app, knowledge, provider endpoint, etc)
+	ResourceID     string   `json:"resource_id" yaml:"resource_id"`         // App ID, Knowledge ID, etc
+	OrganizationID string   `json:"organization_id" yaml:"organization_id"` // If granted to an organization
+	TeamID         string   `json:"team_id" yaml:"team_id"`                 // If granted to a team
+	UserID         string   `json:"user_id" yaml:"user_id"`                 // If granted to a user
+	Roles          []Role   `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
 }
 
 // ResourceAccessRoleBinding grants a role to the resource access binding
 type ResourceAccessRoleBinding struct {
-	ID     string `json:"id" yaml:"id" gorm:"primaryKey"`
-	RoleID string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
-
-	OrgID string `json:"org_id" yaml:"org_id" gorm:"index"`
+	ID             string `json:"id" yaml:"id" gorm:"primaryKey"`
+	RoleID         string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
+	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"primaryKey"`
+	TeamID         string `json:"team_id" yaml:"team_id"` // If granted to a team
+	UserID         string `json:"user_id" yaml:"user_id"` // If granted to a user
 
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
