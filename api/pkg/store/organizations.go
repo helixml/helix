@@ -19,7 +19,7 @@ type ListOrganizationsQuery struct {
 // CreateOrganization creates a new organization
 func (s *PostgresStore) CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error) {
 	if org.ID == "" {
-		org.ID = system.GenerateUUID()
+		org.ID = system.GenerateOrganizationID()
 	}
 
 	if org.Owner == "" {
