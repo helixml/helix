@@ -90,12 +90,12 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.Organization{},
 		&types.User{},
 		&types.Team{},
 		&types.Membership{},
 		&types.Role{},
 		&types.OrganizationMembership{},
-		&types.Organization{},
 		&types.ResourceAccessBinding{},
 		&types.ResourceAccessRoleBinding{},
 		&types.UserMeta{},
@@ -120,6 +120,22 @@ func (s *PostgresStore) autoMigrate() error {
 	err = s.autoMigrateRoleConfig(context.Background())
 	if err != nil {
 		return err
+	}
+
+	if err := createFK(s.gdb, types.OrganizationMembership{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Team{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Role{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Membership{}, types.Team{}, "team_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
 	}
 
 	if err := createFK(s.gdb, types.ApiKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
