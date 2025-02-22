@@ -58,3 +58,18 @@ var (
 		},
 	}
 )
+
+var Roles = []Role{
+	{
+		Name:   "read",
+		Config: RoleRead,
+	},
+	{
+		Name:   "write",
+		Config: RoleWrite,
+	},
+	{
+		Name:   "admin",
+		Config: RoleAdmin,
+	},
+}
