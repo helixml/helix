@@ -93,6 +93,29 @@ type Membership struct {
 	Team Team `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
 }
 
+type User struct {
+	ID        string         `json:"id" gorm:"primaryKey"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+
+	// the actual token used and its type
+	Token string
+	// none, runner. keycloak, api_key
+	TokenType TokenType
+	// if the ID of the user is contained in the env setting
+	Admin bool
+	// if the token is associated with an app
+	AppID string
+	// these are set by the keycloak user based on the token
+	// if it's an app token - the keycloak user is loaded from the owner of the app
+	// if it's a runner token - these values will be empty
+	Type     OwnerType
+	Email    string
+	Username string
+	FullName string
+}
+
 // ResourceAccessBinding grant access to a resource for a team or user. This allows users
 // to share their application, knowledge, provider endpoint, etc with other users or teams.
 type ResourceAccessBinding struct {
