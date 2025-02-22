@@ -132,9 +132,9 @@ type ResourceAccessBinding struct {
 type ResourceAccessRoleBinding struct {
 	ID             string `json:"id" yaml:"id" gorm:"primaryKey"`
 	RoleID         string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
-	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"primaryKey"`
-	TeamID         string `json:"team_id" yaml:"team_id"` // If granted to a team
-	UserID         string `json:"user_id" yaml:"user_id"` // If granted to a user
+	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"index"`
+	TeamID         string `json:"team_id" yaml:"team_id" gorm:"index"` // If granted to a team
+	UserID         string `json:"user_id" yaml:"user_id" gorm:"index"` // If granted to a user
 
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
