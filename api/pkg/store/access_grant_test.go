@@ -152,7 +152,7 @@ func (suite *AccessGrantTestSuite) TestCreateAccessGrant() {
 	}
 
 	for _, tc := range invalidCases {
-		suite.T().Run(tc.name, func(t *testing.T) {
+		suite.T().Run(tc.name, func(_ *testing.T) {
 			_, err := suite.db.CreateAccessGrant(suite.ctx, tc.accessGrant, roles)
 			suite.Error(err)
 		})
@@ -259,7 +259,7 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	}
 
 	for _, tc := range invalidQueries {
-		suite.T().Run(tc.name, func(t *testing.T) {
+		suite.T().Run(tc.name, func(_ *testing.T) {
 			_, err := suite.db.GetAccessGrant(suite.ctx, tc.query)
 			suite.Error(err)
 		})
