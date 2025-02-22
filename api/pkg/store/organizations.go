@@ -47,8 +47,18 @@ func (s *PostgresStore) GetOrganization(ctx context.Context, q *GetOrganizationQ
 		return nil, fmt.Errorf("id or name not specified")
 	}
 
+	query := s.gdb.WithContext(ctx)
+
+	if q.ID != "" {
+		query = query.Where("id = ?", q.ID)
+	}
+
+	if q.Name != "" {
+		query = query.Where("name = ?", q.Name)
+	}
+
 	var org types.Organization
-	err := s.gdb.WithContext(ctx).Where("id = ?", q.ID).Or("name = ?", q.Name).First(&org).Error
+	err := query.First(&org).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound

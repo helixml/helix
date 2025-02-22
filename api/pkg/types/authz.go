@@ -10,6 +10,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 /*
@@ -52,8 +53,8 @@ type Team struct {
 
 // OrganizationMembership - organization membership is simple, once added, the user is either an owner or a member
 type OrganizationMembership struct {
-	UserID       string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
-	Organization string `json:"organization_id" yaml:"organization_id" gorm:"primaryKey"`
+	UserID         string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
+	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"primaryKey"`
 
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
@@ -195,6 +196,10 @@ const (
 
 type Resource string
 
+func (Resource) GormDataType() string {
+	return "varchar(255)"
+}
+
 const (
 	ResourceTeam                  Resource = "Team"
 	ResourceOrganization          Resource = "Organization"
@@ -250,4 +255,39 @@ func ParseAction(a string) (Action, error) {
 		return Action(""), fmt.Errorf("action %s not found", a)
 	}
 	return Action(cases.Title(language.English).String(a)), nil
+}
+
+func (Config) GormDataType() string {
+	return "json"
+}
+
+// GormDBDataType gorm db data type
+func (Config) GormDBDataType(db *gorm.DB, field *schema.Field) string {
+	switch db.Dialector.Name() {
+	case "sqlite":
+		return "JSON"
+	case "mysql":
+		return "JSON"
+	case "postgres":
+		return "JSONB"
+	}
+	return ""
+}
+
+func (m Config) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (m *Config) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte]) failed")
+	}
+	var result Config
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*m = result
+	return nil
 }

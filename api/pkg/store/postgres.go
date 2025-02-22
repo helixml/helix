@@ -91,10 +91,10 @@ func (s *PostgresStore) autoMigrate() error {
 
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.User{},
-		&types.Organization{},
-		&types.OrganizationMembership{},
 		&types.Team{},
 		&types.Role{},
+		&types.OrganizationMembership{},
+		&types.Organization{},
 		&types.ResourceAccessBinding{},
 		&types.ResourceAccessRoleBinding{},
 		&types.UserMeta{},
