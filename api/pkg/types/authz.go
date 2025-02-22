@@ -213,6 +213,7 @@ const (
 	ResourceKnowledge             Resource = "Knowledge"
 	ResourceUser                  Resource = "User"
 	ResourceAny                   Resource = "*"
+	ResourceTypeDataset           Resource = "Dataset"
 )
 
 type Action string
