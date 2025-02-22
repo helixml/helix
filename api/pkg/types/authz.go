@@ -131,8 +131,9 @@ type ResourceAccessBinding struct {
 
 // ResourceAccessRoleBinding grants a role to the resource access binding
 type ResourceAccessRoleBinding struct {
-	ID             string `json:"id" yaml:"id" gorm:"primaryKey"`
-	RoleID         string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
+	ResourceAccessBindingID string `json:"resource_access_binding_id" yaml:"resource_access_binding_id" gorm:"primaryKey"` //
+	RoleID                  string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
+
 	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"index"`
 	TeamID         string `json:"team_id" yaml:"team_id" gorm:"index"` // If granted to a team
 	UserID         string `json:"user_id" yaml:"user_id" gorm:"index"` // If granted to a user
