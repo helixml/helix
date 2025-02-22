@@ -28,23 +28,37 @@ import (
 */
 
 type Organization struct {
-	ID        string         `gorm:"primaryKey" json:"id"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
-	Name      string         `json:"name"`
-	Slug      string         `json:"slug"`
-	Owner     string         `json:"owner"` // Who created the org
+	ID          string                   `gorm:"primaryKey" json:"id"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt           `gorm:"index" json:"deleted_at"`
+	Name        string                   `json:"name"`
+	Slug        string                   `json:"slug"`
+	Owner       string                   `json:"owner"`                                                           // Who created the org
+	Teams       []Team                   `json:"teams" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Teams in the organization
+	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
+	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
+}
+
+type Team struct {
+	ID             string         `gorm:"primaryKey" json:"id"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	OrganizationID string         `json:"organization_id" gorm:"index"`
+	Name           string         `json:"name"`
+	Memberships    []Membership   `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the team
 }
 
 // OrganizationMembership - organization membership is simple, once added, the user is either an owner or a member
 type OrganizationMembership struct {
-	UserID string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
-	OrgID  string `json:"org_id" yaml:"org_id" gorm:"primaryKey"`
+	UserID       string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
+	Organization string `json:"organization_id" yaml:"organization_id" gorm:"primaryKey"`
 
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 
+	// Role - the role of the user in the organization (owner or member)
 	Role OrganizationRole `json:"role,omitempty" yaml:"role,omitempty"`
 }
 
@@ -55,24 +69,16 @@ const (
 	OrganizationRoleMember OrganizationRole = "member" // Can see every member and team in the organization and can create new apps
 )
 
-type Team struct {
-	ID        string         `gorm:"primaryKey" json:"id"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
-	Name      string         `json:"name"`
-}
-
 // Role - a role is a collection of permissions that can be assigned to a user or team.
 // Roles are defined within an organization and can be used across teams.
 type Role struct {
-	ID          string    `json:"id" yaml:"id" gorm:"primaryKey"`
-	CreatedAt   time.Time `json:"created_at" yaml:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" yaml:"updated_at"`
-	OrgID       string    `json:"org_id" yaml:"org_id" gorm:"index"`
-	Name        string    `json:"name" yaml:"name"`
-	Description string    `json:"description" yaml:"description"`
-	Config      Config    `json:"config" yaml:"config"`
+	ID             string    `json:"id" yaml:"id" gorm:"primaryKey"`
+	CreatedAt      time.Time `json:"created_at" yaml:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" yaml:"updated_at"`
+	OrganizationID string    `json:"organization_id" yaml:"organization_id" gorm:"index"`
+	Name           string    `json:"name" yaml:"name"`
+	Description    string    `json:"description" yaml:"description"`
+	Config         Config    `json:"config" yaml:"config"`
 }
 
 type Membership struct {
