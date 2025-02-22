@@ -93,6 +93,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.User{},
 		&types.Organization{},
 		&types.OrganizationMembership{},
+		&types.Team{},
 		&types.Role{},
 		&types.ResourceAccessBinding{},
 		&types.ResourceAccessRoleBinding{},
