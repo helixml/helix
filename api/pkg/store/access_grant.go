@@ -13,10 +13,11 @@ import (
 )
 
 type GetAccessGrantQuery struct {
-	ResourceType types.Resource
-	ResourceID   string
-	UserID       string
-	TeamIDs      []string
+	OrganizationID string
+	ResourceType   types.Resource
+	ResourceID     string
+	UserID         string
+	TeamIDs        []string
 }
 
 // CreateAccessGrant creates a new resource access binding
@@ -89,23 +90,31 @@ func (s *PostgresStore) GetAccessGrant(ctx context.Context, q *GetAccessGrantQue
 		return nil, fmt.Errorf("resource_id must be specified")
 	}
 
+	if q.OrganizationID == "" {
+		return nil, fmt.Errorf("organization_id must be specified")
+	}
+
 	if q.UserID == "" && len(q.TeamIDs) == 0 {
 		return nil, fmt.Errorf("either user_id or team_ids must be specified")
 	}
 
 	query := s.gdb.WithContext(ctx).
-		Where("resource_type = ? AND resource_id = ?", q.ResourceType, q.ResourceID)
+		Where(&types.AccessGrant{
+			OrganizationID: q.OrganizationID,
+			ResourceType:   q.ResourceType,
+			ResourceID:     q.ResourceID,
+		})
 
 	if q.UserID != "" {
 		query = query.Where("user_id = ?", q.UserID)
 	}
 
 	if len(q.TeamIDs) > 0 {
-		query = query.Or("team_id IN (?)", q.TeamIDs)
+		query = query.Where("team_id IN (?)", q.TeamIDs)
 	}
 
-	var bindings []*types.AccessGrant
-	err := query.Find(&bindings).Error
+	var grants []*types.AccessGrant
+	err := query.Find(&grants).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -113,11 +122,11 @@ func (s *PostgresStore) GetAccessGrant(ctx context.Context, q *GetAccessGrantQue
 		return nil, err
 	}
 
-	// Load associated roles for each binding
-	for _, binding := range bindings {
+	// Load associated roles for each	 binding
+	for _, grant := range grants {
 		var roleBindings []types.AccessGrantRoleBinding
 		err := s.gdb.WithContext(ctx).
-			Where("access_grant_id = ?", binding.ID).
+			Where("access_grant_id = ?", grant.ID).
 			Find(&roleBindings).Error
 		if err != nil {
 			return nil, err
@@ -135,11 +144,11 @@ func (s *PostgresStore) GetAccessGrant(ctx context.Context, q *GetAccessGrantQue
 				}
 				continue
 			}
-			binding.Roles = append(binding.Roles, role)
+			grant.Roles = append(grant.Roles, role)
 		}
 	}
 
-	return bindings, nil
+	return grants, nil
 }
 
 // DeleteAccessGrant deletes a resource access binding
