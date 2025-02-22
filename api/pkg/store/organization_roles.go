@@ -11,7 +11,7 @@ import (
 // autoMigrateRoleConfig syncs all role configs in the database
 func (s *PostgresStore) autoMigrateRoleConfig(ctx context.Context) error {
 	for _, role := range types.Roles {
-		err := s.gdb.WithContext(ctx).UpdateColumn("config", role.Config).Where("name = ?", role.Name).Error
+		err := s.gdb.WithContext(ctx).Model(&types.Role{}).Where("name = ?", role.Name).UpdateColumn("config", role.Config).Error
 		if err != nil {
 			return fmt.Errorf("failed to migrate role config for %s: %w", role.Name, err)
 		}
