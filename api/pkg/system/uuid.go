@@ -10,24 +10,24 @@ import (
 )
 
 const (
-	ToolPrefix                  = "tool_"
-	SessionPrefix               = "ses_"
-	AppPrefix                   = "app_"
-	GptScriptRunnerTaskPrefix   = "gst_"
-	RequestPrefix               = "req_"
-	DataEntityPrefix            = "dent_"
-	LLMCallPrefix               = "llmc_"
-	KnowledgePrefix             = "kno_"
-	KnowledgeVersionPrefix      = "knov_"
-	SecretPrefix                = "sec_"
-	TestRunPrefix               = "testrun_"
-	OpenAIResponsePrefix        = "oai_"
-	ProviderEndpointPrefix      = "pe_"
-	OrganizationPrefix          = "org_"
-	TeamPrefix                  = "team_"
-	UserPrefix                  = "usr_"
-	RolePrefix                  = "role_"
-	ResourceAccessBindingPrefix = "ra_"
+	ToolPrefix                = "tool_"
+	SessionPrefix             = "ses_"
+	AppPrefix                 = "app_"
+	GptScriptRunnerTaskPrefix = "gst_"
+	RequestPrefix             = "req_"
+	DataEntityPrefix          = "dent_"
+	LLMCallPrefix             = "llmc_"
+	KnowledgePrefix           = "kno_"
+	KnowledgeVersionPrefix    = "knov_"
+	SecretPrefix              = "sec_"
+	TestRunPrefix             = "testrun_"
+	OpenAIResponsePrefix      = "oai_"
+	ProviderEndpointPrefix    = "pe_"
+	OrganizationPrefix        = "org_"
+	TeamPrefix                = "team_"
+	UserPrefix                = "usr_"
+	RolePrefix                = "role_"
+	AccessGrantPrefix         = "ag_"
 )
 
 func GenerateUUID() string {
@@ -98,8 +98,8 @@ func GenerateRoleID() string {
 	return fmt.Sprintf("%s%s", RolePrefix, newID())
 }
 
-func GenerateResourceAccessBindingID() string {
-	return fmt.Sprintf("%s%s", ResourceAccessBindingPrefix, newID())
+func GenerateAccessGrantID() string {
+	return fmt.Sprintf("%s%s", AccessGrantPrefix, newID())
 }
 
 // GenerateVersion generates a version string for the knowledge

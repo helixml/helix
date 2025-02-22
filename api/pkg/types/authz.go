@@ -24,7 +24,7 @@ import (
 	2. User2 has Write role - can see and access most of the resources, update and delete apps
 	3. User3 has Admin role - can see and access all resources, invite new members
 
-- Users grant access to Apps using ResourceAccessBinding. You can create many instances of ResourceAccessBinding for multiple
+- Users grant access to Apps using AccessGrant. You can create many instances of AccessGrant for multiple
   users and teams. Each instance can have different roles.
 */
 
@@ -117,22 +117,24 @@ type User struct {
 	FullName string
 }
 
-// ResourceAccessBinding grant access to a resource for a team or user. This allows users
+// AccessGrant - grant access to a resource for a team or user. This allows users
 // to share their application, knowledge, provider endpoint, etc with other users or teams.
-type ResourceAccessBinding struct {
-	ID             string   `json:"id" yaml:"id" gorm:"primaryKey"`
-	Resource       Resource `json:"resource" yaml:"resource"`               // Kind of resource (app, knowledge, provider endpoint, etc)
-	ResourceID     string   `json:"resource_id" yaml:"resource_id"`         // App ID, Knowledge ID, etc
-	OrganizationID string   `json:"organization_id" yaml:"organization_id"` // If granted to an organization
-	TeamID         string   `json:"team_id" yaml:"team_id"`                 // If granted to a team
-	UserID         string   `json:"user_id" yaml:"user_id"`                 // If granted to a user
-	Roles          []Role   `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
+type AccessGrant struct {
+	ID             string    `json:"id" yaml:"id" gorm:"primaryKey"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	ResourceType   Resource  `json:"resource_type" yaml:"resource_type"`     // Kind of resource (app, knowledge, provider endpoint, etc)
+	ResourceID     string    `json:"resource_id" yaml:"resource_id"`         // App ID, Knowledge ID, etc
+	OrganizationID string    `json:"organization_id" yaml:"organization_id"` // If granted to an organization
+	TeamID         string    `json:"team_id" yaml:"team_id"`                 // If granted to a team
+	UserID         string    `json:"user_id" yaml:"user_id"`                 // If granted to a user
+	Roles          []Role    `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
 }
 
-// ResourceAccessRoleBinding grants a role to the resource access binding
-type ResourceAccessRoleBinding struct {
-	ResourceAccessBindingID string `json:"resource_access_binding_id" yaml:"resource_access_binding_id" gorm:"primaryKey"` //
-	RoleID                  string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
+// AccessGrantRoleBinding grants a role to the resource access binding
+type AccessGrantRoleBinding struct {
+	AccessGrantID string `json:"access_grant_id" yaml:"access_grant_id" gorm:"primaryKey"` //
+	RoleID        string `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
 
 	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"index"`
 	TeamID         string `json:"team_id" yaml:"team_id" gorm:"index"` // If granted to a team
