@@ -83,23 +83,7 @@ type Membership struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 
 	// extra data fields (optional)
-	User  User   `json:"user,omitempty" yaml:"user,omitempty" gorm:"-"`
-	Team  Team   `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
-	Roles []Role `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
-}
-
-type MembershipRoleBindings []MembershipRoleBinding
-
-type MembershipRoleBinding struct {
-	UserID    string    `json:"user_id" yaml:"user_id" gorm:"primaryKey"`
-	RoleID    string    `json:"role_id" yaml:"role_id" gorm:"primaryKey"`
-	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
-	TeamID    string    `json:"team_id" yaml:"team_id" gorm:"index"`
-
-	// extra data fields (optional)
 	User User `json:"user,omitempty" yaml:"user,omitempty" gorm:"-"`
-	Role Role `json:"role,omitempty" yaml:"role,omitempty" gorm:"-"`
 	Team Team `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
 }
 
