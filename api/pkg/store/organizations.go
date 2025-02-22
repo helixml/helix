@@ -29,7 +29,16 @@ func (s *PostgresStore) CreateOrganization(ctx context.Context, org *types.Organ
 	org.CreatedAt = time.Now()
 	org.UpdatedAt = time.Now()
 
-	err := s.gdb.WithContext(ctx).Create(org).Error
+	// Check if the organization name is unique
+	existingOrg, err := s.GetOrganization(ctx, &GetOrganizationQuery{Name: org.Name})
+	if err != nil && err != ErrNotFound {
+		return nil, err
+	}
+	if existingOrg != nil {
+		return nil, fmt.Errorf("organization with name %s already exists", org.Name)
+	}
+
+	err = s.gdb.WithContext(ctx).Create(org).Error
 	if err != nil {
 		return nil, err
 	}
