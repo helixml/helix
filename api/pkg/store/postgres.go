@@ -117,6 +117,11 @@ func (s *PostgresStore) autoMigrate() error {
 		return err
 	}
 
+	err = s.autoMigrateRoleConfig(context.Background())
+	if err != nil {
+		return err
+	}
+
 	if err := createFK(s.gdb, types.ApiKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
