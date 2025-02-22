@@ -69,6 +69,14 @@ type GetProviderEndpointsQuery struct {
 	Name      string
 }
 
+type ListUsersQuery struct {
+	TokenType types.TokenType `json:"token_type"`
+	Admin     bool            `json:"admin"`
+	Type      types.OwnerType `json:"type"`
+	Email     string          `json:"email"`
+	Username  string          `json:"username"`
+}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
@@ -81,6 +89,13 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
+
+	// users
+	GetUser(ctx context.Context, id string) (*types.User, error)
+	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
+	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
+	DeleteUser(ctx context.Context, id string) error
+	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
