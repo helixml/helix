@@ -18,11 +18,11 @@ assistants:
       
       User:
     tests:
-      - name: tells jokes
+      - name: english
         steps:
           - prompt: People
-            expected_output: It must be an actual joke.
-      - name: funny jokes
+            expected_output: Written in English
+      - name: funny
         steps:
           - prompt: Seaside
-            expected_output: A funny joke, with a setup and punchline. It doesn't have to be hilarious.
+            expected_output: A joke, with a setup and punchline. It doesn't have to be hilarious.
