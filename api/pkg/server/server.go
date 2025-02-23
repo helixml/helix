@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -352,6 +353,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}", apiServer.getOrganization).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}", apiServer.updateOrganization).Methods(http.MethodPut)
 	authRouter.HandleFunc("/organizations/{id}", apiServer.deleteOrganization).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/members", apiServer.listOrganizationMembers).Methods(http.MethodGet)
 
 	// we know which app this is by the token that is used (which is linked to the app)
 	// this is so frontend devs don't need anything other than their access token
@@ -555,5 +557,16 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
 
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	}
+}
+
+func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
+	rw.WriteHeader(statusCode)
+
+	rw.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(rw).Encode(data)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 	}
 }

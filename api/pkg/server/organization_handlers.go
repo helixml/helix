@@ -30,13 +30,7 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(organizations)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	writeResponse(rw, organizations, http.StatusOK)
 }
 
 // getOrganization godoc
@@ -65,12 +59,7 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(organization)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-	}
+	writeResponse(rw, organization, http.StatusOK)
 }
 
 // createOrganization godoc
@@ -120,12 +109,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(createdOrg)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-	}
+	writeResponse(rw, createdOrg, http.StatusCreated)
 }
 
 // deleteOrganization godoc
@@ -210,10 +194,5 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(updatedOrganization)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-	}
+	writeResponse(rw, updatedOrganization, http.StatusOK)
 }
