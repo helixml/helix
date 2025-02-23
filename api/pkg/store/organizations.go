@@ -22,6 +22,10 @@ func (s *PostgresStore) CreateOrganization(ctx context.Context, org *types.Organ
 		org.ID = system.GenerateOrganizationID()
 	}
 
+	if org.Name == "" {
+		return nil, fmt.Errorf("name not specified")
+	}
+
 	if org.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
