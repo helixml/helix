@@ -77,9 +77,36 @@ type ListUsersQuery struct {
 	Username  string          `json:"username"`
 }
 
+var _ Store = &PostgresStore{}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
+	//  Auth + Authz
+	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
+	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
+	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
+	DeleteOrganization(ctx context.Context, id string) error
+	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
+
+	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
+	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)
+	UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
+	DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error
+	ListOrganizationMemberships(ctx context.Context, query *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error)
+
+	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
+	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
+	UpdateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
+	DeleteTeam(ctx context.Context, id string) error
+	ListTeams(ctx context.Context, query *ListTeamsQuery) ([]*types.Team, error)
+
+	CreateRole(ctx context.Context, role *types.Role) (*types.Role, error)
+	GetRole(ctx context.Context, id string) (*types.Role, error)
+	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
+	DeleteRole(ctx context.Context, id string) error
+	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
+
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
