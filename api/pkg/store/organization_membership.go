@@ -52,6 +52,7 @@ func (s *PostgresStore) GetOrganizationMembership(ctx context.Context, q *GetOrg
 	var membership types.OrganizationMembership
 	err := s.gdb.WithContext(ctx).
 		Where("organization_id = ? AND user_id = ?", q.OrganizationID, q.UserID).
+		Preload("User").
 		First(&membership).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

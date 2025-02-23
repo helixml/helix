@@ -60,7 +60,8 @@ type OrganizationMembership struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 
 	// Role - the role of the user in the organization (owner or member)
-	Role OrganizationRole `json:"role,omitempty" yaml:"role,omitempty"`
+	Role OrganizationRole `json:"role" yaml:"role"`
+	User User             `json:"user" yaml:"user"`
 }
 
 type OrganizationRole string
