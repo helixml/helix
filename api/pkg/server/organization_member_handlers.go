@@ -92,3 +92,34 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 
 	writeResponse(rw, membership, http.StatusCreated)
 }
+
+// removeOrganizationMember godoc
+// @Summary Remove an organization member
+// @Description Remove a member from an organization
+// @Tags    organizations
+// @Success 200
+// @Router /api/v1/organizations/{id}/members/{user_id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	orgID := mux.Vars(r)["id"]
+	userIDToRemove := mux.Vars(r)["user_id"]
+
+	// Check if user has access to modify members
+	err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	if err != nil {
+		log.Err(err).Msg("error authorizing org owner")
+		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		return
+	}
+
+	// Delete membership
+	err = apiServer.Store.DeleteOrganizationMembership(r.Context(), orgID, userIDToRemove)
+	if err != nil {
+		log.Err(err).Msg("error removing organization member")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, nil, http.StatusOK)
+}
