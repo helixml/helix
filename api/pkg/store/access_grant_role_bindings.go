@@ -60,9 +60,11 @@ func (s *PostgresStore) DeleteAccessGrantRoleBinding(ctx context.Context, access
 func (s *PostgresStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error) {
 	query := s.gdb.WithContext(ctx)
 
-	if q.AccessGrantID != "" {
-		query = query.Where("access_grant_id = ?", q.AccessGrantID)
+	if q.AccessGrantID == "" {
+		return nil, fmt.Errorf("access_grant_id must be specified")
 	}
+
+	query = query.Where("access_grant_id = ?", q.AccessGrantID)
 
 	if q.RoleID != "" {
 		query = query.Where("role_id = ?", q.RoleID)

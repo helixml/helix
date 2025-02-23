@@ -82,6 +82,11 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 	createdUserGrant, err := suite.db.CreateAccessGrant(suite.ctx, userAccessGrant, []*types.Role{})
 	suite.Require().NoError(err)
 
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteAccessGrant(suite.ctx, createdUserGrant.ID)
+		suite.NoError(err)
+	})
+
 	binding := &types.AccessGrantRoleBinding{
 		AccessGrantID:  createdUserGrant.ID,
 		RoleID:         suite.role.ID,
@@ -109,6 +114,11 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 	// Create access grant with no roles
 	createdTeamGrant, err := suite.db.CreateAccessGrant(suite.ctx, teamAccessGrant, []*types.Role{})
 	suite.Require().NoError(err)
+
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteAccessGrant(suite.ctx, createdTeamGrant.ID)
+		suite.NoError(err)
+	})
 
 	teamBinding := &types.AccessGrantRoleBinding{
 		AccessGrantID:  createdTeamGrant.ID,
@@ -174,6 +184,11 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 	createdUserGrant, err := suite.db.CreateAccessGrant(suite.ctx, userAccessGrant, []*types.Role{})
 	suite.Require().NoError(err)
 
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteAccessGrant(suite.ctx, createdUserGrant.ID)
+		suite.NoError(err)
+	})
+
 	userBinding := &types.AccessGrantRoleBinding{
 		AccessGrantID:  createdUserGrant.ID,
 		RoleID:         suite.role.ID,
@@ -209,43 +224,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 	})
 	suite.NoError(err)
 	suite.Len(bindings, 2)
-
-	// Test getting by role ID
-	bindings, err = suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		RoleID: suite.role.ID,
-	})
-	suite.NoError(err)
-	suite.Len(bindings, 2)
-
-	// Test getting by user ID
-	bindings, err = suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		UserID: "test-user-get",
-	})
-	suite.NoError(err)
-	suite.Len(bindings, 1)
-	suite.Equal("test-user-get", bindings[0].UserID)
-
-	// Test getting by team ID
-	bindings, err = suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		TeamID: "test-team-get",
-	})
-	suite.NoError(err)
-	suite.Len(bindings, 1)
-	suite.Equal("test-team-get", bindings[0].TeamID)
-
-	// Test getting by organization ID
-	bindings, err = suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		OrganizationID: suite.org.ID,
-	})
-	suite.NoError(err)
-	suite.NotEmpty(bindings)
-
-	// Test not found case
-	bindings, err = suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		UserID: "non-existent-user",
-	})
-	suite.NoError(err)
-	suite.Empty(bindings)
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding() {
