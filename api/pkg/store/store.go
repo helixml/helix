@@ -126,7 +126,7 @@ type Store interface {
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 
 	// users
-	GetUser(ctx context.Context, id string) (*types.User, error)
+	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
 	DeleteUser(ctx context.Context, id string) error

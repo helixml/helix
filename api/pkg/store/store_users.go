@@ -10,6 +10,11 @@ import (
 	"gorm.io/gorm"
 )
 
+type GetUserQuery struct {
+	ID    string
+	Email string
+}
+
 func (s *PostgresStore) GetUserMeta(ctx context.Context, userID string) (*types.UserMeta, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("userID cannot be empty")
@@ -60,13 +65,22 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 }
 
 // GetUser retrieves a user by ID
-func (s *PostgresStore) GetUser(ctx context.Context, userID string) (*types.User, error) {
-	if userID == "" {
-		return nil, fmt.Errorf("userID cannot be empty")
+func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
+	if q.ID == "" && q.Email == "" {
+		return nil, fmt.Errorf("userID or email cannot be empty")
+	}
+
+	query := s.gdb.WithContext(ctx)
+
+	if q.ID != "" {
+		query = query.Where("id = ?", q.ID)
+	}
+	if q.Email != "" {
+		query = query.Where("email = ?", q.Email)
 	}
 
 	var user types.User
-	err := s.gdb.WithContext(ctx).Where("id = ?", userID).First(&user).Error
+	err := query.First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound

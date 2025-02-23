@@ -64,6 +64,11 @@ type OrganizationMembership struct {
 	User User             `json:"user" yaml:"user"`
 }
 
+type AddOrganizationMemberRequest struct {
+	UserID    string `json:"user_id"`
+	UserEmail string `json:"user_email"`
+}
+
 type OrganizationRole string
 
 const (

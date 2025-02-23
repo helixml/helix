@@ -867,18 +867,18 @@ func (mr *MockStoreMockRecorder) GetTool(ctx, id any) *gomock.Call {
 }
 
 // GetUser mocks base method.
-func (m *MockStore) GetUser(ctx context.Context, id string) (*types.User, error) {
+func (m *MockStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetUser", ctx, id)
+	ret := m.ctrl.Call(m, "GetUser", ctx, q)
 	ret0, _ := ret[0].(*types.User)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetUser indicates an expected call of GetUser.
-func (mr *MockStoreMockRecorder) GetUser(ctx, id any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetUser(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUser", reflect.TypeOf((*MockStore)(nil).GetUser), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUser", reflect.TypeOf((*MockStore)(nil).GetUser), ctx, q)
 }
 
 // GetUserMeta mocks base method.
