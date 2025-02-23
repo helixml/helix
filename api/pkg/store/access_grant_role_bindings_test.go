@@ -223,7 +223,15 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 		AccessGrantID: createdUserGrant.ID,
 	})
 	suite.NoError(err)
-	suite.Len(bindings, 2)
+	suite.Len(bindings, 1, "should have 1 binding, team should have another one")
+	suite.Equal(userBinding.RoleID, bindings[0].RoleID, "role ID should match")
+
+	teamBindings, err := suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
+		AccessGrantID: createdTeamGrant.ID,
+	})
+	suite.NoError(err)
+	suite.Len(teamBindings, 1, "should have 1 binding, user should have another one")
+	suite.Equal(teamBinding.RoleID, teamBindings[0].RoleID, "role ID should match")
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding() {
