@@ -107,6 +107,14 @@ type Store interface {
 	DeleteRole(ctx context.Context, id string) error
 	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
 
+	CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error)
+	ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error)
+	DeleteAccessGrant(ctx context.Context, id string) error
+
+	CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error)
+	DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error
+	GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error)
+
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
