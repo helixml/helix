@@ -1,0 +1,104 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
+)
+
+type GetAccessGrantRoleBindingsQuery struct {
+	AccessGrantID  string
+	RoleID         string
+	OrganizationID string
+	TeamID         string
+	UserID         string
+}
+
+// CreateAccessGrantRoleBinding creates a new role binding for an access grant
+func (s *PostgresStore) CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error) {
+	if binding.AccessGrantID == "" {
+		return nil, fmt.Errorf("access_grant_id not specified")
+	}
+
+	if binding.RoleID == "" {
+		return nil, fmt.Errorf("role_id not specified")
+	}
+
+	if binding.OrganizationID == "" {
+		return nil, fmt.Errorf("organization_id not specified")
+	}
+
+	if binding.UserID == "" && binding.TeamID == "" {
+		return nil, fmt.Errorf("either user_id or team_id must be specified")
+	}
+
+	// If both are specified, return an error
+	if binding.UserID != "" && binding.TeamID != "" {
+		return nil, fmt.Errorf("either user_id or team_id must be specified, not both")
+	}
+
+	binding.CreatedAt = time.Now()
+	binding.UpdatedAt = time.Now()
+
+	err := s.gdb.WithContext(ctx).Create(binding).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return binding, nil
+}
+
+// DeleteAccessGrantRoleBinding deletes a role binding for an access grant
+func (s *PostgresStore) DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error {
+	if accessGrantID == "" {
+		return fmt.Errorf("access_grant_id must be specified")
+	}
+
+	if roleID == "" {
+		return fmt.Errorf("role_id must be specified")
+	}
+
+	return s.gdb.WithContext(ctx).
+		Where("access_grant_id = ? AND role_id = ?", accessGrantID, roleID).
+		Delete(&types.AccessGrantRoleBinding{}).Error
+}
+
+// GetAccessGrantRoleBindings retrieves role bindings based on the provided query parameters
+func (s *PostgresStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error) {
+	query := s.gdb.WithContext(ctx)
+
+	if q.AccessGrantID != "" {
+		query = query.Where("access_grant_id = ?", q.AccessGrantID)
+	}
+
+	if q.RoleID != "" {
+		query = query.Where("role_id = ?", q.RoleID)
+	}
+
+	if q.OrganizationID != "" {
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	}
+
+	if q.TeamID != "" {
+		query = query.Where("team_id = ?", q.TeamID)
+	}
+
+	if q.UserID != "" {
+		query = query.Where("user_id = ?", q.UserID)
+	}
+
+	var bindings []*types.AccessGrantRoleBinding
+	err := query.Find(&bindings).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return bindings, nil
+}
