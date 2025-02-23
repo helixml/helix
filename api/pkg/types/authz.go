@@ -34,7 +34,7 @@ type Organization struct {
 	UpdatedAt   time.Time                `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt           `gorm:"index" json:"deleted_at"`
 	Name        string                   `json:"name" gorm:"uniqueIndex"`
-	Slug        string                   `json:"slug"`
+	DisplayName string                   `json:"display_name"`
 	Owner       string                   `json:"owner"`                                                           // Who created the org
 	Teams       []Team                   `json:"teams" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Teams in the organization
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
