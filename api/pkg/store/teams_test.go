@@ -33,6 +33,10 @@ func (suite *TeamsTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
+	suite.T().Cleanup(func() {
+		_ = suite.db.Close()
+	})
+
 	// Create a test organization for all team tests
 	orgID := system.GenerateOrganizationID()
 	org := &types.Organization{

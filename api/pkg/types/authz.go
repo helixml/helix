@@ -272,7 +272,7 @@ func (Config) GormDataType() string {
 }
 
 // GormDBDataType gorm db data type
-func (Config) GormDBDataType(db *gorm.DB, field *schema.Field) string {
+func (Config) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
 	switch db.Dialector.Name() {
 	case "sqlite":
 		return "JSON"

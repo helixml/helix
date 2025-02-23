@@ -67,6 +67,14 @@ func NewPostgresStore(
 	return store, nil
 }
 
+func (s *PostgresStore) Close() error {
+	sqlDB, err := s.gdb.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 type MigrationScript struct {
 	Name   string `gorm:"primaryKey"`
 	HasRun bool

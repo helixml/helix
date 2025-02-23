@@ -34,6 +34,10 @@ func (suite *RolesTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
+	suite.T().Cleanup(func() {
+		_ = suite.db.Close()
+	})
+
 	// Create a test organization for all role tests
 	orgID := uuid.New().String()
 	org := &types.Organization{

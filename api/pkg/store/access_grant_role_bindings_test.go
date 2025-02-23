@@ -34,6 +34,10 @@ func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
+	suite.T().Cleanup(func() {
+		_ = suite.db.Close()
+	})
+
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
 	org := &types.Organization{
