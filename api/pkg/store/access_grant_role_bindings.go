@@ -14,8 +14,6 @@ type GetAccessGrantRoleBindingsQuery struct {
 	AccessGrantID  string
 	RoleID         string
 	OrganizationID string
-	TeamID         string
-	UserID         string
 }
 
 // CreateAccessGrantRoleBinding creates a new role binding for an access grant
@@ -72,14 +70,6 @@ func (s *PostgresStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAc
 
 	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
-	}
-
-	if q.TeamID != "" {
-		query = query.Where("team_id = ?", q.TeamID)
-	}
-
-	if q.UserID != "" {
-		query = query.Where("user_id = ?", q.UserID)
 	}
 
 	var bindings []*types.AccessGrantRoleBinding
