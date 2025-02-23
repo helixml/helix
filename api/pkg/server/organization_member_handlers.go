@@ -136,8 +136,8 @@ func (apiServer *HelixAPIServer) updateOrganizationMember(rw http.ResponseWriter
 	orgID := mux.Vars(r)["id"]
 	userIDToUpdate := mux.Vars(r)["user_id"]
 
-	// Check if user has access to modify members
-	err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	// Check if user has access to modify members (needs to be an owner)
+	err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
