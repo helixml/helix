@@ -130,7 +130,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 
 // deleteOrganization godoc
 // @Summary Delete an organization
-// @Description Delete an organization
+// @Description Delete an organization, must be an owner of the organization
 // @Tags    organizations
 
 // @Success 200 {object} types.Organization
@@ -175,7 +175,7 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 
 // updateOrganization godoc
 // @Summary Update an organization
-// @Description Update an organization
+// @Description Update an organization, must be an owner of the organization
 // @Tags    organizations
 
 // @Success 200 {object} types.Organization
