@@ -17,11 +17,10 @@ func TestAccessGrantRoleBindingTestSuite(t *testing.T) {
 
 type AccessGrantRoleBindingTestSuite struct {
 	suite.Suite
-	ctx   context.Context
-	db    *PostgresStore
-	org   *types.Organization
-	grant *types.AccessGrant
-	role  *types.Role
+	ctx  context.Context
+	db   *PostgresStore
+	org  *types.Organization
+	role *types.Role
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
@@ -56,27 +55,10 @@ func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	createdRole, err := suite.db.CreateRole(suite.ctx, role)
 	suite.Require().NoError(err)
 	suite.role = createdRole
-
-	// Create a test access grant
-	accessGrant := &types.AccessGrant{
-		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
-		ResourceID:     "test-dataset",
-		UserID:         "test-user",
-	}
-
-	// Create access grant with no roles
-	createdGrant, err := suite.db.CreateAccessGrant(suite.ctx, accessGrant, []*types.Role{})
-	suite.Require().NoError(err)
-	suite.grant = createdGrant
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
 	// Clean up in reverse order of creation
-	if suite.grant != nil {
-		err := suite.db.DeleteAccessGrant(suite.ctx, suite.grant.ID)
-		suite.NoError(err)
-	}
 	if suite.role != nil {
 		err := suite.db.DeleteRole(suite.ctx, suite.role.ID)
 		suite.NoError(err)
@@ -88,12 +70,22 @@ func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding() {
-	// Test successful creation with user
+	// Create a test access grant
+	userAccessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     "test-dataset",
+		UserID:         "test-user",
+	}
+
+	// Create access grant with no roles
+	createdUserGrant, err := suite.db.CreateAccessGrant(suite.ctx, userAccessGrant, []*types.Role{})
+	suite.Require().NoError(err)
+
 	binding := &types.AccessGrantRoleBinding{
-		AccessGrantID:  suite.grant.ID,
+		AccessGrantID:  createdUserGrant.ID,
 		RoleID:         suite.role.ID,
 		OrganizationID: suite.org.ID,
-		UserID:         "test-user",
 	}
 
 	created, err := suite.db.CreateAccessGrantRoleBinding(suite.ctx, binding)
@@ -102,23 +94,38 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 	suite.Equal(binding.AccessGrantID, created.AccessGrantID)
 	suite.Equal(binding.RoleID, created.RoleID)
 	suite.Equal(binding.OrganizationID, created.OrganizationID)
-	suite.Equal(binding.UserID, created.UserID)
 	suite.False(created.CreatedAt.IsZero())
 	suite.False(created.UpdatedAt.IsZero())
 
 	// Test successful creation with team
+
+	teamAccessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     "test-dataset",
+		TeamID:         "test-TestCreateAccessGrantRoleBinding",
+	}
+
+	// Create access grant with no roles
+	createdTeamGrant, err := suite.db.CreateAccessGrant(suite.ctx, teamAccessGrant, []*types.Role{})
+	suite.Require().NoError(err)
+
 	teamBinding := &types.AccessGrantRoleBinding{
-		AccessGrantID:  suite.grant.ID,
+		AccessGrantID:  createdTeamGrant.ID,
 		RoleID:         suite.role.ID,
 		OrganizationID: suite.org.ID,
-		TeamID:         "test-team",
 	}
 
 	created, err = suite.db.CreateAccessGrantRoleBinding(suite.ctx, teamBinding)
 	suite.Require().NoError(err)
 	suite.NotNil(created)
-	suite.Equal(teamBinding.TeamID, created.TeamID)
 
+	// Should have role ID and access grant ID
+	suite.Equal(teamBinding.RoleID, created.RoleID)
+	suite.Equal(teamBinding.AccessGrantID, created.AccessGrantID)
+}
+
+func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrant_Validation() {
 	// Test validation errors
 	invalidCases := []struct {
 		name    string
@@ -129,41 +136,20 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 			binding: &types.AccessGrantRoleBinding{
 				RoleID:         suite.role.ID,
 				OrganizationID: suite.org.ID,
-				UserID:         "test-user",
 			},
 		},
 		{
 			name: "missing role ID",
 			binding: &types.AccessGrantRoleBinding{
-				AccessGrantID:  suite.grant.ID,
+				AccessGrantID:  "access-grant-id",
 				OrganizationID: suite.org.ID,
-				UserID:         "test-user",
 			},
 		},
 		{
 			name: "missing organization ID",
 			binding: &types.AccessGrantRoleBinding{
-				AccessGrantID: suite.grant.ID,
+				AccessGrantID: "access-grant-id",
 				RoleID:        suite.role.ID,
-				UserID:        "test-user",
-			},
-		},
-		{
-			name: "missing both user and team ID",
-			binding: &types.AccessGrantRoleBinding{
-				AccessGrantID:  suite.grant.ID,
-				RoleID:         suite.role.ID,
-				OrganizationID: suite.org.ID,
-			},
-		},
-		{
-			name: "both user and team ID specified",
-			binding: &types.AccessGrantRoleBinding{
-				AccessGrantID:  suite.grant.ID,
-				RoleID:         suite.role.ID,
-				OrganizationID: suite.org.ID,
-				UserID:         "test-user",
-				TeamID:         "test-team",
 			},
 		},
 	}
@@ -177,22 +163,41 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
-	// Create test bindings
+	userAccessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     "test-dataset",
+		UserID:         "test-user",
+	}
+
+	// Create access grant with no roles
+	createdUserGrant, err := suite.db.CreateAccessGrant(suite.ctx, userAccessGrant, []*types.Role{})
+	suite.Require().NoError(err)
+
 	userBinding := &types.AccessGrantRoleBinding{
-		AccessGrantID:  suite.grant.ID,
+		AccessGrantID:  createdUserGrant.ID,
 		RoleID:         suite.role.ID,
 		OrganizationID: suite.org.ID,
-		UserID:         "test-user-get",
 	}
+
+	teamAccessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     "test-dataset",
+		TeamID:         "test-TestCreateAccessGrantRoleBinding",
+	}
+
+	// Create access grant with no roles
+	createdTeamGrant, err := suite.db.CreateAccessGrant(suite.ctx, teamAccessGrant, []*types.Role{})
+	suite.Require().NoError(err)
 
 	teamBinding := &types.AccessGrantRoleBinding{
-		AccessGrantID:  suite.grant.ID,
+		AccessGrantID:  createdTeamGrant.ID,
 		RoleID:         suite.role.ID,
 		OrganizationID: suite.org.ID,
-		TeamID:         "test-team-get",
 	}
 
-	_, err := suite.db.CreateAccessGrantRoleBinding(suite.ctx, userBinding)
+	_, err = suite.db.CreateAccessGrantRoleBinding(suite.ctx, userBinding)
 	suite.Require().NoError(err)
 
 	_, err = suite.db.CreateAccessGrantRoleBinding(suite.ctx, teamBinding)
@@ -200,7 +205,7 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 
 	// Test getting by access grant ID
 	bindings, err := suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		AccessGrantID: suite.grant.ID,
+		AccessGrantID: createdUserGrant.ID,
 	})
 	suite.NoError(err)
 	suite.Len(bindings, 2)

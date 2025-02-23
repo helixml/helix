@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-type GetAccessGrantQuery struct {
+type ListAccessGrantsQuery struct {
 	OrganizationID string
 	ResourceType   types.Resource
 	ResourceID     string
@@ -78,8 +78,8 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 	return resourceAccess, nil
 }
 
-// GetAccessGrant retrieves access grants by resource type, resource ID and either user ID or team IDs
-func (s *PostgresStore) GetAccessGrant(ctx context.Context, q *GetAccessGrantQuery) ([]*types.AccessGrant, error) {
+// ListAccessGrants retrieves access grants by resource type, resource ID and either user ID or team IDs
+func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error) {
 	if q.ResourceType == "" {
 		return nil, fmt.Errorf("resource type must be specified")
 	}

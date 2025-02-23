@@ -186,7 +186,7 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	suite.Require().NoError(err)
 
 	// Test successful get by user ID
-	found, err := suite.db.GetAccessGrant(suite.ctx, &GetAccessGrantQuery{
+	found, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
 		OrganizationID: suite.org.ID,
 		ResourceType:   created.ResourceType,
 		ResourceID:     created.ResourceID,
@@ -210,7 +210,7 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	created, err = suite.db.CreateAccessGrant(suite.ctx, teamAccessGrant, roles)
 	suite.Require().NoError(err)
 
-	found, err = suite.db.GetAccessGrant(suite.ctx, &GetAccessGrantQuery{
+	found, err = suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
 		OrganizationID: suite.org.ID,
 		ResourceType:   created.ResourceType,
 		ResourceID:     created.ResourceID,
@@ -221,7 +221,7 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	suite.Equal(created.TeamID, found[0].TeamID)
 
 	// Test not found
-	found, err = suite.db.GetAccessGrant(suite.ctx, &GetAccessGrantQuery{
+	found, err = suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
 		OrganizationID: suite.org.ID,
 		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "non-existent",
@@ -233,25 +233,25 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	// Test validation errors
 	invalidQueries := []struct {
 		name  string
-		query *GetAccessGrantQuery
+		query *ListAccessGrantsQuery
 	}{
 		{
 			name: "missing resource type",
-			query: &GetAccessGrantQuery{
+			query: &ListAccessGrantsQuery{
 				ResourceID: "test-dataset",
 				UserID:     "test-user",
 			},
 		},
 		{
 			name: "missing resource ID",
-			query: &GetAccessGrantQuery{
+			query: &ListAccessGrantsQuery{
 				ResourceType: types.ResourceTypeDataset,
 				UserID:       "test-user",
 			},
 		},
 		{
 			name: "missing both user and team IDs",
-			query: &GetAccessGrantQuery{
+			query: &ListAccessGrantsQuery{
 				ResourceType: types.ResourceTypeDataset,
 				ResourceID:   "test-dataset",
 			},
@@ -260,7 +260,7 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 
 	for _, tc := range invalidQueries {
 		suite.T().Run(tc.name, func(_ *testing.T) {
-			_, err := suite.db.GetAccessGrant(suite.ctx, tc.query)
+			_, err := suite.db.ListAccessGrants(suite.ctx, tc.query)
 			suite.Error(err)
 		})
 	}
@@ -297,7 +297,7 @@ func (suite *AccessGrantTestSuite) TestDeleteAccessGrant() {
 	suite.Require().NoError(err)
 
 	// Verify deletion
-	found, err := suite.db.GetAccessGrant(suite.ctx, &GetAccessGrantQuery{
+	found, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
 		OrganizationID: suite.org.ID,
 		ResourceType:   created.ResourceType,
 		ResourceID:     created.ResourceID,
