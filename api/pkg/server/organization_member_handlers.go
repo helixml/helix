@@ -123,3 +123,56 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 
 	writeResponse(rw, nil, http.StatusOK)
 }
+
+// updateOrganizationMember godoc
+// @Summary Update an organization member
+// @Description Update a member's role in an organization
+// @Tags    organizations
+// @Success 200 {object} types.OrganizationMembership
+// @Router /api/v1/organizations/{id}/members/{user_id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateOrganizationMember(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	orgID := mux.Vars(r)["id"]
+	userIDToUpdate := mux.Vars(r)["user_id"]
+
+	// Check if user has access to modify members
+	err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	if err != nil {
+		log.Err(err).Msg("error authorizing org owner")
+		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		return
+	}
+
+	var req types.UpdateOrganizationMemberRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		log.Err(err).Msg("error decoding request body")
+		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing membership
+	membership, err := apiServer.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         userIDToUpdate,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting organization membership")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update role
+	membership.Role = req.Role
+
+	// Save updated membership
+	updatedMembership, err := apiServer.Store.UpdateOrganizationMembership(r.Context(), membership)
+	if err != nil {
+		log.Err(err).Msg("error updating organization membership")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, updatedMembership, http.StatusOK)
+}
