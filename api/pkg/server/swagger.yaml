@@ -515,6 +515,13 @@ definitions:
     - ActionUpdate
     - ActionCreate
     - ActionUseAction
+  types.AddOrganizationMemberRequest:
+    properties:
+      user_email:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.App:
     properties:
       app_source:
@@ -760,6 +767,13 @@ definitions:
       message:
         $ref: '#/definitions/types.OpenAIMessage'
       text:
+        type: string
+    type: object
+  types.CreateTeamRequest:
+    properties:
+      name:
+        type: string
+      organization_id:
         type: string
     type: object
   types.CreatorType:
@@ -1929,6 +1943,11 @@ definitions:
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
     type: object
+  types.UpdateOrganizationMemberRequest:
+    properties:
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
+    type: object
   types.UpdateProviderEndpoint:
     properties:
       api_key:
@@ -1948,6 +1967,11 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  types.UpdateTeamRequest:
+    properties:
+      name:
+        type: string
     type: object
   types.User:
     properties:
@@ -2183,6 +2207,14 @@ paths:
       security:
       - BearerAuth: []
     post:
+      description: Create a new organization
+      parameters:
+      - description: Request body with organization configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Organization'
       responses:
         "200":
           description: OK
@@ -2190,6 +2222,9 @@ paths:
             $ref: '#/definitions/types.Organization'
       security:
       - BearerAuth: []
+      summary: Create a new organization
+      tags:
+      - organizations
   /api/v1/organizations/{id}:
     delete:
       responses:
@@ -2206,6 +2241,14 @@ paths:
           schema:
             $ref: '#/definitions/types.Organization'
     put:
+      description: Update an organization, must be an owner of the organization
+      parameters:
+      - description: Request body with organization configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Organization'
       responses:
         "200":
           description: OK
@@ -2213,6 +2256,9 @@ paths:
             $ref: '#/definitions/types.Organization'
       security:
       - BearerAuth: []
+      summary: Update an organization
+      tags:
+      - organizations
   /api/v1/organizations/{id}/members:
     get:
       description: List members of an organization
@@ -2230,6 +2276,13 @@ paths:
       - organizations
     post:
       description: Add a member to an organization
+      parameters:
+      - description: Request body with user email to add.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddOrganizationMemberRequest'
       responses:
         "200":
           description: OK
@@ -2238,6 +2291,111 @@ paths:
       security:
       - BearerAuth: []
       summary: Add an organization member
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/members/{user_id}:
+    delete:
+      description: Remove a member from an organization
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Remove an organization member
+      tags:
+      - organizations
+    put:
+      description: Update a member's role in an organization
+      parameters:
+      - description: Request body with role to update to.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateOrganizationMemberRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrganizationMembership'
+      security:
+      - BearerAuth: []
+      summary: Update an organization member
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/teams:
+    get:
+      description: List all teams in an organization. Organization members can list
+        teams.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Team'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List teams in an organization
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      description: Create a new team in an organization. Only organization owners
+        can create teams.
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateTeamRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Team'
+      security:
+      - BearerAuth: []
+      summary: Create a new team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/teams/{team_id}:
+    delete:
+      description: Delete a team from an organization. Only organization owners can
+        delete teams.
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Delete a team
+      tags:
+      - organizations
+    put:
+      consumes:
+      - application/json
+      description: Update a team's details. Only organization owners can update teams.
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateTeamRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Team'
+      security:
+      - BearerAuth: []
+      summary: Update a team
       tags:
       - organizations
   /api/v1/providers:
