@@ -66,7 +66,7 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 // @Summary Create a new organization
 // @Description Create a new organization
 // @Tags    organizations
-
+// @Param request    body types.Organization true "Request body with organization configuration.")
 // @Success 200 {object} types.Organization
 // @Router /api/v1/organizations [post]
 // @Security BearerAuth
@@ -161,7 +161,7 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 // @Summary Update an organization
 // @Description Update an organization, must be an owner of the organization
 // @Tags    organizations
-
+// @Param request    body types.Organization true "Request body with organization configuration.")
 // @Success 200 {object} types.Organization
 // @Router /api/v1/organizations/{id} [put]
 // @Security BearerAuth

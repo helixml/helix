@@ -46,6 +46,7 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 // @Description Add a member to an organization
 // @Tags    organizations
 // @Success 200 {object} types.OrganizationMembership
+// @Param request    body types.AddOrganizationMemberRequest true "Request body with user email to add.")
 // @Router /api/v1/organizations/{id}/members [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r *http.Request) {
@@ -129,6 +130,7 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 // @Description Update a member's role in an organization
 // @Tags    organizations
 // @Success 200 {object} types.OrganizationMembership
+// @Param request    body types.UpdateOrganizationMemberRequest true "Request body with role to update to.")
 // @Router /api/v1/organizations/{id}/members/{user_id} [put]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) updateOrganizationMember(rw http.ResponseWriter, r *http.Request) {
