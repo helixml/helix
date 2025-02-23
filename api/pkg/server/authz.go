@@ -29,3 +29,23 @@ func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *ty
 
 	return nil
 }
+
+// deleting used to check if the user is a member of the organization to perform certain actions
+// such as listing teams, listing members, etc
+func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) error {
+	memberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+		OrganizationID: orgID,
+		UserID:         user.ID,
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(memberships) == 0 {
+		return fmt.Errorf("user is not a member of this organization")
+	}
+
+	// Both roles (owner or member) can list teams and members
+
+	return nil
+}
