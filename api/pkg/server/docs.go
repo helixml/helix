@@ -310,6 +310,22 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Create a new organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create a new organization",
+                "parameters": [
+                    {
+                        "description": "Request body with organization configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -335,6 +351,22 @@ const docTemplate = `{
                 "security": [
                     {
                         "BearerAuth": []
+                    }
+                ],
+                "description": "Update an organization, must be an owner of the organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization",
+                "parameters": [
+                    {
+                        "description": "Request body with organization configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
                     }
                 ],
                 "responses": {
@@ -397,12 +429,191 @@ const docTemplate = `{
                     "organizations"
                 ],
                 "summary": "Add an organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with user email to add.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddOrganizationMemberRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.OrganizationMembership"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/members/{user_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a member's role in an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with role to update to.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateOrganizationMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationMembership"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a member from an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Remove an organization member",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/teams": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all teams in an organization. Organization members can list teams.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List teams in an organization",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Team"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new team in an organization. Only organization owners can create teams.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create a new team",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateTeamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.Team"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/teams/{team_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a team's details. Only organization owners can update teams.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update a team",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateTeamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Team"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a team from an organization. Only organization owners can delete teams.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Delete a team",
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     }
                 }
             }
@@ -1420,6 +1631,17 @@ const docTemplate = `{
                 "ActionUseAction"
             ]
         },
+        "types.AddOrganizationMemberRequest": {
+            "type": "object",
+            "properties": {
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.App": {
             "type": "object",
             "properties": {
@@ -1775,6 +1997,17 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.OpenAIMessage"
                 },
                 "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateTeamRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 }
             }
@@ -3427,6 +3660,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UpdateOrganizationMemberRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
+                }
+            }
+        },
         "types.UpdateProviderEndpoint": {
             "type": "object",
             "properties": {
@@ -3456,6 +3697,14 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "types.UpdateTeamRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
                 }
             }
         },
