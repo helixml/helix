@@ -76,7 +76,7 @@ func (s *PostgresStore) ListOrganizationMemberships(ctx context.Context, q *List
 	}
 
 	var memberships []*types.OrganizationMembership
-	err := query.Find(&memberships).Error
+	err := query.Preload("User").Find(&memberships).Error
 	if err != nil {
 		return nil, err
 	}

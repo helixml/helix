@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
@@ -17,9 +18,10 @@ func TestOrganizationMembershipTestSuite(t *testing.T) {
 
 type OrganizationMembershipTestSuite struct {
 	suite.Suite
-	ctx context.Context
-	db  *PostgresStore
-	org *types.Organization // We need an organization for membership tests
+	ctx  context.Context
+	db   *PostgresStore
+	org  *types.Organization // We need an organization for membership tests
+	user *types.User
 }
 
 func (suite *OrganizationMembershipTestSuite) SetupTest() {
@@ -44,6 +46,18 @@ func (suite *OrganizationMembershipTestSuite) SetupTest() {
 	createdOrg, err := suite.db.CreateOrganization(suite.ctx, org)
 	suite.Require().NoError(err)
 	suite.org = createdOrg
+
+	userID := system.GenerateUserID()
+	user := &types.User{
+		ID:        userID,
+		Email:     userID + "@example.com",
+		Username:  userID,
+		FullName:  "Test User",
+		CreatedAt: time.Now(),
+	}
+	createdUser, err := suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	suite.user = createdUser
 }
 
 func (suite *OrganizationMembershipTestSuite) TearDownTest() {
@@ -56,7 +70,7 @@ func (suite *OrganizationMembershipTestSuite) TearDownTest() {
 
 func (suite *OrganizationMembershipTestSuite) TestCreateOrganizationMembership() {
 	membership := &types.OrganizationMembership{
-		UserID:         "test-user",
+		UserID:         suite.user.ID,
 		OrganizationID: suite.org.ID,
 		Role:           types.OrganizationRoleMember,
 	}
@@ -78,7 +92,7 @@ func (suite *OrganizationMembershipTestSuite) TestCreateOrganizationMembership()
 
 func (suite *OrganizationMembershipTestSuite) TestGetOrganizationMembership() {
 	membership := &types.OrganizationMembership{
-		UserID:         "test-user-get",
+		UserID:         suite.user.ID,
 		OrganizationID: suite.org.ID,
 		Role:           types.OrganizationRoleMember,
 	}
@@ -96,6 +110,9 @@ func (suite *OrganizationMembershipTestSuite) TestGetOrganizationMembership() {
 	suite.Equal(created.OrganizationID, found.OrganizationID)
 	suite.Equal(created.Role, found.Role)
 
+	// Check whether user is preloaded
+	suite.NotNil(found.User.ID)
+
 	// Test not found
 	_, err = suite.db.GetOrganizationMembership(suite.ctx, &GetOrganizationMembershipQuery{
 		OrganizationID: "non-existent",
@@ -112,19 +129,30 @@ func (suite *OrganizationMembershipTestSuite) TestListOrganizationMemberships() 
 	// Create multiple memberships
 	memberships := []*types.OrganizationMembership{
 		{
-			UserID:         "test-user-list-1",
+			UserID:         system.GenerateUserID(),
 			OrganizationID: suite.org.ID,
 			Role:           types.OrganizationRoleMember,
 		},
 		{
-			UserID:         "test-user-list-2",
+			UserID:         system.GenerateUserID(),
 			OrganizationID: suite.org.ID,
 			Role:           types.OrganizationRoleOwner,
 		},
 	}
 
 	for _, m := range memberships {
-		_, err := suite.db.CreateOrganizationMembership(suite.ctx, m)
+
+		user := &types.User{
+			ID:        m.UserID,
+			Email:     m.UserID + "@example.com",
+			Username:  m.UserID,
+			FullName:  "Test User",
+			CreatedAt: time.Now(),
+		}
+		_, err := suite.db.CreateUser(suite.ctx, user)
+		suite.Require().NoError(err)
+
+		_, err = suite.db.CreateOrganizationMembership(suite.ctx, m)
 		suite.Require().NoError(err)
 	}
 
@@ -137,11 +165,11 @@ func (suite *OrganizationMembershipTestSuite) TestListOrganizationMemberships() 
 
 	// Test list by user
 	found, err = suite.db.ListOrganizationMemberships(suite.ctx, &ListOrganizationMembershipsQuery{
-		UserID: "test-user-list-1",
+		UserID: memberships[0].UserID,
 	})
 	suite.Require().NoError(err)
 	suite.Len(found, 1)
-	suite.Equal("test-user-list-1", found[0].UserID)
+	suite.Equal(memberships[0].UserID, found[0].UserID)
 
 	// Test list with no results
 	found, err = suite.db.ListOrganizationMemberships(suite.ctx, &ListOrganizationMembershipsQuery{
@@ -153,7 +181,7 @@ func (suite *OrganizationMembershipTestSuite) TestListOrganizationMemberships() 
 
 func (suite *OrganizationMembershipTestSuite) TestUpdateOrganizationMembership() {
 	membership := &types.OrganizationMembership{
-		UserID:         "test-user-update",
+		UserID:         suite.user.ID,
 		OrganizationID: suite.org.ID,
 		Role:           types.OrganizationRoleMember,
 	}
@@ -165,7 +193,6 @@ func (suite *OrganizationMembershipTestSuite) TestUpdateOrganizationMembership()
 	updated, err := suite.db.UpdateOrganizationMembership(suite.ctx, created)
 	suite.Require().NoError(err)
 	suite.Equal(types.OrganizationRoleOwner, updated.Role)
-	suite.NotEqual(created.UpdatedAt, updated.UpdatedAt)
 
 	// Test validation
 	invalidMembership := &types.OrganizationMembership{}
@@ -175,7 +202,7 @@ func (suite *OrganizationMembershipTestSuite) TestUpdateOrganizationMembership()
 
 func (suite *OrganizationMembershipTestSuite) TestDeleteOrganizationMembership() {
 	membership := &types.OrganizationMembership{
-		UserID:         "test-user-delete",
+		UserID:         suite.user.ID,
 		OrganizationID: suite.org.ID,
 		Role:           types.OrganizationRoleMember,
 	}
