@@ -46,7 +46,7 @@ func (s *PostgresStore) CreateAccessGrantRoleBinding(ctx context.Context, bindin
 
 	err := s.gdb.WithContext(ctx).Create(binding).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create access grant role binding (access_grant_id: %s, role_id: %s, organization_id: %s): %w", binding.AccessGrantID, binding.RoleID, binding.OrganizationID, err)
 	}
 
 	return binding, nil
