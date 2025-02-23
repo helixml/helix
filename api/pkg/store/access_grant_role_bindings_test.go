@@ -227,16 +227,43 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding() {
-	// Create a test binding
+	userAccessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     "test-app-id",
+		UserID:         "test-TestDeleteAccessGrantRoleBinding",
+	}
+
+	// Create access grant with no roles
+	createdUserGrant, err := suite.db.CreateAccessGrant(suite.ctx, userAccessGrant, []*types.Role{})
+	suite.Require().NoError(err)
+
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteAccessGrant(suite.ctx, createdUserGrant.ID)
+		suite.NoError(err)
+	})
+
 	binding := &types.AccessGrantRoleBinding{
-		AccessGrantID:  suite.grant.ID,
+		AccessGrantID:  createdUserGrant.ID,
 		RoleID:         suite.role.ID,
 		OrganizationID: suite.org.ID,
-		UserID:         "test-user-delete",
 	}
 
 	created, err := suite.db.CreateAccessGrantRoleBinding(suite.ctx, binding)
 	suite.Require().NoError(err)
+
+	// Get the access grant and check whether the binding is present
+	accessGrants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     userAccessGrant.ResourceID,
+		UserID:         userAccessGrant.UserID,
+	})
+	suite.NoError(err)
+	suite.Len(accessGrants, 1)
+
+	// Check that the binding is present
+	suite.Equal(suite.role.ID, accessGrants[0].Roles[0].ID, "role ID should match")
 
 	// Test successful deletion
 	err = suite.db.DeleteAccessGrantRoleBinding(suite.ctx, created.AccessGrantID, created.RoleID)
@@ -254,6 +281,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding()
 	err = suite.db.DeleteAccessGrantRoleBinding(suite.ctx, "", suite.role.ID)
 	suite.Error(err)
 
-	err = suite.db.DeleteAccessGrantRoleBinding(suite.ctx, suite.grant.ID, "")
+	err = suite.db.DeleteAccessGrantRoleBinding(suite.ctx, createdUserGrant.ID, "")
 	suite.Error(err)
 }
