@@ -301,3 +301,12 @@ func (m *Config) Scan(src interface{}) error {
 	*m = result
 	return nil
 }
+
+type CreateTeamRequest struct {
+	Name           string `json:"name"`
+	OrganizationID string `json:"organization_id"`
+}
+
+type UpdateTeamRequest struct {
+	Name string `json:"name"`
+}
