@@ -33,6 +33,10 @@ func (suite *PGVectorStoreTestSuite) SetupTest() {
 	store, err := NewPGVectorStore(&serverCfg)
 	suite.NoError(err)
 
+	suite.T().Cleanup(func() {
+		_ = store.Close()
+	})
+
 	suite.db = store
 }
 

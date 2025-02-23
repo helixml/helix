@@ -52,6 +52,13 @@ type PGVectorStore struct {
 	gdb *gorm.DB
 }
 
+func (s *PGVectorStore) Close() error {
+	sqlDB, err := s.gdb.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
 func (s *PGVectorStore) autoMigratePGVector() error {
 	err := s.gdb.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error
 	if err != nil {
