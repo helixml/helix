@@ -285,6 +285,128 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Organization"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List members of an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization members",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrganizationMembership"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Add a member to an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Add an organization member",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationMembership"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/providers": {
             "get": {
                 "security": [
@@ -351,7 +473,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.ProviderEndpoint"
+                            "$ref": "#/definitions/types.UpdateProviderEndpoint"
                         }
                     }
                 }
@@ -618,6 +740,17 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_helixml_helix_api_pkg_types.Config": {
+            "type": "object",
+            "properties": {
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Rule"
+                    }
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Tool": {
             "type": "object",
             "properties": {
@@ -1118,6 +1251,18 @@ const docTemplate = `{
                 }
             }
         },
+        "gorm.DeletedAt": {
+            "type": "object",
+            "properties": {
+                "time": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if Time is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
         "openai.ChatCompletionResponseFormatJSONSchema": {
             "type": "object",
             "properties": {
@@ -1252,6 +1397,28 @@ const docTemplate = `{
                     "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
                 }
             }
+        },
+        "types.Action": {
+            "type": "string",
+            "enum": [
+                "Get",
+                "List",
+                "Delete",
+                "Update",
+                "Create",
+                "UseAction"
+            ],
+            "x-enum-comments": {
+                "ActionUseAction": "For example \"use app\""
+            },
+            "x-enum-varnames": [
+                "ActionGet",
+                "ActionList",
+                "ActionDelete",
+                "ActionUpdate",
+                "ActionCreate",
+                "ActionUseAction"
+            ]
         },
         "types.App": {
             "type": "object",
@@ -1663,6 +1830,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Effect": {
+            "type": "string",
+            "enum": [
+                "allow",
+                "deny"
+            ],
+            "x-enum-varnames": [
+                "EffectAllow",
+                "EffectDeny"
+            ]
+        },
         "types.Firecrawl": {
             "type": "object",
             "properties": {
@@ -2069,6 +2247,35 @@ const docTemplate = `{
                 "LLMCallStepGenerateTitle"
             ]
         },
+        "types.Membership": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "team": {
+                    "$ref": "#/definitions/types.Team"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "extra data fields (optional)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "composite key",
+                    "type": "string"
+                }
+            }
+        },
         "types.Message": {
             "type": "object",
             "properties": {
@@ -2190,6 +2397,98 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Organization": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "memberships": {
+                    "description": "Memberships in the organization",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OrganizationMembership"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "Who created the org",
+                    "type": "string"
+                },
+                "roles": {
+                    "description": "Roles in the organization",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "teams": {
+                    "description": "Teams in the organization",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Team"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationMembership": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role - the role of the user in the organization (owner or member)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OrganizationRole"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
+                },
+                "user_id": {
+                    "description": "composite key",
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationRole": {
+            "type": "string",
+            "enum": [
+                "owner",
+                "member"
+            ],
+            "x-enum-comments": {
+                "OrganizationRoleMember": "Can see every member and team in the organization and can create new apps",
+                "OrganizationRoleOwner": "Has full administrative access to the entire organization."
+            },
+            "x-enum-varnames": [
+                "OrganizationRoleOwner",
+                "OrganizationRoleMember"
+            ]
+        },
         "types.OwnerType": {
             "type": "string",
             "enum": [
@@ -2256,6 +2555,10 @@ const docTemplate = `{
                 },
                 "created": {
                     "type": "string"
+                },
+                "default": {
+                    "description": "Set from environment variable",
+                    "type": "boolean"
                 },
                 "description": {
                     "type": "string"
@@ -2379,6 +2682,33 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Resource": {
+            "type": "string",
+            "enum": [
+                "Team",
+                "Organization",
+                "Role",
+                "Membership",
+                "MembershipRoleBinding",
+                "Application",
+                "Knowledge",
+                "User",
+                "*",
+                "Dataset"
+            ],
+            "x-enum-varnames": [
+                "ResourceTeam",
+                "ResourceOrganization",
+                "ResourceRole",
+                "ResourceMembership",
+                "ResourceMembershipRoleBinding",
+                "ResourceApplication",
+                "ResourceKnowledge",
+                "ResourceUser",
+                "ResourceAny",
+                "ResourceTypeDataset"
+            ]
+        },
         "types.ResponseFormat": {
             "type": "object",
             "properties": {
@@ -2400,6 +2730,52 @@ const docTemplate = `{
                 "ResponseFormatTypeJSONObject",
                 "ResponseFormatTypeText"
             ]
+        },
+        "types.Role": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Config"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Rule": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Action"
+                    }
+                },
+                "effect": {
+                    "$ref": "#/definitions/types.Effect"
+                },
+                "resource": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Resource"
+                    }
+                }
+            }
         },
         "types.RunAPIActionRequest": {
             "type": "object",
@@ -2844,6 +3220,36 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
+        "types.Team": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "memberships": {
+                    "description": "Memberships in the team",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Membership"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "types.TestStep": {
             "type": "object",
             "properties": {
@@ -2887,6 +3293,21 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TextSplitterTypeMarkdown",
                 "TextSplitterTypeText"
+            ]
+        },
+        "types.TokenType": {
+            "type": "string",
+            "enum": [
+                "",
+                "runner",
+                "keycloak",
+                "api_key"
+            ],
+            "x-enum-varnames": [
+                "TokenTypeNone",
+                "TokenTypeRunner",
+                "TokenTypeKeycloak",
+                "TokenTypeAPIKey"
             ]
         },
         "types.ToolAPIAction": {
@@ -3003,6 +3424,92 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
+                }
+            }
+        },
+        "types.UpdateProviderEndpoint": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "api_key_file": {
+                    "description": "Must be mounted to the container",
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "endpoint_type": {
+                    "description": "global, user (TODO: orgs, teams)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderEndpointType"
+                        }
+                    ]
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.User": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "description": "if the ID of the user is contained in the env setting",
+                    "type": "boolean"
+                },
+                "appID": {
+                    "description": "if the token is associated with an app",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "fullName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "token": {
+                    "description": "the actual token used and its type",
+                    "type": "string"
+                },
+                "tokenType": {
+                    "description": "none, runner. keycloak, api_key",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TokenType"
+                        }
+                    ]
+                },
+                "type": {
+                    "description": "these are set by the keycloak user based on the token\nif it's an app token - the keycloak user is loaded from the owner of the app\nif it's a runner token - these values will be empty",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
                 }
             }
         },
