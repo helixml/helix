@@ -32,15 +32,6 @@ func (s *PostgresStore) CreateAccessGrantRoleBinding(ctx context.Context, bindin
 		return nil, fmt.Errorf("organization_id not specified")
 	}
 
-	if binding.UserID == "" && binding.TeamID == "" {
-		return nil, fmt.Errorf("either user_id or team_id must be specified")
-	}
-
-	// If both are specified, return an error
-	if binding.UserID != "" && binding.TeamID != "" {
-		return nil, fmt.Errorf("either user_id or team_id must be specified, not both")
-	}
-
 	binding.CreatedAt = time.Now()
 	binding.UpdatedAt = time.Now()
 

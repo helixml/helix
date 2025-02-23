@@ -59,8 +59,6 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 			roleBinding := &types.AccessGrantRoleBinding{
 				AccessGrantID:  resourceAccess.ID,
 				RoleID:         role.ID,
-				TeamID:         resourceAccess.TeamID,
-				UserID:         resourceAccess.UserID,
 				OrganizationID: resourceAccess.OrganizationID,
 				CreatedAt:      time.Now(),
 				UpdatedAt:      time.Now(),
