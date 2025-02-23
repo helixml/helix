@@ -69,6 +69,10 @@ type AddOrganizationMemberRequest struct {
 	UserEmail string `json:"user_email"`
 }
 
+type UpdateOrganizationMemberRequest struct {
+	Role OrganizationRole `json:"role"`
+}
+
 type OrganizationRole string
 
 const (
