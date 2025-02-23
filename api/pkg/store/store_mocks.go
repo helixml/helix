@@ -57,6 +57,36 @@ func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, apiKey any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAPIKey", reflect.TypeOf((*MockStore)(nil).CreateAPIKey), ctx, apiKey)
 }
 
+// CreateAccessGrant mocks base method.
+func (m *MockStore) CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAccessGrant", ctx, resourceAccess, roles)
+	ret0, _ := ret[0].(*types.AccessGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateAccessGrant indicates an expected call of CreateAccessGrant.
+func (mr *MockStoreMockRecorder) CreateAccessGrant(ctx, resourceAccess, roles any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAccessGrant", reflect.TypeOf((*MockStore)(nil).CreateAccessGrant), ctx, resourceAccess, roles)
+}
+
+// CreateAccessGrantRoleBinding mocks base method.
+func (m *MockStore) CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAccessGrantRoleBinding", ctx, binding)
+	ret0, _ := ret[0].(*types.AccessGrantRoleBinding)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateAccessGrantRoleBinding indicates an expected call of CreateAccessGrantRoleBinding.
+func (mr *MockStoreMockRecorder) CreateAccessGrantRoleBinding(ctx, binding any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAccessGrantRoleBinding", reflect.TypeOf((*MockStore)(nil).CreateAccessGrantRoleBinding), ctx, binding)
+}
+
 // CreateApp mocks base method.
 func (m *MockStore) CreateApp(ctx context.Context, tool *types.App) (*types.App, error) {
 	m.ctrl.T.Helper()
@@ -311,6 +341,34 @@ func (mr *MockStoreMockRecorder) DeleteAPIKey(ctx, apiKey any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAPIKey", reflect.TypeOf((*MockStore)(nil).DeleteAPIKey), ctx, apiKey)
 }
 
+// DeleteAccessGrant mocks base method.
+func (m *MockStore) DeleteAccessGrant(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAccessGrant", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAccessGrant indicates an expected call of DeleteAccessGrant.
+func (mr *MockStoreMockRecorder) DeleteAccessGrant(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccessGrant", reflect.TypeOf((*MockStore)(nil).DeleteAccessGrant), ctx, id)
+}
+
+// DeleteAccessGrantRoleBinding mocks base method.
+func (m *MockStore) DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAccessGrantRoleBinding", ctx, accessGrantID, roleID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAccessGrantRoleBinding indicates an expected call of DeleteAccessGrantRoleBinding.
+func (mr *MockStoreMockRecorder) DeleteAccessGrantRoleBinding(ctx, accessGrantID, roleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccessGrantRoleBinding", reflect.TypeOf((*MockStore)(nil).DeleteAccessGrantRoleBinding), ctx, accessGrantID, roleID)
+}
+
 // DeleteApp mocks base method.
 func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -536,6 +594,21 @@ func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey
 func (mr *MockStoreMockRecorder) GetAPIKey(ctx, apiKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, apiKey)
+}
+
+// GetAccessGrantRoleBindings mocks base method.
+func (m *MockStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccessGrantRoleBindings", ctx, q)
+	ret0, _ := ret[0].([]*types.AccessGrantRoleBinding)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccessGrantRoleBindings indicates an expected call of GetAccessGrantRoleBindings.
+func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
 }
 
 // GetApp mocks base method.
@@ -836,6 +909,21 @@ func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([
 func (mr *MockStoreMockRecorder) ListAPIKeys(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAPIKeys", reflect.TypeOf((*MockStore)(nil).ListAPIKeys), ctx, query)
+}
+
+// ListAccessGrants mocks base method.
+func (m *MockStore) ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAccessGrants", ctx, q)
+	ret0, _ := ret[0].([]*types.AccessGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAccessGrants indicates an expected call of ListAccessGrants.
+func (mr *MockStoreMockRecorder) ListAccessGrants(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAccessGrants", reflect.TypeOf((*MockStore)(nil).ListAccessGrants), ctx, q)
 }
 
 // ListApps mocks base method.
