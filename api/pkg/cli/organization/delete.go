@@ -15,10 +15,11 @@ func init() {
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete [id-or-name]",
-	Short: "Delete an organization",
-	Long:  `Delete an organization by its ID or name. If a name is provided, it will first list organizations to find the matching ID.`,
-	Args:  cobra.ExactArgs(1),
+	Use:     "delete [id-or-name]",
+	Short:   "Delete an organization",
+	Aliases: []string{"remove", "rm"},
+	Long:    `Delete an organization by its ID or name. If a name is provided, it will first list organizations to find the matching ID.`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
