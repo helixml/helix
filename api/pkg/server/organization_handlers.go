@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -97,7 +98,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	// Create an org membership for the user
+	// Create an org membership for the user (owner role)
 	_, err = apiServer.Store.CreateOrganizationMembership(ctx, &types.OrganizationMembership{
 		OrganizationID: createdOrg.ID,
 		UserID:         user.ID,
@@ -109,7 +110,34 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// Seed the roles
+	err = apiServer.seedOrganizationRoles(ctx, createdOrg)
+	if err != nil {
+		log.Err(err).Msg("error seeding organization roles")
+		http.Error(rw, "Could not seed organization roles: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	writeResponse(rw, createdOrg, http.StatusCreated)
+}
+
+func (apiServer *HelixAPIServer) seedOrganizationRoles(ctx context.Context, org *types.Organization) error {
+	for _, role := range types.Roles {
+		orgRole := &types.Role{
+			ID:             system.GenerateRoleID(),
+			OrganizationID: org.ID,
+			Name:           role.Name,
+			Description:    role.Description,
+			Config:         role.Config,
+		}
+
+		_, err := apiServer.Store.CreateRole(ctx, orgRole)
+		if err != nil {
+			return fmt.Errorf("error creating organization role: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // deleteOrganization godoc
