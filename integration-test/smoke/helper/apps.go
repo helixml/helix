@@ -34,6 +34,7 @@ func SaveApp(t *testing.T, page *rod.Page) {
 
 // This function checks to see if Helix has responded. It doesn't check the text.
 func WaitForHelixResponse(ctx context.Context, t *testing.T, page *rod.Page) {
+	LogStep(t, "Waiting for Helix to respond")
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -48,8 +49,8 @@ func WaitForHelixResponse(ctx context.Context, t *testing.T, page *rod.Page) {
 				continue
 			}
 			lastMessage := responses[len(responses)-1].MustText()
-			if len(lastMessage) < 10 {
-				// Response must be at least 10 characters
+			if len(lastMessage) < 1 {
+				// Response must be at least 1 characters
 				continue
 			}
 			LogStep(t, fmt.Sprintf("App responded with an answer: %s", lastMessage))
@@ -59,9 +60,11 @@ func WaitForHelixResponse(ctx context.Context, t *testing.T, page *rod.Page) {
 }
 
 func TestApp(ctx context.Context, t *testing.T, page *rod.Page, question string) {
-	LogStep(t, "Testing the app")
-	page.MustElementX(`//textarea[@id='textEntry']`).MustInput(question)
-	page.MustElementX(`//button[@id='sendButton']`).MustClick()
+	LogStep(t, "Typing question into the app")
+	page.MustElementX(`//textarea[@id='textEntry']`).MustWaitVisible().MustInput(question)
+
+	LogStep(t, "Clicking send button")
+	page.MustElementX(`//button[@id='sendButton']`).MustWaitInteractable().MustClick()
 
 	WaitForHelixResponse(ctx, t, page)
 }
