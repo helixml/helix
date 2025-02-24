@@ -267,5 +267,51 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 }
 
 func (apiServer *HelixAPIServer) removeTeamMember(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	orgID := mux.Vars(r)["id"]
+	teamID := mux.Vars(r)["team_id"]
+	memberUserID := mux.Vars(r)["user_id"]
 
+	// Check if user has access to add members to the team (needs to be an owner)
+	err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	if err != nil {
+		log.Err(err).Msg("error authorizing org owner")
+	}
+
+	// Check whether we have this team in the organization
+	team, err := apiServer.Store.GetTeam(r.Context(), &store.GetTeamQuery{
+		ID:             teamID,
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting team")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get membership
+	membership, err := apiServer.Store.GetTeamMembership(r.Context(), &store.GetTeamMembershipQuery{
+		TeamID: teamID,
+		UserID: memberUserID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting team membership")
+		if errors.Is(err, store.ErrNotFound) {
+			// Noop
+			writeResponse(rw, nil, http.StatusOK)
+			return
+		}
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Delete membership
+	err = apiServer.Store.DeleteTeamMembership(r.Context(), team.ID, membership.UserID)
+	if err != nil {
+		log.Err(err).Msg("error deleting team membership")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, nil, http.StatusOK)
 }
