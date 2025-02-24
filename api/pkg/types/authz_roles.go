@@ -61,15 +61,18 @@ var (
 
 var Roles = []Role{
 	{
-		Name:   "read",
-		Config: RoleRead,
+		Name:        "read",
+		Config:      RoleRead,
+		Description: "Can view applications, knowledge, and run applications. Cannot edit configuration",
 	},
 	{
-		Name:   "write",
-		Config: RoleWrite,
+		Name:        "write",
+		Config:      RoleWrite,
+		Description: "Can view applications, knowledge, and run actions, create, update, and delete applications and knowledge",
 	},
 	{
-		Name:   "admin",
-		Config: RoleAdmin,
+		Name:        "admin",
+		Config:      RoleAdmin,
+		Description: "Can perform all actions",
 	},
 }
