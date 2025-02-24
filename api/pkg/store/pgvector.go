@@ -105,10 +105,18 @@ func (s *PGVectorStore) createIndex(columnName, _ string) error {
 	if cfg := s.cfg; cfg.Schema != "" {
 		schemaName = cfg.Schema
 	}
-	// Create index with schema name
-	err := s.gdb.Exec(fmt.Sprintf("CREATE INDEX ON %s.knowledge_embedding_items USING hnsw (%s vector_l2_ops)", schemaName, columnName)).Error
+	// Check if the index already exists before creating it
+	var count int64
+	err := s.gdb.Raw(fmt.Sprintf("SELECT COUNT(*) FROM pg_indexes WHERE schemaname = '%s' AND tablename = 'knowledge_embedding_items' AND indexname = '%s_knowledge_embedding_items_%s_hnsw'", schemaName, schemaName, columnName)).Scan(&count).Error
 	if err != nil {
-		return fmt.Errorf("failed to create hnsw index: %w", err)
+		return fmt.Errorf("failed to check for existing index: %w", err)
+	}
+
+	if count == 0 { // Index doesn't exist, so create it
+		err = s.gdb.Exec(fmt.Sprintf("CREATE INDEX ON %s.knowledge_embedding_items USING hnsw (%s vector_l2_ops)", schemaName, columnName)).Error
+		if err != nil {
+			return fmt.Errorf("failed to create hnsw index: %w", err)
+		}
 	}
 
 	return nil
