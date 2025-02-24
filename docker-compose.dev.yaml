@@ -249,6 +249,25 @@ services:
       - ./frontend/tsconfig.json:/app/tsconfig.json
       - ./frontend/vite.config.ts:/app/vite.config.ts
 
+  haystack:
+    build:
+      context: ./haystack_service
+    ports:
+      - 8001:8000
+    restart: always
+    environment:
+      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - HELIX_API_URL=http://api:80
+      - CHUNK_SIZE=500
+      - CHUNK_OVERLAP=50
+      - LOG_LEVEL=INFO
+      - EMBEDDING_DIM=384  # GTE-small is 384 dimensions
+    volumes:
+      - ./haystack_service:/app
+    depends_on:
+      - pgvector
+      - api
+
 volumes:
   helix-keycloak-db:
   helix-postgres-db:
