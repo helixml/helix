@@ -69,6 +69,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 	mu := sync.Mutex{}
 
 	for _, indexReq := range indexReqs {
+		indexReq := indexReq
 		pool.Go(func() error {
 			start := time.Now()
 			generated, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
