@@ -3,6 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -12,6 +13,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
+	"github.com/sourcegraph/conc/pool"
 )
 
 type PGVector struct {
@@ -36,7 +38,18 @@ func (p *PGVector) Index(ctx context.Context, indexReqs ...*types.SessionRAGInde
 		return err
 	}
 
-	return p.store.CreateKnowledgeEmbedding(ctx, embeddings...)
+	start := time.Now()
+	err = p.store.CreateKnowledgeEmbedding(ctx, embeddings...)
+	if err != nil {
+		return err
+	}
+
+	log.Info().
+		Int("duration_ms", int(time.Since(start).Milliseconds())).
+		Int("embeddings", len(embeddings)).
+		Msg("inserted embeddings into pgvector")
+
+	return nil
 }
 
 func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.SessionRAGIndexChunk) ([]*types.KnowledgeEmbeddingItem, error) {
@@ -49,67 +62,84 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 		return nil, err
 	}
 
+	pool := pool.New().
+		WithMaxGoroutines(p.cfg.RAG.PGVector.EmbeddingsConcurrency).
+		WithErrors()
+
+	mu := sync.Mutex{}
+
 	for _, indexReq := range indexReqs {
-		start := time.Now()
-		generated, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-			Model: openai.EmbeddingModel(p.cfg.RAG.PGVector.EmbeddingsModel),
-			Input: indexReq.Content,
-		})
-		if err != nil {
-			log.Error().
-				Err(err).
+		pool.Go(func() error {
+			start := time.Now()
+			generated, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+				Model: openai.EmbeddingModel(p.cfg.RAG.PGVector.EmbeddingsModel),
+				Input: indexReq.Content,
+			})
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("model", p.cfg.RAG.PGVector.EmbeddingsModel).
+					Int("content_length", len(indexReq.Content)).
+					Str("knowledge_id", indexReq.DataEntityID).
+					Msg("failed to create embeddings")
+				return err
+			}
+
+			if len(generated.Data) == 0 {
+				log.Error().
+					Str("knowledge_id", indexReq.DataEntityID).
+					Msg("no embeddings returned for indexReq")
+				return nil
+			}
+
+			log.Info().
+				Str("knowledge_id", indexReq.DataEntityID).
 				Str("model", p.cfg.RAG.PGVector.EmbeddingsModel).
 				Int("content_length", len(indexReq.Content)).
-				Str("knowledge_id", indexReq.DataEntityID).
-				Msg("failed to create embeddings")
-			return nil, err
-		}
+				Int("duration_ms", int(time.Since(start).Milliseconds())).
+				Msg("created embeddings")
 
-		if len(generated.Data) == 0 {
-			log.Error().
-				Str("knowledge_id", indexReq.DataEntityID).
-				Msg("no embeddings returned for indexReq")
-			continue
-		}
+			vector := pgvector.NewVector(generated.Data[0].Embedding)
 
-		log.Info().
-			Str("knowledge_id", indexReq.DataEntityID).
-			Str("model", p.cfg.RAG.PGVector.EmbeddingsModel).
-			Int("content_length", len(indexReq.Content)).
-			Int("duration_ms", int(time.Since(start).Milliseconds())).
-			Msg("created embeddings")
+			embedding := &types.KnowledgeEmbeddingItem{
+				DataEntityID:    indexReq.DataEntityID,
+				DocumentID:      indexReq.DocumentID,
+				DocumentGroupID: indexReq.DocumentGroupID,
+				Content:         indexReq.Content,
+				ContentOffset:   indexReq.ContentOffset,
+				Source:          indexReq.Source,
+				EmbeddingsModel: p.cfg.RAG.PGVector.EmbeddingsModel,
+			}
 
-		vector := pgvector.NewVector(generated.Data[0].Embedding)
+			dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
+			if err != nil {
+				return err
+			}
 
-		embedding := &types.KnowledgeEmbeddingItem{
-			DataEntityID:    indexReq.DataEntityID,
-			DocumentID:      indexReq.DocumentID,
-			DocumentGroupID: indexReq.DocumentGroupID,
-			Content:         indexReq.Content,
-			ContentOffset:   indexReq.ContentOffset,
-			Source:          indexReq.Source,
-			EmbeddingsModel: p.cfg.RAG.PGVector.EmbeddingsModel,
-		}
+			switch dimensions {
+			case types.Dimensions384:
+				embedding.Embedding384 = &vector
+			case types.Dimensions512:
+				embedding.Embedding512 = &vector
+			case types.Dimensions1024:
+				embedding.Embedding1024 = &vector
+			case types.Dimensions1536:
+				embedding.Embedding1536 = &vector
+			case types.Dimensions3584:
+				embedding.Embedding3584 = &vector
+			}
 
-		dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
-		if err != nil {
-			return nil, err
-		}
+			mu.Lock()
+			embeddings = append(embeddings, embedding)
+			mu.Unlock()
 
-		switch dimensions {
-		case types.Dimensions384:
-			embedding.Embedding384 = &vector
-		case types.Dimensions512:
-			embedding.Embedding512 = &vector
-		case types.Dimensions1024:
-			embedding.Embedding1024 = &vector
-		case types.Dimensions1536:
-			embedding.Embedding1536 = &vector
-		case types.Dimensions3584:
-			embedding.Embedding3584 = &vector
-		}
+			return nil
+		})
+	}
 
-		embeddings = append(embeddings, embedding)
+	err = pool.Wait()
+	if err != nil {
+		return nil, err
 	}
 
 	return embeddings, nil
