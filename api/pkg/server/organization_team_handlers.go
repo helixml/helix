@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -187,11 +188,21 @@ func (apiServer *HelixAPIServer) deleteTeam(rw http.ResponseWriter, r *http.Requ
 	writeResponse(rw, nil, http.StatusOK)
 }
 
+// addTeamMember godoc
+// @Summary Add a new member to a team
+// @Description Add a new member to a team. Only organization owners can add members to teams.
+// @Tags    organizations
+// @Accept  json
+// @Produce json
+// @Param request body types.AddTeamMemberRequest true "Request body"
+// @Success 201 {object} types.TeamMembership
+// @Router /api/v1/organizations/{id}/teams/{team_id}/members [post]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	orgID := mux.Vars(r)["id"]
 	teamID := mux.Vars(r)["team_id"]
-	// newMemberUserID := mux.Vars(r)["user_id"]
+	newMemberUserID := mux.Vars(r)["user_id"]
 
 	// Check if user has access to add members to the team (needs to be an owner)
 	err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
@@ -210,7 +221,49 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	writeResponse(rw, nil, http.StatusOK)
+	// Get user
+	_, err = apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{
+		ID: newMemberUserID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting user")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check for existing membership
+	existingMembership, err := apiServer.Store.GetTeamMembership(r.Context(), &store.GetTeamMembershipQuery{
+		TeamID: teamID,
+		UserID: newMemberUserID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting team membership")
+		if !errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// OK
+	}
+
+	if existingMembership != nil {
+		http.Error(rw, "User already a member of the team", http.StatusBadRequest)
+		return
+	}
+
+	// Create membership
+	membership := &types.TeamMembership{
+		TeamID: teamID,
+		UserID: newMemberUserID,
+	}
+
+	createdMembership, err := apiServer.Store.CreateTeamMembership(r.Context(), membership)
+	if err != nil {
+		log.Err(err).Msg("error creating team membership")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, createdMembership, http.StatusCreated)
 }
 
 func (apiServer *HelixAPIServer) removeTeamMember(rw http.ResponseWriter, r *http.Request) {
