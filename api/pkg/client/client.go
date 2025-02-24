@@ -123,7 +123,7 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode >= 300 {
 		bts, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("status code %d", resp.StatusCode)
