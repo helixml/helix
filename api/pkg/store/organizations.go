@@ -145,7 +145,7 @@ func (s *PostgresStore) DeleteOrganization(ctx context.Context, id string) error
 		}
 
 		// Finally delete the organization
-		return tx.Delete(&types.Organization{ID: id}).Error
+		return tx.Unscoped().Delete(&types.Organization{ID: id}).Error
 	})
 
 	return err
