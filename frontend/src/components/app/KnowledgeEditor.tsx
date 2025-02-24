@@ -320,13 +320,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             fullWidth
             label="Chunk Size (optional)"
             type="number"              
-            value={source.rag_settings.chunk_size}
+            value={source.rag_settings.chunk_size || ''}
             onChange={(e) => {
-              const value = parseInt(e.target.value);
+              const value = e.target.value ? parseInt(e.target.value) : undefined;
               handleSourceUpdate(index, {
                 rag_settings: {
                   ...source.rag_settings,
-                  chunk_size: value
+                  chunk_size: value ?? 0
                 }
               });
             }}
