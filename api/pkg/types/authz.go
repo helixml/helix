@@ -42,13 +42,13 @@ type Organization struct {
 }
 
 type Team struct {
-	ID             string         `gorm:"primaryKey" json:"id"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	DeletedAt      gorm.DeletedAt `gorm:"index" json:"deleted_at"`
-	OrganizationID string         `json:"organization_id" gorm:"index"`
-	Name           string         `json:"name"`
-	Memberships    []Membership   `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the team
+	ID             string           `gorm:"primaryKey" json:"id"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt   `gorm:"index" json:"deleted_at"`
+	OrganizationID string           `json:"organization_id" gorm:"index"`
+	Name           string           `json:"name"`
+	Memberships    []TeamMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the team
 }
 
 // OrganizationMembership - organization membership is simple, once added, the user is either an owner or a member
@@ -92,7 +92,7 @@ type Role struct {
 	Config         Config    `json:"config" yaml:"config"`
 }
 
-type Membership struct {
+type TeamMembership struct {
 	UserID string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
 	TeamID string `json:"team_id" yaml:"team_id" gorm:"primaryKey"`
 

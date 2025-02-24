@@ -101,7 +101,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Organization{},
 		&types.User{},
 		&types.Team{},
-		&types.Membership{},
+		&types.TeamMembership{},
 		&types.Role{},
 		&types.OrganizationMembership{},
 		&types.AccessGrant{},
@@ -142,11 +142,11 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	if err := createFK(s.gdb, types.Membership{}, types.Team{}, "team_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.TeamMembership{}, types.Team{}, "team_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	if err := createFK(s.gdb, types.Membership{}, types.User{}, "user_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.TeamMembership{}, types.User{}, "user_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 

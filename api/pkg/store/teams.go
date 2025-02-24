@@ -116,7 +116,7 @@ func (s *PostgresStore) DeleteTeam(ctx context.Context, id string) error {
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Delete all memberships first
-		if err := tx.Where("team_id = ?", id).Delete(&types.Membership{}).Error; err != nil {
+		if err := tx.Where("team_id = ?", id).Delete(&types.TeamMembership{}).Error; err != nil {
 			return err
 		}
 
