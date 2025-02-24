@@ -186,3 +186,33 @@ func (apiServer *HelixAPIServer) deleteTeam(rw http.ResponseWriter, r *http.Requ
 
 	writeResponse(rw, nil, http.StatusOK)
 }
+
+func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	orgID := mux.Vars(r)["id"]
+	teamID := mux.Vars(r)["team_id"]
+	// newMemberUserID := mux.Vars(r)["user_id"]
+
+	// Check if user has access to add members to the team (needs to be an owner)
+	err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	if err != nil {
+		log.Err(err).Msg("error authorizing org owner")
+	}
+
+	// Get team
+	_, err = apiServer.Store.GetTeam(r.Context(), &store.GetTeamQuery{
+		ID:             teamID,
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting team")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, nil, http.StatusOK)
+}
+
+func (apiServer *HelixAPIServer) removeTeamMember(rw http.ResponseWriter, r *http.Request) {
+
+}
