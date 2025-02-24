@@ -574,6 +574,10 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
 	rw.WriteHeader(statusCode)
 
+	if data == nil {
+		return
+	}
+
 	rw.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(rw).Encode(data)
 	if err != nil {
