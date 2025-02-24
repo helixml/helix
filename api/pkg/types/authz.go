@@ -100,8 +100,8 @@ type TeamMembership struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 
 	// extra data fields (optional)
-	User User `json:"user,omitempty" yaml:"user,omitempty" gorm:"-"`
-	Team Team `json:"team,omitempty" yaml:"team,omitempty" gorm:"-"`
+	User User `json:"user,omitempty" yaml:"user,omitempty"`
+	Team Team `json:"team,omitempty" yaml:"team,omitempty"`
 }
 
 type User struct {
