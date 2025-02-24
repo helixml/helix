@@ -282,6 +282,21 @@ func (mr *MockStoreMockRecorder) CreateTeam(ctx, team any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTeam", reflect.TypeOf((*MockStore)(nil).CreateTeam), ctx, team)
 }
 
+// CreateTeamMembership mocks base method.
+func (m *MockStore) CreateTeamMembership(ctx context.Context, membership *types.TeamMembership) (*types.TeamMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateTeamMembership", ctx, membership)
+	ret0, _ := ret[0].(*types.TeamMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateTeamMembership indicates an expected call of CreateTeamMembership.
+func (mr *MockStoreMockRecorder) CreateTeamMembership(ctx, membership any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTeamMembership", reflect.TypeOf((*MockStore)(nil).CreateTeamMembership), ctx, membership)
+}
+
 // CreateTool mocks base method.
 func (m *MockStore) CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
 	m.ctrl.T.Helper()
@@ -536,6 +551,20 @@ func (m *MockStore) DeleteTeam(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteTeam(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTeam", reflect.TypeOf((*MockStore)(nil).DeleteTeam), ctx, id)
+}
+
+// DeleteTeamMembership mocks base method.
+func (m *MockStore) DeleteTeamMembership(ctx context.Context, teamID, userID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTeamMembership", ctx, teamID, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTeamMembership indicates an expected call of DeleteTeamMembership.
+func (mr *MockStoreMockRecorder) DeleteTeamMembership(ctx, teamID, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTeamMembership", reflect.TypeOf((*MockStore)(nil).DeleteTeamMembership), ctx, teamID, userID)
 }
 
 // DeleteTool mocks base method.
@@ -851,6 +880,21 @@ func (mr *MockStoreMockRecorder) GetTeam(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeam", reflect.TypeOf((*MockStore)(nil).GetTeam), ctx, q)
 }
 
+// GetTeamMembership mocks base method.
+func (m *MockStore) GetTeamMembership(ctx context.Context, q *GetTeamMembershipQuery) (*types.TeamMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTeamMembership", ctx, q)
+	ret0, _ := ret[0].(*types.TeamMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTeamMembership indicates an expected call of GetTeamMembership.
+func (mr *MockStoreMockRecorder) GetTeamMembership(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamMembership", reflect.TypeOf((*MockStore)(nil).GetTeamMembership), ctx, q)
+}
+
 // GetTool mocks base method.
 func (m *MockStore) GetTool(ctx context.Context, id string) (*types.Tool, error) {
 	m.ctrl.T.Helper()
@@ -1090,6 +1134,21 @@ func (m *MockStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListSecrets(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecrets", reflect.TypeOf((*MockStore)(nil).ListSecrets), ctx, q)
+}
+
+// ListTeamMemberships mocks base method.
+func (m *MockStore) ListTeamMemberships(ctx context.Context, query *ListTeamMembershipsQuery) ([]*types.TeamMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTeamMemberships", ctx, query)
+	ret0, _ := ret[0].([]*types.TeamMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTeamMemberships indicates an expected call of ListTeamMemberships.
+func (mr *MockStoreMockRecorder) ListTeamMemberships(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeamMemberships", reflect.TypeOf((*MockStore)(nil).ListTeamMemberships), ctx, query)
 }
 
 // ListTeams mocks base method.
