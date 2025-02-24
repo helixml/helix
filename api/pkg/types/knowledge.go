@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/pgvector/pgvector-go"
-	"gorm.io/gorm"
 )
 
 type AssistantKnowledge struct {
@@ -270,7 +269,8 @@ type KnowledgeProgress struct {
 }
 
 type KnowledgeEmbeddingItem struct {
-	gorm.Model
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 	DataEntityID    string `gorm:"index"` // Knowledge ID + Version
 	DocumentGroupID string `gorm:"index"`
 	DocumentID      string `gorm:"index"`
