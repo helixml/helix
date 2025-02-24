@@ -104,13 +104,10 @@ func SendMessage(t *testing.T, page *rod.Page, message string) {
 	textarea := page.MustElement("textarea")
 
 	LogStep(t, fmt.Sprintf("Typing '%s' into chat input", message))
-	textarea.MustInput(message)
+	textarea.MustWaitVisible().MustInput(message)
 
 	LogStep(t, "Looking for send button")
-	sendButton := page.MustElement("#sendButton")
-	sendButton.MustClick()
-
-	WaitForHelixResponse(context.Background(), t, page)
+	page.MustElement("#sendButton").MustWaitInteractable().MustClick()
 }
 
 func StartNewImageSession(t *testing.T, page *rod.Page) error {

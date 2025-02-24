@@ -25,4 +25,5 @@ func TestStartNewSession(t *testing.T) {
 	helper.StartNewChat(t, page)
 
 	helper.SendMessage(t, page, "hello helix")
+	helper.WaitForHelixResponse(ctx, t, page)
 }
