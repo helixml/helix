@@ -101,6 +101,11 @@ type Store interface {
 	DeleteTeam(ctx context.Context, id string) error
 	ListTeams(ctx context.Context, query *ListTeamsQuery) ([]*types.Team, error)
 
+	CreateTeamMembership(ctx context.Context, membership *types.TeamMembership) (*types.TeamMembership, error)
+	GetTeamMembership(ctx context.Context, q *GetTeamMembershipQuery) (*types.TeamMembership, error)
+	ListTeamMemberships(ctx context.Context, query *ListTeamMembershipsQuery) ([]*types.TeamMembership, error)
+	DeleteTeamMembership(ctx context.Context, teamID, userID string) error
+
 	CreateRole(ctx context.Context, role *types.Role) (*types.Role, error)
 	GetRole(ctx context.Context, id string) (*types.Role, error)
 	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
