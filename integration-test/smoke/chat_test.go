@@ -22,9 +22,7 @@ func TestStartNewSession(t *testing.T) {
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
 
-	err = helper.StartNewChat(t, page)
-	require.NoError(t, err, "starting new chat should succeed")
+	helper.StartNewChat(t, page)
 
-	err = helper.SendMessage(t, page)
-	require.NoError(t, err, "sending message should succeed")
+	helper.SendMessage(t, page, "hello helix")
 }
