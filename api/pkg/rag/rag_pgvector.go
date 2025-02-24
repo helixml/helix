@@ -39,6 +39,11 @@ func (p *PGVector) Index(ctx context.Context, indexReqs ...*types.SessionRAGInde
 	}
 
 	start := time.Now()
+
+	log.Info().
+		Int("embeddings", len(embeddings)).
+		Msg("inserting embeddings into pgvector")
+
 	err = p.store.CreateKnowledgeEmbedding(ctx, embeddings...)
 	if err != nil {
 		return err
@@ -47,7 +52,7 @@ func (p *PGVector) Index(ctx context.Context, indexReqs ...*types.SessionRAGInde
 	log.Info().
 		Int("duration_ms", int(time.Since(start).Milliseconds())).
 		Int("embeddings", len(embeddings)).
-		Msg("inserted embeddings into pgvector")
+		Msg("embeddings inserted into pgvector")
 
 	return nil
 }
