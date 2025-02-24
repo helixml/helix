@@ -54,6 +54,12 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			Input: indexReq.Content,
 		})
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("model", p.cfg.RAG.PGVector.EmbeddingsModel).
+				Int("content_length", len(indexReq.Content)).
+				Str("knowledge_id", indexReq.DataEntityID).
+				Msg("failed to create embeddings")
 			return nil, err
 		}
 
@@ -71,6 +77,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 			DocumentID:      indexReq.DocumentID,
 			DocumentGroupID: indexReq.DocumentGroupID,
 			Content:         indexReq.Content,
+			ContentOffset:   indexReq.ContentOffset,
 			Source:          indexReq.Source,
 			EmbeddingsModel: p.cfg.RAG.PGVector.EmbeddingsModel,
 		}
@@ -120,6 +127,7 @@ func (p *PGVector) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 	query := &types.KnowledgeEmbeddingQuery{
 		DataEntityID: q.DataEntityID,
 		Limit:        q.MaxResults,
+		Content:      q.Prompt,
 	}
 
 	dimensions, err := p.getDimensions(p.cfg.RAG.PGVector.EmbeddingsModel)
