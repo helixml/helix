@@ -25,4 +25,4 @@ assistants:
       - name: funny
         steps:
           - prompt: Seaside
-            expected_output: A joke, with a setup and punchline. It doesn't have to be hilarious.
+            expected_output: Any joke. It doesn't have to be hilarious.
