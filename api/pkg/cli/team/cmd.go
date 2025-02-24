@@ -27,12 +27,12 @@ func New() *cobra.Command {
 	return rootCmd
 }
 
-func lookupOrganization(ctx context.Context, apiClient *client.HelixClient, ref string) (*types.Organization, error) {
-
+func lookupOrganization(ctx context.Context, apiClient *client.HelixClient, orgRef string) (*types.Organization, error) {
 	// If the reference doesn't start with org_ prefix, assume it's a name
-	if strings.HasPrefix(ref, system.OrganizationPrefix) {
+	if strings.HasPrefix(orgRef, system.OrganizationPrefix) {
+
 		// Get by ID
-		organization, err := apiClient.GetOrganization(ctx, ref)
+		organization, err := apiClient.GetOrganization(ctx, orgRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get organization: %w", err)
 		}
@@ -45,18 +45,34 @@ func lookupOrganization(ctx context.Context, apiClient *client.HelixClient, ref 
 		return nil, fmt.Errorf("failed to list organizations: %w", err)
 	}
 
-	found := false
-	for _, org := range organizations {
-		if org.Name == ref {
-			ref = org.ID
-			found = true
-			break
+	for _, o := range organizations {
+		if o.Name == orgRef || o.ID == orgRef {
+			return o, nil
 		}
 	}
 
-	if !found {
-		return nil, fmt.Errorf("organization not found: %s", ref)
+	return nil, fmt.Errorf("organization not found: %s", orgRef)
+}
+
+func lookupTeam(ctx context.Context, apiClient *client.HelixClient, orgID, ref string) (*types.Team, error) {
+	if strings.HasPrefix(ref, system.TeamPrefix) {
+		team, err := apiClient.GetTeam(ctx, orgID, ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get team: %w", err)
+		}
+		return team, nil
 	}
 
-	return nil, fmt.Errorf("organization not found: %s", ref)
+	teams, err := apiClient.ListTeams(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list teams: %w", err)
+	}
+
+	for _, team := range teams {
+		if team.Name == ref {
+			return team, nil
+		}
+	}
+
+	return nil, fmt.Errorf("team not found: %s", ref)
 }
