@@ -25,8 +25,7 @@ func TestImageInference(t *testing.T) {
 	err = helper.StartNewImageSession(t, page)
 	require.NoError(t, err, "starting new image session should succeed")
 
-	err = helper.SendMessage(t, page)
-	require.NoError(t, err, "sending message should succeed")
+	helper.SendMessage(t, page, "a beautiful image of a yorkshire rose")
 
 	helper.LogStep(t, "Waiting for image to be generated")
 	page.MustElementX(`//main//img`)

@@ -32,6 +32,10 @@ func LogAndFail(t *testing.T, message string) {
 	t.FailNow()
 }
 
+func LogAndPass(t *testing.T, message string) {
+	t.Logf("✅ %s", message)
+}
+
 func GetServerURL() string {
 	url := os.Getenv("SERVER_URL")
 	if url == "" {
@@ -90,38 +94,23 @@ func verifyLogin(t *testing.T, page *rod.Page) error {
 	return nil
 }
 
-func StartNewChat(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Looking for New Session button")
-	xpath := fmt.Sprintf(`//span[contains(text(), '%s')]`, "New Session")
-	elements := page.MustElementsX(xpath)
-	if len(elements) != 1 {
-		return fmt.Errorf("new Session button not found")
-	}
-
+func StartNewChat(t *testing.T, page *rod.Page) {
 	LogStep(t, "Clicking New Session button")
-	elements[0].MustClick()
-
-	return nil
+	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustWaitVisible().MustClick()
 }
 
-func SendMessage(t *testing.T, page *rod.Page) error {
+func SendMessage(t *testing.T, page *rod.Page, message string) {
 	LogStep(t, "Looking for chat input textarea")
 	textarea := page.MustElement("textarea")
 
-	LogStep(t, "Typing 'hello helix' into chat input")
-	textarea.MustInput("hello helix")
+	LogStep(t, fmt.Sprintf("Typing '%s' into chat input", message))
+	textarea.MustInput(message)
 
 	LogStep(t, "Looking for send button")
 	sendButton := page.MustElement("#sendButton")
 	sendButton.MustClick()
 
-	LogStep(t, "Looking for chat message")
-	chatMessage := page.MustElement("div.interactionMessage")
-	if chatMessage == nil {
-		return fmt.Errorf("chat message not found")
-	}
-
-	return nil
+	WaitForHelixResponse(context.Background(), t, page)
 }
 
 func StartNewImageSession(t *testing.T, page *rod.Page) error {
