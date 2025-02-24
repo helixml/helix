@@ -85,6 +85,14 @@ func (s *PGVectorStore) autoMigratePGVector() error {
 		return fmt.Errorf("failed to create embedding1536 index: %w", err)
 	}
 
+	// Create gin index for content
+	// such as: CREATE INDEX knowledge_embedding_items ON documents USING GIN (to_tsvector('english', content));
+	// Don't fail if it already exists
+	err = s.gdb.Exec("CREATE INDEX IF NOT EXISTS documents_content_idx ON knowledge_embedding_items USING GIN (to_tsvector('english', content))").Error
+	if err != nil {
+		return fmt.Errorf("failed to create documents_content_idx index: %w", err)
+	}
+
 	// Note: column cannot have more than 2000 dimensions for
 	// hnsw index hence skipping index creation for 3584
 
