@@ -193,6 +193,7 @@ const (
 	RAGProviderTypesense  RAGProvider = "typesense"
 	RAGProviderPGVector   RAGProvider = "pgvector"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
+	RAGProviderHaystack   RAGProvider = "haystack"
 )
 
 type RAG struct {
@@ -224,6 +225,11 @@ type RAG struct {
 		// the URL we can post a delete request to for RAG records,
 		// this is a prefix, full path is http://llamaindex:5000/api/v1/rag/<data_entity_id>
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
+	}
+
+	Haystack struct {
+		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
+		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://haystack:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {
