@@ -3,6 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -49,6 +50,7 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 	}
 
 	for _, indexReq := range indexReqs {
+		start := time.Now()
 		generated, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 			Model: openai.EmbeddingModel(p.cfg.RAG.PGVector.EmbeddingsModel),
 			Input: indexReq.Content,
@@ -69,6 +71,13 @@ func (p *PGVector) getEmbeddings(ctx context.Context, indexReqs []*types.Session
 				Msg("no embeddings returned for indexReq")
 			continue
 		}
+
+		log.Info().
+			Str("knowledge_id", indexReq.DataEntityID).
+			Str("model", p.cfg.RAG.PGVector.EmbeddingsModel).
+			Int("content_length", len(indexReq.Content)).
+			Int("duration_ms", int(time.Since(start).Milliseconds())).
+			Msg("created embeddings")
 
 		vector := pgvector.NewVector(generated.Data[0].Embedding)
 
