@@ -71,6 +71,7 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 
 	// Find user
 	newMember, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{
+		ID:    req.UserID,
 		Email: req.UserEmail,
 	})
 	if err != nil {
