@@ -60,10 +60,10 @@ require (
 	github.com/typesense/typesense-go/v2 v2.0.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.34.0
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
 	golang.org/x/oauth2 v0.21.0
-	golang.org/x/term v0.27.0
+	golang.org/x/term v0.29.0
 	google.golang.org/api v0.183.0
 	gopkg.in/rjz/githubhook.v0 v0.0.1
 	gopkg.in/yaml.v2 v2.4.0
@@ -234,9 +234,9 @@ require (
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sync v0.11.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.28.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
