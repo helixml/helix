@@ -86,8 +86,11 @@ async def process_file(
     # Add filename to metadata
     meta_dict["filename"] = file.filename
     
+    # Get file extension
+    _, ext = os.path.splitext(file.filename)
+    
     # Save file temporarily
-    with tempfile.NamedTemporaryFile(delete=False) as temp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
         content = await file.read()
         temp.write(content)
         temp_path = temp.name
@@ -118,7 +121,8 @@ async def extract_text(
     # Handle file upload
     temp_path = None
     if file:
-        with tempfile.NamedTemporaryFile(delete=False) as temp:
+        _, ext = os.path.splitext(file.filename)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
             content = await file.read()
             temp.write(content)
             temp_path = temp.name
