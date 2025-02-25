@@ -80,7 +80,7 @@ function start() {
 
   tmux send-keys -t 0 './stack compose logs -f frontend' C-m
   tmux send-keys -t 1 './stack compose logs -f api' C-m
-  tmux send-keys -t 2 './stack compose logs -f typesense' C-m
+  tmux send-keys -t 2 './stack compose logs -f haystack' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 './stack compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
