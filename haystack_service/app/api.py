@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .service import HaystackService
 from .config import settings
@@ -108,36 +108,31 @@ async def process_file(
 
 @app.post("/extract", response_model=ExtractResponse)
 async def extract_text(
-    file: Optional[UploadFile] = File(None),
-    url: Optional[str] = Form(None),
+    file: UploadFile = File(...),
     service: HaystackService = Depends(get_service)
 ):
-    """Extract text from a file or URL without indexing"""
-    logger.info(f"Extract request: file={file.filename if file else None}, url={url}")
+    """Extract text from a file without indexing"""
+    logger.info(f"Extract request for file: {file.filename}")
     
-    if not file and not url:
-        raise HTTPException(status_code=400, detail="Either file or URL must be provided")
+    # Get file extension
+    _, ext = os.path.splitext(file.filename)
     
-    # Handle file upload
-    temp_path = None
-    if file:
-        _, ext = os.path.splitext(file.filename)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
-            content = await file.read()
-            temp.write(content)
-            temp_path = temp.name
+    # Save file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
+        content = await file.read()
+        temp.write(content)
+        temp_path = temp.name
     
     try:
         # Extract text
-        text = await service.extract_text(file_path=temp_path, url=url)
+        text = await service.extract_text(temp_path)
         return {"text": text}
     except Exception as e:
         logger.error(f"Error extracting text: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error extracting text: {str(e)}")
     finally:
         # Clean up
-        if temp_path:
-            os.unlink(temp_path)
+        os.unlink(temp_path)
 
 @app.post("/query", response_model=QueryResponse)
 async def query(
