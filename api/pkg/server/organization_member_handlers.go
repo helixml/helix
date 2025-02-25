@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -69,11 +70,16 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
+	query := &store.GetUserQuery{}
+
+	if strings.Contains(req.UserReference, "@") {
+		query.Email = req.UserReference
+	} else {
+		query.ID = req.UserReference
+	}
+
 	// Find user
-	newMember, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{
-		ID:    req.UserID,
-		Email: req.UserEmail,
-	})
+	newMember, err := apiServer.Store.GetUser(r.Context(), query)
 	if err != nil {
 		log.Err(err).Msg("error getting user")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
