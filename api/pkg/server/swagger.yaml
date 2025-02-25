@@ -517,9 +517,16 @@ definitions:
     - ActionUseAction
   types.AddOrganizationMemberRequest:
     properties:
-      user_email:
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
+      user_reference:
+        description: Either user ID or user email
         type: string
-      user_id:
+    type: object
+  types.AddTeamMemberRequest:
+    properties:
+      user_reference:
+        description: Either user ID or user email
         type: string
     type: object
   types.App:
@@ -1103,24 +1110,6 @@ definitions:
     - LLMCallStepPrepareAPIRequest
     - LLMCallStepInterpretResponse
     - LLMCallStepGenerateTitle
-  types.Membership:
-    properties:
-      created_at:
-        type: string
-      team:
-        $ref: '#/definitions/types.Team'
-      team_id:
-        type: string
-      updated_at:
-        type: string
-      user:
-        allOf:
-        - $ref: '#/definitions/types.User'
-        description: extra data fields (optional)
-      user_id:
-        description: composite key
-        type: string
-    type: object
   types.Message:
     properties:
       content:
@@ -1808,13 +1797,31 @@ definitions:
       memberships:
         description: Memberships in the team
         items:
-          $ref: '#/definitions/types.Membership'
+          $ref: '#/definitions/types.TeamMembership'
         type: array
       name:
         type: string
       organization_id:
         type: string
       updated_at:
+        type: string
+    type: object
+  types.TeamMembership:
+    properties:
+      created_at:
+        type: string
+      team:
+        $ref: '#/definitions/types.Team'
+      team_id:
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: extra data fields (optional)
+      user_id:
+        description: composite key
         type: string
     type: object
   types.TestStep:
@@ -2323,6 +2330,22 @@ paths:
       summary: Update an organization member
       tags:
       - organizations
+  /api/v1/organizations/{id}/roles:
+    get:
+      description: List all roles in an organization. Organization members can list
+        roles.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Role'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List roles in an organization
+      tags:
+      - organizations
   /api/v1/organizations/{id}/teams:
     get:
       description: List all teams in an organization. Organization members can list
@@ -2396,6 +2419,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Update a team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/teams/{team_id}/members:
+    get:
+      description: List all members of a team.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TeamMembership'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List members of a team
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      description: Add a new member to a team. Only organization owners can add members
+        to teams.
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddTeamMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.TeamMembership'
+      security:
+      - BearerAuth: []
+      summary: Add a new member to a team
       tags:
       - organizations
   /api/v1/providers:
