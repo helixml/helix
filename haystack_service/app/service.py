@@ -127,11 +127,12 @@ class HaystackService:
         # Initialize document store
         try:
             self.document_store = PgvectorDocumentStore(
-                connection=Secret.from_token(settings.PGVECTOR_DSN),
-                embedding_dim=settings.EMBEDDING_DIM,
+                connection_string=Secret.from_token(settings.PGVECTOR_DSN),
+                embedding_dimension=settings.EMBEDDING_DIM,
                 table_name=settings.PGVECTOR_TABLE,
-                similarity=settings.SIMILARITY_FUNCTION,
-                recreate_tables=True
+                vector_function="cosine_similarity",
+                search_strategy="hnsw",
+                recreate_table=True
             )
             logger.info(f"Connected to PgvectorDocumentStore: {settings.PGVECTOR_TABLE}")
         except Exception as e:
@@ -217,18 +218,6 @@ class HaystackService:
         """Query the document store for relevant documents"""
         logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
         
-        # Format filters for PgVector
-        if filters:
-            formatted_filters = {
-                "operator": "AND",
-                "conditions": [
-                    {"field": key, "operator": "==", "value": value}
-                    for key, value in filters.items()
-                ]
-            }
-        else:
-            formatted_filters = None
-        
         # Generate query embedding
         query_result = self.embedder.run(documents=[Document(content=query_text)])
         query_embedding = query_result["documents"][0].embedding
@@ -236,7 +225,7 @@ class HaystackService:
         # Retrieve documents
         results = self.retriever.run(
             query_embedding=query_embedding,
-            filters=formatted_filters,
+            filters=filters,
             top_k=top_k
         )["documents"]
         
@@ -258,9 +247,7 @@ class HaystackService:
         """Delete documents from the document store based on filters"""
         logger.info(f"Deleting documents with filters: {filters}")
         
-        try:
-            self.document_store.delete_documents(filters=filters)
-            return {"status": "success", "message": "Documents deleted successfully"}
-        except Exception as e:
-            logger.error(f"Error deleting documents: {str(e)}")
-            return {"status": "error", "message": str(e)} 
+        deleted = self.document_store.delete_documents(filters=filters)
+        
+        logger.info(f"Deleted {deleted} documents")
+        return {"status": "success", "documents_deleted": deleted} 

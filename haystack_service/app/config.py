@@ -5,7 +5,6 @@ class Settings:
     # PostgreSQL connection
     PGVECTOR_DSN: str = os.getenv("PGVECTOR_DSN", "postgresql://postgres:postgres@pgvector:5432/postgres")
     PGVECTOR_TABLE: str = os.getenv("PGVECTOR_TABLE", "haystack_documents")
-    SIMILARITY_FUNCTION: str = os.getenv("SIMILARITY_FUNCTION", "cosine_similarity")
     
     # Document processing
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
