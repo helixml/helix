@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -274,6 +275,14 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 	if err != nil {
 		log.Err(err).Msg("error getting user")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if user belongs to this organization (we shouldn't add users that don't belong to the organization to the team)
+	err = apiServer.authorizeOrgMember(r.Context(), newMember, orgID)
+	if err != nil {
+		log.Warn().Err(err).Msg("user does not belong to this organization")
+		http.Error(rw, fmt.Sprintf("User '%s' does not belong to organization '%s'", newMember.Email, orgID), http.StatusPreconditionFailed)
 		return
 	}
 
