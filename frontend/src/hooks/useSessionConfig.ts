@@ -19,6 +19,8 @@ export interface ISessionConfig {
   setRagChunkSize: Dispatch<SetStateAction<number>>,
   ragChunkOverflow: number,
   setRagChunkOverflow: Dispatch<SetStateAction<number>>,
+  ragDisableChunking: boolean,
+  setRagDisableChunking: Dispatch<SetStateAction<boolean>>,
 }
 
 export const useSessionConfig = () => {
@@ -30,6 +32,7 @@ export const useSessionConfig = () => {
   const [ragResultsCount, setRagResultsCount] = useState(3)
   const [ragChunkSize, setRagChunkSize] = useState(2048)
   const [ragChunkOverflow, setRagChunkOverflow] = useState(20)
+  const [ragDisableChunking, setRagDisableChunking] = useState(true)
 
   const setFormData = useCallback((formData: FormData) => {
     formData.set('active_tools', activeToolIDs.join(','))
@@ -40,6 +43,7 @@ export const useSessionConfig = () => {
     formData.set('rag_results_count', ragResultsCount.toString())
     formData.set('rag_chunk_size', ragChunkSize.toString())
     formData.set('rag_chunk_overflow', ragChunkOverflow.toString())
+    formData.set('rag_disable_chunking', ragDisableChunking ? 'yes' : '')
     return formData
   }, [
     activeToolIDs,
@@ -50,6 +54,7 @@ export const useSessionConfig = () => {
     ragResultsCount,
     ragChunkSize,
     ragChunkOverflow,
+    ragDisableChunking,
   ])
 
   return {
@@ -61,7 +66,8 @@ export const useSessionConfig = () => {
     ragThreshold, setRagThreshold,
     ragResultsCount, setRagResultsCount,
     ragChunkSize, setRagChunkSize,
-    ragChunkOverflow, setRagChunkOverflow
+    ragChunkOverflow, setRagChunkOverflow,
+    ragDisableChunking, setRagDisableChunking
   }
 }
 
