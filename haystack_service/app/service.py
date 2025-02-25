@@ -8,11 +8,10 @@ from haystack import Document, Pipeline
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.components.preprocessors import DocumentSplitter
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
-from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
+from haystack.components.embedders import OpenAIDocumentEmbedder
 from unstructured.partition.auto import partition
 from unstructured.documents.elements import (
-    Title, NarrativeText, ListItem, Text,
-    Header, Footer, Table, TableCell, Image
+    Title, ListItem, Header, Footer, Table, Image
 )
 
 from .config import settings
@@ -142,7 +141,7 @@ class HaystackService:
         # Initialize components
         self.embedder = OpenAIDocumentEmbedder(
             api_key=settings.VLLM_API_KEY,
-            base_url=settings.VLLM_BASE_URL,
+            api_base_url=settings.VLLM_BASE_URL,
             model_name=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
         )
         self.converter = UnstructuredConverter()
