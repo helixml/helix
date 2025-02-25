@@ -13,13 +13,11 @@ func init() {
 	addCmd.Flags().StringP("organization", "o", "", "Organization ID or name")
 	addCmd.Flags().StringP("team", "t", "", "Team ID or name")
 	addCmd.Flags().StringP("user-email", "u", "", "User email")
+	addCmd.Flags().StringP("role", "r", "member", "Role to assign to the user (owner, member), only applicable to organization roles")
 
 	if err := addCmd.MarkFlagRequired("organization"); err != nil {
 		return
 	}
-	// if err := addCmd.MarkFlagRequired("user-email"); err != nil {
-	// 	return
-	// }
 
 	rootCmd.AddCommand(addCmd)
 }
@@ -50,8 +48,10 @@ var addCmd = &cobra.Command{
 			userEmail = args[0]
 		}
 
+		role, _ := cmd.Flags().GetString("role")
+
 		if teamReference == "" {
-			err = addOrgMember(cmd.Context(), apiClient, orgReference, userEmail)
+			err = addOrgMember(cmd.Context(), apiClient, orgReference, userEmail, types.OrganizationRole(role))
 			if err != nil {
 				return err
 			}
@@ -70,7 +70,7 @@ var addCmd = &cobra.Command{
 	},
 }
 
-func addOrgMember(ctx context.Context, apiClient *client.HelixClient, orgReference, userReference string) error {
+func addOrgMember(ctx context.Context, apiClient *client.HelixClient, orgReference, userReference string, role types.OrganizationRole) error {
 	org, err := lookupOrganization(ctx, apiClient, orgReference)
 	if err != nil {
 		return fmt.Errorf("failed to lookup organization: %w", err)
@@ -78,6 +78,7 @@ func addOrgMember(ctx context.Context, apiClient *client.HelixClient, orgReferen
 
 	_, err = apiClient.AddOrganizationMember(ctx, org.ID, &types.AddOrganizationMemberRequest{
 		UserReference: userReference,
+		Role:          role,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to add organization member: %w", err)

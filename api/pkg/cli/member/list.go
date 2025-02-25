@@ -45,6 +45,10 @@ var listCmd = &cobra.Command{
 
 		header := []string{"User ID", "Email", "Name"}
 
+		if teamReference == "" {
+			header = append(header, "Role")
+		}
+
 		table.SetHeader(header)
 
 		table.SetAutoWrapText(false)
@@ -66,6 +70,10 @@ var listCmd = &cobra.Command{
 				m.Name,
 			}
 
+			if teamReference == "" {
+				row = append(row, m.Role)
+			}
+
 			table.Append(row)
 		}
 
@@ -79,6 +87,7 @@ type member struct {
 	UserID string
 	Email  string
 	Name   string
+	Role   string
 }
 
 func getMembers(ctx context.Context, apiClient *client.HelixClient, orgReference, teamReference string) ([]*member, error) {
@@ -101,6 +110,7 @@ func getMembers(ctx context.Context, apiClient *client.HelixClient, orgReference
 				UserID: m.User.ID,
 				Email:  m.User.Email,
 				Name:   m.User.FullName,
+				Role:   string(m.Role),
 			})
 		}
 
