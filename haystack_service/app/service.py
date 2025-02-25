@@ -9,6 +9,7 @@ from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack.components.embedders import OpenAIDocumentEmbedder
+from haystack.components.writers import DocumentWriter
 
 from .config import settings
 from .converters import LocalUnstructuredConverter
@@ -39,39 +40,6 @@ class HaystackService:
             logger.error(f"Failed to connect to PgvectorDocumentStore: {str(e)}")
             raise
         
-        # Initialize components
-        self.embedder = OpenAIDocumentEmbedder(
-            api_key=Secret.from_token(settings.VLLM_API_KEY),
-            api_base_url=settings.VLLM_BASE_URL,
-            model=settings.EMBEDDINGS_MODEL
-        )
-        
-        # Use local converter instead of UnstructuredFileConverter
-        self.converter = LocalUnstructuredConverter()
-        
-        self.cleaner = DocumentCleaner(
-            remove_empty_lines=True,
-            remove_extra_whitespaces=True,
-            remove_regex=r'\.{5,}'  # Remove runs of 5 or more dots
-        )
-        
-        self.splitter = DocumentSplitter(
-            split_length=settings.CHUNK_SIZE,
-            split_overlap=settings.CHUNK_OVERLAP,
-            split_by="word",
-            respect_sentence_boundary=True
-        )
-        self.splitter.warm_up()
-        
-        logger.info(f"Initialized DocumentSplitter with chunk_size={settings.CHUNK_SIZE}, overlap={settings.CHUNK_OVERLAP}")
-        
-        # Initialize retriever
-        self.retriever = PgvectorEmbeddingRetriever(
-            document_store=self.document_store,
-            filters=None,
-            top_k=5
-        )
-        
         # Initialize pipelines
         self._init_indexing_pipeline()
         self._init_query_pipeline()
@@ -82,29 +50,77 @@ class HaystackService:
         """Initialize the document indexing pipeline"""
         self.indexing_pipeline = Pipeline()
         
+        # Create components for indexing pipeline
+        embedder = OpenAIDocumentEmbedder(
+            api_key=Secret.from_token(settings.VLLM_API_KEY),
+            api_base_url=settings.VLLM_BASE_URL,
+            model=settings.EMBEDDINGS_MODEL
+        )
+        
+        converter = LocalUnstructuredConverter()
+        
+        cleaner = DocumentCleaner(
+            remove_empty_lines=True,
+            remove_extra_whitespaces=True,
+            remove_regex=r'\.{5,}'  # Remove runs of 5 or more dots
+        )
+        
+        splitter = DocumentSplitter(
+            split_length=settings.CHUNK_SIZE,
+            split_overlap=settings.CHUNK_OVERLAP,
+            split_by="word",
+            respect_sentence_boundary=True
+        )
+        splitter.warm_up()
+        
+        writer = DocumentWriter(document_store=self.document_store)
+        
         # Add components
-        self.indexing_pipeline.add_component("converter", self.converter)
-        self.indexing_pipeline.add_component("cleaner", self.cleaner)
-        self.indexing_pipeline.add_component("splitter", self.splitter)
-        self.indexing_pipeline.add_component("embedder", self.embedder)
-        self.indexing_pipeline.add_component("document_store", self.document_store)
+        self.indexing_pipeline.add_component("converter", converter)
+        self.indexing_pipeline.add_component("cleaner", cleaner)
+        self.indexing_pipeline.add_component("splitter", splitter)
+        self.indexing_pipeline.add_component("embedder", embedder)
+        self.indexing_pipeline.add_component("writer", writer)
         
         # Connect components
         self.indexing_pipeline.connect("converter", "cleaner")
         self.indexing_pipeline.connect("cleaner", "splitter")
         self.indexing_pipeline.connect("splitter", "embedder")
-        self.indexing_pipeline.connect("embedder.documents", "document_store.documents")
+        self.indexing_pipeline.connect("embedder.documents", "writer.documents")
+        
+        # Save converter instance for text extraction
+        self.converter = converter
+        
+        logger.info(f"Initialized indexing pipeline with chunk_size={settings.CHUNK_SIZE}, overlap={settings.CHUNK_OVERLAP}")
 
     def _init_query_pipeline(self):
         """Initialize the query pipeline"""
         self.query_pipeline = Pipeline()
         
+        # Create components for query pipeline
+        embedder = OpenAIDocumentEmbedder(
+            api_key=Secret.from_token(settings.VLLM_API_KEY),
+            api_base_url=settings.VLLM_BASE_URL,
+            model=settings.EMBEDDINGS_MODEL
+        )
+        
+        retriever = PgvectorEmbeddingRetriever(
+            document_store=self.document_store,
+            filters=None,
+            top_k=5
+        )
+        
         # Add components
-        self.query_pipeline.add_component("embedder", self.embedder)
-        self.query_pipeline.add_component("retriever", self.retriever)
+        self.query_pipeline.add_component("embedder", embedder)
+        self.query_pipeline.add_component("retriever", retriever)
         
         # Connect components
         self.query_pipeline.connect("embedder.embedding", "retriever.query_embedding")
+        
+        # Save retriever instance for parameter updates
+        self.retriever = retriever
+        
+        logger.info("Initialized query pipeline")
 
     async def extract_text(self, file_path: str) -> str:
         """Extract text from a file without indexing it"""
