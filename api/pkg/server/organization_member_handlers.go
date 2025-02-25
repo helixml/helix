@@ -86,11 +86,15 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
+	if req.Role == "" {
+		req.Role = types.OrganizationRoleMember
+	}
+
 	// Create membership
 	membership, err := apiServer.Store.CreateOrganizationMembership(r.Context(), &types.OrganizationMembership{
 		OrganizationID: orgID,
 		UserID:         newMember.ID,
-		Role:           types.OrganizationRoleMember,
+		Role:           req.Role,
 	})
 	if err != nil {
 		log.Err(err).Msg("error creating organization membership")
