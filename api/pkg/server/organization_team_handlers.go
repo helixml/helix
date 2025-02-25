@@ -188,6 +188,38 @@ func (apiServer *HelixAPIServer) deleteTeam(rw http.ResponseWriter, r *http.Requ
 	writeResponse(rw, nil, http.StatusOK)
 }
 
+// listTeamMembers godoc
+// @Summary List members of a team
+// @Description List all members of a team.
+// @Tags    organizations
+// @Success 200 {array} types.TeamMembership
+// @Router /api/v1/organizations/{id}/teams/{team_id}/members [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listTeamMembers(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	orgID := mux.Vars(r)["id"]
+	teamID := mux.Vars(r)["team_id"]
+
+	// Check if user has access to view team members
+	err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	if err != nil {
+		log.Err(err).Msg("error authorizing org member")
+		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+		return
+	}
+
+	members, err := apiServer.Store.ListTeamMemberships(r.Context(), &store.ListTeamMembershipsQuery{
+		TeamID: teamID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing team members")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, members, http.StatusOK)
+}
+
 // addTeamMember godoc
 // @Summary Add a new member to a team
 // @Description Add a new member to a team. Only organization owners can add members to teams.
