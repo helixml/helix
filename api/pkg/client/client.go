@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -140,14 +138,6 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 		if err != nil {
 			return fmt.Errorf("status code %d", resp.StatusCode)
 		}
-		log.Error().
-			Err(err).
-			Int("status_code", resp.StatusCode).
-			Str("body", string(bts)).
-			Str("url", fullURL).
-			Str("method", method).
-			Str("request_body", string(bodyBytes)).
-			Msg("error")
 		return fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
 	}
 

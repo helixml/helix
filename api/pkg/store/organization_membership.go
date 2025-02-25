@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -35,6 +36,9 @@ func (s *PostgresStore) CreateOrganizationMembership(ctx context.Context, member
 
 	err := s.gdb.WithContext(ctx).Create(membership).Error
 	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+			return nil, fmt.Errorf("user %s already a member of organization %s", membership.UserID, membership.OrganizationID)
+		}
 		return nil, err
 	}
 	return s.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{
