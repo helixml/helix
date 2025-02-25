@@ -277,7 +277,16 @@ class HaystackService:
             ]
         }
         
-        deleted = self.document_store.delete_documents(filters=formatted_filters)
+        # Find matching documents
+        matching_docs = self.document_store.filter_documents(filters=formatted_filters)
+        
+        if not matching_docs:
+            logger.info("No documents found matching filters")
+            return {"status": "success", "documents_deleted": 0}
+        
+        # Delete the matching documents
+        self.document_store.delete_documents(document_ids=[doc.id for doc in matching_docs])
+        deleted = len(matching_docs)
         
         logger.info(f"Deleted {deleted} documents")
         return {"status": "success", "documents_deleted": deleted} 
