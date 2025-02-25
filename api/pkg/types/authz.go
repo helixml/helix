@@ -65,8 +65,11 @@ type OrganizationMembership struct {
 }
 
 type AddOrganizationMemberRequest struct {
-	UserID    string `json:"user_id"`
-	UserEmail string `json:"user_email"`
+	UserReference string `json:"user_reference"` // Either user ID or user email
+}
+
+type AddTeamMemberRequest struct {
+	UserReference string `json:"user_reference"` // Either user ID or user email
 }
 
 type UpdateOrganizationMemberRequest struct {
