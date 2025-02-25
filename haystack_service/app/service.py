@@ -5,6 +5,7 @@ import httpx
 from typing import List, Dict, Any, Optional, Union, BinaryIO
 
 from haystack import Document, Pipeline
+from haystack.utils import Secret
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.components.preprocessors import DocumentSplitter
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
@@ -82,7 +83,7 @@ class UnstructuredConverter:
                 return []
             
             logger.info(f"Extracted {len(text)} characters")
-            return [Document(content=text, metadata=metadata or {})]
+            return [Document(content=text, meta=metadata or {})]
             
         except Exception as e:
             logger.error(f"Document conversion error: {str(e)}")
@@ -140,16 +141,18 @@ class HaystackService:
         
         # Initialize components
         self.embedder = OpenAIDocumentEmbedder(
-            api_key=settings.VLLM_API_KEY,
+            api_key=Secret.from_token(settings.VLLM_API_KEY),
             api_base_url=settings.VLLM_BASE_URL,
-            model_name=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
+            model=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
         )
         self.converter = UnstructuredConverter()
         self.splitter = DocumentSplitter(
             split_length=settings.CHUNK_SIZE,
             split_overlap=settings.CHUNK_OVERLAP,
-            add_split_info=True
+            split_by="word",
+            respect_sentence_boundary=True
         )
+        self.splitter.warm_up()
         
         logger.info(f"Initialized DocumentSplitter with chunk_size={settings.CHUNK_SIZE}, overlap={settings.CHUNK_OVERLAP}")
         
@@ -192,13 +195,14 @@ class HaystackService:
         # Split into chunks
         chunks = []
         for doc in documents:
-            chunks.extend(self.splitter.split(doc))
+            result = self.splitter.run(documents=[doc])
+            chunks.extend(result["documents"])
         
         logger.info(f"Split document into {len(chunks)} chunks")
         
         # Generate embeddings and store
-        embeddings = await self.embedder.run(documents=chunks)
-        chunks = embeddings["documents"]
+        result = self.embedder.run(documents=chunks)
+        chunks = result["documents"]
         
         # Store in database
         self.document_store.write_documents(chunks)
@@ -215,7 +219,7 @@ class HaystackService:
         logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
         
         # Generate query embedding
-        query_result = await self.embedder.run(text=query_text)
+        query_result = self.embedder.run(text=query_text)
         query_embedding = query_result["embedding"]
         
         # Retrieve documents
