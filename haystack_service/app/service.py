@@ -210,8 +210,8 @@ class HaystackService:
         Returns:
             Truncated text
         """
-        # Convert max tokens to characters (approximate - using 2 chars per token as conservative estimate)
-        max_chars = settings.EMBEDDINGS_MAX_TOKENS * 2
+        # Convert max tokens to characters (approximate - using 4 chars per token as conservative estimate)
+        max_chars = settings.EMBEDDINGS_MAX_TOKENS * 4
         
         if len(text) <= max_chars:
             return text
