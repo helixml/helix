@@ -525,66 +525,11 @@ type StripeUser struct {
 	SubscriptionURL string
 }
 
-type UserConfig struct {
-	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
-	StripeCustomerID         string `json:"stripe_customer_id"`
-	StripeSubscriptionID     string `json:"stripe_subscription_id"`
-}
-
-func (u UserConfig) Value() (driver.Value, error) {
-	j, err := json.Marshal(u)
-	return j, err
-}
-
-func (u *UserConfig) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result UserConfig
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*u = result
-	return nil
-}
-
-func (UserConfig) GormDataType() string {
-	return "json"
-}
-
-// this lives in the database
-// the ID is the keycloak user ID
-// there might not be a record for every user
-type UserMeta struct {
-	ID     string     `json:"id"`
-	Config UserConfig `json:"config" gorm:"type:json"`
-}
-
 // this is given to the frontend as user context
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
 	Config UserConfig `json:"config"`
-}
-
-type User struct {
-	// the actual token used and its type
-	Token string
-	// none, runner. keycloak, api_key
-	TokenType TokenType
-	// if the ID of the user is contained in the env setting
-	Admin bool
-	// if the token is associated with an app
-	AppID string
-	// these are set by the keycloak user based on the token
-	// if it's an app token - the keycloak user is loaded from the owner of the app
-	// if it's a runner token - these values will be empty
-	ID       string
-	Type     OwnerType
-	Email    string
-	Username string
-	FullName string
 }
 
 // a single envelope that is broadcast to users

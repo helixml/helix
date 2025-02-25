@@ -23,6 +23,11 @@ const (
 	TestRunPrefix             = "testrun_"
 	OpenAIResponsePrefix      = "oai_"
 	ProviderEndpointPrefix    = "pe_"
+	OrganizationPrefix        = "org_"
+	TeamPrefix                = "team_"
+	UserPrefix                = "usr_"
+	RolePrefix                = "role_"
+	AccessGrantPrefix         = "ag_"
 )
 
 func GenerateUUID() string {
@@ -75,6 +80,26 @@ func GenerateKnowledgeVersionID() string {
 
 func GenerateSecretID() string {
 	return fmt.Sprintf("%s%s", SecretPrefix, newID())
+}
+
+func GenerateOrganizationID() string {
+	return fmt.Sprintf("%s%s", OrganizationPrefix, newID())
+}
+
+func GenerateTeamID() string {
+	return fmt.Sprintf("%s%s", TeamPrefix, newID())
+}
+
+func GenerateUserID() string {
+	return fmt.Sprintf("%s%s", UserPrefix, newID())
+}
+
+func GenerateRoleID() string {
+	return fmt.Sprintf("%s%s", RolePrefix, newID())
+}
+
+func GenerateAccessGrantID() string {
+	return fmt.Sprintf("%s%s", AccessGrantPrefix, newID())
 }
 
 // GenerateVersion generates a version string for the knowledge

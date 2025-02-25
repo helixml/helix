@@ -67,6 +67,14 @@ func NewPostgresStore(
 	return store, nil
 }
 
+func (s *PostgresStore) Close() error {
+	sqlDB, err := s.gdb.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 type MigrationScript struct {
 	Name   string `gorm:"primaryKey"`
 	HasRun bool
@@ -90,6 +98,14 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.Organization{},
+		&types.User{},
+		&types.Team{},
+		&types.TeamMembership{},
+		&types.Role{},
+		&types.OrganizationMembership{},
+		&types.AccessGrant{},
+		&types.AccessGrantRoleBinding{},
 		&types.UserMeta{},
 		&types.Session{},
 		&types.App{},
@@ -107,6 +123,39 @@ func (s *PostgresStore) autoMigrate() error {
 	)
 	if err != nil {
 		return err
+	}
+
+	err = s.autoMigrateRoleConfig(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if err := createFK(s.gdb, types.OrganizationMembership{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Team{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Role{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TeamMembership{}, types.Team{}, "team_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TeamMembership{}, types.User{}, "user_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.AccessGrantRoleBinding{}, types.AccessGrant{}, "access_grant_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.AccessGrant{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
 	}
 
 	if err := createFK(s.gdb, types.ApiKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
