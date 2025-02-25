@@ -6,9 +6,14 @@ from typing import List, Dict, Any, Optional, Union
 
 from haystack import Document, Pipeline
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
-from haystack.components import TextSplitter
-from haystack.components.retrievers import EmbeddingRetriever
+from haystack.components.preprocessors import DocumentSplitter
+from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
+from haystack.components.embedders import OpenAICompatibleEmbedder
 from unstructured.partition.auto import partition
+from unstructured.documents.elements import (
+    Title, NarrativeText, ListItem, Text,
+    Header, Footer, Table, TableCell, Image
+)
 
 from .config import settings
 
@@ -16,37 +21,31 @@ from .config import settings
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
-class HelixEmbedder:
-    """Custom embedder that uses Helix API for embeddings"""
-    
-    def __init__(self, api_url: str):
-        self.api_url = api_url
-        self.client = httpx.AsyncClient(timeout=60.0)
-        logger.info(f"Initialized HelixEmbedder with API URL: {api_url}")
-    
-    async def embed(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts using Helix API"""
-        logger.debug(f"Generating embeddings for {len(texts)} texts")
-        
-        try:
-            response = await self.client.post(
-                f"{self.api_url}/embeddings",
-                json={"input": texts}
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            embeddings = [item["embedding"] for item in result["data"]]
-            
-            logger.debug(f"Successfully generated {len(embeddings)} embeddings")
-            return embeddings
-            
-        except Exception as e:
-            logger.error(f"Error generating embeddings: {str(e)}")
-            raise RuntimeError(f"Embedding API error: {str(e)}")
-
 class UnstructuredConverter:
     """Converts documents to text using unstructured"""
+    
+    def _element_to_markdown(self, element) -> str:
+        """Convert an unstructured element to markdown format"""
+        if not str(element).strip():
+            return ""
+            
+        text = str(element).strip()
+        
+        if isinstance(element, Title):
+            return f"# {text}"
+        elif isinstance(element, Header):
+            return f"## {text}"
+        elif isinstance(element, ListItem):
+            return f"- {text}"
+        elif isinstance(element, Table):
+            # Basic table formatting - could be enhanced
+            return f"**Table**: {text}"
+        elif isinstance(element, Image):
+            return f"![Image]{text}"
+        elif isinstance(element, Footer):
+            return f"*{text}*"
+        else:  # NarrativeText, Text, etc
+            return text
     
     def convert(self, file_path: str, metadata: Dict[str, Any] = None) -> List[Document]:
         """Convert a file to text using unstructured"""
@@ -54,7 +53,12 @@ class UnstructuredConverter:
         
         try:
             elements = partition(filename=file_path)
-            text = "\n\n".join(str(el) for el in elements if str(el).strip())
+            markdown_elements = [
+                self._element_to_markdown(el) 
+                for el in elements
+            ]
+            # Filter out empty strings and join with double newlines
+            text = "\n\n".join(el for el in markdown_elements if el)
             
             if not text.strip():
                 logger.warning(f"No text extracted from file: {file_path}")
@@ -107,7 +111,10 @@ class HaystackService:
             self.document_store = PgvectorDocumentStore(
                 connection_string=settings.PGVECTOR_DSN,
                 embedding_dimension=settings.EMBEDDING_DIM,
-                table_name=settings.PGVECTOR_TABLE
+                table_name=settings.PGVECTOR_TABLE,
+                vector_function="cosine_similarity",
+                search_strategy="hnsw",
+                recreate_table=True
             )
             logger.info(f"Connected to PgvectorDocumentStore: {settings.PGVECTOR_TABLE}")
         except Exception as e:
@@ -115,20 +122,25 @@ class HaystackService:
             raise
         
         # Initialize components
-        self.embedder = HelixEmbedder(settings.HELIX_API_URL)
+        self.embedder = OpenAICompatibleEmbedder(
+            base_url=settings.VLLM_BASE_URL,
+            api_key=settings.VLLM_API_KEY,
+            model_name=os.getenv("RAG_HAYSTACK_EMBEDDINGS_MODEL", "thenlper/gte-small")
+        )
         self.converter = UnstructuredConverter()
-        self.splitter = TextSplitter(
-            split_by="word",
+        self.splitter = DocumentSplitter(
             split_length=settings.CHUNK_SIZE,
-            split_overlap=settings.CHUNK_OVERLAP
+            split_overlap=settings.CHUNK_OVERLAP,
+            add_split_info=True
         )
         
-        logger.info(f"Initialized TextSplitter with chunk_size={settings.CHUNK_SIZE}, overlap={settings.CHUNK_OVERLAP}")
+        logger.info(f"Initialized DocumentSplitter with chunk_size={settings.CHUNK_SIZE}, overlap={settings.CHUNK_OVERLAP}")
         
         # Initialize retriever
-        self.retriever = EmbeddingRetriever(
+        self.retriever = PgvectorEmbeddingRetriever(
             document_store=self.document_store,
-            embedding_model=self.embedder
+            filters=None,
+            top_k=5
         )
         
         logger.info("HaystackService initialization complete")
