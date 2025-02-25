@@ -3,6 +3,7 @@ import tempfile
 import logging
 import httpx
 from typing import List, Dict, Any, Optional, Union, BinaryIO
+import numpy as np
 
 from haystack import Document
 from haystack.utils import Secret
@@ -83,7 +84,16 @@ class UnstructuredConverter:
                 return []
             
             logger.info(f"Extracted {len(text)} characters")
-            return [Document(content=text, meta=metadata or {})]
+            
+            # Ensure metadata has required fields
+            if metadata is None:
+                metadata = {}
+            if "data_entity_id" not in metadata:
+                logger.warning("data_entity_id not provided in metadata")
+            if "document_id" not in metadata:
+                logger.warning("document_id not provided in metadata")
+                
+            return [Document(content=text, meta=metadata)]
             
         except Exception as e:
             logger.error(f"Document conversion error: {str(e)}")
@@ -132,7 +142,7 @@ class HaystackService:
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
                 search_strategy="hnsw",
-                recreate_table=True
+                recreate_table=True # XXX disable to avoid data loss?
             )
             logger.info(f"Connected to PgvectorDocumentStore: {settings.PGVECTOR_TABLE}")
         except Exception as e:
@@ -223,9 +233,20 @@ class HaystackService:
         query_embedding = query_result["documents"][0].embedding
         
         # Retrieve documents
+        if filters:
+            formatted_filters = {
+                "operator": "AND",
+                "conditions": [
+                    {"field": f"meta.{key}", "operator": "==", "value": value}
+                    for key, value in filters.items()
+                ]
+            }
+        else:
+            formatted_filters = None
+
         results = self.retriever.run(
             query_embedding=query_embedding,
-            filters=filters,
+            filters=formatted_filters,
             top_k=top_k
         )["documents"]
         
@@ -235,8 +256,8 @@ class HaystackService:
         formatted_results = [
             {
                 "content": doc.content,
-                "metadata": doc.metadata,
-                "score": doc.score
+                "metadata": doc.meta,
+                "score": float(doc.score if doc.score is not None else 0.0)
             }
             for doc in results
         ]
@@ -247,7 +268,16 @@ class HaystackService:
         """Delete documents from the document store based on filters"""
         logger.info(f"Deleting documents with filters: {filters}")
         
-        deleted = self.document_store.delete_documents(filters=filters)
+        # Format filters to use meta prefix
+        formatted_filters = {
+            "operator": "AND",
+            "conditions": [
+                {"field": f"meta.{key}", "operator": "==", "value": value}
+                for key, value in filters.items()
+            ]
+        }
+        
+        deleted = self.document_store.delete_documents(filters=formatted_filters)
         
         logger.info(f"Deleted {deleted} documents")
         return {"status": "success", "documents_deleted": deleted} 
