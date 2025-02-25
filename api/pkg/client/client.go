@@ -48,6 +48,12 @@ type Client interface {
 	CreateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	UpdateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	DeleteProviderEndpoint(ctx context.Context, id string) error
+
+	// Organization Members
+	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*types.OrganizationMembership, error)
+	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	UpdateOrganizationMember(ctx context.Context, organizationID, userID string, req *types.UpdateOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
 }
 
 // HelixClient is the client for the helix api
