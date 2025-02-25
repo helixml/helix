@@ -2,13 +2,13 @@ import os
 import tempfile
 import logging
 import httpx
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, BinaryIO
 
 from haystack import Document, Pipeline
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.components.preprocessors import DocumentSplitter
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
-from haystack.components.embedders import OpenAICompatibleEmbedder
+from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
 from unstructured.partition.auto import partition
 from unstructured.documents.elements import (
     Title, NarrativeText, ListItem, Text,
@@ -47,12 +47,30 @@ class UnstructuredConverter:
         else:  # NarrativeText, Text, etc
             return text
     
-    def convert(self, file_path: str, metadata: Dict[str, Any] = None) -> List[Document]:
+    def convert(self, file: Union[str, BinaryIO], metadata: Dict[str, Any] = None) -> List[Document]:
         """Convert a file to text using unstructured"""
-        logger.info(f"Converting file: {file_path}")
+        logger.info("Converting file to text")
         
         try:
-            elements = partition(filename=file_path)
+            # If file is a string (path), use it directly, otherwise save to temp file
+            if isinstance(file, str):
+                elements = partition(filename=file)
+            else:
+                with tempfile.NamedTemporaryFile(delete=False) as temp:
+                    # If file is a BytesIO, get its content
+                    if hasattr(file, 'read'):
+                        content = file.read()
+                        if isinstance(content, str):
+                            content = content.encode('utf-8')
+                        temp.write(content)
+                    else:
+                        temp.write(file)
+                    temp_path = temp.name
+                try:
+                    elements = partition(filename=temp_path)
+                finally:
+                    os.unlink(temp_path)
+            
             markdown_elements = [
                 self._element_to_markdown(el) 
                 for el in elements
@@ -61,10 +79,10 @@ class UnstructuredConverter:
             text = "\n\n".join(el for el in markdown_elements if el)
             
             if not text.strip():
-                logger.warning(f"No text extracted from file: {file_path}")
+                logger.warning("No text extracted from file")
                 return []
             
-            logger.info(f"Extracted {len(text)} characters from file")
+            logger.info(f"Extracted {len(text)} characters")
             return [Document(content=text, metadata=metadata or {})]
             
         except Exception as e:
@@ -122,9 +140,9 @@ class HaystackService:
             raise
         
         # Initialize components
-        self.embedder = OpenAICompatibleEmbedder(
-            base_url=settings.VLLM_BASE_URL,
+        self.embedder = OpenAIDocumentEmbedder(
             api_key=settings.VLLM_API_KEY,
+            base_url=settings.VLLM_BASE_URL,
             model_name=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
         )
         self.converter = UnstructuredConverter()
@@ -145,13 +163,13 @@ class HaystackService:
         
         logger.info("HaystackService initialization complete")
     
-    async def extract_text(self, file_path: Optional[str] = None, url: Optional[str] = None) -> str:
+    async def extract_text(self, file: Optional[Union[str, BinaryIO]] = None, url: Optional[str] = None) -> str:
         """Extract text from a file or URL without indexing it"""
-        logger.info(f"Extracting text from file_path={file_path}, url={url}")
+        logger.info(f"Extracting text from file or URL")
         
-        if file_path:
+        if file is not None:
             # Extract from file
-            documents = self.converter.convert(file_path)
+            documents = self.converter.convert(file)
             if not documents:
                 return ""
             return documents[0].content
@@ -159,14 +177,14 @@ class HaystackService:
             # Extract from URL
             return await self.converter.extract_text_from_url(url)
         else:
-            raise ValueError("Either file_path or url must be provided")
+            raise ValueError("Either file or url must be provided")
     
-    async def process_and_index(self, file_path: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def process_and_index(self, file: Union[str, BinaryIO], metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """Process a document and index it in the document store"""
-        logger.info(f"Processing and indexing file: {file_path} with metadata: {metadata}")
+        logger.info(f"Processing and indexing file with metadata: {metadata}")
         
         # Convert document
-        documents = self.converter.convert(file_path, metadata)
+        documents = self.converter.convert(file, metadata)
         
         if not documents:
             logger.warning("No documents to index")
@@ -180,9 +198,8 @@ class HaystackService:
         logger.info(f"Split document into {len(chunks)} chunks")
         
         # Generate embeddings and store
-        embeddings = await self.embedder.embed([chunk.content for chunk in chunks])
-        for chunk, embedding in zip(chunks, embeddings):
-            chunk.embedding = embedding
+        embeddings = await self.embedder.run(documents=chunks)
+        chunks = embeddings["documents"]
         
         # Store in database
         self.document_store.write_documents(chunks)
@@ -199,11 +216,12 @@ class HaystackService:
         logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
         
         # Generate query embedding
-        query_embedding = await self.embedder.embed([query_text])
+        query_result = await self.embedder.run(text=query_text)
+        query_embedding = query_result["embedding"]
         
         # Retrieve documents
         results = self.retriever.retrieve(
-            query_embedding=query_embedding[0],
+            query_embedding=query_embedding,
             filters=filters,
             top_k=top_k
         )
