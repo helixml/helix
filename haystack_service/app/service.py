@@ -9,9 +9,9 @@ from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack.components.embedders import OpenAIDocumentEmbedder
-from haystack_integrations.components.converters.unstructured import UnstructuredFileConverter
 
 from .config import settings
+from .converters import LocalUnstructuredConverter
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -46,9 +46,8 @@ class HaystackService:
             model=settings.EMBEDDINGS_MODEL
         )
         
-        self.converter = UnstructuredFileConverter(
-            mode="one-doc-per-file"  # Combine all elements into one document per file
-        )
+        # Use local converter instead of UnstructuredFileConverter
+        self.converter = LocalUnstructuredConverter()
         
         self.cleaner = DocumentCleaner(
             remove_empty_lines=True,
