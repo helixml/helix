@@ -257,8 +257,8 @@ services:
     restart: always
     environment:
       - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
-      - CHUNK_SIZE=250
-      - CHUNK_OVERLAP=50
+      - CHUNK_SIZE=100
+      - CHUNK_OVERLAP=5
       - LOG_LEVEL=INFO
       - EMBEDDING_DIM=384  # GTE-small is 384 dimensions
       - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:30092}

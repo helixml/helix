@@ -7,8 +7,8 @@ class Settings:
     PGVECTOR_TABLE: str = os.getenv("PGVECTOR_TABLE", "haystack_documents")
     
     # Document processing
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "250"))
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "25"))
+    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "200"))
+    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "20"))
     
     # Embedding model settings
     EMBEDDING_DIM: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_DIM", "384"))  # GTE-small is 384 dimensions
