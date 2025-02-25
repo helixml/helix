@@ -13,10 +13,6 @@ func init() {
 	createCmd.Flags().StringP("name", "n", "", "Name of the organization")
 	createCmd.Flags().StringP("display-name", "d", "", "Display name of the organization")
 
-	if err := createCmd.MarkFlagRequired("name"); err != nil {
-		return
-	}
-
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -24,13 +20,25 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new organization",
 	Long:  ``,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
 		}
 
 		name, _ := cmd.Flags().GetString("name")
+		if len(args) == 0 && name == "" {
+			return fmt.Errorf("name is required")
+		}
+
+		if len(args) > 0 && name != "" {
+			return fmt.Errorf("name and argument cannot both be provided")
+		}
+
+		if len(args) > 0 {
+			name = args[0]
+		}
+
 		displayName, _ := cmd.Flags().GetString("display-name")
 
 		organization := &types.Organization{
