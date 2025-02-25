@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -234,7 +235,6 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 	user := getRequestUser(r)
 	orgID := mux.Vars(r)["id"]
 	teamID := mux.Vars(r)["team_id"]
-	newMemberUserID := mux.Vars(r)["user_id"]
 
 	// Check if user has access to add members to the team (needs to be an owner)
 	err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
@@ -253,10 +253,24 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 		return
 	}
 
+	var req types.AddOrganizationMemberRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		log.Err(err).Msg("error decoding request body")
+		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	query := &store.GetUserQuery{}
+
+	if strings.Contains(req.UserReference, "@") {
+		query.Email = req.UserReference
+	} else {
+		query.ID = req.UserReference
+	}
+
 	// Get user
-	_, err = apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{
-		ID: newMemberUserID,
-	})
+	newMember, err := apiServer.Store.GetUser(r.Context(), query)
 	if err != nil {
 		log.Err(err).Msg("error getting user")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -266,7 +280,7 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 	// Check for existing membership
 	existingMembership, err := apiServer.Store.GetTeamMembership(r.Context(), &store.GetTeamMembershipQuery{
 		TeamID: teamID,
-		UserID: newMemberUserID,
+		UserID: newMember.ID,
 	})
 	if err != nil {
 		log.Err(err).Msg("error getting team membership")
@@ -285,7 +299,7 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 	// Create membership
 	membership := &types.TeamMembership{
 		TeamID: teamID,
-		UserID: newMemberUserID,
+		UserID: newMember.ID,
 	}
 
 	createdMembership, err := apiServer.Store.CreateTeamMembership(r.Context(), membership)
