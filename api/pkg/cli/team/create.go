@@ -16,21 +16,31 @@ func init() {
 	if err := createCmd.MarkFlagRequired("organization"); err != nil {
 		return
 	}
-	if err := createCmd.MarkFlagRequired("name"); err != nil {
-		return
-	}
 
 	rootCmd.AddCommand(createCmd)
 }
 
 var createCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a new team",
+	Short: "Create a new team in an organization",
 	Long:  `Create a new team in an organization. You must be an organization owner to create teams.`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
+		}
+
+		name, _ := cmd.Flags().GetString("name")
+		if len(args) == 0 && name == "" {
+			return fmt.Errorf("name is required")
+		}
+
+		if len(args) > 0 && name != "" {
+			return fmt.Errorf("name and argument cannot both be provided")
+		}
+
+		if len(args) > 0 {
+			name = args[0]
 		}
 
 		orgRef, _ := cmd.Flags().GetString("organization")
@@ -39,7 +49,6 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("failed to lookup organization: %w", err)
 		}
 
-		name, _ := cmd.Flags().GetString("name")
 		team, err := apiClient.CreateTeam(cmd.Context(), org.ID, &types.CreateTeamRequest{
 			Name:           name,
 			OrganizationID: org.ID,
