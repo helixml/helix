@@ -1,4 +1,11 @@
 definitions:
+  github_com_helixml_helix_api_pkg_types.Config:
+    properties:
+      rules:
+        items:
+          $ref: '#/definitions/types.Rule'
+        type: array
+    type: object
   github_com_helixml_helix_api_pkg_types.Tool:
     properties:
       config:
@@ -378,6 +385,14 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  gorm.DeletedAt:
+    properties:
+      time:
+        type: string
+      valid:
+        description: Valid is true if Time is not NULL
+        type: boolean
+    type: object
   openai.ChatCompletionResponseFormatJSONSchema:
     properties:
       description:
@@ -481,6 +496,38 @@ definitions:
         type: string
       usage:
         $ref: '#/definitions/github_com_sashabaranov_go-openai.Usage'
+    type: object
+  types.Action:
+    enum:
+    - Get
+    - List
+    - Delete
+    - Update
+    - Create
+    - UseAction
+    type: string
+    x-enum-comments:
+      ActionUseAction: For example "use app"
+    x-enum-varnames:
+    - ActionGet
+    - ActionList
+    - ActionDelete
+    - ActionUpdate
+    - ActionCreate
+    - ActionUseAction
+  types.AddOrganizationMemberRequest:
+    properties:
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
+      user_reference:
+        description: Either user ID or user email
+        type: string
+    type: object
+  types.AddTeamMemberRequest:
+    properties:
+      user_reference:
+        description: Either user ID or user email
+        type: string
     type: object
   types.App:
     properties:
@@ -729,6 +776,13 @@ definitions:
       text:
         type: string
     type: object
+  types.CreateTeamRequest:
+    properties:
+      name:
+        type: string
+      organization_id:
+        type: string
+    type: object
   types.CreatorType:
     enum:
     - system
@@ -764,6 +818,14 @@ definitions:
       server_name:
         type: string
     type: object
+  types.Effect:
+    enum:
+    - allow
+    - deny
+    type: string
+    x-enum-varnames:
+    - EffectAllow
+    - EffectDeny
   types.Firecrawl:
     properties:
       api_key:
@@ -1135,6 +1197,69 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.Organization:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      display_name:
+        type: string
+      id:
+        type: string
+      memberships:
+        description: Memberships in the organization
+        items:
+          $ref: '#/definitions/types.OrganizationMembership'
+        type: array
+      name:
+        type: string
+      owner:
+        description: Who created the org
+        type: string
+      roles:
+        description: Roles in the organization
+        items:
+          $ref: '#/definitions/types.Role'
+        type: array
+      teams:
+        description: Teams in the organization
+        items:
+          $ref: '#/definitions/types.Team'
+        type: array
+      updated_at:
+        type: string
+    type: object
+  types.OrganizationMembership:
+    properties:
+      created_at:
+        type: string
+      organization_id:
+        type: string
+      role:
+        allOf:
+        - $ref: '#/definitions/types.OrganizationRole'
+        description: Role - the role of the user in the organization (owner or member)
+      updated_at:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
+      user_id:
+        description: composite key
+        type: string
+    type: object
+  types.OrganizationRole:
+    enum:
+    - owner
+    - member
+    type: string
+    x-enum-comments:
+      OrganizationRoleMember: Can see every member and team in the organization and
+        can create new apps
+      OrganizationRoleOwner: Has full administrative access to the entire organization.
+    x-enum-varnames:
+    - OrganizationRoleOwner
+    - OrganizationRoleMember
   types.OwnerType:
     enum:
     - user
@@ -1183,6 +1308,9 @@ definitions:
         type: string
       created:
         type: string
+      default:
+        description: Set from environment variable
+        type: boolean
       description:
         type: string
       endpoint_type:
@@ -1270,6 +1398,30 @@ definitions:
             type: string
         type: object
     type: object
+  types.Resource:
+    enum:
+    - Team
+    - Organization
+    - Role
+    - Membership
+    - MembershipRoleBinding
+    - Application
+    - Knowledge
+    - User
+    - '*'
+    - Dataset
+    type: string
+    x-enum-varnames:
+    - ResourceTeam
+    - ResourceOrganization
+    - ResourceRole
+    - ResourceMembership
+    - ResourceMembershipRoleBinding
+    - ResourceApplication
+    - ResourceKnowledge
+    - ResourceUser
+    - ResourceAny
+    - ResourceTypeDataset
   types.ResponseFormat:
     properties:
       schema:
@@ -1285,6 +1437,36 @@ definitions:
     x-enum-varnames:
     - ResponseFormatTypeJSONObject
     - ResponseFormatTypeText
+  types.Role:
+    properties:
+      config:
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Config'
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.Rule:
+    properties:
+      actions:
+        items:
+          $ref: '#/definitions/types.Action'
+        type: array
+      effect:
+        $ref: '#/definitions/types.Effect'
+      resource:
+        items:
+          $ref: '#/definitions/types.Resource'
+        type: array
+    type: object
   types.RunAPIActionRequest:
     properties:
       action:
@@ -1604,6 +1786,44 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.Team:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: string
+      memberships:
+        description: Memberships in the team
+        items:
+          $ref: '#/definitions/types.TeamMembership'
+        type: array
+      name:
+        type: string
+      organization_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.TeamMembership:
+    properties:
+      created_at:
+        type: string
+      team:
+        $ref: '#/definitions/types.Team'
+      team_id:
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: extra data fields (optional)
+      user_id:
+        description: composite key
+        type: string
+    type: object
   types.TestStep:
     properties:
       expected_output:
@@ -1639,6 +1859,18 @@ definitions:
     x-enum-varnames:
     - TextSplitterTypeMarkdown
     - TextSplitterTypeText
+  types.TokenType:
+    enum:
+    - ""
+    - runner
+    - keycloak
+    - api_key
+    type: string
+    x-enum-varnames:
+    - TokenTypeNone
+    - TokenTypeRunner
+    - TokenTypeKeycloak
+    - TokenTypeAPIKey
   types.ToolAPIAction:
     properties:
       description:
@@ -1717,6 +1949,73 @@ definitions:
         $ref: '#/definitions/types.CronTrigger'
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
+    type: object
+  types.UpdateOrganizationMemberRequest:
+    properties:
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
+    type: object
+  types.UpdateProviderEndpoint:
+    properties:
+      api_key:
+        type: string
+      api_key_file:
+        description: Must be mounted to the container
+        type: string
+      base_url:
+        type: string
+      description:
+        type: string
+      endpoint_type:
+        allOf:
+        - $ref: '#/definitions/types.ProviderEndpointType'
+        description: 'global, user (TODO: orgs, teams)'
+      models:
+        items:
+          type: string
+        type: array
+    type: object
+  types.UpdateTeamRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  types.User:
+    properties:
+      admin:
+        description: if the ID of the user is contained in the env setting
+        type: boolean
+      appID:
+        description: if the token is associated with an app
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      email:
+        type: string
+      fullName:
+        type: string
+      id:
+        type: string
+      token:
+        description: the actual token used and its type
+        type: string
+      tokenType:
+        allOf:
+        - $ref: '#/definitions/types.TokenType'
+        description: none, runner. keycloak, api_key
+      type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: |-
+          these are set by the keycloak user based on the token
+          if it's an app token - the keycloak user is loaded from the owner of the app
+          if it's a runner token - these values will be empty
+      updated_at:
+        type: string
+      username:
+        type: string
     type: object
   types.WebsiteCrawler:
     properties:
@@ -1903,6 +2202,264 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/organizations:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Organization'
+            type: array
+      security:
+      - BearerAuth: []
+    post:
+      description: Create a new organization
+      parameters:
+      - description: Request body with organization configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Organization'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Organization'
+      security:
+      - BearerAuth: []
+      summary: Create a new organization
+      tags:
+      - organizations
+  /api/v1/organizations/{id}:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Organization'
+      security:
+      - BearerAuth: []
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Organization'
+    put:
+      description: Update an organization, must be an owner of the organization
+      parameters:
+      - description: Request body with organization configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Organization'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Organization'
+      security:
+      - BearerAuth: []
+      summary: Update an organization
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/members:
+    get:
+      description: List members of an organization
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrganizationMembership'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization members
+      tags:
+      - organizations
+    post:
+      description: Add a member to an organization
+      parameters:
+      - description: Request body with user email to add.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddOrganizationMemberRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrganizationMembership'
+      security:
+      - BearerAuth: []
+      summary: Add an organization member
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/members/{user_id}:
+    delete:
+      description: Remove a member from an organization
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Remove an organization member
+      tags:
+      - organizations
+    put:
+      description: Update a member's role in an organization
+      parameters:
+      - description: Request body with role to update to.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateOrganizationMemberRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrganizationMembership'
+      security:
+      - BearerAuth: []
+      summary: Update an organization member
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/roles:
+    get:
+      description: List all roles in an organization. Organization members can list
+        roles.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Role'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List roles in an organization
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/teams:
+    get:
+      description: List all teams in an organization. Organization members can list
+        teams.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Team'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List teams in an organization
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      description: Create a new team in an organization. Only organization owners
+        can create teams.
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateTeamRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Team'
+      security:
+      - BearerAuth: []
+      summary: Create a new team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/teams/{team_id}:
+    delete:
+      description: Delete a team from an organization. Only organization owners can
+        delete teams.
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Delete a team
+      tags:
+      - organizations
+    put:
+      consumes:
+      - application/json
+      description: Update a team's details. Only organization owners can update teams.
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateTeamRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Team'
+      security:
+      - BearerAuth: []
+      summary: Update a team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/teams/{team_id}/members:
+    get:
+      description: List all members of a team.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TeamMembership'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List members of a team
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      description: Add a new member to a team. Only organization owners can add members
+        to teams.
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddTeamMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.TeamMembership'
+      security:
+      - BearerAuth: []
+      summary: Add a new member to a team
+      tags:
+      - organizations
   /api/v1/providers:
     get:
       responses:
@@ -1945,7 +2502,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.ProviderEndpoint'
+            $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
   /api/v1/secrets:

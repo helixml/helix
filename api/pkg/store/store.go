@@ -69,9 +69,57 @@ type GetProviderEndpointsQuery struct {
 	Name      string
 }
 
+type ListUsersQuery struct {
+	TokenType types.TokenType `json:"token_type"`
+	Admin     bool            `json:"admin"`
+	Type      types.OwnerType `json:"type"`
+	Email     string          `json:"email"`
+	Username  string          `json:"username"`
+}
+
+var _ Store = &PostgresStore{}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
+	//  Auth + Authz
+	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
+	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
+	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
+	DeleteOrganization(ctx context.Context, id string) error
+	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
+
+	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
+	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)
+	UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
+	DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error
+	ListOrganizationMemberships(ctx context.Context, query *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error)
+
+	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
+	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
+	UpdateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
+	DeleteTeam(ctx context.Context, id string) error
+	ListTeams(ctx context.Context, query *ListTeamsQuery) ([]*types.Team, error)
+
+	CreateTeamMembership(ctx context.Context, membership *types.TeamMembership) (*types.TeamMembership, error)
+	GetTeamMembership(ctx context.Context, q *GetTeamMembershipQuery) (*types.TeamMembership, error)
+	ListTeamMemberships(ctx context.Context, query *ListTeamMembershipsQuery) ([]*types.TeamMembership, error)
+	DeleteTeamMembership(ctx context.Context, teamID, userID string) error
+
+	CreateRole(ctx context.Context, role *types.Role) (*types.Role, error)
+	GetRole(ctx context.Context, id string) (*types.Role, error)
+	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
+	DeleteRole(ctx context.Context, id string) error
+	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
+
+	CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error)
+	ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error)
+	DeleteAccessGrant(ctx context.Context, id string) error
+
+	CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error)
+	DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error
+	GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error)
+
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
@@ -81,6 +129,13 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
+
+	// users
+	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
+	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
+	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
+	DeleteUser(ctx context.Context, id string) error
+	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)

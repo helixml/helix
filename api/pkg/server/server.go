@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -346,6 +347,28 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}/refresh", system.Wrapper(apiServer.refreshKnowledge)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
 
+	// Orgs, authz
+	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations", apiServer.createOrganization).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}", apiServer.getOrganization).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}", apiServer.updateOrganization).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}", apiServer.deleteOrganization).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/members", apiServer.listOrganizationMembers).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/members", apiServer.addOrganizationMember).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.removeOrganizationMember).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.updateOrganizationMember).Methods(http.MethodPut)
+
+	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
+
+	// Teams
+	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.createTeam).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}", apiServer.updateTeam).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}", apiServer.deleteTeam).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members", apiServer.listTeamMembers).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members", apiServer.addTeamMember).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members/{user_id}", apiServer.removeTeamMember).Methods(http.MethodDelete)
+
 	// we know which app this is by the token that is used (which is linked to the app)
 	// this is so frontend devs don't need anything other than their access token
 	// and can auto-connect to this endpoint
@@ -548,5 +571,20 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
 
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	}
+}
+
+func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
+	rw.WriteHeader(statusCode)
+
+	if data == nil {
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(rw).Encode(data)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 	}
 }

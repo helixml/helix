@@ -10,8 +10,12 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/fs"
 	"github.com/helixml/helix/api/pkg/cli/knowledge"
 	"github.com/helixml/helix/api/pkg/cli/mcp"
+	"github.com/helixml/helix/api/pkg/cli/member"
+	"github.com/helixml/helix/api/pkg/cli/organization"
 	"github.com/helixml/helix/api/pkg/cli/provider"
+	"github.com/helixml/helix/api/pkg/cli/roles"
 	"github.com/helixml/helix/api/pkg/cli/secret"
+	"github.com/helixml/helix/api/pkg/cli/team"
 )
 
 var Fatal = FatalErrorHandler
@@ -36,6 +40,11 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(secret.New())
 	RootCmd.AddCommand(mcp.New())
 	RootCmd.AddCommand(provider.New())
+	RootCmd.AddCommand(organization.New())
+	RootCmd.AddCommand(roles.New())
+	RootCmd.AddCommand(team.New())
+	RootCmd.AddCommand(member.New())
+
 	// Commands available on all platforms
 	RootCmd.AddCommand(newServeCmd())
 	RootCmd.AddCommand(newVersionCommand())
