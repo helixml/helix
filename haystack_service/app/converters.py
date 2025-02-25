@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 
-from haystack import Document
+from haystack import component, Document
 from unstructured.partition.auto import partition
 from unstructured.documents.elements import (
     Title, ListItem, Header, Footer, Table, Image
@@ -9,6 +9,7 @@ from unstructured.documents.elements import (
 
 logger = logging.getLogger(__name__)
 
+@component
 class LocalUnstructuredConverter:
     """Converts documents to text using unstructured local library"""
     
@@ -36,7 +37,12 @@ class LocalUnstructuredConverter:
             # NarrativeText, Text, etc
             return text
     
-    def run(self, paths: List[str], meta: Optional[Dict[str, Any]] = None) -> Dict[str, List[Document]]:
+    @component.output_types(documents=List[Document])
+    def run(
+        self,
+        paths: List[str],
+        meta: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, List[Document]]:
         """Convert files to Haystack Documents using local unstructured library
         
         Args:
