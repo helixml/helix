@@ -13,6 +13,7 @@ class Settings:
     # Embedding model settings
     EMBEDDING_DIM: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_DIM", "384"))  # GTE-small is 384 dimensions
     RAG_HAYSTACK_EMBEDDINGS_MODEL: str = os.getenv("RAG_HAYSTACK_EMBEDDINGS_MODEL", "thenlper/gte-small")
+    RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS", "512"))
     VLLM_BASE_URL: str = os.environ["VLLM_BASE_URL"]
     VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
     
