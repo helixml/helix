@@ -2,13 +2,14 @@ import os
 import tempfile
 import logging
 import httpx
+import re
 from typing import List, Dict, Any, Optional, Union, BinaryIO
 import numpy as np
 
 from haystack import Document
 from haystack.utils import Secret
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
-from haystack.components.preprocessors import DocumentSplitter
+from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack.components.embedders import OpenAIDocumentEmbedder
 from unstructured.partition.auto import partition
@@ -156,6 +157,15 @@ class HaystackService:
             model=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
         )
         self.converter = UnstructuredConverter()
+        
+        # Initialize document cleaner with custom patterns
+        self.cleaner = DocumentCleaner(
+            remove_empty_lines=True,
+            remove_extra_whitespaces=True,
+            # Remove runs of 5 or more dots
+            remove_regex=r'\.{5,}'
+        )
+        
         self.splitter = DocumentSplitter(
             split_length=settings.CHUNK_SIZE,
             split_overlap=settings.CHUNK_OVERLAP,
@@ -191,6 +201,43 @@ class HaystackService:
         else:
             raise ValueError("Either file or url must be provided")
     
+    def _truncate_text_for_embedding(self, text: str) -> str:
+        """Truncate text to a safe limit for embedding API.
+        
+        Args:
+            text: The text to truncate
+            
+        Returns:
+            Truncated text
+        """
+        # Convert max tokens to characters (approximate - using 2 chars per token as conservative estimate)
+        max_chars = settings.RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS * 2
+        
+        if len(text) <= max_chars:
+            return text
+            
+        logger.warning(
+            f"Truncating text from {len(text)} characters to {max_chars} characters to avoid embedding API limits.\n"
+            f"Original text: {text}\n"
+            f"Truncated portion: {text[max_chars:]}"
+        )
+        
+        # Try to truncate at a sentence boundary if possible
+        truncated = text[:max_chars]
+        last_period = truncated.rfind('.')
+        last_question = truncated.rfind('?')
+        last_exclamation = truncated.rfind('!')
+        
+        # Find the last sentence boundary
+        last_sentence = max(last_period, last_question, last_exclamation)
+        
+        # If we found a sentence boundary and it's not too far from our target, use it
+        if last_sentence > max_chars * 0.8:  # Only use sentence boundary if we keep at least 80% of desired length
+            return text[:last_sentence + 1].strip()
+        
+        # Otherwise just truncate at character limit
+        return truncated.strip()
+
     async def process_and_index(self, file: Union[str, BinaryIO], metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """Process a document and index it in the document store"""
         logger.info(f"Processing and indexing file with metadata: {metadata}")
@@ -202,13 +249,20 @@ class HaystackService:
             logger.warning("No documents to index")
             return {"status": "warning", "message": "No content extracted from file"}
         
+        # Clean documents before splitting
+        cleaned_docs = self.cleaner.run(documents=documents)["documents"]
+        
         # Split into chunks
         chunks = []
-        for doc in documents:
+        for doc in cleaned_docs:
             result = self.splitter.run(documents=[doc])
             chunks.extend(result["documents"])
         
         logger.info(f"Split document into {len(chunks)} chunks")
+        
+        # Truncate chunks if needed
+        for chunk in chunks:
+            chunk.content = self._truncate_text_for_embedding(chunk.content)
         
         # Generate embeddings and store
         result = self.embedder.run(documents=chunks)
