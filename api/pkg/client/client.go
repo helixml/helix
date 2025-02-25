@@ -49,6 +49,12 @@ type Client interface {
 	UpdateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	DeleteProviderEndpoint(ctx context.Context, id string) error
 
+	// Organizations
+	ListOrganizations(ctx context.Context) ([]*types.Organization, error)
+	GetOrganization(ctx context.Context, reference string) (*types.Organization, error)
+	CreateOrganization(ctx context.Context, organization *types.Organization) (*types.Organization, error)
+	UpdateOrganization(ctx context.Context, id string, organization *types.Organization) (*types.Organization, error)
+
 	// Organization Members
 	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*types.OrganizationMembership, error)
 	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
