@@ -500,6 +500,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{id}/roles": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all roles in an organization. Organization members can list roles.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List roles in an organization",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Role"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/teams": {
             "get": {
                 "security": [
@@ -614,6 +639,68 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/teams/{team_id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all members of a team.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List members of a team",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TeamMembership"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Add a new member to a team. Only organization owners can add members to teams.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Add a new member to a team",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddTeamMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.TeamMembership"
+                        }
                     }
                 }
             }
@@ -1634,10 +1721,20 @@ const docTemplate = `{
         "types.AddOrganizationMemberRequest": {
             "type": "object",
             "properties": {
-                "user_email": {
-                    "type": "string"
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
                 },
-                "user_id": {
+                "user_reference": {
+                    "description": "Either user ID or user email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.AddTeamMemberRequest": {
+            "type": "object",
+            "properties": {
+                "user_reference": {
+                    "description": "Either user ID or user email",
                     "type": "string"
                 }
             }
@@ -2479,35 +2576,6 @@ const docTemplate = `{
                 "LLMCallStepInterpretResponse",
                 "LLMCallStepGenerateTitle"
             ]
-        },
-        "types.Membership": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "team": {
-                    "$ref": "#/definitions/types.Team"
-                },
-                "team_id": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "user": {
-                    "description": "extra data fields (optional)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.User"
-                        }
-                    ]
-                },
-                "user_id": {
-                    "description": "composite key",
-                    "type": "string"
-                }
-            }
         },
         "types.Message": {
             "type": "object",
@@ -3469,7 +3537,7 @@ const docTemplate = `{
                     "description": "Memberships in the team",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.Membership"
+                        "$ref": "#/definitions/types.TeamMembership"
                     }
                 },
                 "name": {
@@ -3479,6 +3547,35 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.TeamMembership": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "team": {
+                    "$ref": "#/definitions/types.Team"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "extra data fields (optional)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "composite key",
                     "type": "string"
                 }
             }
