@@ -81,7 +81,7 @@ func addOrgMember(ctx context.Context, apiClient *client.HelixClient, orgReferen
 		Role:          role,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to add organization member: %w", err)
+		return err
 	}
 
 	return nil
