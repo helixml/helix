@@ -13,6 +13,7 @@ type ServerConfig struct {
 	Providers          Providers
 	Tools              Tools
 	Keycloak           Keycloak
+	OIDC               OIDC
 	Notifications      Notifications
 	Janitor            Janitor
 	Stripe             Stripe
@@ -122,6 +123,12 @@ type Keycloak struct {
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
 	Username            string `envconfig:"KEYCLOAK_USER"`
 	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
+}
+
+type OIDC struct {
+	Enabled          bool   `envconfig:"OIDC_ENABLED" default:"false"` // If set, disables keycloak authentication
+	IssuerURL        string `envconfig:"OIDC_ISSUER"`
+	APIClientID      string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
