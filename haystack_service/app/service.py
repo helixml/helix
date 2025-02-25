@@ -125,7 +125,7 @@ class HaystackService:
         self.embedder = OpenAICompatibleEmbedder(
             base_url=settings.VLLM_BASE_URL,
             api_key=settings.VLLM_API_KEY,
-            model_name=os.getenv("RAG_HAYSTACK_EMBEDDINGS_MODEL", "thenlper/gte-small")
+            model_name=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
         )
         self.converter = UnstructuredConverter()
         self.splitter = DocumentSplitter(
