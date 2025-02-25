@@ -154,7 +154,7 @@ class HaystackService:
         self.embedder = OpenAIDocumentEmbedder(
             api_key=Secret.from_token(settings.VLLM_API_KEY),
             api_base_url=settings.VLLM_BASE_URL,
-            model=settings.RAG_HAYSTACK_EMBEDDINGS_MODEL
+            model=settings.EMBEDDINGS_MODEL
         )
         self.converter = UnstructuredConverter()
         
@@ -211,7 +211,7 @@ class HaystackService:
             Truncated text
         """
         # Convert max tokens to characters (approximate - using 2 chars per token as conservative estimate)
-        max_chars = settings.RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS * 2
+        max_chars = settings.EMBEDDINGS_MAX_TOKENS * 2
         
         if len(text) <= max_chars:
             return text
