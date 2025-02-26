@@ -100,6 +100,8 @@ type TeamMembership struct {
 	UserID string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
 	TeamID string `json:"team_id" yaml:"team_id" gorm:"primaryKey"`
 
+	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"index"`
+
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 
