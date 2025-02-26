@@ -1,18 +1,14 @@
-import React, { FC, useState } from 'react'
-import { useTheme } from '@mui/material/styles'
+import React, { FC, useState, useCallback, KeyboardEvent } from 'react'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
-import Alert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import Tooltip from '@mui/material/Tooltip'
 
-import HomeFeatureGrid from '../components/home/FeatureGrid'
 import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
-import Cell from '../components/widgets/Cell'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import ModelPicker from '../components/create/ModelPicker'
 import ExamplePrompts from '../components/create/ExamplePrompts'
@@ -22,13 +18,24 @@ import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 const Home: FC = () => {
-  const theme = useTheme()
-  const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentMode, setCurrentMode] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
+
+  const submitPrompt = useCallback(() => {
+    console.log(currentPrompt)
+  }, [currentPrompt])
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter') {
+      if (!e.shiftKey) {
+        e.preventDefault()
+        submitPrompt()
+      }
+    }
+  }
 
   return (
     <Page
@@ -104,6 +111,7 @@ const Home: FC = () => {
                       <textarea
                         value={currentPrompt}
                         onChange={(e) => setCurrentPrompt(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         rows={2}
                         style={{
                           width: '100%',
@@ -178,6 +186,7 @@ const Home: FC = () => {
                       <Box>
                         <Tooltip title="Send Prompt" placement="top">
                           <Box 
+                            onClick={submitPrompt}
                             sx={{ 
                               width: 32, 
                               height: 32,
