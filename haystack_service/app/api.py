@@ -140,7 +140,6 @@ async def query(
     service: HaystackService = Depends(get_service)
 ):
     """Query for relevant documents"""
-    logger.info(f"Query request: {request.query}")
     
     try:
         results = await service.query(

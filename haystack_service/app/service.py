@@ -205,7 +205,7 @@ class HaystackService:
     
     async def query(self, query_text: str, filters: Dict[str, Any] = None, top_k: int = 5) -> List[Dict[str, Any]]:
         """Query the document store for relevant documents"""
-        logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
+        logger.info(f"Querying; filters: {filters}, top_k: {top_k}")
         
         try:
             # Update retriever parameters if needed
