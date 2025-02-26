@@ -364,6 +364,7 @@ const Home: FC = () => {
                     {
                       [...apps.data]
                         .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
+                        .slice(0, 5)
                         .map((app) => (
                           <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={ app.id }>
                             <Box
