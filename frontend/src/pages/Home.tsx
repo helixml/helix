@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, KeyboardEvent } from 'react'
+import React, { FC, useState, useCallback, KeyboardEvent, useRef, useEffect } from 'react'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -33,6 +33,21 @@ const Home: FC = () => {
   const [currentMode, setCurrentMode] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Focus textarea on mount
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }, [])
+
+  // Focus textarea when prompt changes (e.g. from example prompts)
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }, [currentPrompt])
 
   const submitPrompt = useCallback(async () => {
     if (!currentPrompt.trim()) return
@@ -137,6 +152,7 @@ const Home: FC = () => {
                       }}
                     >
                       <textarea
+                        ref={textareaRef}
                         value={currentPrompt}
                         onChange={(e) => setCurrentPrompt(e.target.value)}
                         onKeyDown={handleKeyDown}
