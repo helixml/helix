@@ -50,6 +50,21 @@ func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *t
 	return nil
 }
 
+func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+	// Check if user is a member of the org
+	err := apiServer.authorizeOrgMember(ctx, user, app.OrganizationID)
+	if err != nil {
+		return err
+	}
+
+	// App owner can always access the app
+	if user.ID == app.Owner {
+		return nil
+	}
+
+	return apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceApplication, action)
+}
+
 // authorizeUserToResource loads RBAC configuration for the
 func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error {
 	// Load all authz configs for the user (teams, direct to user grants)

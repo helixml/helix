@@ -394,7 +394,6 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 	id := getID(r)
 
 	app, err := s.Store.GetApp(r.Context(), id)
-
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
@@ -402,9 +401,26 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if (!app.Global && !app.Shared) && app.Owner != user.ID {
+	if app.Global {
+		return app, nil
+	}
+
+	if app.Shared {
+		return app, nil
+	}
+
+	if app.OrganizationID != "" {
+		err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		return app, nil
+	}
+
+	if app.Owner != user.ID {
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
+
 	return app, nil
 }
 
