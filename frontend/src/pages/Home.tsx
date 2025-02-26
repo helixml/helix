@@ -5,6 +5,9 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Alert from '@mui/material/Alert';
+import AddIcon from '@mui/icons-material/Add'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
+import Tooltip from '@mui/material/Tooltip'
 
 import HomeFeatureGrid from '../components/home/FeatureGrid'
 import Page from '../components/system/Page'
@@ -12,6 +15,7 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import ModelPicker from '../components/create/ModelPicker'
+import ExamplePrompts from '../components/create/ExamplePrompts'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
 
 import useLightTheme from '../hooks/useLightTheme'
@@ -86,6 +90,7 @@ const Home: FC = () => {
                       borderRadius: '12px',
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       p: 2,
+                      mb: 2,
                     }}
                   >
                     {/* Top row - Chat with Helix */}
@@ -144,17 +149,73 @@ const Home: FC = () => {
                           compact
                           onSetModel={setCurrentModel}
                         />
-                        {/* Placeholder for plus button */}
-                        <Box sx={{ width: 32, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: '50%' }} />
+                        {/* Plus button */}
+                        <Tooltip title="Add Documents" placement="top">
+                          <Box 
+                            sx={{ 
+                              width: 32, 
+                              height: 32,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              border: '2px solid rgba(255, 255, 255, 0.7)',
+                              borderRadius: '50%',
+                              '&:hover': {
+                                borderColor: 'rgba(255, 255, 255, 0.9)',
+                                '& svg': {
+                                  color: 'rgba(255, 255, 255, 0.9)'
+                                }
+                              }
+                            }}
+                          >
+                            <AddIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                          </Box>
+                        </Tooltip>
                       </Box>
 
-                      {/* Right section - Will contain up icon */}
+                      {/* Right section - Up arrow icon */}
                       <Box>
-                        {/* Placeholder for up icon */}
-                        <Box sx={{ width: 32, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: '50%' }} />
+                        <Tooltip title="Send Prompt" placement="top">
+                          <Box 
+                            sx={{ 
+                              width: 32, 
+                              height: 32,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              border: '1px solid rgba(255, 255, 255, 0.7)',
+                              borderRadius: '8px',
+                              '&:hover': {
+                                borderColor: 'rgba(255, 255, 255, 0.9)',
+                                '& svg': {
+                                  color: 'rgba(255, 255, 255, 0.9)'
+                                }
+                              }
+                            }}
+                          >
+                            <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                          </Box>
+                        </Tooltip>
                       </Box>
                     </Box>
                   </Box>
+                </Row>
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ExamplePrompts
+                    header={false}
+                    layout="vertical"
+                    type={currentMode}
+                    onChange={setCurrentPrompt}
+                  />
                 </Row>
               </Grid>
             </Grid>
