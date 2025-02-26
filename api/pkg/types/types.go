@@ -1110,9 +1110,10 @@ func (Triggers) GormDataType() string {
 }
 
 type App struct {
-	ID      string    `json:"id" gorm:"primaryKey"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	ID             string    `json:"id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+	OrganizationID string    `json:"organization_id" gorm:"index"`
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
