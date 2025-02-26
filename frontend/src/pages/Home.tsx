@@ -316,7 +316,7 @@ const Home: FC = () => {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    mb: 4,
+                    mb: 6,
                   }}
                 >
                   <ExamplePrompts
@@ -420,7 +420,7 @@ const Home: FC = () => {
                           },
                           display: 'flex',
                           flexDirection: 'column',
-                          alignItems: 'center',
+                          alignItems: 'flex-start',
                           gap: 1,
                         }}
                         onClick={() => onCreateNewApp()}
