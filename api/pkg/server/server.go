@@ -338,6 +338,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/apps/{id}/llm-calls", system.Wrapper(apiServer.listAppLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/api-actions", system.Wrapper(apiServer.appRunAPIAction)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.listAppAccessGrants).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet)
 
@@ -587,4 +588,14 @@ func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
 		log.Err(err).Msg("error writing response")
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 	}
+}
+
+func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
+	rw.WriteHeader(statusCode)
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(&system.HTTPError{
+		StatusCode: statusCode,
+		Message:    err.Error(),
+	})
 }
