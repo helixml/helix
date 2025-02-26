@@ -42,6 +42,8 @@ const getTimeAgo = (date: Date) => {
   return 'just now'
 }
 
+const LOGGED_OUT_PROMPT_KEY = 'logged-out-prompt'
+
 const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
@@ -57,19 +59,17 @@ const Home: FC = () => {
   const [loading, setLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Focus textarea on mount
+  // Check for serialized page state on mount
   useEffect(() => {
+    const dataString = localStorage.getItem(LOGGED_OUT_PROMPT_KEY)
+    if(dataString) {
+      setCurrentPrompt(dataString)
+      localStorage.removeItem(LOGGED_OUT_PROMPT_KEY)
+    }
     if (textareaRef.current) {
       textareaRef.current.focus()
     }
   }, [])
-
-  // Focus textarea when prompt changes (e.g. from example prompts)
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.focus()
-    }
-  }, [currentPrompt])
 
   useEffect(() => {
     if(!account.user) return
@@ -80,6 +80,11 @@ const Home: FC = () => {
 
   const submitPrompt = async () => {
     if (!currentPrompt.trim()) return
+    if (!account.user) {
+      localStorage.setItem(LOGGED_OUT_PROMPT_KEY, currentPrompt)
+      account.setShowLoginWindow(true)
+      return
+    }
     setLoading(true)
     try {
       const session = await NewInference({
@@ -336,7 +341,13 @@ const Home: FC = () => {
                       header={false}
                       layout="vertical"
                       type={currentType}
-                      onChange={setCurrentPrompt}
+                      onChange={prompt => {
+                        setCurrentPrompt(prompt)
+                        setTimeout(() => {
+                          if(!textareaRef.current) return
+                          textareaRef.current.focus()
+                        }, 100)
+                      }}
                     />
                   </Box>
                 </Row>
