@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import { useTheme } from '@mui/material/styles'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
@@ -11,93 +11,161 @@ import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
+import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 const Home: FC = () => {
   const theme = useTheme()
   const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
+  const lightTheme = useLightTheme()
+  const [currentPrompt, setCurrentPrompt] = useState('')
 
   return (
     <Page
       showTopbar={ isBigScreen ? false : true }
     >
-      <Container
-        maxWidth="xl"
+      <Box
         sx={{
-          py: 3,
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        <Box>
-          <Grid container spacing={ 2 }>
-            <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 }>
-              <Row
-                sx={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <Cell>
-                  <Box
-                    component="img"
-                    src="/img/logo.png"
-                    sx={{
-                      width: 100,
-                    }}
-                  />
-                </Cell>
-                <Cell
+        {/* Main content */}
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          <Container
+            maxWidth="xl"
+            sx={{
+              height: '100%',
+              overflowY: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <Grid container spacing={ 2 } justifyContent="center">
+              <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 } sx={{ textAlign: 'center' }}>
+                <Row
                   sx={{
-                    ml: 4,
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  <Typography variant={ isBigScreen ? 'h3' : 'h5' } gutterBottom>
-                    Helix GenAI Stack
+                  <Typography
+                    sx={{
+                      color: '#fff',
+                      fontSize: '1.5rem',
+                      fontWeight: 'bold',
+                      textAlign: 'center',
+                      mb: 2,
+                    }}
+                  >
+                    How can I help?
                   </Typography>
-                  <Typography variant="body1">
-                    Use AI, customize it with your own data, or integrate LLMs with APIs and develop your own AI-powered applications
-                  </Typography>
-                </Cell>
-              </Row>
+                </Row>
+                <Row>
+                  <Box
+                    sx={{
+                      width: '100%',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      p: 2,
+                    }}
+                  >
+                    {/* Top row - Chat with Helix */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        mb: 2,
+                      }}
+                    >
+                      <textarea
+                        value={currentPrompt}
+                        onChange={(e) => setCurrentPrompt(e.target.value)}
+                        rows={2}
+                        style={{
+                          width: '100%',
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          color: '#fff',
+                          opacity: 0.7,
+                          resize: 'none',
+                          outline: 'none',
+                          fontFamily: 'inherit',
+                          fontSize: 'inherit',
+                        }}
+                        placeholder="Chat with Helix"
+                      />
+                    </Box>
+
+                    {/* Bottom row - Split into left and right sections */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {/* Left section - Will contain SessionTypeButton, ModelPicker and plus button */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1,
+                        }}
+                      >
+                        {/* Placeholder for SessionTypeButton */}
+                        <Box sx={{ width: 100, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: 1 }} />
+                        {/* Placeholder for ModelPicker */}
+                        <Box sx={{ width: 120, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: 1 }} />
+                        {/* Placeholder for plus button */}
+                        <Box sx={{ width: 32, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: '50%' }} />
+                      </Box>
+
+                      {/* Right section - Will contain up icon */}
+                      <Box>
+                        {/* Placeholder for up icon */}
+                        <Box sx={{ width: 32, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: '50%' }} />
+                      </Box>
+                    </Box>
+                  </Box>
+                </Row>
+              </Grid>
             </Grid>
-            <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 }>
-              <Box
-                sx={{
-                  textAlign: 'center',
-                }}
-              >
-                <Box
-                  component="img"
-                  src={ isLight ? '/img/nebula-light.png' : '/img/nebula-dark.png' }
-                  sx={{
-                    width: '100%',
-                    maxWidth: '800px'
-                  }}
-                />
-              </Box>
-            </Grid>
-          </Grid>
+          </Container>
         </Box>
-        <Box sx={{mb:4, mt: 4}}>
-          <Alert variant="outlined" severity="info">
-            <Box
-              component="span"
-              sx={{
-                fontWeight: 'bold',
-              }}
-            >
-              Calling all DevOps & platform engineers!
-            </Box>
-            &nbsp;You can <a href="https://docs.helix.ml/helix/private-deployment/controlplane/" target="_blank" style={{"color": "white"}}>deploy Helix easily</a> on your own cloud, container or Kubernetes infrastructure.
-            &nbsp;<a href="mailto:founders@helix.ml" target="_blank" style={{"color": "white"}}>Email us</a> or <a href="https://discord.gg/VJftd844GE" target="_blank" style={{"color": "white"}}>join Discord</a> for help.
-            {/* <AlertTitle sx={{fontSize: "15pt", marginTop: "-5px", fontWeight: "bold"}}> */}
-              {/* </AlertTitle> */}
-          </Alert>
+
+        {/* Footer */}
+        <Box
+          sx={{
+            py: 2,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Typography
+            sx={{
+              color: lightTheme.textColorFaded,
+              fontSize: '0.8rem',
+            }}
+          >
+            Open source models can make mistakes. Check facts, dates and events.
+          </Typography>
         </Box>
-        <HomeFeatureGrid />
-      </Container>
+      </Box>
     </Page>
   )
 }
