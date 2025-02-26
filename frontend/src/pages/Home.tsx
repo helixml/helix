@@ -128,32 +128,26 @@ const Home: FC = () => {
     >
       <Box
         sx={{
-          height: '100vh',
           display: 'flex',
           flexDirection: 'column',
+          minHeight: '100%',
         }}
       >
         {/* Main content */}
         <Box
           sx={{
             flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
           }}
         >
           <Container
             maxWidth="xl"
             sx={{
-              height: '100%',
-              overflowY: 'auto',
+              py: 4,
               display: 'flex',
-              alignItems: 'center',
             }}
           >
-            <Grid container spacing={ 2 } justifyContent="center">
-              <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 } sx={{ textAlign: 'center' }}>
+            <Grid container spacing={2} justifyContent="center">
+              <Grid item xs={12} sm={12} md={12} lg={6} sx={{ textAlign: 'center' }}>
                 <Row
                   sx={{
                     display: 'flex',
@@ -466,11 +460,14 @@ const Home: FC = () => {
 
         {/* Footer */}
         <Box
+          component="footer"
           sx={{
             py: 2,
+            mt: 'auto',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
+            borderTop: (theme) => `1px solid ${theme.palette.divider}`,
           }}
         >
           <Typography
