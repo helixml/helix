@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, KeyboardEvent, useRef, useEffect } from 'react'
+import React, { FC, useState, useCallback, KeyboardEvent, useRef, useEffect, MouseEvent } from 'react'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -78,17 +78,15 @@ const Home: FC = () => {
     account.user,
   ])
 
-  const submitPrompt = useCallback(async () => {
+  const submitPrompt = async () => {
     if (!currentPrompt.trim()) return
     setLoading(true)
-
     try {
       const session = await NewInference({
         type: currentType,
         message: currentPrompt,
         modelName: currentModel,
       })
-
       if (!session) return
       await sessions.loadSessions()
       setLoading(false)
@@ -98,14 +96,16 @@ const Home: FC = () => {
       snackbar.error('Failed to start inference')
       setLoading(false)
     }
-  }, [currentPrompt, currentType, currentModel, NewInference, sessions, router, snackbar])
+  }
+
+  const openApp = async (appId: string) => {
+    router.navigate('new', { app_id: appId });
+  }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter') {
-      if (!e.shiftKey) {
-        e.preventDefault()
-        submitPrompt()
-      }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      submitPrompt()
     }
   }
 
@@ -352,7 +352,7 @@ const Home: FC = () => {
                               alignItems: 'flex-start',
                               gap: 1,
                             }}
-                            onClick={() => router.navigate('app', { app_id: app.id })}
+                            onClick={() => openApp(app.id)}
                           >
                             <Avatar
                               sx={{
@@ -361,17 +361,22 @@ const Home: FC = () => {
                                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
                                 color: '#fff',
                                 fontWeight: 'bold',
+                                border: (theme) => app.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
                               }}
                               src={app.config.helix.avatar}
                             >
                               {app.config.helix.name[0].toUpperCase()}
                             </Avatar>
-                            <Box sx={{ textAlign: 'left' }}>
+                            <Box sx={{ textAlign: 'left', width: '100%', maxWidth: '200px' }}>
                               <Typography sx={{ 
                                 color: '#fff',
                                 fontSize: '0.95rem',
                                 lineHeight: 1.2,
                                 fontWeight: 'bold',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                width: '100%',
                               }}>
                                 { app.config.helix.name }
                               </Typography>
