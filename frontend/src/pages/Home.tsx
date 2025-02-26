@@ -336,39 +336,50 @@ const Home: FC = () => {
                   <Grid container spacing={ 2 } justifyContent="left">
                     {
                       apps.data.map((app) => (
-                        <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }} key={ app.id }>
+                        <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'left' }} key={ app.id }>
                           <Box
                             sx={{
-                              border: '1px solid rgba(255, 255, 255, 0.2)',
                               borderRadius: '12px',
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                              p: 2,
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
+                              p: 1.5,
+                              pb: 0.5,
                               cursor: 'pointer',
                               '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
                               },
                               display: 'flex',
                               flexDirection: 'column',
-                              alignItems: 'center',
-                              gap: 2,
+                              alignItems: 'flex-start',
+                              gap: 1,
                             }}
                             onClick={() => router.navigate('app', { app_id: app.id })}
                           >
                             <Avatar
                               sx={{
-                                width: 32,
-                                height: 32,
-                                backgroundColor: 'primary.main',
+                                width: 28,
+                                height: 28,
+                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                color: '#fff',
+                                fontWeight: 'bold',
                               }}
                               src={app.config.helix.avatar}
                             >
-                              A
+                              {app.config.helix.name[0].toUpperCase()}
                             </Avatar>
-                            <Box sx={{ textAlign: 'center' }}>
-                              <Typography sx={{ color: '#fff' }}>
+                            <Box sx={{ textAlign: 'left' }}>
+                              <Typography sx={{ 
+                                color: '#fff',
+                                fontSize: '0.95rem',
+                                lineHeight: 1.2,
+                                fontWeight: 'bold',
+                              }}>
                                 { app.config.helix.name }
                               </Typography>
-                              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                              <Typography variant="caption" sx={{ 
+                                color: 'rgba(255, 255, 255, 0.5)',
+                                fontSize: '0.8rem',
+                                lineHeight: 1.2,
+                              }}>
                                 { getTimeAgo(new Date(app.updated)) }
                               </Typography>
                             </Box>
@@ -379,36 +390,49 @@ const Home: FC = () => {
                     <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }}>
                       <Box
                         sx={{
-                          border: '1px solid rgba(255, 255, 255, 0.2)',
                           borderRadius: '12px',
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                          p: 2,
+                          border: '1px dashed rgba(255, 255, 255, 0.2)',
+                          p: 1.5,
+                          pb: 0.5,
                           cursor: 'pointer',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
                           },
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
-                          gap: 2,
+                          gap: 1,
                         }}
                         onClick={() => router.navigate('new')}
                       >
-                        <Avatar
+                        <Box
                           sx={{
-                            width: 32,
-                            height: 32,
-                            backgroundColor: 'primary.main',
+                            width: 28,
+                            height: 28,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '50%',
+                            backgroundColor: 'rgb(0, 153, 255)',
                           }}
                         >
-                          <AddIcon />
-                        </Avatar>
-                        <Box sx={{ textAlign: 'center' }}>
-                          <Typography sx={{ color: '#fff' }}>
+                          <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
+                        </Box>
+                        <Box sx={{ textAlign: 'left' }}>
+                          <Typography sx={{ 
+                            color: '#fff',
+                            fontSize: '0.95rem',
+                            lineHeight: 1.2,
+                            fontWeight: 'bold',
+                          }}>
                             Create new app
                           </Typography>
-                          <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                            Start building a new AI app
+                          <Typography variant="caption" sx={{ 
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            fontSize: '0.8rem',
+                            lineHeight: 1.2,
+                          }}>
+                            &nbsp;
                           </Typography>
                         </Box>
                       </Box>
