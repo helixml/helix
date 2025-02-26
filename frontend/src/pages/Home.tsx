@@ -140,14 +140,16 @@ const Home: FC = () => {
           }}
         >
           <Container
-            maxWidth="lg"
+            maxWidth="md"
             sx={{
               py: 4,
               display: 'flex',
+              px: { xs: 1, sm: 2, md: 3 },
+              overflow: 'hidden',
             }}
           >
-            <Grid container spacing={2} justifyContent="center">
-              <Grid item xs={12} sm={12} md={12} lg={8} xl={10} sx={{ textAlign: 'center' }}>
+            <Grid container spacing={1} justifyContent="center">
+              <Grid item xs={12} sx={{ textAlign: 'center', maxWidth: '100%', overflow: 'hidden' }}>
                 <Row
                   sx={{
                     display: 'flex',
@@ -214,6 +216,8 @@ const Home: FC = () => {
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
+                        flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                        gap: 1,
                       }}
                     >
                       {/* Left section - Will contain SessionTypeButton, ModelPicker and plus button */}
@@ -222,6 +226,9 @@ const Home: FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           gap: 1,
+                          flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                          flex: 1,
+                          minWidth: 0,
                         }}
                       >
                         <SessionTypeButton 
@@ -340,12 +347,12 @@ const Home: FC = () => {
                     mb: 1,
                   }}
                 >
-                  <Grid container spacing={ 2 } justifyContent="left">
+                  <Grid container spacing={1} justifyContent="left">
                     {
                       [...apps.data]
                         .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
                         .map((app) => (
-                          <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left' }} key={ app.id }>
+                          <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={ app.id }>
                             <Box
                               sx={{
                                 borderRadius: '12px',
@@ -360,6 +367,8 @@ const Home: FC = () => {
                                 flexDirection: 'column',
                                 alignItems: 'flex-start',
                                 gap: 1,
+                                width: '100%',
+                                minWidth: 0,
                               }}
                               onClick={() => openApp(app.id)}
                             >
@@ -376,7 +385,7 @@ const Home: FC = () => {
                               >
                                 {app.config.helix.name[0].toUpperCase()}
                               </Avatar>
-                              <Box sx={{ textAlign: 'left', width: '100%', maxWidth: '200px' }}>
+                              <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
                                 <Typography sx={{ 
                                   color: '#fff',
                                   fontSize: '0.95rem',
