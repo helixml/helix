@@ -43,6 +43,8 @@ func (e *HaystackExtractor) Extract(ctx context.Context, extractReq *Request) (s
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
+	// XXX we are hard-coding document.pdf here.
+
 	// If we have content, add it as a file
 	if len(extractReq.Content) > 0 {
 		fw, err := w.CreateFormFile("file", "document.pdf")

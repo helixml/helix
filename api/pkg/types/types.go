@@ -143,7 +143,7 @@ func (RAGSettings) GormDataType() string {
 	return "json"
 }
 
-// the data we send off to llamaindex to be indexed in the db
+// the data we send off to rag implementations to be indexed
 type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
 	Source          string `json:"source"`

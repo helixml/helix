@@ -8,7 +8,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"time"
+	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -23,12 +24,14 @@ type HaystackRAG struct {
 // NewHaystackRAG creates a new Haystack RAG client
 func NewHaystackRAG(endpoint string) *HaystackRAG {
 	return &HaystackRAG{
-		client:   &http.Client{Timeout: 60 * time.Second},
+		// Large documents take an unbounded amount of time to process.
+		client:   &http.Client{Timeout: 0},
 		endpoint: endpoint,
 	}
 }
 
 // Index implements the RAG interface for indexing documents
+// Files are sent here NOT chunked, despite the type.
 func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGIndexChunk) error {
 	logger := log.With().
 		Str("component", "HaystackRAG").
@@ -43,8 +46,15 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
 
-		// Add file part
-		fw, err := w.CreateFormFile("file", "chunk.txt")
+		// Split filename into base and extension
+		base, ext := strings.TrimSuffix(
+			filepath.Base(chunk.Filename),
+			filepath.Ext(chunk.Filename)), strings.TrimPrefix(filepath.Ext(chunk.Filename), ".")
+		filename := fmt.Sprintf("%s_%d.%s", base, chunk.ContentOffset, ext)
+
+		logger.Debug().Str("filename", filename).Msg("Indexing file")
+
+		fw, err := w.CreateFormFile("file", filename)
 		if err != nil {
 			return fmt.Errorf("creating form file: %w", err)
 		}
