@@ -246,15 +246,17 @@ const Home: FC = () => {
                           type={currentType}
                           onSetType={setCurrentType}
                         />
-                        <ModelPicker
-                          type={currentType}
-                          model={currentModel}
-                          provider={undefined}
-                          displayMode="short"
-                          border
-                          compact
-                          onSetModel={setCurrentModel}
-                        />
+                        <Box sx={{ maxWidth: '400px' }}>
+                          <ModelPicker
+                            type={currentType}
+                            model={currentModel}
+                            provider={undefined}
+                            displayMode="short"
+                            border
+                            compact
+                            onSetModel={setCurrentModel}
+                          />
+                        </Box>
                         {/* Plus button */}
                         <Tooltip title="Add Documents" placement="top">
                           <Box 
