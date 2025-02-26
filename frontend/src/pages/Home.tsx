@@ -29,6 +29,19 @@ import {
   SESSION_MODE_FINETUNE,
 } from '../types'
 
+const getTimeAgo = (date: Date) => {
+  const now = new Date()
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (days > 0) return `${days} days ago`
+  if (hours > 0) return `${hours} hours ago`
+  if (minutes > 0) return `${minutes} minutes ago`
+  return 'just now'
+}
+
 const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
@@ -323,7 +336,7 @@ const Home: FC = () => {
                   <Grid container spacing={ 2 } justifyContent="left">
                     {
                       apps.data.map((app) => (
-                        <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }}>
+                        <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }} key={ app.id }>
                           <Box
                             sx={{
                               border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -333,36 +346,32 @@ const Home: FC = () => {
                               cursor: 'pointer',
                               '&:hover': {
                                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                              }
+                              },
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 2,
                             }}
                             onClick={() => router.navigate('app', { app_id: app.id })}
                           >
-                            <Row
+                            <Avatar
                               sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 2,
+                                width: 32,
+                                height: 32,
+                                backgroundColor: 'primary.main',
                               }}
+                              src={app.config.helix.avatar}
                             >
-                              <Avatar
-                                sx={{
-                                  width: 40,
-                                  height: 40,
-                                  backgroundColor: 'primary.main',
-                                }}
-                                src={app.config.helix.avatar}
-                              >
-                                A
-                              </Avatar>
-                              <Box sx={{ textAlign: 'left', flex: 1 }}>
-                                <Typography sx={{ color: '#fff' }}>
-                                  { app.config.helix.name }
-                                </Typography>
-                                <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                                  { new Date(app.created).toLocaleString() }
-                                </Typography>
-                              </Box>
-                            </Row>
+                              A
+                            </Avatar>
+                            <Box sx={{ textAlign: 'center' }}>
+                              <Typography sx={{ color: '#fff' }}>
+                                { app.config.helix.name }
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                                { getTimeAgo(new Date(app.updated)) }
+                              </Typography>
+                            </Box>
                           </Box>
                         </Grid>
                       ))
@@ -377,35 +386,31 @@ const Home: FC = () => {
                           cursor: 'pointer',
                           '&:hover': {
                             backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                          }
+                          },
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 2,
                         }}
                         onClick={() => router.navigate('new')}
                       >
-                        <Row
+                        <Avatar
                           sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 2,
+                            width: 32,
+                            height: 32,
+                            backgroundColor: 'primary.main',
                           }}
                         >
-                          <Avatar
-                            sx={{
-                              width: 40,
-                              height: 40,
-                              backgroundColor: 'primary.main',
-                            }}
-                          >
-                            <AddIcon />
-                          </Avatar>
-                          <Box sx={{ textAlign: 'left', flex: 1 }}>
-                            <Typography sx={{ color: '#fff' }}>
-                              Create new app
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                              Start building a new AI app
-                            </Typography>
-                          </Box>
-                        </Row>
+                          <AddIcon />
+                        </Avatar>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography sx={{ color: '#fff' }}>
+                            Create new app
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                            Start building a new AI app
+                          </Typography>
+                        </Box>
                       </Box>
                     </Grid>
                   </Grid>
