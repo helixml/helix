@@ -175,22 +175,29 @@ function test() {
   fi
 
   # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
   export POSTGRES_PASSWORD=postgres
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
+
+  export PGVECTOR_USER=postgres
+  export PGVECTOR_PASSWORD=postgres
+  export PGVECTOR_DATABASE=postgres
+  export PGVECTOR_HOST=localhost
+  export PGVECTOR_PORT=5433
+
   export TYPESENSE_URL=http://localhost:8108
   export TYPESENSE_API_KEY=typesense
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
-  go test -v ./...
+  # go test -v ./...
   # To debug test hangs, try this:
   # Run tests one at a time and show which test is running
-  #go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+  go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
 }
 
 eval "$@"
