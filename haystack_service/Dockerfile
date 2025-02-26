@@ -27,5 +27,7 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
+ENV HAYSTACK_TELEMETRY_ENABLED=False
+
 # Run the service
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 
