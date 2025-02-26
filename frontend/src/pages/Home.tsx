@@ -102,6 +102,19 @@ const Home: FC = () => {
     router.navigate('new', { app_id: appId });
   }
 
+  const onCreateNewApp = async () => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
+    const newApp = await apps.createEmptyHelixApp()
+    if(!newApp) return false
+    apps.loadData()
+    router.navigate('app', {
+      app_id: newApp.id,
+    })
+  }
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -335,62 +348,64 @@ const Home: FC = () => {
                 >
                   <Grid container spacing={ 2 } justifyContent="left">
                     {
-                      apps.data.map((app) => (
-                        <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'left' }} key={ app.id }>
-                          <Box
-                            sx={{
-                              borderRadius: '12px',
-                              border: '1px solid rgba(255, 255, 255, 0.2)',
-                              p: 1.5,
-                              pb: 0.5,
-                              cursor: 'pointer',
-                              '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                              },
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'flex-start',
-                              gap: 1,
-                            }}
-                            onClick={() => openApp(app.id)}
-                          >
-                            <Avatar
+                      [...apps.data]
+                        .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
+                        .map((app) => (
+                          <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'left' }} key={ app.id }>
+                            <Box
                               sx={{
-                                width: 28,
-                                height: 28,
-                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                color: '#fff',
-                                fontWeight: 'bold',
-                                border: (theme) => app.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                p: 1.5,
+                                pb: 0.5,
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                },
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                gap: 1,
                               }}
-                              src={app.config.helix.avatar}
+                              onClick={() => openApp(app.id)}
                             >
-                              {app.config.helix.name[0].toUpperCase()}
-                            </Avatar>
-                            <Box sx={{ textAlign: 'left', width: '100%', maxWidth: '200px' }}>
-                              <Typography sx={{ 
-                                color: '#fff',
-                                fontSize: '0.95rem',
-                                lineHeight: 1.2,
-                                fontWeight: 'bold',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                width: '100%',
-                              }}>
-                                { app.config.helix.name }
-                              </Typography>
-                              <Typography variant="caption" sx={{ 
-                                color: 'rgba(255, 255, 255, 0.5)',
-                                fontSize: '0.8rem',
-                                lineHeight: 1.2,
-                              }}>
-                                { getTimeAgo(new Date(app.updated)) }
-                              </Typography>
+                              <Avatar
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                  color: '#fff',
+                                  fontWeight: 'bold',
+                                  border: (theme) => app.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
+                                }}
+                                src={app.config.helix.avatar}
+                              >
+                                {app.config.helix.name[0].toUpperCase()}
+                              </Avatar>
+                              <Box sx={{ textAlign: 'left', width: '100%', maxWidth: '200px' }}>
+                                <Typography sx={{ 
+                                  color: '#fff',
+                                  fontSize: '0.95rem',
+                                  lineHeight: 1.2,
+                                  fontWeight: 'bold',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  width: '100%',
+                                }}>
+                                  { app.config.helix.name }
+                                </Typography>
+                                <Typography variant="caption" sx={{ 
+                                  color: 'rgba(255, 255, 255, 0.5)',
+                                  fontSize: '0.8rem',
+                                  lineHeight: 1.2,
+                                }}>
+                                  { getTimeAgo(new Date(app.updated)) }
+                                </Typography>
+                              </Box>
                             </Box>
-                          </Box>
-                        </Grid>
-                      ))
+                          </Grid>
+                        ))
                     }
                     <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }}>
                       <Box
@@ -408,7 +423,7 @@ const Home: FC = () => {
                           alignItems: 'center',
                           gap: 1,
                         }}
-                        onClick={() => router.navigate('new')}
+                        onClick={() => onCreateNewApp()}
                       >
                         <Box
                           sx={{
