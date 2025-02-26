@@ -39,7 +39,7 @@ typesense:
     ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
     ##
     enabled: true
-    ## @param llamaindex.persistence.storageClass Storage class of backing PVC
+    ## @param haystack.persistence.storageClass Storage class of backing PVC
     ## If defined, storageClassName: <storageClass>
     ## If set to "-", storageClassName: "", which disables dynamic provisioning
     ## If undefined (the default) or set to null, no storageClassName spec is
@@ -47,20 +47,20 @@ typesense:
     ##   GKE, AWS & OpenStack)
     ##
     storageClass: ""
-    ## @param llamaindex.persistence.annotations Persistent Volume Claim annotations
+    ## @param haystack.persistence.annotations Persistent Volume Claim annotations
     ##
     annotations: {}
-    ## @param llamaindex.persistence.accessModes Persistent Volume Access Modes
+    ## @param haystack.persistence.accessModes Persistent Volume Access Modes
     ##
     accessModes:
       - ReadWriteOnce
-    ## @param llamaindex.persistence.size Size of data volume
+    ## @param haystack.persistence.size Size of data volume
     ##
     size: 8Gi
     ## @param backend.persistence.existingClaim The name of an existing PVC to use for persistence
     ##
     existingClaim: ""
-    ## @param llamaindex.persistence.selector Selector to match an existing Persistent Volume for Helix data PVC
+    ## @param haystack.persistence.selector Selector to match an existing Persistent Volume for Helix data PVC
     ## If set, the PVC can't have a PV dynamically provisioned for it
     ## E.g.
     ## selector:
@@ -68,20 +68,29 @@ typesense:
     ##     app: my-app
     ##
     selector: {}
-    ## @param llamaindex.persistence.dataSource Custom PVC data source
+    ## @param haystack.persistence.dataSource Custom PVC data source
     ##
     dataSource: {}
 
 
-llamaindex:
+haystack:
   enabled: false
   image:
-    repository: registry.helix.ml/helix/llamaindex
+    repository: registry.helix.ml/helix/haystack
+  # PGVector configuration
+  pgvector:
+    # -- Whether to deploy pgvector alongside haystack
+    enabled: false
+    # -- External pgvector connection settings (used when pgvector.enabled=false)
+    host: "localhost"
+    database: "postgres"
+    user: "postgres"
+    password: "pgvector"
   persistence:
-    ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
-    ##
+    ## @param haystack.persistence.enabled Enable persistence for bundled pgvector
+    ## Only used when haystack.pgvector.enabled=true
     enabled: true
-    ## @param llamaindex.persistence.storageClass Storage class of backing PVC
+    ## @param haystack.persistence.storageClass Storage class of backing PVC for bundled pgvector
     ## If defined, storageClassName: <storageClass>
     ## If set to "-", storageClassName: "", which disables dynamic provisioning
     ## If undefined (the default) or set to null, no storageClassName spec is
@@ -89,20 +98,20 @@ llamaindex:
     ##   GKE, AWS & OpenStack)
     ##
     storageClass: ""
-    ## @param llamaindex.persistence.annotations Persistent Volume Claim annotations
+    ## @param haystack.persistence.annotations Persistent Volume Claim annotations
     ##
     annotations: {}
-    ## @param llamaindex.persistence.accessModes Persistent Volume Access Modes
+    ## @param haystack.persistence.accessModes Persistent Volume Access Modes
     ##
     accessModes:
       - ReadWriteOnce
-    ## @param llamaindex.persistence.size Size of data volume
+    ## @param haystack.persistence.size Size of data volume
     ##
     size: 8Gi
-    ## @param backend.persistence.existingClaim The name of an existing PVC to use for persistence
+    ## @param haystack.persistence.existingClaim The name of an existing PVC to use for persistence
     ##
     existingClaim: ""
-    ## @param llamaindex.persistence.selector Selector to match an existing Persistent Volume for Helix data PVC
+    ## @param haystack.persistence.selector Selector to match an existing Persistent Volume
     ## If set, the PVC can't have a PV dynamically provisioned for it
     ## E.g.
     ## selector:
@@ -110,7 +119,7 @@ llamaindex:
     ##     app: my-app
     ##
     selector: {}
-    ## @param llamaindex.persistence.dataSource Custom PVC data source
+    ## @param haystack.persistence.dataSource Custom PVC data source
     ##
     dataSource: {}
 

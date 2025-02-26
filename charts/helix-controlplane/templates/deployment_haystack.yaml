@@ -1,11 +1,11 @@
-{{- if .Values.llamaindex.enabled }}
+{{- if .Values.haystack.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "helix-controlplane.fullname" . }}-llamaindex
+  name: {{ include "helix-controlplane.fullname" . }}-haystack
   labels:
     {{- include "helix-controlplane.labels" . | nindent 4 }}
-    app.kubernetes.io/component: llamaindex
+    app.kubernetes.io/component: haystack
 spec:
   type: ClusterIP
   ports:
@@ -14,24 +14,28 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/component: llamaindex
+    app.kubernetes.io/component: haystack
     {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "helix-controlplane.fullname" . }}-llamaindex
+  name: {{ include "helix-controlplane.fullname" . }}-haystack
   labels:
-    app.kubernetes.io/component: llamaindex
+    app.kubernetes.io/component: haystack
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:
-  # Llamaindex is paired together with pgvector, hence forced to 1 replica
+  {{- if .Values.haystack.pgvector.enabled }}
+  # When using bundled pgvector, we must use 1 replica because pgvector is not stateless
   replicas: 1
+  {{- else }}
+  replicas: {{ .Values.haystack.replicas | default 1 }}
+  {{- end }}
   strategy:
     type: RollingUpdate
   selector:
     matchLabels:
-      app.kubernetes.io/component: llamaindex
+      app.kubernetes.io/component: haystack
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
   template:
     metadata:
@@ -40,7 +44,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        app.kubernetes.io/component: llamaindex
+        app.kubernetes.io/component: haystack
         {{- include "helix-controlplane.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
@@ -53,11 +57,11 @@ spec:
       serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:        
-        - name: llamaindex
+      containers:
+        - name: haystack
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.haystack.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -65,16 +69,16 @@ spec:
               protocol: TCP
           env:
             - name: POSTGRES_HOST
-              value: localhost
+              value: {{ .Values.haystack.pgvector.host | default "localhost" }}
             - name: POSTGRES_DATABASE
-              value: postgres
+              value: {{ .Values.haystack.pgvector.database | default "postgres" }}
             - name: POSTGRES_USER
-              value: postgres
+              value: {{ .Values.haystack.pgvector.user | default "postgres" }}
             - name: POSTGRES_PASSWORD
-              value: pgvector
-            # TODO:                       
+              value: {{ .Values.haystack.pgvector.password | default "pgvector" }}
+        {{- if .Values.haystack.pgvector.enabled }}
         - name: pgvector
-          image: ankane/pgvector:latest
+          image: pgvector/pgvector:pg17
           ports:
             - name: tcp-pgvector
               containerPort: 5432
@@ -86,16 +90,17 @@ spec:
               value: postgres
             - name: POSTGRES_PASSWORD
               value: pgvector
-          {{- if .Values.llamaindex.persistence.enabled }} 
+          {{- if .Values.haystack.persistence.enabled }} 
           volumeMounts:
-            - name: llamaindex-storage
+            - name: haystack-storage
               mountPath: /var/lib/postgresql/data
           {{- end }}
-      {{- if .Values.llamaindex.persistence.enabled }} 
+        {{- end }}
+      {{- if .Values.haystack.persistence.enabled }} 
       volumes:
-      - name: llamaindex-storage
+      - name: haystack-storage
         persistentVolumeClaim:
-          claimName: {{ include "helix-controlplane.fullname" . }}-llamaindex-pvc
+          claimName: {{ include "helix-controlplane.fullname" . }}-haystack-pvc
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
