@@ -249,6 +249,31 @@ services:
       - ./frontend/tsconfig.json:/app/tsconfig.json
       - ./frontend/vite.config.ts:/app/vite.config.ts
 
+  haystack:
+    build:
+      context: ./haystack_service
+    ports:
+      - 8001:8000
+    restart: always
+    environment:
+      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - CHUNK_SIZE=100
+      - CHUNK_OVERLAP=5
+      - LOG_LEVEL=INFO
+      - VLLM_BASE_URL=${VLLM_BASE_URL} # Need to set this to an external VLLM server in development
+      - VLLM_API_KEY=${VLLM_API_KEY:-EMPTY}
+      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-Alibaba-NLP/gte-Qwen2-7B-instruct}
+      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-3584}
+      - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
+      - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-1000}
+      - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
+    volumes:
+      - ./haystack_service:/app
+    depends_on:
+      - pgvector
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   helix-keycloak-db:
   helix-postgres-db:

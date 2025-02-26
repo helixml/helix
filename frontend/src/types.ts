@@ -777,6 +777,7 @@ export interface ICreateSessionConfig {
   ragResultsCount: number,
   ragChunkSize: number,
   ragChunkOverflow: number,
+  ragDisableChunking: boolean,
 }
 
 export interface IHelixModel {
@@ -812,6 +813,7 @@ export interface ISessionLearnRequestRAGSettings {
   results_count: number,
   chunk_size: number,
   chunk_overflow: number,
+  disable_chunking: boolean,
 }
 
 export interface ISessionLearnRequest {

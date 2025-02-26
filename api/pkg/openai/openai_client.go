@@ -19,6 +19,9 @@ import (
 const (
 	retries             = 3
 	delayBetweenRetries = time.Second
+
+	embeddingRetries = 5
+	embeddingDelay   = 3 * time.Second
 )
 
 //go:generate mockgen -source $GOFILE -destination openai_client_mocks.go -package $GOPACKAGE
@@ -203,8 +206,8 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 		}
 		return nil
 	},
-		retry.Attempts(retries),
-		retry.Delay(delayBetweenRetries),
+		retry.Attempts(embeddingRetries),
+		retry.Delay(embeddingDelay),
 		retry.Context(ctx),
 	)
 
