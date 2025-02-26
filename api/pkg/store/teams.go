@@ -13,6 +13,7 @@ import (
 
 type ListTeamsQuery struct {
 	OrganizationID string
+	UserID         string
 }
 
 type GetTeamQuery struct {

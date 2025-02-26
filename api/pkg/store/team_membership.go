@@ -11,8 +11,9 @@ import (
 )
 
 type ListTeamMembershipsQuery struct {
-	TeamID string
-	UserID string
+	TeamID         string
+	UserID         string
+	OrganizationID string
 }
 
 type GetTeamMembershipQuery struct {
@@ -28,6 +29,10 @@ func (s *PostgresStore) CreateTeamMembership(ctx context.Context, membership *ty
 
 	if membership.TeamID == "" {
 		return nil, fmt.Errorf("team_id not specified")
+	}
+
+	if membership.OrganizationID == "" {
+		return nil, fmt.Errorf("organization_id not specified")
 	}
 
 	membership.CreatedAt = time.Now()
@@ -68,13 +73,16 @@ func (s *PostgresStore) GetTeamMembership(ctx context.Context, q *GetTeamMembers
 func (s *PostgresStore) ListTeamMemberships(ctx context.Context, q *ListTeamMembershipsQuery) ([]*types.TeamMembership, error) {
 	query := s.gdb.WithContext(ctx)
 
-	if q != nil {
-		if q.TeamID != "" {
-			query = query.Where("team_id = ?", q.TeamID)
-		}
-		if q.UserID != "" {
-			query = query.Where("user_id = ?", q.UserID)
-		}
+	if q.OrganizationID != "" {
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	}
+
+	if q.TeamID != "" {
+		query = query.Where("team_id = ?", q.TeamID)
+	}
+
+	if q.UserID != "" {
+		query = query.Where("user_id = ?", q.UserID)
 	}
 
 	var memberships []*types.TeamMembership
