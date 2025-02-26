@@ -22,6 +22,10 @@ import useSnackbar from '../hooks/useSnackbar'
 import useSessions from '../hooks/useSessions'
 import { useStreaming } from '../contexts/streaming'
 
+import {
+  SESSION_MODE_FINETUNE,
+} from '../types'
+
 const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
@@ -30,7 +34,7 @@ const Home: FC = () => {
   const sessions = useSessions()
   const { NewInference } = useStreaming()
   const [currentPrompt, setCurrentPrompt] = useState('')
-  const [currentMode, setCurrentMode] = useState<ISessionType>(SESSION_TYPE_TEXT)
+  const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -55,7 +59,7 @@ const Home: FC = () => {
 
     try {
       const session = await NewInference({
-        type: currentMode,
+        type: currentType,
         message: currentPrompt,
         modelName: currentModel,
       })
@@ -69,7 +73,7 @@ const Home: FC = () => {
       snackbar.error('Failed to start inference')
       setLoading(false)
     }
-  }, [currentPrompt, currentMode, currentModel, NewInference, sessions, router, snackbar])
+  }, [currentPrompt, currentType, currentModel, NewInference, sessions, router, snackbar])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -189,11 +193,11 @@ const Home: FC = () => {
                         }}
                       >
                         <SessionTypeButton 
-                          type={currentMode}
-                          onSetType={setCurrentMode}
+                          type={currentType}
+                          onSetType={setCurrentType}
                         />
                         <ModelPicker
-                          type={currentMode}
+                          type={currentType}
                           model={currentModel}
                           provider={undefined}
                           displayMode="short"
@@ -219,6 +223,14 @@ const Home: FC = () => {
                                   color: 'rgba(255, 255, 255, 0.9)'
                                 }
                               }
+                            }}
+                            onClick={() => {
+                              router.navigate('new', {
+                                model: currentModel,
+                                type: currentType,
+                                mode: SESSION_MODE_FINETUNE,
+                                rag: true,
+                              })
                             }}
                           >
                             <AddIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
@@ -271,7 +283,7 @@ const Home: FC = () => {
                   <ExamplePrompts
                     header={false}
                     layout="vertical"
-                    type={currentMode}
+                    type={currentType}
                     onChange={setCurrentPrompt}
                   />
                 </Row>
