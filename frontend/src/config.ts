@@ -16,6 +16,7 @@ export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   ragResultsCount: 3,
   ragChunkSize: 2048,
   ragChunkOverflow: 20,
+  ragDisableChunking: true,
 }
 
 export const EXAMPLE_PROMPTS = {

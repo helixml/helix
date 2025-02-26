@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"log"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -29,6 +30,7 @@ func (suite *PGVectorStoreTestSuite) SetupTest() {
 
 	err := envconfig.Process("", &serverCfg)
 	suite.NoError(err)
+	log.Printf("serverCfg: %+v\n", serverCfg)
 
 	store, err := NewPGVectorStore(&serverCfg)
 	suite.NoError(err)

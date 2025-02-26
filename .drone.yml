@@ -186,6 +186,42 @@ depends_on:
 ---
 kind: pipeline
 type: docker
+name: build-haystack
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-image
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: haystack_service/Dockerfile
+    auto_tag: true
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/haystack
+    username: admin
+    password:
+      from_secret: helix_registry_password
+    build_args:
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
 name: build-runner
 
 volumes:
