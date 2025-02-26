@@ -199,7 +199,7 @@ steps:
   pull: always
   settings:
     context: haystack_service
-    dockerfile: Dockerfile
+    dockerfile: haystack_service/Dockerfile
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
