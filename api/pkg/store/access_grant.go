@@ -80,20 +80,12 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 
 // ListAccessGrants retrieves access grants by resource type, resource ID and either user ID or team IDs
 func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error) {
-	if q.ResourceType == "" {
-		return nil, fmt.Errorf("resource type must be specified")
-	}
-
 	if q.ResourceID == "" {
 		return nil, fmt.Errorf("resource_id must be specified")
 	}
 
 	if q.OrganizationID == "" {
 		return nil, fmt.Errorf("organization_id must be specified")
-	}
-
-	if q.UserID == "" && len(q.TeamIDs) == 0 {
-		return nil, fmt.Errorf("either user_id or team_ids must be specified")
 	}
 
 	query := s.gdb.WithContext(ctx).
