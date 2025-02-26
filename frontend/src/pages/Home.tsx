@@ -72,6 +72,14 @@ const Home: FC = () => {
   }, [])
 
   useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }, [
+    currentModel
+  ])
+
+  useEffect(() => {
     if(!account.user) return
     apps.loadData()
   }, [
