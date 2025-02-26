@@ -166,6 +166,7 @@ export const useCreateInputs = () => {
         results_count: Number(sessionConfig.ragResultsCount),
         chunk_size: Number(sessionConfig.ragChunkSize),
         chunk_overflow: Number(sessionConfig.ragChunkOverflow),
+        disable_chunking: sessionConfig.ragDisableChunking,
       },
     }
 

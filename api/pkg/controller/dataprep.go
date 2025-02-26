@@ -309,19 +309,48 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 		return nil, err
 	}
 
+	documentGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	newMeta := session.Metadata
+	newMeta.DocumentGroupID = documentGroupID
+	if newMeta.DocumentIDs == nil {
+		newMeta.DocumentIDs = map[string]string{}
+	}
+
+	// If chunking is disabled, create one chunk per file
+	if session.Metadata.RagSettings.DisableChunking {
+		chunks := []*text.DataPrepTextSplitterChunk{}
+		for _, file := range filesToConvert {
+			fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+			if err != nil {
+				return nil, err
+			}
+			documentID := system.GenerateUUID()
+			newMeta.DocumentIDs[file] = documentID
+
+			chunks = append(chunks, &text.DataPrepTextSplitterChunk{
+				Text:            fileContent,
+				Index:           0,
+				Filename:        file,
+				DocumentID:      documentID,
+				DocumentGroupID: documentGroupID,
+			})
+		}
+
+		_, err = c.UpdateSessionMetadata(context.TODO(), session, &newMeta)
+		if err != nil {
+			return nil, err
+		}
+
+		return chunks, nil
+	}
+
+	// Otherwise use the splitter for normal chunking
 	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
 		ChunkSize: session.Metadata.RagSettings.ChunkSize,
 		Overflow:  session.Metadata.RagSettings.ChunkOverflow,
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	documentGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
-	newMeta := session.Metadata
-	newMeta.DocumentGroupID = documentGroupID
-	if newMeta.DocumentIDs == nil {
-		newMeta.DocumentIDs = map[string]string{}
 	}
 
 	for _, file := range filesToConvert {

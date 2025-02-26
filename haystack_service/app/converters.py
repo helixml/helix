@@ -37,6 +37,16 @@ class LocalUnstructuredConverter:
             # NarrativeText, Text, etc
             return text
     
+    def _read_text_file(self, path: str) -> str:
+        """Read text files directly"""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # Try with a different encoding if UTF-8 fails
+            with open(path, 'r', encoding='latin-1') as f:
+                return f.read()
+    
     @component.output_types(documents=List[Document])
     def run(
         self,
@@ -58,16 +68,16 @@ class LocalUnstructuredConverter:
         documents = []
         for path in paths:
             try:
-                # Use local partition() directly
-                elements = partition(filename=path)
-                
-                # Convert elements to markdown
-                markdown_elements = [
-                    self._element_to_markdown(el) for el in elements
-                ]
-                
-                # Filter out empty strings and join with double newlines
-                text = "\n\n".join(el for el in markdown_elements if el)
+                # For text files, read directly without using unstructured
+                if path.lower().endswith(('.txt', '.md')):
+                    text = self._read_text_file(path)
+                else:
+                    # Use unstructured for other file types
+                    elements = partition(filename=path)
+                    markdown_elements = [
+                        self._element_to_markdown(el) for el in elements
+                    ]
+                    text = "\n\n".join(el for el in markdown_elements if el)
                 
                 if text.strip():
                     # Create document with metadata
@@ -80,5 +90,9 @@ class LocalUnstructuredConverter:
                     
             except Exception as e:
                 logger.error(f"Failed to process file {path}: {str(e)}")
+                raise RuntimeError(f"Failed to process file {path}: {str(e)}")
                 
+        if not documents:
+            raise RuntimeError("No documents were successfully processed")
+            
         return {"documents": documents} 
