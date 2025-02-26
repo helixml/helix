@@ -15,17 +15,38 @@ const ModelPicker: FC<{
   model: string,
   provider: string | undefined, // Optional model when non-default provider is selected
   onSetModel: (model: string) => void,
+  displayMode?: 'full' | 'short', // Controls how the model name is displayed
+  border?: boolean, // Adds a border around the picker
+  compact?: boolean, // Reduces the text size
 }> = ({
   type,
   model,
   provider,
-  onSetModel
+  onSetModel,
+  displayMode = 'full',
+  border = false,
+  compact = false
 }) => {
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
   const { models, fetchModels } = useContext(AccountContext)
   const loadedProviderRef = useRef<string | undefined>()
+
+  const getShortModelName = (name: string): string => {
+    if (displayMode === 'full') return name;
+    
+    // Remove everything before the last '/' if it exists
+    let shortName = name.split('/').pop() || name;
+    
+    // Remove 'Meta-' prefix (case insensitive)
+    shortName = shortName.replace(/^Meta-/i, '');
+    
+    // Remove 'Instruct-' suffix (case insensitive)
+    shortName = shortName.replace(/-Instruct-?$/i, '');
+    
+    return shortName;
+  }
 
   useEffect(() => {
     if (loadedProviderRef.current !== provider) {
@@ -55,22 +76,31 @@ const ModelPicker: FC<{
         <Typography
           className="inferenceTitle"
           component="h1"
-          variant="h6"
+          variant={compact ? "body1" : "h6"}
           color="inherit"
           noWrap
           onClick={handleOpenMenu}
           sx={{
             flexGrow: 1,
             mx: 0,
+            px: border ? 2 : 0,
+            py: border ? 1 : 0,
             color: 'text.primary',
-            borderRadius: '15px',
+            borderRadius: '8px',
             cursor: "pointer",
+            border: border ? (theme => `1px solid #fff`) : 'none',
+            backgroundColor: border ? (theme => theme.palette.background.paper) : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            height: compact ? '32px' : 'auto',
+            minHeight: compact ? '32px' : 'auto',
             "&:hover": {
               backgroundColor: lightTheme.isLight ? "#efefef" : "#13132b",
             },
           }}
         >
-          {modelData?.name || 'Default Model'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+          {modelData?.name ? getShortModelName(modelData.name) : 'Default Model'}
+          <KeyboardArrowDownIcon sx={{ ml: 0.5, ...(compact && { fontSize: '1.2rem' }) }} />
         </Typography>
       ) : (
         <IconButton
@@ -98,16 +128,25 @@ const ModelPicker: FC<{
           }}
         >
           {
-            filteredModels.map(model => (
+            filteredModels.map(menuModel => (
               <MenuItem
-                key={model.id}
-                sx={{fontSize: "large"}}
+                key={menuModel.id}
+                selected={menuModel.id === model}
+                sx={{
+                  fontSize: "large",
+                  '&.Mui-selected': {
+                    backgroundColor: theme => lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)',
+                    '&:hover': {
+                      backgroundColor: theme => lightTheme.isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
+                    }
+                  }
+                }}
                 onClick={() => {
-                  onSetModel(model.id)
+                  onSetModel(menuModel.id)
                   handleCloseMenu()
                 }}
               >
-                {model.name} {model.description && <>&nbsp; <small>({model.description})</small></>}
+                {menuModel.name} {menuModel.description && <>&nbsp; <small>({menuModel.description})</small></>}
               </MenuItem>
             ))
           }
