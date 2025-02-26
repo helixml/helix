@@ -57,11 +57,8 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		httpClient: http.DefaultClient,
 		ragClient:  ragClient,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
-			// Check if we should use Haystack
-			if config.RAG.Haystack.Enabled && settings.UseHaystack {
-				return rag.NewHaystackRAG(config.RAG.Haystack.URL)
-			}
-			// Fall back to the default LlamaIndex implementation
+			// this is somewhat confusingly named, but it's only used for custom RAG
+			// servers (not our own llamaindex)
 			return rag.NewLlamaindex(settings)
 		},
 		// newCrawler: ,

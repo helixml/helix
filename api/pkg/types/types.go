@@ -111,9 +111,6 @@ type RAGSettings struct {
 	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
 	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
 
-	// Haystack configuration
-	UseHaystack bool `json:"use_haystack" yaml:"use_haystack"` // whether to use Haystack for RAG
-
 	Typesense struct {
 		URL        string `json:"url" yaml:"url"`
 		APIKey     string `json:"api_key" yaml:"api_key"`
