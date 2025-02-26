@@ -10,6 +10,9 @@ import HomeFeatureGrid from '../components/home/FeatureGrid'
 import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
+import SessionTypeButton from '../components/create/SessionTypeButton'
+import ModelPicker from '../components/create/ModelPicker'
+import { ISessionType, SESSION_TYPE_TEXT } from '../types'
 
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
@@ -20,6 +23,8 @@ const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
   const [currentPrompt, setCurrentPrompt] = useState('')
+  const [currentMode, setCurrentMode] = useState<ISessionType>(SESSION_TYPE_TEXT)
+  const [currentModel, setCurrentModel] = useState<string>('')
 
   return (
     <Page
@@ -126,10 +131,19 @@ const Home: FC = () => {
                           gap: 1,
                         }}
                       >
-                        {/* Placeholder for SessionTypeButton */}
-                        <Box sx={{ width: 100, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: 1 }} />
-                        {/* Placeholder for ModelPicker */}
-                        <Box sx={{ width: 120, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: 1 }} />
+                        <SessionTypeButton 
+                          type={currentMode}
+                          onSetType={setCurrentMode}
+                        />
+                        <ModelPicker
+                          type={currentMode}
+                          model={currentModel}
+                          provider={undefined}
+                          displayMode="short"
+                          border
+                          compact
+                          onSetModel={setCurrentModel}
+                        />
                         {/* Placeholder for plus button */}
                         <Box sx={{ width: 32, height: 32, bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: '50%' }} />
                       </Box>
