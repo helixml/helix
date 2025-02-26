@@ -6,6 +6,7 @@ import Container from '@mui/material/Container'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import Tooltip from '@mui/material/Tooltip'
+import Avatar from '@mui/material/Avatar'
 
 import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
@@ -20,6 +21,8 @@ import useIsBigScreen from '../hooks/useIsBigScreen'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useSessions from '../hooks/useSessions'
+import useApps from '../hooks/useApps'
+import useAccount from '../hooks/useAccount'
 import { useStreaming } from '../contexts/streaming'
 
 import {
@@ -32,6 +35,8 @@ const Home: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const sessions = useSessions()
+  const account = useAccount()
+  const apps = useApps()
   const { NewInference } = useStreaming()
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
@@ -52,6 +57,13 @@ const Home: FC = () => {
       textareaRef.current.focus()
     }
   }, [currentPrompt])
+
+  useEffect(() => {
+    if(!account.user) return
+    apps.loadData()
+  }, [
+    account.user,
+  ])
 
   const submitPrompt = useCallback(async () => {
     if (!currentPrompt.trim()) return
@@ -278,6 +290,7 @@ const Home: FC = () => {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    mb: 4,
                   }}
                 >
                   <ExamplePrompts
@@ -286,6 +299,116 @@ const Home: FC = () => {
                     type={currentType}
                     onChange={setCurrentPrompt}
                   />
+                </Row>
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'left',
+                    justifyContent: 'left',
+                    mb: 1,
+                  }}
+                >
+                  Recent Apps
+                </Row>
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'left',
+                    justifyContent: 'left',
+                    mb: 1,
+                  }}
+                >
+                  <Grid container spacing={ 2 } justifyContent="left">
+                    {
+                      apps.data.map((app) => (
+                        <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }}>
+                          <Box
+                            sx={{
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
+                              borderRadius: '12px',
+                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              p: 2,
+                              cursor: 'pointer',
+                              '&:hover': {
+                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                              }
+                            }}
+                            onClick={() => router.navigate('app', { app_id: app.id })}
+                          >
+                            <Row
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 2,
+                              }}
+                            >
+                              <Avatar
+                                sx={{
+                                  width: 40,
+                                  height: 40,
+                                  backgroundColor: 'primary.main',
+                                }}
+                                src={app.config.helix.avatar}
+                              >
+                                A
+                              </Avatar>
+                              <Box sx={{ textAlign: 'left', flex: 1 }}>
+                                <Typography sx={{ color: '#fff' }}>
+                                  { app.config.helix.name }
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                                  { new Date(app.created).toLocaleString() }
+                                </Typography>
+                              </Box>
+                            </Row>
+                          </Box>
+                        </Grid>
+                      ))
+                    }
+                    <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }}>
+                      <Box
+                        sx={{
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '12px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          p: 2,
+                          cursor: 'pointer',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          }
+                        }}
+                        onClick={() => router.navigate('new')}
+                      >
+                        <Row
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 2,
+                          }}
+                        >
+                          <Avatar
+                            sx={{
+                              width: 40,
+                              height: 40,
+                              backgroundColor: 'primary.main',
+                            }}
+                          >
+                            <AddIcon />
+                          </Avatar>
+                          <Box sx={{ textAlign: 'left', flex: 1 }}>
+                            <Typography sx={{ color: '#fff' }}>
+                              Create new app
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                              Start building a new AI app
+                            </Typography>
+                          </Box>
+                        </Row>
+                      </Box>
+                    </Grid>
+                  </Grid>
                 </Row>
               </Grid>
             </Grid>
