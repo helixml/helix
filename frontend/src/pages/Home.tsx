@@ -140,14 +140,14 @@ const Home: FC = () => {
           }}
         >
           <Container
-            maxWidth="xl"
+            maxWidth="lg"
             sx={{
               py: 4,
               display: 'flex',
             }}
           >
             <Grid container spacing={2} justifyContent="center">
-              <Grid item xs={12} sm={12} md={12} lg={6} sx={{ textAlign: 'center' }}>
+              <Grid item xs={12} sm={12} md={12} lg={8} xl={10} sx={{ textAlign: 'center' }}>
                 <Row
                   sx={{
                     display: 'flex',
@@ -304,21 +304,21 @@ const Home: FC = () => {
                     </Box>
                   </Box>
                 </Row>
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mb: 6,
-                  }}
-                >
-                  <ExamplePrompts
-                    header={false}
-                    layout="vertical"
-                    type={currentType}
-                    onChange={setCurrentPrompt}
-                  />
+                <Row>
+                  <Box
+                    sx={{
+                      width: '100%',
+                      // px: 2,
+                      mb: 6,
+                    }}
+                  >
+                    <ExamplePrompts
+                      header={false}
+                      layout="vertical"
+                      type={currentType}
+                      onChange={setCurrentPrompt}
+                    />
+                  </Box>
                 </Row>
                 <Row
                   sx={{
@@ -345,7 +345,7 @@ const Home: FC = () => {
                       [...apps.data]
                         .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
                         .map((app) => (
-                          <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'left' }} key={ app.id }>
+                          <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left' }} key={ app.id }>
                             <Box
                               sx={{
                                 borderRadius: '12px',
@@ -401,7 +401,7 @@ const Home: FC = () => {
                           </Grid>
                         ))
                     }
-                    <Grid item md={ 12 } lg={ 4 } sx={{ textAlign: 'center' }}>
+                    <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'center' }}>
                       <Box
                         sx={{
                           borderRadius: '12px',
