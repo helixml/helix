@@ -270,37 +270,39 @@ const Home: FC = () => {
                             onSetModel={setCurrentModel}
                           />
                         </Box>
-                        {/* Plus button */}
-                        <Tooltip title="Add Documents" placement="top">
-                          <Box 
-                            sx={{ 
-                              width: 32, 
-                              height: 32,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              border: '2px solid rgba(255, 255, 255, 0.7)',
-                              borderRadius: '50%',
-                              '&:hover': {
-                                borderColor: 'rgba(255, 255, 255, 0.9)',
-                                '& svg': {
-                                  color: 'rgba(255, 255, 255, 0.9)'
+                        {/* Plus button - Only show if not in Image mode */}
+                        {currentType !== 'image' && (
+                          <Tooltip title="Add Documents" placement="top">
+                            <Box 
+                              sx={{ 
+                                width: 32, 
+                                height: 32,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                border: '2px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '50%',
+                                '&:hover': {
+                                  borderColor: 'rgba(255, 255, 255, 0.9)',
+                                  '& svg': {
+                                    color: 'rgba(255, 255, 255, 0.9)'
+                                  }
                                 }
-                              }
-                            }}
-                            onClick={() => {
-                              router.navigate('new', {
-                                model: currentModel,
-                                type: currentType,
-                                mode: SESSION_MODE_FINETUNE,
-                                rag: true,
-                              })
-                            }}
-                          >
-                            <AddIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
-                          </Box>
-                        </Tooltip>
+                              }}
+                              onClick={() => {
+                                router.navigate('new', {
+                                  model: currentModel,
+                                  type: currentType,
+                                  mode: SESSION_MODE_FINETUNE,
+                                  rag: true,
+                                })
+                              }}
+                            >
+                              <AddIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            </Box>
+                          </Tooltip>
+                        )}
                       </Box>
 
                       {/* Right section - Up arrow icon */}
