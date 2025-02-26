@@ -12,21 +12,49 @@ import Row from '../components/widgets/Row'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import ModelPicker from '../components/create/ModelPicker'
 import ExamplePrompts from '../components/create/ExamplePrompts'
+import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
 
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
+import useRouter from '../hooks/useRouter'
+import useSnackbar from '../hooks/useSnackbar'
+import useSessions from '../hooks/useSessions'
+import { useStreaming } from '../contexts/streaming'
 
 const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
+  const router = useRouter()
+  const snackbar = useSnackbar()
+  const sessions = useSessions()
+  const { NewInference } = useStreaming()
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentMode, setCurrentMode] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
+  const [loading, setLoading] = useState(false)
 
-  const submitPrompt = useCallback(() => {
-    console.log(currentPrompt)
-  }, [currentPrompt])
+  const submitPrompt = useCallback(async () => {
+    if (!currentPrompt.trim()) return
+    setLoading(true)
+
+    try {
+      const session = await NewInference({
+        type: currentMode,
+        message: currentPrompt,
+        modelName: currentModel,
+      })
+
+      if (!session) return
+      await sessions.loadSessions()
+      setLoading(false)
+      router.navigate('session', { session_id: session.id })
+    } catch (error) {
+      console.error('Error in submitPrompt:', error)
+      snackbar.error('Failed to start inference')
+      setLoading(false)
+    }
+  }, [currentPrompt, currentMode, currentModel, NewInference, sessions, router, snackbar])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -193,10 +221,11 @@ const Home: FC = () => {
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              cursor: 'pointer',
+                              cursor: loading ? 'default' : 'pointer',
                               border: '1px solid rgba(255, 255, 255, 0.7)',
                               borderRadius: '8px',
-                              '&:hover': {
+                              opacity: loading ? 0.5 : 1,
+                              '&:hover': loading ? {} : {
                                 borderColor: 'rgba(255, 255, 255, 0.9)',
                                 '& svg': {
                                   color: 'rgba(255, 255, 255, 0.9)'
@@ -204,7 +233,11 @@ const Home: FC = () => {
                               }
                             }}
                           >
-                            <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            {loading ? (
+                              <LoadingSpinner />
+                            ) : (
+                              <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            )}
                           </Box>
                         </Tooltip>
                       </Box>
