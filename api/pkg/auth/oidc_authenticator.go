@@ -25,7 +25,7 @@ func NewOIDCJwtAuthenticator(cfg *config.OIDC, adminConfig *AdminConfig) (*OIDCJ
 		return nil, fmt.Errorf("failed to initialize OIDC provider: %w", err)
 	}
 
-	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.APIClientID})
+	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.Audience})
 
 	return &OIDCJwtAuthenticator{
 		cfg:         cfg,
