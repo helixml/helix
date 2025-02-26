@@ -307,8 +307,9 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 
 	// Create membership
 	membership := &types.TeamMembership{
-		TeamID: teamID,
-		UserID: newMember.ID,
+		TeamID:         teamID,
+		UserID:         newMember.ID,
+		OrganizationID: orgID,
 	}
 
 	createdMembership, err := apiServer.Store.CreateTeamMembership(r.Context(), membership)
