@@ -56,6 +56,18 @@ const ModelPicker: FC<{
     }
   }, [provider, fetchModels])
 
+  // Handle type changes with client-side filtering only
+  useEffect(() => {
+    const currentModels = models.filter(m => 
+      m.type === type || (type === "text" && m.type === "chat")
+    )
+    
+    // Reset selected model if current selection isn't valid for new type
+    if (currentModels.length > 0 && !currentModels.find(m => m.id === model)) {
+      onSetModel(currentModels[0].id)
+    }
+  }, [type, model, models, onSetModel])
+
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
   }
