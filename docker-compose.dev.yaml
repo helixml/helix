@@ -256,10 +256,11 @@ services:
       - CHUNK_SIZE=100
       - CHUNK_OVERLAP=5
       - LOG_LEVEL=INFO
-      - EMBEDDING_DIM=384  # GTE-small is 384 dimensions
       - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:30092}
       - VLLM_API_KEY=${VLLM_API_KEY:-EMPTY}
-      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-thenlper/gte-small}
+      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-Alibaba-NLP/gte-Qwen2-7B-instruct}
+      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-3584}
+      - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
     volumes:
       - ./haystack_service:/app
     depends_on:

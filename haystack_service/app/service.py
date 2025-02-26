@@ -8,7 +8,7 @@ from haystack.utils import Secret
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
-from haystack.components.embedders import OpenAIDocumentEmbedder
+from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
 from haystack.components.writers import DocumentWriter
 
 from .config import settings
@@ -98,7 +98,7 @@ class HaystackService:
         self.query_pipeline = Pipeline()
         
         # Create components for query pipeline
-        embedder = OpenAIDocumentEmbedder(
+        embedder = OpenAITextEmbedder(
             api_key=Secret.from_token(settings.VLLM_API_KEY),
             api_base_url=settings.VLLM_BASE_URL,
             model=settings.EMBEDDINGS_MODEL
@@ -114,7 +114,7 @@ class HaystackService:
         self.query_pipeline.add_component("embedder", embedder)
         self.query_pipeline.add_component("retriever", retriever)
         
-        # Connect components
+        # Connect components - embedder.embedding output to retriever.query_embedding input
         self.query_pipeline.connect("embedder.embedding", "retriever.query_embedding")
         
         # Save retriever instance for parameter updates
@@ -148,7 +148,7 @@ class HaystackService:
                 data={
                     "converter": {
                         "paths": [file_path],
-                        "metadata": metadata
+                        "meta": metadata or {}  # Ensure meta is always a dict, even if None
                     }
                 }
             )
