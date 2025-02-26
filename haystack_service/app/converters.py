@@ -22,8 +22,6 @@ class LocalUnstructuredConverter:
         
         if isinstance(element, Title):
             return f"# {text}"
-        elif isinstance(element, Header):
-            return f"## {text}"
         elif isinstance(element, ListItem):
             return f"- {text}"
         elif isinstance(element, Table):
@@ -31,8 +29,11 @@ class LocalUnstructuredConverter:
             return f"**Table**: {text}"
         elif isinstance(element, Image):
             return f"![Image]{text}"
+        elif isinstance(element, Header):
+            # strip these
+            pass
         elif isinstance(element, Footer):
-            return f"*{text}*"
+            pass
         else:
             # NarrativeText, Text, etc
             return text

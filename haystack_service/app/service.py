@@ -1,6 +1,7 @@
 import os
 import tempfile
 import logging
+import traceback
 from typing import List, Dict, Any, Optional, Union, BinaryIO
 
 from haystack import Pipeline, Document
@@ -18,6 +19,28 @@ from .converters import LocalUnstructuredConverter
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
+# TODO: more work needed to get halfvec to work. Last error was
+# Query failed: 'HalfVector' object has no attribute 'tolist' - on querying
+#
+# Monkeypatch pgvector's CREATE_TABLE_STATEMENT to use halfvec type so that we
+# can support up to 4000 dimensions
+# import haystack_integrations.document_stores.pgvector.document_store as pgvector_store
+# pgvector_store.CREATE_TABLE_STATEMENT = """
+# CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
+# id VARCHAR(128) PRIMARY KEY,
+# embedding HALFVEC({embedding_dimension}),
+# content TEXT,
+# blob_data BYTEA,
+# blob_meta JSONB,
+# blob_mime_type VARCHAR(255),
+# meta JSONB)
+# """
+# pgvector_store.VECTOR_FUNCTION_TO_POSTGRESQL_OPS = {
+#     "cosine_similarity": "halfvec_cosine_ops",
+#     "inner_product": "halfvec_ip_ops",
+#     "l2_distance": "halfvec_l2_ops",
+# }
+
 class HaystackService:
     """Main service class for Haystack RAG operations"""
     
@@ -32,7 +55,7 @@ class HaystackService:
                 embedding_dimension=settings.EMBEDDING_DIM,
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
-                search_strategy="hnsw",
+                # search_strategy="hnsw", # see above about halfvec
                 recreate_table=True # XXX disable to avoid data loss?
             )
             logger.info(f"Connected to PgvectorDocumentStore: {settings.PGVECTOR_TABLE}")
@@ -60,8 +83,8 @@ class HaystackService:
         converter = LocalUnstructuredConverter()
         
         cleaner = DocumentCleaner(
-            remove_empty_lines=True,
-            remove_extra_whitespaces=True,
+            remove_empty_lines=False,
+            remove_extra_whitespaces=False,
             remove_regex=r'\.{5,}'  # Remove runs of 5 or more dots
         )
         
@@ -153,18 +176,29 @@ class HaystackService:
                 }
             )
             
-            logger.info(f"Successfully indexed document")
+            # Access the number of documents written
+            logger.info(f"Indexing pipeline result: {result}")
+            num_chunks = result.get("writer", {}).get("documents_written", 0)
+            
+            logger.info(f"Successfully indexed document with {num_chunks} chunks")
             return {
                 "status": "success",
                 "documents_processed": 1,
-                "chunks_indexed": len(result["document_store"]["documents"])
+                "chunks_indexed": num_chunks
             }
             
         except Exception as e:
-            logger.error(f"Failed to process and index document: {str(e)}")
+            error_details = {
+                "type": type(e).__name__,
+                "message": str(e),
+                "traceback": traceback.format_exc()
+            }
+            logger.error(f"Failed to process and index document: {error_details}")
             return {
                 "status": "error",
-                "message": str(e),
+                "error_type": error_details["type"],
+                "message": error_details["message"],
+                "traceback": error_details["traceback"],
                 "documents_processed": 0,
                 "chunks_indexed": 0
             }
