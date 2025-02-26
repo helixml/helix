@@ -198,7 +198,8 @@ steps:
   image: plugins/docker
   pull: always
   settings:
-    dockerfile: haystack_service/Dockerfile
+    context: haystack_service
+    dockerfile: Dockerfile
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
