@@ -99,13 +99,13 @@ const Sidebar: React.FC = ({
             title="Home"
             icon={ <HomeIcon/> }
           />
-          <Divider />
+          {/* <Divider />
           <SidebarMainLink
             routeName="new"
             id="new-session-link"
             title="New Session"
             icon={ <AddIcon/> }
-          />
+          /> */}
           <Divider />
         </List>
       </Box>
