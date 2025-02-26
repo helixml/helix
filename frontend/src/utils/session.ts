@@ -259,7 +259,7 @@ export const getNewSessionBreadcrumbs = ({
 }): IPageBreadcrumb[] => {
 
   if (mode == SESSION_MODE_FINETUNE) {
-    let txt = "Learn"
+    let txt = "Add Documents"
     if (type == SESSION_TYPE_IMAGE) {
       txt += " (image style and objects)"
     } else if (ragEnabled && finetuneEnabled) {
