@@ -144,18 +144,30 @@ const Home: FC = () => {
             sx={{
               py: 4,
               display: 'flex',
-              px: { xs: 1, sm: 2, md: 3 },
+              px: { xs: 2, sm: 3, md: 3 },
+              width: '100%',
+              maxWidth: '100%',
               overflow: 'hidden',
             }}
           >
-            <Grid container spacing={1} justifyContent="center">
-              <Grid item xs={12} sx={{ textAlign: 'center', maxWidth: '100%', overflow: 'hidden' }}>
+            <Grid container spacing={1} justifyContent="center" sx={{ 
+              width: '100%', 
+              margin: 0,
+              maxWidth: '100%',
+            }}>
+              <Grid item xs={12} sx={{ 
+                textAlign: 'center',
+                width: '100%',
+                maxWidth: '100%',
+                paddingX: '0 !important',
+              }}>
                 <Row
                   sx={{
                     display: 'flex',
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    width: '100%',
                   }}
                 >
                   <Typography
@@ -216,7 +228,7 @@ const Home: FC = () => {
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                        flexWrap: 'wrap',
                         gap: 1,
                       }}
                     >
@@ -226,9 +238,8 @@ const Home: FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           gap: 1,
-                          flexWrap: { xs: 'wrap', sm: 'nowrap' },
-                          flex: 1,
-                          minWidth: 0,
+                          flexWrap: 'wrap',
+                          flex: '1 1 auto',
                         }}
                       >
                         <SessionTypeButton 
