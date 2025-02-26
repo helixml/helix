@@ -43,7 +43,7 @@ const ExamplePrompts: FC<{
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        maxWidth: '800px',
+        maxWidth: layout === 'horizontal' ? '800px' : '100%',
         width: '100%',
       }}
     >
