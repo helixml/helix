@@ -119,6 +119,48 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgOwner() {
 	suite.Contains(rec.Body.String(), `access_grant_id_test`)
 }
 
+func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_AppOwner() {
+	app := &types.App{
+		ID:             "app_id_test",
+		OrganizationID: suite.orgID,
+		Owner:          suite.userID,
+	}
+
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	suite.store.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: app.OrganizationID,
+		ResourceID:     app.ID,
+	}).Return([]*types.AccessGrant{
+		{
+			ID: "access_grant_id_test",
+		},
+	}, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/apps/app_id_test/access-grants", http.NoBody)
+	req = req.WithContext(suite.authCtx)
+	vars := map[string]string{
+		"id": "app_id_test",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	suite.server.listAppAccessGrants(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code)
+	suite.Contains(rec.Body.String(), `access_grant_id_test`)
+}
+
 func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_NoAccess() {
 	app := &types.App{
 		ID:             "app_id_test",
