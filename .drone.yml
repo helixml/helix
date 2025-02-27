@@ -538,6 +538,7 @@ depends_on:
 - default
 
 ---
+# See integration-test/smoke/README.md
 kind: pipeline
 type: docker
 name: smoke-test
@@ -552,27 +553,8 @@ trigger:
   cron:
     - smoke-test-hourly
     - developer
-    # To run this manually, create a new cron job in Drone called developer and pointing to your-branch-name .
-    # Then send a curl request to:
-    # curl --request POST \
-    #   --url 'https://drone.lukemarsden.net/api/repos/helixml/helix/cron/developer?branch=your-branch-name' \
-    #   --header 'Authorization: Bearer XXXXXX'
 
 steps:
-- name: smoke-test-launchpad
-  image: golang:1.23.4-alpine3.21
-  environment:
-    BROWSER_URL: http://chrome:7317
-    LAUNCHPAD_API_KEY:
-      from_secret: LAUNCHPAD_API_KEY
-  volumes:
-  - name: integration-test
-    path: /integration-test
-  commands:
-  - apk add --no-cache curl bash openssl
-  - cp -r integration-test/* /integration-test
-  - go test -timeout 600s -tags=launchpad -v ./integration-test/smoke
-  depends_on: []
 - name: smoke-test-saas
   image: golang:1.23.4-alpine3.21
   environment:
@@ -597,6 +579,61 @@ steps:
     channel: helix-janitor
     # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
     message: "❌ Smoke test failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+  when:
+    status:
+    - failure
+
+volumes:
+- name: integration-test
+  temp: {}
+
+services:
+- name: chrome
+  image: ghcr.io/go-rod/rod:v0.115.0
+  volumes:
+  - name: integration-test
+    path: /integration-test
+
+---
+# See integration-test/smoke/README.md
+kind: pipeline
+type: docker
+name: smoke-test
+
+workspace:
+  base: /go
+  path: src/github.com/helix-ml/helix
+
+trigger:
+  event:
+    - cron
+  cron:
+    - deply-helix-ml
+    - developer
+
+steps:
+- name: smoke-test-launchpad
+  image: golang:1.23.4-alpine3.21
+  environment:
+    BROWSER_URL: http://chrome:7317
+    LAUNCHPAD_API_KEY:
+      from_secret: LAUNCHPAD_API_KEY
+  volumes:
+  - name: integration-test
+    path: /integration-test
+  commands:
+  - apk add --no-cache curl bash openssl
+  - cp -r integration-test/* /integration-test
+  - go test -timeout 600s -tags=launchpad -v ./integration-test/smoke
+  depends_on: []
+- name: slack-notification
+  image: plugins/slack
+  settings:
+    webhook:
+      from_secret: JANITOR_SLACK_WEBHOOK_URL
+    channel: helix-janitor
+    # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
+    message: "❌ Launchpad failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
   when:
     status:
     - failure
