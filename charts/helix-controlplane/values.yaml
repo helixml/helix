@@ -75,6 +75,8 @@ typesense:
 
 haystack:
   enabled: false
+  # -- Number of haystack replicas (ignored when pgvector.enabled=true)
+  replicas: 1
   image:
     repository: registry.helix.ml/helix/haystack
   # PGVector configuration
