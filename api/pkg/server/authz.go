@@ -11,7 +11,7 @@ import (
 // authorizeOrgOwner used to check if the user is an owner of the organization to perform certain actions
 // such as creating, updating teams, updating or deleting organization
 func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
-	memberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
 	})
@@ -19,15 +19,11 @@ func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *ty
 		return nil, err
 	}
 
-	if len(memberships) == 0 {
-		return nil, fmt.Errorf("user is not a member of this organization")
-	}
-
-	if memberships[0].Role != types.OrganizationRoleOwner {
+	if membership.Role != types.OrganizationRoleOwner {
 		return nil, fmt.Errorf("user is not an owner of this organization")
 	}
 
-	return memberships[0], nil
+	return membership, nil
 }
 
 // deleting used to check if the user is a member of the organization to perform certain actions
