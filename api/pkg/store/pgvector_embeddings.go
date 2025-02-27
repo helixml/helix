@@ -71,34 +71,56 @@ func (s *PGVectorStore) QueryKnowledgeEmbeddings(ctx context.Context, q *types.K
 
 	var items []*types.KnowledgeEmbeddingItem
 
-	query := s.gdb.WithContext(ctx).Where("data_entity_id = ?", q.DataEntityID)
+	query := s.gdb.WithContext(ctx).Distinct().Where("data_entity_id = ?", q.DataEntityID)
+
+	var conditions []string
+	var vars []interface{}
+
+	if q.Content != "" {
+		conditions = append(conditions, "content @@ websearch_to_tsquery(?)")
+		vars = append(vars, q.Content)
+	}
+
+	var orderBy string
+	var orderVars []interface{}
 
 	switch {
 	case len(q.Embedding384.Slice()) > 0:
-		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding384 <-> ?", Vars: []interface{}{q.Embedding384}},
-		})
+		orderBy = "embedding384 <-> ?"
+		orderVars = []interface{}{q.Embedding384}
 	case len(q.Embedding512.Slice()) > 0:
-		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding512 <-> ?", Vars: []interface{}{q.Embedding512}},
-		})
+		orderBy = "embedding512 <-> ?"
+		orderVars = []interface{}{q.Embedding512}
 	case len(q.Embedding1024.Slice()) > 0:
-		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding1024 <-> ?", Vars: []interface{}{q.Embedding1024}},
-		})
+		orderBy = "embedding1024 <-> ?"
+		orderVars = []interface{}{q.Embedding1024}
 	case len(q.Embedding1536.Slice()) > 0:
-		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding1536 <-> ?", Vars: []interface{}{q.Embedding1536}},
-		})
+		orderBy = "embedding1536 <-> ?"
+		orderVars = []interface{}{q.Embedding1536}
 	case len(q.Embedding3584.Slice()) > 0:
-		query = query.Clauses(clause.OrderBy{
-			Expression: clause.Expr{SQL: "embedding3584 <-> ?", Vars: []interface{}{q.Embedding3584}},
-		})
-	default:
-		// No query, will fetch all
+		orderBy = "embedding3584 <-> ?"
+		orderVars = []interface{}{q.Embedding3584}
 	}
 
-	err := query.Limit(q.Limit).Find(&items).Error
+	if orderBy != "" {
+		conditions = append(conditions, orderBy+" < 1.0")
+		vars = append(vars, orderVars...)
+	}
+
+	if len(conditions) > 0 {
+		query = query.Where("("+conditions[0]+")", vars[0])
+		for i := 1; i < len(conditions); i++ {
+			query = query.Or("("+conditions[i]+")", vars[i])
+		}
+	}
+
+	if orderBy != "" {
+		query = query.Order(clause.OrderBy{
+			Expression: clause.Expr{SQL: orderBy, Vars: orderVars},
+		})
+	}
+
+	err := query.Debug().Limit(q.Limit).Find(&items).Error
 	if err != nil {
 		return nil, err
 	}

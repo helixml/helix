@@ -195,6 +195,20 @@ const CreateSettingsWindow: FC<{
                           />
                         </Grid>
                         <Grid item xs={12} md={4}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={sessionConfig.ragDisableChunking}
+                                onChange={(event) => onSetSessionConfig(config => ({
+                                  ...config,
+                                  ragDisableChunking: event.target.checked,
+                                }))}
+                              />
+                            }
+                            label="Disable Chunking"
+                          />
+                        </Grid>
+                        <Grid item xs={12} md={4}>
                           <TextField
                             fullWidth
                             label="Rag Chunk Overflow"

@@ -16,8 +16,7 @@ func TestImageInference(t *testing.T) {
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
-	page := browser.MustPage(helper.GetServerURL())
-	defer page.MustClose()
+	page := createPage(browser)
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
@@ -28,5 +27,5 @@ func TestImageInference(t *testing.T) {
 	helper.SendMessage(t, page, "a beautiful image of a yorkshire rose")
 
 	helper.LogStep(t, "Waiting for image to be generated")
-	page.MustElementX(`//main//img`).MustWaitVisible()
+	page.WaitElementsMoreThan("main a > img", 0)
 }

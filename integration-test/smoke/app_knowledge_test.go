@@ -4,9 +4,9 @@
 package smoke
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/go-rod/rod/lib/devices"
 	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
 )
@@ -17,10 +17,7 @@ func TestCreateRagApp(t *testing.T) {
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
-	page := browser.
-		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
-		MustPage(helper.GetServerURL())
-	defer page.MustClose()
+	page := createPage(browser)
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
@@ -38,13 +35,13 @@ func TestCreateRagApp(t *testing.T) {
 	page.MustElementX(`//input[@type = 'text']`).MustWaitVisible().MustInput("test hr-guide.pdf")
 	page.MustElementX(`//button[text() = 'Add']`).MustWaitVisible().MustClick()
 
-	helper.LogStep(t, "Getting the upload file input")
-	upload := page.MustElementX("//input[@type = 'file']")
+	testFile := helper.GetTestPDFFile()
+	helper.LogStep(t, fmt.Sprintf("Uploading the file %s", testFile))
+	upload := page.MustElementX("//input[@type = 'file']").MustWaitVisible()
+	upload.MustSetFiles(testFile)
 
-	helper.LogStep(t, "Uploading the file")
-	wait1 := page.MustWaitRequestIdle()
-	upload.MustSetFiles(helper.TestPDFFile)
-	wait1()
+	// Wait for the file to be uploaded
+	page.Race().ElementX(fmt.Sprintf(`//span[contains(text(), "%s")]`, helper.TestPDFFilename)).MustDo()
 
 	helper.LogStep(t, "Saving the app")
 	helper.SaveApp(t, page)

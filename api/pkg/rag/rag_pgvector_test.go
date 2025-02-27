@@ -44,6 +44,7 @@ func (suite *PGVectorTestSuite) SetupTest() {
 	cfg := &config.ServerConfig{}
 	cfg.RAG.PGVector.EmbeddingsModel = "thenlper/gte-small"
 	cfg.RAG.PGVector.Provider = "vllm"
+	cfg.RAG.PGVector.EmbeddingsConcurrency = 1
 
 	suite.pg = NewPGVector(cfg, suite.mockProvider, suite.mockEmbeddingsStore)
 }

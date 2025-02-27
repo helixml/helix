@@ -25,6 +25,7 @@ func CreateNewApp(t *testing.T, page *rod.Page) {
 	appName := "smoke-" + time.Now().Format("20060102150405") + "-" + strconv.Itoa(random)
 	page.MustElementX(`//*[@id="app-name"]`).MustWaitVisible().MustInput(appName)
 	SaveApp(t, page)
+	LogStep(t, fmt.Sprintf("Created app: %s", page.MustInfo().URL))
 }
 
 func SaveApp(t *testing.T, page *rod.Page) {

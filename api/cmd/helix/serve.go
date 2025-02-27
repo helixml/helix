@@ -261,6 +261,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		extractor = extract.NewTikaExtractor(cfg.TextExtractor.Tika.URL)
 	case types.ExtractorUnstructured:
 		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
+	case types.ExtractorHaystack:
+		extractor = extract.NewHaystackExtractor(cfg.RAG.Haystack.URL)
 	default:
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
 	}
@@ -359,6 +361,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 		ragClient = rag.NewPGVector(cfg, providerManager, pgVectorStore)
 		log.Info().Msgf("Using PGVector for RAG")
+	case config.RAGProviderHaystack:
+		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
+		log.Info().Msgf("Using Haystack for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}

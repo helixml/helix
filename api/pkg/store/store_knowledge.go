@@ -56,6 +56,8 @@ func setDefaultKnowledgeRAGSettings(knowledge *types.Knowledge) {
 	if knowledge.RAGSettings.Threshold == 0 {
 		knowledge.RAGSettings.Threshold = DefaultKnowledgeThreshold
 	}
+	// Disable chunking by default, haystack does it better
+	knowledge.RAGSettings.DisableChunking = true
 }
 
 func (s *PostgresStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
