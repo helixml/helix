@@ -33,7 +33,7 @@ func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *ty
 // deleting used to check if the user is a member of the organization to perform certain actions
 // such as listing teams, listing members, etc
 func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
-	memberships, err := apiServer.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
 	})
@@ -41,13 +41,30 @@ func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *t
 		return nil, err
 	}
 
-	if len(memberships) == 0 {
-		return nil, fmt.Errorf("user is not a member of this organization")
+	// Both roles (owner or member) can list teams and members
+	return membership, nil
+}
+
+// authorizeUserToAppAccessGrants checks if the user is a member of the organization or the app owner
+// and has the necessary permissions to perform the action on the access grant
+func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+	// Check if user is a member of the org
+	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, app.OrganizationID)
+	if err != nil {
+		return err
 	}
 
-	// Both roles (owner or member) can list teams and members
+	// App owner can always access the app
+	if user.ID == app.Owner {
+		return nil
+	}
 
-	return memberships[0], nil
+	// Org owner can always access the app
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return nil
+	}
+
+	return apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceAccessGrants, action)
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
