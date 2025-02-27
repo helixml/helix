@@ -14,11 +14,18 @@ import (
 )
 
 type AppFilter struct {
+	OrganizationID string
 }
 
-func (c *HelixClient) ListApps(ctx context.Context, _ *AppFilter) ([]*types.App, error) {
+func (c *HelixClient) ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error) {
 	var apps []*types.App
-	err := c.makeRequest(ctx, http.MethodGet, "/apps", nil, &apps)
+
+	path := "/apps"
+	if f.OrganizationID != "" {
+		path += "?organization_id=" + f.OrganizationID
+	}
+
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &apps)
 	if err != nil {
 		return nil, err
 	}
