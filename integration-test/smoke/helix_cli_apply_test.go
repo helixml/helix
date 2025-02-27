@@ -21,8 +21,7 @@ func TestHelixCLIApply(t *testing.T) {
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
-	page := browser.MustPage(helper.GetServerURL())
-	defer page.MustClose()
+	page := createPage(browser)
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/devices"
 	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
 )
@@ -22,10 +21,7 @@ func TestDeleteAllApps(t *testing.T) {
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
-	page := browser.
-		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
-		MustPage(helper.GetServerURL())
-	defer page.MustClose()
+	page := createPage(browser)
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")

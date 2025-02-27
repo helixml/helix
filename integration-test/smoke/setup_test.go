@@ -4,11 +4,15 @@ package smoke
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
-	"testing"
+	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/devices"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/helixml/helix/integration-test/smoke/helper"
 )
 
 // createBrowser creates a new browser instance for testing
@@ -37,8 +41,26 @@ func createBrowser(ctx context.Context) *rod.Browser {
 	return browser
 }
 
-func TestMain(m *testing.M) {
-	// Just run the tests - each test will create its own browser
-	code := m.Run()
-	os.Exit(code)
+func createPage(browser *rod.Browser) *rod.Page {
+	// If any single test takes longer than 3 minutes, take a screenshot
+	ctx, cancel := context.WithTimeout(browser.GetContext(), 180*time.Second)
+
+	page := browser.
+		Context(ctx).
+		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
+		MustPage(helper.GetServerURL())
+
+	go func() {
+		<-ctx.Done()
+		err := ctx.Err()
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				page.MustScreenshotFullPage(fmt.Sprintf("%s.png", time.Now().Format("2006-01-02-15-04-05")))
+			}
+		}
+		_ = page.Close() // Always close the page, ignore if it already closed
+		cancel()
+	}()
+
+	return page
 }
