@@ -193,6 +193,7 @@ const (
 	RAGProviderTypesense  RAGProvider = "typesense"
 	RAGProviderPGVector   RAGProvider = "pgvector"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
+	RAGProviderHaystack   RAGProvider = "haystack"
 )
 
 type RAG struct {
@@ -210,9 +211,10 @@ type RAG struct {
 	}
 
 	PGVector struct {
-		Provider        string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
-		EmbeddingsModel string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
-		Dimensions      types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
+		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
+		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
+		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
+		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
 	}
 
 	Llamaindex struct {
@@ -223,6 +225,11 @@ type RAG struct {
 		// the URL we can post a delete request to for RAG records,
 		// this is a prefix, full path is http://llamaindex:5000/api/v1/rag/<data_entity_id>
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
+	}
+
+	Haystack struct {
+		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
+		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://haystack:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {

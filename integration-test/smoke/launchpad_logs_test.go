@@ -146,9 +146,6 @@ LOOP:
 	// Register a new user
 	helper.RegisterNewUser(s.T(), page)
 
-	// Start a new chat
-	helper.StartNewChat(s.T(), page)
-
 	// Send a message
 	helper.SendMessage(s.T(), page, fmt.Sprintf("I want you to say the word %s, you must say %s", uniqueWord, uniqueWord))
 
