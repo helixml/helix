@@ -98,3 +98,29 @@ func Test_ensureStoreUser_UpdateExisting(t *testing.T) {
 	err := authenticator.ensureStoreUser(user)
 	require.NoError(t, err)
 }
+
+func Test_ensureStoreUser_UpToDate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	authenticator := &KeycloakAuthenticator{
+		store: mockStore,
+	}
+
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "123",
+		Username: "testuser",
+		Email:    "new-email@example.com",
+		FullName: "Test User",
+	}, nil)
+
+	user := &types.User{
+		ID:       "123",
+		Username: "testuser",
+		Email:    "new-email@example.com",
+		FullName: "Test User",
+	}
+
+	err := authenticator.ensureStoreUser(user)
+	require.NoError(t, err)
+}
