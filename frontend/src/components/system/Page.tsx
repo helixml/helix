@@ -142,6 +142,9 @@ const Page: React.FC<{
         sx={{
           flexGrow: 1,
           overflowY: 'auto',
+          overflowX: 'hidden',
+          width: '100%',
+          maxWidth: '100vw',
         }}
       >    
         { children }
