@@ -133,6 +133,13 @@ type User struct {
 	FullName string
 }
 
+// CreateAccessGrantRequest - request to create an access grant for a team or user
+type CreateAccessGrantRequest struct {
+	UserID string   `json:"user_id"` // User ID
+	TeamID string   `json:"team_id"` // Team ID
+	Roles  []string `json:"roles"`   // Role names
+}
+
 // AccessGrant - grant access to a resource for a team or user. This allows users
 // to share their application, knowledge, provider endpoint, etc with other users or teams.
 type AccessGrant struct {
@@ -222,6 +229,7 @@ const (
 	ResourceMembership            Resource = "Membership"
 	ResourceMembershipRoleBinding Resource = "MembershipRoleBinding"
 	ResourceApplication           Resource = "Application"
+	ResourceAccessGrants          Resource = "AccessGrants"
 	ResourceKnowledge             Resource = "Knowledge"
 	ResourceUser                  Resource = "User"
 	ResourceAny                   Resource = "*"
