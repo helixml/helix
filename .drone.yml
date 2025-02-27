@@ -598,7 +598,7 @@ services:
 # See integration-test/smoke/README.md
 kind: pipeline
 type: docker
-name: smoke-test
+name: deply-helix-ml-test
 
 workspace:
   base: /go
