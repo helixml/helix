@@ -33,25 +33,21 @@ import (
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
-	orgID := r.URL.Query().Get("organization_id")
+	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
 
 	if orgID != "" {
-		err := s.authorizeOrgMember(ctx, user, orgID)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
+		return s.listOrganizationApps(ctx, user, orgID, r)
 	}
 
 	userApps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
-		Owner:          user.ID,
-		OwnerType:      user.Type,
-		OrganizationID: orgID,
+		Owner:     user.ID,
+		OwnerType: user.Type,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// remove global apps from the list in case this is the admin user who created the global tool
+	// remove global apps from the list in case this is the admin user who created the global app
 	nonGlobalUserApps := []*types.App{}
 	for _, app := range userApps {
 		if !app.Global {
@@ -84,6 +80,46 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	return filteredApps, nil
 }
 
+// listOrganizationApps lists apps for an organization based on the user's access grants
+func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.User, orgID string, r *http.Request) ([]*types.App, *system.HTTPError) {
+	orgMembership, err := s.authorizeOrgMember(ctx, user, orgID)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	apps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// If user is the org owner, skip authorization, they can view all apps
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return apps, nil
+	}
+
+	// User is not the org owner, so we need to authorize them to each app
+
+	var authorizedApps []*types.App
+
+	// Authorize the user to each app
+	for _, app := range apps {
+		err := s.authorizeUserToApp(ctx, user, app, types.ActionGet)
+		if err != nil {
+			log.Debug().
+				Str("user_id", user.ID).
+				Str("app_id", app.ID).
+				Msg("user is not authorized to view app")
+			continue
+		}
+
+		authorizedApps = append(authorizedApps, app)
+	}
+
+	return authorizedApps, nil
+}
+
 // createTool godoc
 // @Summary Create new app
 // @Description Create new app. Apps are pre-configured to spawn sessions with specific tools and config.
@@ -94,9 +130,12 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 // @Router /api/v1/apps [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+	user := getRequestUser(r)
+	ctx := r.Context()
+
 	var app types.App
 	body, err := io.ReadAll(r.Body)
-	// log.Info().Msgf("createApp body: %s", string(body))
+
 	if err != nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to read request body, error: %s", err))
 	}
@@ -105,8 +144,14 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 1, error: %s, body: %s", err, string(body)))
 	}
 
-	user := getRequestUser(r)
-	ctx := r.Context()
+	// If organization ID is set, authorize the user to the organization,
+	// must be a member to create it
+	if app.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, app.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	}
 
 	// Getting existing tools for the user
 	existingApps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
