@@ -16,6 +16,7 @@ class Settings:
     EMBEDDINGS_MODEL: str = os.getenv("RAG_HAYSTACK_EMBEDDINGS_MODEL", "Alibaba-NLP/gte-Qwen2-7B-instruct")
     VLLM_BASE_URL: str = os.environ["VLLM_BASE_URL"]
     VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
+    EMBEDDINGS_SOCKET: Optional[str] = os.getenv("HELIX_EMBEDDINGS_SOCKET", None)
     
     # Service settings
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
