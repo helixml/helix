@@ -30,6 +30,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -180,6 +188,62 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for an app (organization owners and members can list access grants)",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "List app access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Grant access to an app to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and role",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
                     }
                 }
             }
@@ -1696,6 +1760,50 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AccessGrant": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "If granted to an organization",
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "App ID, Knowledge ID, etc",
+                    "type": "string"
+                },
+                "resource_type": {
+                    "description": "Kind of resource (app, knowledge, provider endpoint, etc)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.Resource"
+                        }
+                    ]
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "team_id": {
+                    "description": "If granted to a team",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "If granted to a user",
+                    "type": "string"
+                }
+            }
+        },
         "types.Action": {
             "type": "string",
             "enum": [
@@ -1755,6 +1863,9 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "owner": {
@@ -2094,6 +2205,26 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.OpenAIMessage"
                 },
                 "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateAccessGrantRequest": {
+            "type": "object",
+            "properties": {
+                "roles": {
+                    "description": "Role names",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "team_id": {
+                    "description": "Team ID",
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "User ID",
                     "type": "string"
                 }
             }
@@ -2992,6 +3123,7 @@ const docTemplate = `{
                 "Membership",
                 "MembershipRoleBinding",
                 "Application",
+                "AccessGrants",
                 "Knowledge",
                 "User",
                 "*",
@@ -3004,6 +3136,7 @@ const docTemplate = `{
                 "ResourceMembership",
                 "ResourceMembershipRoleBinding",
                 "ResourceApplication",
+                "ResourceAccessGrants",
                 "ResourceKnowledge",
                 "ResourceUser",
                 "ResourceAny",
@@ -3555,6 +3688,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "team": {
