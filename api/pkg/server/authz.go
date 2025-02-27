@@ -52,13 +52,18 @@ func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *t
 
 func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
 	// Check if user is a member of the org
-	err := apiServer.authorizeOrgMember(ctx, user, app.OrganizationID)
+	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, app.OrganizationID)
 	if err != nil {
 		return err
 	}
 
 	// App owner can always access the app
 	if user.ID == app.Owner {
+		return nil
+	}
+
+	// Org owner can always access the app
+	if orgMembership.Role == types.OrganizationRoleOwner {
 		return nil
 	}
 
