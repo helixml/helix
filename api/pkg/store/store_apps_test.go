@@ -92,6 +92,79 @@ func (suite *PostgresStoreTestSuite) TestListApps() {
 	})
 }
 
+func (suite *PostgresStoreTestSuite) TestListOrganizationApps() {
+	ownerID := "test-" + system.GenerateUUID()
+	orgID := "test-org-" + system.GenerateUUID()
+
+	orgApp := &types.App{
+		Owner:          ownerID,
+		OwnerType:      types.OwnerTypeUser,
+		Config:         types.AppConfig{},
+		OrganizationID: orgID,
+	}
+
+	createdApp, err := suite.db.CreateApp(suite.ctx, orgApp)
+	suite.NoError(err)
+	suite.NotNil(createdApp)
+
+	// Now, listing all apps for the owner
+	apps, err := suite.db.ListApps(suite.ctx, &ListAppsQuery{
+		OrganizationID: orgID,
+	})
+	suite.NoError(err)
+	suite.Equal(1, len(apps))
+	suite.Equal(createdApp.ID, apps[0].ID)
+
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteApp(suite.ctx, createdApp.ID)
+		suite.NoError(err)
+	})
+}
+
+func (suite *PostgresStoreTestSuite) TestListNonOrganizationApps() {
+	ownerID := "test-" + system.GenerateUUID()
+	orgID := "test-org-" + system.GenerateUUID()
+
+	orgApp := &types.App{
+		Owner:          ownerID,
+		OwnerType:      types.OwnerTypeUser,
+		Config:         types.AppConfig{},
+		OrganizationID: orgID,
+	}
+
+	// Creating a non-org app
+	nonOrgApp := &types.App{
+		Owner:     ownerID,
+		OwnerType: types.OwnerTypeUser,
+		Config:    types.AppConfig{},
+	}
+
+	createdOrgApp, err := suite.db.CreateApp(suite.ctx, orgApp)
+	suite.NoError(err)
+	suite.NotNil(createdOrgApp)
+	suite.NotEmpty(createdOrgApp.ID)
+	suite.Equal(orgID, createdOrgApp.OrganizationID)
+
+	createdNonOrgApp, err := suite.db.CreateApp(suite.ctx, nonOrgApp)
+	suite.NoError(err)
+
+	// Now, listing all apps for the owner
+	apps, err := suite.db.ListApps(suite.ctx, &ListAppsQuery{
+		OrganizationID: orgID,
+	})
+	suite.NoError(err)
+	suite.Equal(1, len(apps))
+	suite.Equal(createdOrgApp.ID, apps[0].ID)
+
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteApp(suite.ctx, createdOrgApp.ID)
+		suite.NoError(err)
+
+		err = suite.db.DeleteApp(suite.ctx, createdNonOrgApp.ID)
+		suite.NoError(err)
+	})
+}
+
 func (suite *PostgresStoreTestSuite) TestDeleteApp() {
 
 	ownerID := "test-" + system.GenerateUUID()
