@@ -280,6 +280,9 @@ func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
 	if existing == nil {
 		_, err = k.store.CreateUser(ctx, user)
 		if err != nil {
+			if strings.Contains(err.Error(), "duplicate key") {
+				return nil
+			}
 			return fmt.Errorf("ensureStoreUser: error creating user: %w", err)
 		}
 
