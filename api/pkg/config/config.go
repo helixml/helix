@@ -120,7 +120,7 @@ type Keycloak struct {
 	FrontEndClientID    string `envconfig:"KEYCLOAK_FRONTEND_CLIENT_ID" default:"frontend"`
 	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username            string `envconfig:"KEYCLOAK_USER"`
+	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
 	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
 }
 
