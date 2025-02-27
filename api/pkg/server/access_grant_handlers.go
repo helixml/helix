@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -55,6 +56,14 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 	writeResponse(rw, grants, http.StatusOK)
 }
 
+// createAppAccessGrant godoc
+// @Summary Grant access to an app to a team or organization member
+// @Description Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)
+// @Tags    apps
+// @Success 200 {object} types.AccessGrant
+// @Param request body types.CreateAccessGrantRequest true "Request body with team or organization member ID and role"
+// @Router /api/v1/apps/{id}/access-grants [post]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	appID := mux.Vars(r)["id"]
@@ -74,17 +83,46 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 		return
 	}
 
-	// Authorize user to view this application's access grants
-	err = apiServer.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionGet)
+	var req types.CreateAccessGrantRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		writeErrResponse(rw, err, http.StatusBadRequest)
+		return
+	}
+
+	// At least one must be set
+	if req.UserID == "" && req.TeamID == "" {
+		writeErrResponse(rw, errors.New("either user_id or team_id must be specified"), http.StatusBadRequest)
+		return
+	}
+
+	// Both cannot be set as well
+	if req.UserID != "" && req.TeamID != "" {
+		writeErrResponse(rw, errors.New("either user_id or team_id must be specified, not both"), http.StatusBadRequest)
+		return
+	}
+
+	// Check roles
+	for _, role := range req.Roles {
+		if role.ID == "" {
+			writeErrResponse(rw, errors.New("role id is required"), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Authorize user to update application's memberships
+	err = apiServer.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceAccessGrants, types.ActionUpdate)
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusForbidden)
 		return
 	}
 
-	grants, err := apiServer.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
+	grants, err := apiServer.Store.CreateAccessGrant(r.Context(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-	})
+		UserID:         req.UserID,
+		TeamID:         req.TeamID,
+	}, req.Roles)
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusInternalServerError)
 		return
