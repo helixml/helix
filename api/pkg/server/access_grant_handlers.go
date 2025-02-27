@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -102,18 +104,16 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 		return
 	}
 
-	// Check roles
-	for _, role := range req.Roles {
-		if role.ID == "" {
-			writeErrResponse(rw, errors.New("role id is required"), http.StatusBadRequest)
-			return
-		}
-	}
-
 	// Authorize user to update application's memberships
 	err = apiServer.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceAccessGrants, types.ActionUpdate)
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusForbidden)
+		return
+	}
+
+	roles, err := apiServer.ensureRoles(r.Context(), app.OrganizationID, req.Roles)
+	if err != nil {
+		writeErrResponse(rw, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -122,11 +122,37 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 		ResourceID:     app.ID,
 		UserID:         req.UserID,
 		TeamID:         req.TeamID,
-	}, req.Roles)
+	}, roles)
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusInternalServerError)
 		return
 	}
 
 	writeResponse(rw, grants, http.StatusOK)
+}
+
+// ensureRoles converts role names into role objects for access grants
+func (apiServer *HelixAPIServer) ensureRoles(ctx context.Context, orgID string, roles []string) ([]*types.Role, error) {
+	orgRoles, err := apiServer.Store.ListRoles(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	orgRolesMap := make(map[string]*types.Role)
+	for _, role := range orgRoles {
+		orgRolesMap[role.Name] = role
+	}
+
+	var resp []*types.Role
+
+	for _, role := range roles {
+		role, ok := orgRolesMap[role]
+		if !ok {
+			return nil, fmt.Errorf("role '%s' not found", role)
+		}
+
+		resp = append(resp, role)
+	}
+
+	return resp, nil
 }
