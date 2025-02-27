@@ -280,12 +280,21 @@ func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
 	if existing == nil {
 		_, err = k.store.CreateUser(ctx, user)
 		if err != nil {
+			if strings.Contains(err.Error(), "duplicate key") {
+				return nil
+			}
 			return fmt.Errorf("ensureStoreUser: error creating user: %w", err)
 		}
 
 		// OK
 		return nil
 	}
+
+	// If email or name hasn't changed, don't update
+	if existing.Email == user.Email && existing.FullName == user.FullName && existing.Username == user.Username {
+		return nil
+	}
+
 	// Update user
 	existing.Email = user.Email
 	existing.FullName = user.FullName
