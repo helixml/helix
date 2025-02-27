@@ -21,7 +21,7 @@ func Test_ensureStoreUser_CreateNew(t *testing.T) {
 
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, user *types.User) (*types.User, error) {
+		func(_ context.Context, user *types.User) (*types.User, error) {
 			require.Equal(t, "123", user.ID)
 			require.Equal(t, "testuser", user.Username)
 			return user, nil
