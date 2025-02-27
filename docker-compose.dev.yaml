@@ -121,6 +121,8 @@ services:
       timeout: 5s
       retries: 30
     command: ["start-dev"]
+    ports:
+      - 30080:8080
   webhook_relay_stripe:
     image: webhookrelay/webhookrelayd
     environment:

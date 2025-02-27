@@ -175,13 +175,16 @@ function test() {
   fi
 
   # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
   export POSTGRES_PASSWORD=postgres
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
+
+  export KEYCLOAK_USER=admin
+  export KEYCLOAK_PASSWORD=REPLACE_ME
 
   export PGVECTOR_USER=postgres
   export PGVECTOR_PASSWORD=postgres
