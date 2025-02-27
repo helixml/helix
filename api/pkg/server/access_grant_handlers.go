@@ -40,7 +40,7 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 	}
 
 	// Authorize user to view this application's access grants
-	err = apiServer.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionGet)
+	err = apiServer.authorizeUserToAppAccessGrants(r.Context(), user, app, types.ActionGet)
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusForbidden)
 		return
@@ -105,7 +105,7 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 	}
 
 	// Authorize user to update application's memberships
-	err = apiServer.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceAccessGrants, types.ActionUpdate)
+	err = apiServer.authorizeUserToAppAccessGrants(r.Context(), user, app, types.ActionUpdate)
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusForbidden)
 		return
