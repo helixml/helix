@@ -7,11 +7,14 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 )
 
 func init() {
 	rootCmd.AddCommand(listCmd)
+
+	// listCmd.Flags().StringP("organization", "o", "", "Organization ID or name")
 
 	// Here you will define your flags and configuration settings.
 
@@ -36,7 +39,23 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		apps, err := apiClient.ListApps(cmd.Context(), &client.AppFilter{})
+		organization, err := cmd.Flags().GetString("organization")
+		if err != nil {
+			return err
+		}
+
+		filter := &client.AppFilter{}
+
+		if organization != "" {
+			org, err := cli.LookupOrganization(cmd.Context(), apiClient, organization)
+			if err != nil {
+				return err
+			}
+
+			filter.OrganizationID = org.ID
+		}
+
+		apps, err := apiClient.ListApps(cmd.Context(), filter)
 		if err != nil {
 			return fmt.Errorf("failed to list apps: %w", err)
 		}
