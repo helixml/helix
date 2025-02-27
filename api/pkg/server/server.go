@@ -158,6 +158,15 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		"/ws/gptscript-runner",
 	)
 
+	// Start UNIX socket server for embeddings if configured
+	if apiServer.Cfg.WebServer.EmbeddingsSocket != "" {
+		go func() {
+			if err := apiServer.startEmbeddingsSocketServer(ctx); err != nil {
+				log.Error().Err(err).Msg("failed to start embeddings socket server")
+			}
+		}()
+	}
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		WriteTimeout:      time.Minute * 15,
@@ -587,4 +596,61 @@ func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
 		log.Err(err).Msg("error writing response")
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 	}
+}
+
+// startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
+func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
+	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
+
+	// Remove socket file if it already exists
+	if _, err := os.Stat(socketPath); err == nil {
+		if err := os.Remove(socketPath); err != nil {
+			return fmt.Errorf("failed to remove existing socket file: %w", err)
+		}
+	}
+
+	// Create socket listener
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("failed to listen on unix socket: %w", err)
+	}
+
+	// Set socket permissions
+	if err := os.Chmod(socketPath, 0666); err != nil {
+		return fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+
+	// Create a new router for the socket server
+	router := mux.NewRouter()
+
+	// Register only the embeddings endpoint with no auth
+	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)
+
+	// Create HTTP server
+	srv := &http.Server{
+		Handler:      router,
+		ReadTimeout:  time.Minute * 15,
+		WriteTimeout: time.Minute * 15,
+	}
+
+	log.Info().Str("socket", socketPath).Msg("starting embeddings socket server")
+
+	// Ensure the server is shut down when the context is canceled
+	go func() {
+		<-ctx.Done()
+		log.Info().Msg("shutting down embeddings socket server")
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Error().Err(err).Msg("error shutting down embeddings socket server")
+		}
+		if err := listener.Close(); err != nil {
+			log.Error().Err(err).Msg("error closing embeddings socket listener")
+		}
+	}()
+
+	// Start the server
+	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("embeddings socket server error: %w", err)
+	}
+
+	return nil
 }
