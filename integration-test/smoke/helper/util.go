@@ -18,8 +18,25 @@ import (
 
 const (
 	// This is the location inside the rod container
-	TestPDFFile = "/integration-test/data/smoke/hr-guide.pdf"
+	TestPDFFilename   = "hr-guide.pdf"
+	testFileDirectory = "integration-test/data/smoke"
 )
+
+func GetTestPDFFile() string {
+	// If the BROWSER_URL environment variable is set, we are running in a container
+	// and we need to use the container path.
+	containerPath := path.Join("/", testFileDirectory, TestPDFFilename)
+	if os.Getenv("BROWSER_URL") != "" {
+		return containerPath
+	}
+
+	// Otherwise, we are running locally, so we need to use the local path.
+	_, filename, _, _ := runtime.Caller(0)
+	rootDir := path.Clean(path.Join(filepath.Dir(filename), "..", "..", ".."))
+	// Build the full local path to the test file
+	localPath := path.Join(rootDir, testFileDirectory, TestPDFFilename)
+	return localPath
+}
 
 func LogStep(t *testing.T, step string) {
 	_, file, line, _ := runtime.Caller(1) // Get caller info, skip 1 frame to get the caller rather than this function
