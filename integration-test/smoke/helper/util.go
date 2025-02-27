@@ -111,11 +111,6 @@ func verifyLogin(t *testing.T, page *rod.Page) error {
 	return nil
 }
 
-func StartNewChat(t *testing.T, page *rod.Page) {
-	LogStep(t, "Clicking New Session button")
-	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustWaitVisible().MustClick()
-}
-
 func SendMessage(t *testing.T, page *rod.Page, message string) {
 	LogStep(t, "Looking for chat input textarea")
 	textarea := page.MustElement("textarea")
@@ -124,7 +119,7 @@ func SendMessage(t *testing.T, page *rod.Page, message string) {
 	textarea.MustWaitVisible().MustInput(message)
 
 	LogStep(t, "Looking for send button")
-	page.MustElement("#sendButton").MustWaitInteractable().MustClick()
+	page.MustElementX("//div[@aria-label='Send Prompt']").MustWaitInteractable().MustClick()
 }
 
 func StartNewImageSession(t *testing.T, page *rod.Page) error {
