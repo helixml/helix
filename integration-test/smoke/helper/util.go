@@ -123,9 +123,6 @@ func SendMessage(t *testing.T, page *rod.Page, message string) {
 }
 
 func StartNewImageSession(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Creating new session")
-	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustClick()
-
 	LogStep(t, "Selecting Image mode")
 	page.MustElementX(`//button[contains(text(), 'TEXT')]`).MustClick()
 
