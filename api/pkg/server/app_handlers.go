@@ -27,15 +27,25 @@ import (
 // @Tags    apps
 
 // @Success 200 {array} types.App
+// @Param organization_id query string false "Organization ID"
 // @Router /api/v1/apps [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
+	orgID := r.URL.Query().Get("organization_id")
+
+	if orgID != "" {
+		err := s.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	}
 
 	userApps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
-		Owner:     user.ID,
-		OwnerType: user.Type,
+		Owner:          user.ID,
+		OwnerType:      user.Type,
+		OrganizationID: orgID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -58,15 +68,9 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 
 	allApps := append(nonGlobalUserApps, globalApps...)
 
-	// Extract the "type" query parameter
-	queryType := r.URL.Query().Get("type")
-
 	// Filter apps based on the "type" query parameter
 	var filteredApps []*types.App
 	for _, app := range allApps {
-		if queryType != "" && app.AppSource != types.AppSource(queryType) {
-			continue
-		}
 		if !isAdmin(user) && app.Global {
 			if app.Config.Github != nil {
 				app.Config.Github.KeyPair.PrivateKey = ""
