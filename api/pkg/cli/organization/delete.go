@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 )
 
@@ -26,7 +27,7 @@ var deleteCmd = &cobra.Command{
 
 		reference := args[0]
 
-		org, err := lookupOrganization(cmd.Context(), apiClient, reference)
+		org, err := cli.LookupOrganization(cmd.Context(), apiClient, reference)
 		if err != nil {
 			return fmt.Errorf("failed to lookup organization: %w", err)
 		}
