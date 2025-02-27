@@ -632,7 +632,7 @@ const Create: FC = () => {
       px={PADDING_X}
       sx={pageSX}
     >
-      {
+      {/* {
         mode == SESSION_MODE_FINETUNE && (
           <Box
             sx={{
@@ -646,7 +646,7 @@ const Create: FC = () => {
             />
           </Box>
         )
-      }
+      } */}
 
       {
         mode == SESSION_MODE_INFERENCE && inferenceHeader

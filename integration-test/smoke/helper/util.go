@@ -18,8 +18,25 @@ import (
 
 const (
 	// This is the location inside the rod container
-	TestPDFFile = "/integration-test/data/smoke/hr-guide.pdf"
+	TestPDFFilename   = "hr-guide.pdf"
+	testFileDirectory = "integration-test/data/smoke"
 )
+
+func GetTestPDFFile() string {
+	// If the BROWSER_URL environment variable is set, we are running in a container
+	// and we need to use the container path.
+	containerPath := path.Join("/", testFileDirectory, TestPDFFilename)
+	if os.Getenv("BROWSER_URL") != "" {
+		return containerPath
+	}
+
+	// Otherwise, we are running locally, so we need to use the local path.
+	_, filename, _, _ := runtime.Caller(0)
+	rootDir := path.Clean(path.Join(filepath.Dir(filename), "..", "..", ".."))
+	// Build the full local path to the test file
+	localPath := path.Join(rootDir, testFileDirectory, TestPDFFilename)
+	return localPath
+}
 
 func LogStep(t *testing.T, step string) {
 	_, file, line, _ := runtime.Caller(1) // Get caller info, skip 1 frame to get the caller rather than this function
@@ -94,11 +111,6 @@ func verifyLogin(t *testing.T, page *rod.Page) error {
 	return nil
 }
 
-func StartNewChat(t *testing.T, page *rod.Page) {
-	LogStep(t, "Clicking New Session button")
-	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustWaitVisible().MustClick()
-}
-
 func SendMessage(t *testing.T, page *rod.Page, message string) {
 	LogStep(t, "Looking for chat input textarea")
 	textarea := page.MustElement("textarea")
@@ -107,13 +119,10 @@ func SendMessage(t *testing.T, page *rod.Page, message string) {
 	textarea.MustWaitVisible().MustInput(message)
 
 	LogStep(t, "Looking for send button")
-	page.MustElement("#sendButton").MustWaitInteractable().MustClick()
+	page.MustElementX("//div[@aria-label='Send Prompt']").MustWaitInteractable().MustClick()
 }
 
 func StartNewImageSession(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Creating new session")
-	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustClick()
-
 	LogStep(t, "Selecting Image mode")
 	page.MustElementX(`//button[contains(text(), 'TEXT')]`).MustClick()
 
