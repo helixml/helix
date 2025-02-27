@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -25,6 +26,32 @@ func Test_ensureStoreUser_CreateNew(t *testing.T) {
 			require.Equal(t, "123", user.ID)
 			require.Equal(t, "testuser", user.Username)
 			return user, nil
+		},
+	)
+
+	user := &types.User{
+		ID:       "123",
+		Username: "testuser",
+		Email:    "testuser@example.com",
+		FullName: "Test User",
+	}
+
+	err := authenticator.ensureStoreUser(user)
+	require.NoError(t, err)
+}
+
+func Test_ensureStoreUser_CreateNew_Concurrent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	authenticator := &KeycloakAuthenticator{
+		store: mockStore,
+	}
+
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *types.User) (*types.User, error) {
+			return nil, fmt.Errorf("duplicate key")
 		},
 	)
 
