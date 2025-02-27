@@ -437,9 +437,7 @@ type AppUpdatePayload struct {
 // @Router /api/v1/apps/{id} [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
-
 	user := getRequestUser(r)
-
 	id := getID(r)
 
 	app, err := s.Store.GetApp(r.Context(), id)
@@ -505,13 +503,28 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 
-	if existing.Global {
-		if !isAdmin(user) {
-			return nil, system.NewHTTPError403("only admin users can update global apps")
+	// Some fields are not allowed to be changed
+	update.OrganizationID = existing.OrganizationID
+	update.Owner = existing.Owner
+	update.OwnerType = existing.OwnerType
+	update.Created = existing.Created
+
+	if existing.OrganizationID != "" {
+		// Org mode
+		err := s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
 		}
 	} else {
-		if existing.Owner != user.ID {
-			return nil, system.NewHTTPError403("you do not have permission to update this app")
+		// Single-player mode
+		if existing.Global {
+			if !isAdmin(user) {
+				return nil, system.NewHTTPError403("only admin users can update global apps")
+			}
+		} else {
+			if existing.Owner != user.ID {
+				return nil, system.NewHTTPError403("you do not have permission to update this app")
+			}
 		}
 	}
 
@@ -679,13 +692,22 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Global {
-		if !isAdmin(user) {
-			return nil, system.NewHTTPError403("only admin users can delete global apps")
+	if existing.OrganizationID != "" {
+		// Org mode
+		err := s.authorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
 		}
+
 	} else {
-		if existing.Owner != user.ID {
-			return nil, system.NewHTTPError403("you do not have permission to delete this app")
+		if existing.Global {
+			if !isAdmin(user) {
+				return nil, system.NewHTTPError403("only admin users can delete global apps")
+			}
+		} else {
+			if existing.Owner != user.ID {
+				return nil, system.NewHTTPError403("you do not have permission to delete this app")
+			}
 		}
 	}
 
