@@ -119,3 +119,47 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgOwner() {
 	suite.Equal(http.StatusOK, rec.Code)
 	suite.Contains(rec.Body.String(), `access_grant_id_test`)
 }
+
+func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_NoAccess() {
+	app := &types.App{
+		ID:             "app_id_test",
+		OrganizationID: suite.orgID,
+	}
+
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	suite.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return([]*types.Team{}, nil) // No teams
+
+	suite.store.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+		ResourceID:     app.ID,
+		ResourceType:   types.ResourceAccessGrants,
+		// TeamIDs:        []string{},
+	}).Return([]*types.AccessGrant{}, nil) // No direct access grants
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/apps/app_id_test/access-grants", http.NoBody)
+	req = req.WithContext(suite.authCtx)
+	vars := map[string]string{
+		"id": "app_id_test",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	suite.server.listAppAccessGrants(rec, req)
+
+	suite.Equal(http.StatusForbidden, rec.Code)
+}
