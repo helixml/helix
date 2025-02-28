@@ -156,3 +156,47 @@ func (apiServer *HelixAPIServer) ensureRoles(ctx context.Context, orgID string, 
 
 	return resp, nil
 }
+
+func (apiServer *HelixAPIServer) deleteAppAccessGrant(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	appID := mux.Vars(r)["id"]
+	grantID := mux.Vars(r)["grant_id"]
+
+	app, err := apiServer.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		writeErrResponse(rw, err, http.StatusInternalServerError)
+		return
+	}
+
+	// Authorize user to update application's memberships
+	err = apiServer.authorizeUserToAppAccessGrants(r.Context(), user, app, types.ActionUpdate)
+	if err != nil {
+		writeErrResponse(rw, err, http.StatusForbidden)
+		return
+	}
+
+	// Get access grant
+	grants, err := apiServer.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
+		OrganizationID: app.OrganizationID,
+		ResourceID:     app.ID,
+	})
+	if err != nil {
+		writeErrResponse(rw, err, http.StatusInternalServerError)
+		return
+	}
+
+	for _, grant := range grants {
+		if grant.ID == grantID {
+			err = apiServer.Store.DeleteAccessGrant(r.Context(), grantID)
+			if err != nil {
+				writeErrResponse(rw, err, http.StatusInternalServerError)
+				return
+			}
+
+			// All good, return
+			return
+		}
+	}
+
+	writeErrResponse(rw, errors.New("access grant not found"), http.StatusNotFound)
+}
