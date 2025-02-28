@@ -46,7 +46,11 @@ class MockSocketServer(threading.Thread):
             print("IN LOOP")
             try:
                 conn, _ = server.accept()
-                data = conn.recv(4096).decode('utf-8')
+                data = conn.recv(4096)
+                print("RECEIVED", len(data), "BYTES")
+                print("DATA", data)
+                data = data.decode('utf-8')
+                print("DECODED", data)
                 self.requests_received.append(data)
                 print("READ", len(data), "BYTES")
                 
