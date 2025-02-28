@@ -67,7 +67,7 @@ class UnixSocketOpenAITextEmbedder:
         )
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OpenAITextEmbedder":
+    def from_dict(cls, data: Dict[str, Any]) -> "UnixSocketOpenAITextEmbedder":
         """
         Deserializes the component from a dictionary.
 
@@ -133,26 +133,6 @@ logger = logging.getLogger(__name__)
 
 @component
 class UnixSocketOpenAIDocumentEmbedder:
-    """
-    Computes document embeddings using OpenAI models.
-
-    ### Usage example
-
-    ```python
-    from haystack import Document
-    from haystack.components.embedders import OpenAIDocumentEmbedder
-
-    doc = Document(content="I love pizza!")
-
-    document_embedder = OpenAIDocumentEmbedder()
-
-    result = document_embedder.run([doc])
-    print(result['documents'][0].embedding)
-
-    # [0.017020374536514282, -0.023255806416273117, ...]
-    ```
-    """
-
     def __init__(  # pylint: disable=too-many-positional-arguments
         self,
         socket_path: str,
@@ -221,7 +201,7 @@ class UnixSocketOpenAIDocumentEmbedder:
         )
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OpenAIDocumentEmbedder":
+    def from_dict(cls, data: Dict[str, Any]) -> "UnixSocketOpenAIDocumentEmbedder":
         """
         Deserializes the component from a dictionary.
 

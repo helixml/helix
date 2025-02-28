@@ -82,7 +82,10 @@ spec:
           {{- if .Values.controlplane.extraVolumeMounts }}
           {{- toYaml .Values.controlplane.extraVolumeMounts | nindent 12 }}
           {{- end }}
-
+          {{- if .Values.controlplane.haystack.enabled }}
+            - name: helix-embeddings-socket
+              mountPath: /socket
+          {{- end }}  
           {{- if .Values.persistence.enabled }}
             - name: controlplane-storage
               mountPath: /filestore
@@ -114,11 +117,42 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end}}
         {{- end }}
+        {{- if .Values.controlplane.haystack.enabled }}
+        - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
+          image: "{{ .Values.controlplane.haystack.image }}"
+          imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.controlplane.haystack.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.haystack.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.haystack.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.haystack.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end}}
+          {{- with .Values.controlplane.haystack.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+            - name: helix-embeddings-socket
+              mountPath: /socket
+          {{- end}}
+        {{- end }}
       volumes:
+      - name: helix-embeddings-socket
+        # XXX how to emptyDir?
+        emptyDir: true
       {{- if .Values.controlplane.extraVolumes }}
       {{- toYaml .Values.controlplane.extraVolumes | nindent 6 }}
       {{- end }}
-
       {{- if .Values.persistence.enabled }}     
       - name: controlplane-storage
         persistentVolumeClaim:
