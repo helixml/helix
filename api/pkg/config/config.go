@@ -120,7 +120,7 @@ type Keycloak struct {
 	FrontEndClientID    string `envconfig:"KEYCLOAK_FRONTEND_CLIENT_ID" default:"frontend"`
 	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username            string `envconfig:"KEYCLOAK_USER"`
+	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
 	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
 }
 
@@ -342,6 +342,9 @@ type WebServer struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+
+	// Path to UNIX socket for serving embeddings without auth
+	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
 }
 
 // AdminSrcType is an enum specifyin the type of Admin ID source.

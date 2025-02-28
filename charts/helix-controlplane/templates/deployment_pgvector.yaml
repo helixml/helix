@@ -1,37 +1,41 @@
-{{- if .Values.llamaindex.enabled }}
+{{- if .Values.pgvector.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "helix-controlplane.fullname" . }}-llamaindex
+  name: {{ include "helix-controlplane.fullname" . }}-pgvector
   labels:
     {{- include "helix-controlplane.labels" . | nindent 4 }}
-    app.kubernetes.io/component: llamaindex
+    app.kubernetes.io/component: pgvector
 spec:
   type: ClusterIP
   ports:
-    - port: 5000
-      targetPort: 5000
+    - port: 5432
+      targetPort: 5432
       protocol: TCP
-      name: http
+      name: postgres
   selector:
-    app.kubernetes.io/component: llamaindex
+    app.kubernetes.io/component: pgvector
     {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "helix-controlplane.fullname" . }}-llamaindex
+  name: {{ include "helix-controlplane.fullname" . }}-pgvector
   labels:
-    app.kubernetes.io/component: llamaindex
+    app.kubernetes.io/component: pgvector
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:
-  # Llamaindex is paired together with pgvector, hence forced to 1 replica
+  {{- if .Values.pgvector.enabled }}
+  # When using bundled pgvector, we must use 1 replica because pgvector is not stateless
   replicas: 1
+  {{- else }}
+  replicas: {{ .Values.pgvector.replicas | default 1 }}
+  {{- end }}
   strategy:
     type: RollingUpdate
   selector:
     matchLabels:
-      app.kubernetes.io/component: llamaindex
+      app.kubernetes.io/component: pgvector
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
   template:
     metadata:
@@ -40,7 +44,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        app.kubernetes.io/component: llamaindex
+        app.kubernetes.io/component: pgvector
         {{- include "helix-controlplane.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
@@ -53,49 +57,37 @@ spec:
       serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:        
-        - name: llamaindex
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 5000
-              protocol: TCP
-          env:
-            - name: POSTGRES_HOST
-              value: localhost
-            - name: POSTGRES_DATABASE
-              value: postgres
-            - name: POSTGRES_USER
-              value: postgres
-            - name: POSTGRES_PASSWORD
-              value: pgvector
-            # TODO:                       
+      containers:
         - name: pgvector
-          image: ankane/pgvector:latest
+          image: pgvector/pgvector:pg17
           ports:
             - name: tcp-pgvector
               containerPort: 5432
               protocol: TCP
           env:
             - name: POSTGRES_DB
-              value: postgres
+              value: {{ .Values.pgvector.database | default "postgres" }}
             - name: POSTGRES_USER
-              value: postgres
+              value: {{ .Values.pgvector.username | default "postgres" }}
             - name: POSTGRES_PASSWORD
-              value: pgvector
-          {{- if .Values.llamaindex.persistence.enabled }} 
+              {{- if .Values.pgvector.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.existingSecret }}
+                  key: {{ .Values.pgvector.passwordKey | default "password" }}
+              {{- else }}
+              value: {{ .Values.pgvector.password | default "pgvector" }}
+              {{- end }}
+          {{- if .Values.pgvector.persistence.enabled }} 
           volumeMounts:
-            - name: llamaindex-storage
+            - name: pgvector-storage
               mountPath: /var/lib/postgresql/data
           {{- end }}
-      {{- if .Values.llamaindex.persistence.enabled }} 
+      {{- if .Values.pgvector.persistence.enabled }} 
       volumes:
-      - name: llamaindex-storage
+      - name: pgvector-storage
         persistentVolumeClaim:
-          claimName: {{ include "helix-controlplane.fullname" . }}-llamaindex-pvc
+          claimName: {{ include "helix-controlplane.fullname" . }}-pgvector-pvc
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

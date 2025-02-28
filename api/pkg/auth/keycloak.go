@@ -165,6 +165,11 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 			return fmt.Errorf("setRealmConfiguration: error decoding realm.json: %s", err.Error())
 		}
 
+		// Initialize attributes if not set
+		if keycloakRealmConfig.Attributes == nil {
+			keycloakRealmConfig.Attributes = &map[string]string{}
+		}
+
 		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
 		if err != nil {
 			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
@@ -174,6 +179,11 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 		if err != nil {
 			return fmt.Errorf("setRealmConfiguration: failed to get Keycloak realm, attempt to update realm config failed with: %s", err.Error())
 		}
+	}
+
+	// Initialize attributes if not set
+	if realm.Attributes == nil {
+		realm.Attributes = &map[string]string{}
 	}
 
 	attributes := *realm.Attributes
