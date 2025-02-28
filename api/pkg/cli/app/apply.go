@@ -14,12 +14,13 @@ import (
 )
 
 func init() {
-	rootCmd.AddCommand(NewApplyCmd())
+	rootCmd.AddCommand(applyCmd)
 
 	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
 	applyCmd.Flags().Bool("shared", false, "Shared application")
 	applyCmd.Flags().Bool("global", false, "Global application")
 	applyCmd.Flags().Bool("refresh-knowledge", false, "Refresh knowledge, re-index all knowledge for the app")
+	applyCmd.Flags().StringVarP(&organization, "organization", "o", "", "Organization ID or name")
 }
 
 func NewApplyCmd() *cobra.Command {
