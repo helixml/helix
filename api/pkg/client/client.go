@@ -58,6 +58,11 @@ type Client interface {
 	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
 	UpdateOrganizationMember(ctx context.Context, organizationID, userID string, req *types.UpdateOrganizationMemberRequest) (*types.OrganizationMembership, error)
 	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
+
+	// App Access Grants
+	ListAppAccessGrants(ctx context.Context, appID string) ([]*types.AccessGrant, error)
+	CreateAppAccessGrant(ctx context.Context, appID string, grant *types.CreateAccessGrantRequest) (*types.AccessGrant, error)
+	DeleteAppAccessGrant(ctx context.Context, appID string, grantID string) error
 }
 
 // HelixClient is the client for the helix api
