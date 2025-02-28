@@ -37,7 +37,7 @@ spec:
         - name: chrome
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.chrome.image.repository }}:{{ .Values.chrome.image.tag }}"
+          image: "{{ .Values.chrome.image.repository | default "ghcr.io/go-rod/rod" }}:{{ .Values.chrome.image.tag | default "v0.115.0" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
