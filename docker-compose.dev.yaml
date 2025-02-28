@@ -58,11 +58,14 @@ services:
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
+      # Socket configuration for haystack communication
+      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
+      - helix-socket:/socket
     depends_on:
       - postgres
       - keycloak
@@ -71,8 +74,8 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    ports:
-      - 5432:5432
+    #ports:
+    #  - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
       - ./scripts/postgres:/docker-entrypoint-initdb.d
@@ -91,8 +94,8 @@ services:
   pgvector:
     image: pgvector/pgvector:pg17
     restart: always
-    ports:
-      - 5433:5432
+    #ports:
+    #  - 5433:5432
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
@@ -259,18 +262,19 @@ services:
     restart: always
     environment:
       - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
-      - CHUNK_SIZE=100
-      - CHUNK_OVERLAP=5
       - LOG_LEVEL=INFO
-      - VLLM_BASE_URL=${VLLM_BASE_URL} # Need to set this to an external VLLM server in development
-      - VLLM_API_KEY=${VLLM_API_KEY:-EMPTY}
+      - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL} # Need to set this to an external VLLM server in development
+      - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
       - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-Alibaba-NLP/gte-Qwen2-7B-instruct}
       - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-3584}
       - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
       - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-1000}
       - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
+      # Socket configuration for api communication
+      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
     volumes:
       - ./haystack_service:/app
+      - helix-socket:/socket
     depends_on:
       - pgvector
     extra_hosts:
@@ -282,6 +286,7 @@ volumes:
   helix-pgvector-db:
   helix-filestore:
   helix-typesense-db:
+  helix-socket:
 
 networks:
   default:

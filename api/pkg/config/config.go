@@ -342,6 +342,9 @@ type WebServer struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+
+	// Path to UNIX socket for serving embeddings without auth
+	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
 }
 
 // AdminSrcType is an enum specifyin the type of Admin ID source.

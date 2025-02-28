@@ -14,6 +14,8 @@ from haystack.components.writers import DocumentWriter
 
 from .config import settings
 from .converters import LocalUnstructuredConverter
+# Import our custom embedders
+from .unix_socket_embedders import UnixSocketOpenAIDocumentEmbedder, UnixSocketOpenAITextEmbedder
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -74,11 +76,20 @@ class HaystackService:
         self.indexing_pipeline = Pipeline()
         
         # Create components for indexing pipeline
-        embedder = OpenAIDocumentEmbedder(
-            api_key=Secret.from_token(settings.VLLM_API_KEY),
-            api_base_url=settings.VLLM_BASE_URL,
-            model=settings.EMBEDDINGS_MODEL
-        )
+        if settings.EMBEDDINGS_SOCKET:
+            logger.info(f"Using UNIX socket for document embeddings: {settings.EMBEDDINGS_SOCKET}")
+            embedder = UnixSocketOpenAIDocumentEmbedder(
+                socket_path=settings.EMBEDDINGS_SOCKET,
+                model=settings.EMBEDDINGS_MODEL,
+                dimensions=settings.EMBEDDING_DIM
+            )
+        else:
+            embedder = OpenAIDocumentEmbedder(
+                api_key=Secret.from_token(settings.VLLM_API_KEY),
+                api_base_url=settings.VLLM_BASE_URL,
+                model=settings.EMBEDDINGS_MODEL,
+                dimensions=settings.EMBEDDING_DIM
+            )
         
         converter = LocalUnstructuredConverter()
         
@@ -121,11 +132,20 @@ class HaystackService:
         self.query_pipeline = Pipeline()
         
         # Create components for query pipeline
-        embedder = OpenAITextEmbedder(
-            api_key=Secret.from_token(settings.VLLM_API_KEY),
-            api_base_url=settings.VLLM_BASE_URL,
-            model=settings.EMBEDDINGS_MODEL
-        )
+        if settings.EMBEDDINGS_SOCKET:
+            logger.info(f"Using UNIX socket for text embeddings: {settings.EMBEDDINGS_SOCKET}")
+            embedder = UnixSocketOpenAITextEmbedder(
+                socket_path=settings.EMBEDDINGS_SOCKET,
+                model=settings.EMBEDDINGS_MODEL,
+                dimensions=settings.EMBEDDING_DIM
+            )
+        else:
+            embedder = OpenAITextEmbedder(
+                api_key=Secret.from_token(settings.VLLM_API_KEY),
+                api_base_url=settings.VLLM_BASE_URL,
+                model=settings.EMBEDDINGS_MODEL,
+                dimensions=settings.EMBEDDING_DIM
+            )
         
         retriever = PgvectorEmbeddingRetriever(
             document_store=self.document_store,

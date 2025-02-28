@@ -107,6 +107,7 @@ const (
 	OwnerTypeUser   OwnerType = "user"
 	OwnerTypeRunner OwnerType = "runner"
 	OwnerTypeSystem OwnerType = "system"
+	OwnerTypeSocket OwnerType = "socket"
 )
 
 type PaymentType string
@@ -321,6 +322,7 @@ const (
 	TokenTypeRunner   TokenType = "runner"
 	TokenTypeKeycloak TokenType = "keycloak"
 	TokenTypeAPIKey   TokenType = "api_key"
+	TokenTypeSocket   TokenType = "socket"
 )
 
 type ScriptRunState string
