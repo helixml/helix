@@ -60,9 +60,9 @@ type Client interface {
 	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
 
 	// App Access Grants
-	ListAppAccessGrants(ctx context.Context, appID string) ([]*types.AccessGrant, error)
+	ListAppAccessGrants(ctx context.Context, f *AppAccessGrantsFilter) ([]*types.AccessGrant, error)
 	CreateAppAccessGrant(ctx context.Context, appID string, grant *types.CreateAccessGrantRequest) (*types.AccessGrant, error)
-	DeleteAppAccessGrant(ctx context.Context, appID string, grantID string) error
+	DeleteAppAccessGrant(ctx context.Context, appID, grantID string) error
 }
 
 // HelixClient is the client for the helix api
