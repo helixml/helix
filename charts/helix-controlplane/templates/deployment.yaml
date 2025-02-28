@@ -182,6 +182,10 @@ spec:
             - name: RAG_HAYSTACK_CHUNK_OVERLAP
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.controlplane.haystack.pgvectorDsn }}
+            - name: PGVECTOR_DSN
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.controlplane.haystack.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
