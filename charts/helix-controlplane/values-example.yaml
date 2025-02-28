@@ -13,6 +13,41 @@ image:
   # YOU MUST SET THIS VALUE OR IT WILL NOT WORK
   tag: ""
 
+controlplane:
+  # Haystack configuration to use haystack for production-ready RAG
+  haystack:
+    enabled: false
+    embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
+    embeddingsDim: "3584"
+    chunkSize: "1000"
+    chunkOverlap: "50"
+  
+  # RAG configuration
+  rag:
+    # Valid values: haystack, typesense
+    defaultProvider: "haystack"
+    # Valid values: vllm (for haystack which uses external GPU-accelerated
+    # embeddings, typesense does its own embeddings so leave this unset for
+    # typesense)
+    embeddingsProvider: "vllm"
+  
+  # Inference configuration
+  inference:
+    # Valid values: openai, togetherai, helix
+    defaultProvider: "openai"
+  
+  # Provider configurations
+  providers:
+    vllm:
+      baseUrl: "http://url-of-vllm-server/v1"
+      apiKey: "EMPTY"
+    openai:
+      baseUrl: "http://url-of-openai-compatible-server/v1"
+      apiKey: "apikey"
+    togetherai:
+      apiKey: "apikey-from-togetherai"
+
+# Environment variables that will be added to the configmap
 envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
@@ -23,11 +58,6 @@ envVariables:
   POSTGRES_DATABASE: helix
   # Runners
   RUNNER_TOKEN: oh-hallo-insecure-token
-  # LLM providers
-  INFERENCE_PROVIDER: "togetherai" # Valid values: togetherai, openai, helix
-  FINETUNING_PROVIDER: "togetherai" # It's likely you want to use the same provider for both
-  OPENAI_API_KEY: ""
-  TOGETHER_API_KEY: ""
   # Keycloak location
   KEYCLOAK_URL: http://keycloak:80/auth
   # How Keycloak redirects the users on login, should be user facing
@@ -37,5 +67,32 @@ envVariables:
   # Dashboard
   ADMIN_USER_IDS: "all"
   # Evals
-  EVAL_USER_ID: ""
   HELIX_API_KEY: "helix_api_key"
+
+tika:
+  enabled: true
+
+chrome:
+  enabled: true
+
+typesense:
+  enabled: true
+  apiKey: typesense
+
+gptscript:
+  enabled: true
+  replicas: 2
+  concurrency: 20
+  maxTasks: 0
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: postgres
+    username: postgres
+    password: postgres
+    database: postgres
+
+persistence: # for filestore
+  enabled: true
+  size: 8Gi

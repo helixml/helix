@@ -69,6 +69,34 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
+            {{- with .Values.controlplane.rag.defaultProvider }}
+            - name: RAG_DEFAULT_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.rag.embeddingsProvider }}
+            - name: RAG_PGVECTOR_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.inference.defaultProvider }}
+            - name: INFERENCE_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.vllm.baseUrl }}
+            - name: VLLM_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.vllm.apiKey }}
+            - name: VLLM_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.openai.baseUrl }}
+            - name: OPENAI_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.openai.apiKey }}
+            - name: OPENAI_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.controlplane.haystack.enabled }}
             - name: HELIX_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock
