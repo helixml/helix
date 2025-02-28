@@ -151,7 +151,7 @@ spec:
         {{- end }}
         {{- if .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
-          image: "{{ .Values.controlplane.haystack.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helix.ml/helix/haystack" }}:{{ .Values.image.tag }}"
           imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
