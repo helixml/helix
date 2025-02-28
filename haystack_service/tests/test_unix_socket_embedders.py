@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from haystack.utils import Secret
 from haystack.dataclasses import Document
 from app.unix_socket_embedders import (
-    UnixSocketAdapter,
     UnixSocketOpenAITextEmbedder,
     UnixSocketOpenAIDocumentEmbedder
 )
@@ -30,21 +29,26 @@ class MockSocketServer(threading.Thread):
         self.daemon = True  # Thread will exit when main thread exits
         
     def run(self):
+        print("HI")
         # Remove socket file if it exists
         if os.path.exists(self.socket_path):
+            print("cleaned up", self.socket_path)
             os.unlink(self.socket_path)
             
         # Create socket
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(self.socket_path)
+        print("bound", self.socket_path)
         server.listen(1)
         server.settimeout(0.1)  # Short timeout to allow for clean shutdown
         
         while self.running:
+            print("IN LOOP")
             try:
                 conn, _ = server.accept()
                 data = conn.recv(4096).decode('utf-8')
                 self.requests_received.append(data)
+                print("READ", len(data), "BYTES")
                 
                 # Parse the HTTP request to get the path
                 request_lines = data.split('\r\n')
@@ -92,6 +96,7 @@ class MockSocketServer(threading.Thread):
         server.close()
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
+        print("STOPPED SOCKET")
             
     def stop(self):
         self.running = False
@@ -125,7 +130,8 @@ class TestUnixSocketEmbedders(unittest.TestCase):
         # Clean up environment variable
         if "TEST_OPENAI_API_KEY" in os.environ:
             del os.environ["TEST_OPENAI_API_KEY"]
-    
+
+
 #   def test_unix_socket_adapter(self):
 #       """Test that the UnixSocketAdapter correctly connects to the socket."""
 #       adapter = UnixSocketAdapter(self.socket_path)

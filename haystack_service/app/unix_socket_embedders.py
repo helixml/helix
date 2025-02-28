@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_openai_client(client, socket_path):
-    transport = httpx.HTTPTransport(uds=self.socket_path)
+    transport = httpx.HTTPTransport(uds=socket_path)
     client = httpx.Client(transport=transport)
     client._client = client
 
