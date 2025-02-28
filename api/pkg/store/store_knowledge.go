@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -56,12 +57,11 @@ func setDefaultKnowledgeRAGSettings(knowledge *types.Knowledge) {
 	if knowledge.RAGSettings.Threshold == 0 {
 		knowledge.RAGSettings.Threshold = DefaultKnowledgeThreshold
 	}
-	// Disable chunking by default, haystack does it better
-	//
-	// TODO: this should only be set if haystack is actually selected as the RAG
-	// provider for this installation! XXX we probably broke knowledge in
-	// typesense in the last release by disabling chunking globally??
-	knowledge.RAGSettings.DisableChunking = true
+	// Only disable chunking if Haystack is the RAG provider
+	// XXX factor this properly into the config (or set it from somewhere else)
+	if os.Getenv("RAG_DEFAULT_PROVIDER") == "haystack" {
+		knowledge.RAGSettings.DisableChunking = true
+	}
 }
 
 func (s *PostgresStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
