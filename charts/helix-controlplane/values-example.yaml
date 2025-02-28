@@ -95,11 +95,20 @@ gptscript:
 # PGVector configuration (if using with haystack and not pointing to external PGVector)
 pgvector:
   enabled: true
+  auth:
+    username: postgres
+    password: postgres
+    database: postgres
   persistence:
     enabled: true
     size: 8Gi
+    storageClass: ""
+    annotations: {}
     accessModes:
       - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
 
 # PostgreSQL configuration for api (if not pointing to external PostgreSQL)
 postgresql:
@@ -109,6 +118,16 @@ postgresql:
     username: postgres
     password: postgres
     database: postgres
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
 
 persistence: # for api filestore
   enabled: true
