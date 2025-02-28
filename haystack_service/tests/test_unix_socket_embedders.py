@@ -200,7 +200,6 @@ class TestUnixSocketEmbedders(unittest.TestCase):
         # Create the embedder
         embedder = UnixSocketOpenAITextEmbedder(
             socket_path=self.socket_path,
-            api_key=Secret.from_env_var("TEST_OPENAI_API_KEY"),
             model="text-embedding-ada-002"
         )
 

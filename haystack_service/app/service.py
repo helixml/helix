@@ -80,7 +80,6 @@ class HaystackService:
             logger.info(f"Using UNIX socket for document embeddings: {settings.EMBEDDINGS_SOCKET}")
             embedder = UnixSocketOpenAIDocumentEmbedder(
                 socket_path=settings.EMBEDDINGS_SOCKET,
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
                 model=settings.EMBEDDINGS_MODEL,
                 dimensions=settings.EMBEDDING_DIM
             )
@@ -137,7 +136,6 @@ class HaystackService:
             logger.info(f"Using UNIX socket for text embeddings: {settings.EMBEDDINGS_SOCKET}")
             embedder = UnixSocketOpenAITextEmbedder(
                 socket_path=settings.EMBEDDINGS_SOCKET,
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
                 model=settings.EMBEDDINGS_MODEL,
                 dimensions=settings.EMBEDDING_DIM
             )
