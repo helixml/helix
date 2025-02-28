@@ -43,6 +43,7 @@ class UnixSocketOpenAITextEmbedder:
             timeout=timeout,
             max_retries=max_retries,
             http_client=http_client,
+            base_url="http://localhost",
         )
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
@@ -197,6 +198,7 @@ class UnixSocketOpenAIDocumentEmbedder:
             timeout=timeout,
             max_retries=max_retries,
             http_client=http_client,
+            base_url="http://localhost",
         )
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
