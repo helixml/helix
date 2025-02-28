@@ -55,22 +55,16 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 				ResourceID: resourceAccess.ResourceID,
 				UserID:     resourceAccess.UserID,
 			}).First(&types.AccessGrant{}).Error
-			if err != nil {
-				if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return err
-				}
-				// Ok, no access grant found
+			if err == nil {
+				return fmt.Errorf("access grant already exists")
 			}
 		case resourceAccess.TeamID != "":
 			err := tx.Where(&types.AccessGrant{
 				ResourceID: resourceAccess.ResourceID,
 				TeamID:     resourceAccess.TeamID,
 			}).First(&types.AccessGrant{}).Error
-			if err != nil {
-				if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return err
-				}
-				// Ok, no access grant found
+			if err == nil {
+				return fmt.Errorf("access grant already exists")
 			}
 		}
 
