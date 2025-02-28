@@ -148,6 +148,12 @@ controlplane:
     enabled: false
     image:
       repository: registry.helix.ml/helix/haystack
+    embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
+    # TODO: these settings should be configurable in the helix.yaml, not
+    # globally
+    embeddingsDim: "3584"
+    chunkSize: "1000"
+    chunkOverlap: "50"
 
 
 imagePullSecrets: []

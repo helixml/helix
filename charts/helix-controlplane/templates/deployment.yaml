@@ -69,9 +69,13 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
-              {{- with .Values.controlplane.extraEnv }}
-              {{- toYaml . | nindent 12 }}
-              {{- end }}
+            {{- if .Values.controlplane.haystack.enabled }}
+            - name: HELIX_EMBEDDINGS_SOCKET
+              value: /socket/embeddings.sock
+            {{- end }}
+            {{- with .Values.controlplane.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -119,7 +123,7 @@ spec:
         {{- end }}
         {{- if .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
-          image: "{{ .Values.controlplane.haystack.image }}"
+          image: "{{ .Values.controlplane.haystack.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -131,10 +135,28 @@ spec:
           args:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.controlplane.haystack.env }}
           env:
+            - name: HELIX_EMBEDDINGS_SOCKET
+              value: /socket/embeddings.sock
+            {{- with .Values.controlplane.haystack.embeddingsModel }}
+            - name: RAG_HAYSTACK_EMBEDDINGS_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.embeddingsDim }}
+            - name: RAG_HAYSTACK_EMBEDDINGS_DIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.chunkSize }}
+            - name: RAG_HAYSTACK_CHUNK_SIZE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.chunkOverlap }}
+            - name: RAG_HAYSTACK_CHUNK_OVERLAP
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.env }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
           {{- with .Values.controlplane.haystack.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -148,8 +170,7 @@ spec:
         {{- end }}
       volumes:
       - name: helix-embeddings-socket
-        # XXX how to emptyDir?
-        emptyDir: true
+        emptyDir: {}
       {{- if .Values.controlplane.extraVolumes }}
       {{- toYaml .Values.controlplane.extraVolumes | nindent 6 }}
       {{- end }}
