@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -93,14 +94,14 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 	}
 
 	// At least one must be set
-	if req.UserID == "" && req.TeamID == "" {
-		writeErrResponse(rw, errors.New("either user_id or team_id must be specified"), http.StatusBadRequest)
+	if req.UserReference == "" && req.TeamID == "" {
+		writeErrResponse(rw, errors.New("either user_reference or team_id must be specified"), http.StatusBadRequest)
 		return
 	}
 
 	// Both cannot be set as well
-	if req.UserID != "" && req.TeamID != "" {
-		writeErrResponse(rw, errors.New("either user_id or team_id must be specified, not both"), http.StatusBadRequest)
+	if req.UserReference != "" && req.TeamID != "" {
+		writeErrResponse(rw, errors.New("either user_reference or team_id must be specified, not both"), http.StatusBadRequest)
 		return
 	}
 
@@ -117,14 +118,37 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 		return
 	}
 
+	var userID string
+
+	// If user reference is set, find the user based on either email or user ID
+	if req.UserReference != "" {
+		query := &store.GetUserQuery{}
+
+		if strings.Contains(req.UserReference, "@") {
+			query.Email = req.UserReference
+		} else {
+			query.ID = req.UserReference
+		}
+
+		// Find user
+		newMember, err := apiServer.Store.GetUser(r.Context(), query)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("error getting user '%s': %w", req.UserReference, err), http.StatusInternalServerError)
+			return
+		}
+
+		userID = newMember.ID
+	}
+
 	grants, err := apiServer.Store.CreateAccessGrant(r.Context(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		UserID:         req.UserID,
+		ResourceType:   types.ResourceApplication,
+		UserID:         userID,
 		TeamID:         req.TeamID,
 	}, roles)
 	if err != nil {
-		writeErrResponse(rw, err, http.StatusInternalServerError)
+		writeErrResponse(rw, fmt.Errorf("error creating access grant: %w", err), http.StatusInternalServerError)
 		return
 	}
 
