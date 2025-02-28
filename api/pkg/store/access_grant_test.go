@@ -163,6 +163,36 @@ func (suite *AccessGrantTestSuite) TestCreateAccessGrant() {
 	}
 }
 
+func (suite *AccessGrantTestSuite) TestCreateAccessGrant_Duplicate() {
+	// Create test roles
+	roles := []*types.Role{
+		{
+			ID:             system.GenerateUUID(),
+			OrganizationID: suite.org.ID,
+			Name:           "TestRole1",
+			Description:    "Test Role 1",
+		},
+	}
+
+	// Test successful creation with user
+	accessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceApplication,
+		ResourceID:     "test-dataset-1",
+		UserID:         "test-user",
+	}
+
+	created, err := suite.db.CreateAccessGrant(suite.ctx, accessGrant, roles)
+	suite.Require().NoError(err)
+	suite.NotNil(created)
+	suite.Equal(accessGrant.ResourceID, created.ResourceID)
+
+	// Test duplicate creation
+	_, err = suite.db.CreateAccessGrant(suite.ctx, accessGrant, roles)
+	suite.Error(err)
+	suite.Contains(err.Error(), "access grant already exists")
+}
+
 func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	// Create test access grant
 	accessGrant := &types.AccessGrant{
