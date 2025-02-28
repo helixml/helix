@@ -63,7 +63,7 @@ func (s *PostgresStore) GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Te
 	}
 
 	var team types.Team
-	err := query.First(&team).Error
+	err := query.Preload("Memberships").First(&team).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -82,7 +82,7 @@ func (s *PostgresStore) ListTeams(ctx context.Context, q *ListTeamsQuery) ([]*ty
 	}
 
 	var teams []*types.Team
-	err := query.Find(&teams).Error
+	err := query.Preload("Memberships").Find(&teams).Error
 	if err != nil {
 		return nil, err
 	}
