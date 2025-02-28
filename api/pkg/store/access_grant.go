@@ -48,6 +48,32 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 	resourceAccess.UpdatedAt = time.Now()
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Check if resource access already exists
+		switch {
+		case resourceAccess.UserID != "":
+			err := tx.Where(&types.AccessGrant{
+				ResourceID: resourceAccess.ResourceID,
+				UserID:     resourceAccess.UserID,
+			}).First(&types.AccessGrant{}).Error
+			if err != nil {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				// Ok, no access grant found
+			}
+		case resourceAccess.TeamID != "":
+			err := tx.Where(&types.AccessGrant{
+				ResourceID: resourceAccess.ResourceID,
+				TeamID:     resourceAccess.TeamID,
+			}).First(&types.AccessGrant{}).Error
+			if err != nil {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				// Ok, no access grant found
+			}
+		}
+
 		// Grant access to the resource
 		err := tx.Create(resourceAccess).Error
 		if err != nil {
