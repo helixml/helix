@@ -110,6 +110,7 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 			log.Debug().
 				Str("user_id", user.ID).
 				Str("app_id", app.ID).
+				Str("action", types.ActionGet.String()).
 				Msg("user is not authorized to view app")
 			continue
 		}
