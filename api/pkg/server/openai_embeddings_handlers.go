@@ -30,6 +30,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 	}
 
 	var user *types.User
+	// Socket connections are pre-authorized, only check authorization for non-socket requests
 	if !isSocket {
 		user = getRequestUser(r)
 		if !hasUser(user) {
@@ -37,8 +38,6 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 			log.Error().Msg("unauthorized")
 			return
 		}
-	} else {
-		// Socket connections are pre-authorized
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
