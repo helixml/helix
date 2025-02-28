@@ -38,10 +38,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 			return
 		}
 	} else {
-		// For socket connections, create a dummy user with socket owner type
-		user = &types.User{
-			Type: types.OwnerTypeSocket,
-		}
+		// Socket connections are pre-authorized
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
@@ -69,9 +66,10 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 
 	// Create a clean request without unsupported parameters
 	cleanRequest := openai.EmbeddingRequest{
-		Model: embeddingRequest.Model,
-		Input: embeddingRequest.Input,
-		// Explicitly omit dimensions and encoding_format
+		Model:          embeddingRequest.Model,
+		Input:          embeddingRequest.Input,
+		EncodingFormat: "float",
+		// Explicitly omit dimensions
 	}
 
 	resp, err := client.CreateEmbeddings(r.Context(), cleanRequest)
