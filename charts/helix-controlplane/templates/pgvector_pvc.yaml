@@ -1,0 +1,24 @@
+{{- if and .Values.pgvector.persistence.enabled (not .Values.pgvector.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-pgvector-pvc  
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector
+spec:
+  accessModes:
+  {{- range .Values.pgvector.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.pgvector.persistence.size | quote }}
+  {{- if .Values.pgvector.persistence.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.pgvector.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.pgvector.persistence.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.pgvector.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.pgvector.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}
