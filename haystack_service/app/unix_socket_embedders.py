@@ -39,7 +39,7 @@ class UnixSocketOpenAITextEmbedder:
             timeout=timeout,
             max_retries=max_retries,
             http_client=http_client,
-            base_url="http://localhost", # needed to stop it using TLS
+            base_url="http://localhost/v1", # needed to stop it using TLS
         )
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
@@ -169,7 +169,7 @@ class UnixSocketOpenAIDocumentEmbedder:
             timeout=timeout,
             max_retries=max_retries,
             http_client=http_client,
-            base_url="http://localhost", # needed to stop it using TLS
+            base_url="http://localhost/v1", # needed to stop it using TLS
         )
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
