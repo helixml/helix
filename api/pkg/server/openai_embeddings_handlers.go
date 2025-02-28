@@ -3,9 +3,11 @@ package server
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
@@ -21,12 +23,21 @@ import (
 // @Security BearerAuth
 // @externalDocs.url https://platform.openai.com/docs/api-reference/embeddings/create
 func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Request) {
-	user := getRequestUser(r)
+	// Check if this is a socket connection by looking at the underlying connection type
+	isSocket := false
+	if h, ok := r.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil {
+		isSocket = true
+	}
 
-	if !hasUser(user) {
-		http.Error(rw, "unauthorized", http.StatusUnauthorized)
-		log.Error().Msg("unauthorized")
-		return
+	var user *types.User
+	// Socket connections are pre-authorized, only check authorization for non-socket requests
+	if !isSocket {
+		user = getRequestUser(r)
+		if !hasUser(user) {
+			http.Error(rw, "unauthorized", http.StatusUnauthorized)
+			log.Error().Msg("unauthorized")
+			return
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
@@ -52,9 +63,33 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	resp, err := client.CreateEmbeddings(r.Context(), embeddingRequest)
+	// Create a clean request without unsupported parameters
+	cleanRequest := openai.EmbeddingRequest{
+		Model:          embeddingRequest.Model,
+		Input:          embeddingRequest.Input,
+		EncodingFormat: "float",
+		// Explicitly omit dimensions
+	}
+
+	resp, err := client.CreateEmbeddings(r.Context(), cleanRequest)
 	if err != nil {
-		log.Error().Err(err).Msg("error creating embeddings")
+		log.Error().
+			Err(err).
+			Str("model", string(embeddingRequest.Model)).
+			Str("provider", s.Cfg.RAG.PGVector.Provider).
+			Msg("error creating embeddings")
+		if apiErr, ok := err.(*openai.APIError); ok {
+			errLog := log.Error().
+				Int("status_code", apiErr.HTTPStatusCode).
+				Str("type", apiErr.Type)
+			if apiErr.Code != nil {
+				errLog.Interface("code", apiErr.Code)
+			}
+			if apiErr.Param != nil {
+				errLog.Str("param", *apiErr.Param)
+			}
+			errLog.Msg("vllm api error details")
+		}
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}

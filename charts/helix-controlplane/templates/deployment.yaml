@@ -69,9 +69,41 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
-              {{- with .Values.controlplane.extraEnv }}
-              {{- toYaml . | nindent 12 }}
-              {{- end }}
+            {{- with .Values.controlplane.rag.defaultProvider }}
+            - name: RAG_DEFAULT_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.rag.embeddingsProvider }}
+            - name: RAG_PGVECTOR_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.inference.defaultProvider }}
+            - name: INFERENCE_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.vllm.baseUrl }}
+            - name: VLLM_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.vllm.apiKey }}
+            - name: VLLM_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.openai.baseUrl }}
+            - name: OPENAI_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.providers.openai.apiKey }}
+            - name: OPENAI_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controlplane.haystack.enabled }}
+            - name: HELIX_EMBEDDINGS_SOCKET
+              value: /socket/embeddings.sock
+            {{- end }}
+            {{- with .Values.controlplane.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -82,7 +114,10 @@ spec:
           {{- if .Values.controlplane.extraVolumeMounts }}
           {{- toYaml .Values.controlplane.extraVolumeMounts | nindent 12 }}
           {{- end }}
-
+          {{- if .Values.controlplane.haystack.enabled }}
+            - name: helix-embeddings-socket
+              mountPath: /socket
+          {{- end }}  
           {{- if .Values.persistence.enabled }}
             - name: controlplane-storage
               mountPath: /filestore
@@ -114,11 +149,63 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end}}
         {{- end }}
+        {{- if .Values.controlplane.haystack.enabled }}
+        - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
+          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helix.ml/helix/haystack" }}:{{ .Values.image.tag }}"
+          imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.controlplane.haystack.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controlplane.haystack.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: HELIX_EMBEDDINGS_SOCKET
+              value: /socket/embeddings.sock
+            {{- with .Values.controlplane.haystack.embeddingsModel }}
+            - name: RAG_HAYSTACK_EMBEDDINGS_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.embeddingsDim }}
+            - name: RAG_HAYSTACK_EMBEDDINGS_DIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.chunkSize }}
+            - name: RAG_HAYSTACK_CHUNK_SIZE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.chunkOverlap }}
+            - name: RAG_HAYSTACK_CHUNK_OVERLAP
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.pgvectorDsn }}
+            - name: PGVECTOR_DSN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controlplane.haystack.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.controlplane.haystack.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end}}
+          {{- with .Values.controlplane.haystack.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+            - name: helix-embeddings-socket
+              mountPath: /socket
+          {{- end}}
+        {{- end }}
       volumes:
+      - name: helix-embeddings-socket
+        emptyDir: {}
       {{- if .Values.controlplane.extraVolumes }}
       {{- toYaml .Values.controlplane.extraVolumes | nindent 6 }}
       {{- end }}
-
       {{- if .Values.persistence.enabled }}     
       - name: controlplane-storage
         persistentVolumeClaim:
