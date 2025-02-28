@@ -118,8 +118,10 @@ func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrant
 
 	// Build OR condition for user_id or team_id
 	if q.UserID != "" || len(q.TeamIDs) > 0 {
-		var conditions []string
-		var values []any
+		var (
+			conditions []string
+			values     []any
+		)
 
 		if q.UserID != "" {
 			conditions = append(conditions, "user_id = ?")
