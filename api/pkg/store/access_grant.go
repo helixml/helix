@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -115,12 +116,23 @@ func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrant
 			ResourceID:     q.ResourceID,
 		})
 
-	if q.UserID != "" {
-		query = query.Where("user_id = ?", q.UserID)
-	}
+	// Build OR condition for user_id or team_id
+	if q.UserID != "" || len(q.TeamIDs) > 0 {
+		var conditions []string
+		var values []any
 
-	if len(q.TeamIDs) > 0 {
-		query = query.Where("team_id IN (?)", q.TeamIDs)
+		if q.UserID != "" {
+			conditions = append(conditions, "user_id = ?")
+			values = append(values, q.UserID)
+		}
+
+		if len(q.TeamIDs) > 0 {
+			conditions = append(conditions, "team_id IN (?)")
+			values = append(values, q.TeamIDs)
+		}
+
+		// Join conditions with OR
+		query = query.Where(strings.Join(conditions, " OR "), values...)
 	}
 
 	var grants []*types.AccessGrant
