@@ -73,21 +73,15 @@ typesense:
     dataSource: {}
 
 
-haystack:
+# PGVector configuration
+pgvector:
+  # -- Whether to deploy pgvector alongside haystack
   enabled: false
-  # -- Number of haystack replicas (ignored when pgvector.enabled=true)
-  replicas: 1
-  image:
-    repository: registry.helix.ml/helix/haystack
-  # PGVector configuration
-  pgvector:
-    # -- Whether to deploy pgvector alongside haystack
-    enabled: false
-    # -- External pgvector connection settings (used when pgvector.enabled=false)
-    host: "localhost"
-    database: "postgres"
-    user: "postgres"
-    password: "pgvector"
+  # -- External pgvector connection settings (used when pgvector.enabled=false)
+  host: "localhost"
+  database: "postgres"
+  user: "postgres"
+  password: "pgvector"
   persistence:
     ## @param haystack.persistence.enabled Enable persistence for bundled pgvector
     ## Only used when haystack.pgvector.enabled=true
@@ -147,7 +141,15 @@ controlplane:
       - "-c"
     args: 
       - 'echo "Hello World"'
-        
+  # If enabled, haystack runs as a(nother) sidecar in the controlplane container
+  # so that it can share a network namespace (for api -> haystack calls) and
+  # socket (for haystack -> api calls for embeddings)
+  haystack:
+    enabled: false
+    image:
+      repository: registry.helix.ml/helix/haystack
+
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""

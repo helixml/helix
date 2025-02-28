@@ -57,6 +57,10 @@ func setDefaultKnowledgeRAGSettings(knowledge *types.Knowledge) {
 		knowledge.RAGSettings.Threshold = DefaultKnowledgeThreshold
 	}
 	// Disable chunking by default, haystack does it better
+	//
+	// TODO: this should only be set if haystack is actually selected as the RAG
+	// provider for this installation! XXX we probably broke knowledge in
+	// typesense in the last release by disabling chunking globally??
 	knowledge.RAGSettings.DisableChunking = true
 }
 
