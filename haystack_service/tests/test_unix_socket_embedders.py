@@ -29,30 +29,22 @@ class MockSocketServer(threading.Thread):
         self.daemon = True  # Thread will exit when main thread exits
         
     def run(self):
-        print("HI")
         # Remove socket file if it exists
         if os.path.exists(self.socket_path):
-            print("cleaned up", self.socket_path)
             os.unlink(self.socket_path)
             
         # Create socket
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(self.socket_path)
-        print("bound", self.socket_path)
         server.listen(1)
         server.settimeout(0.1)  # Short timeout to allow for clean shutdown
         
         while self.running:
-            print("IN LOOP")
             try:
                 conn, _ = server.accept()
                 data = conn.recv(4096)
-                print("RECEIVED", len(data), "BYTES")
-                print("DATA", data)
                 data = data.decode('utf-8')
-                print("DECODED", data)
                 self.requests_received.append(data)
-                print("READ", len(data), "BYTES")
                 
                 # Parse the HTTP request to get the path
                 request_lines = data.split('\r\n')
@@ -100,7 +92,6 @@ class MockSocketServer(threading.Thread):
         server.close()
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
-        print("STOPPED SOCKET")
             
     def stop(self):
         self.running = False
@@ -121,83 +112,13 @@ class TestUnixSocketEmbedders(unittest.TestCase):
         # Wait for server to start
         time.sleep(0.1)
         
-        # Set up environment variable for testing
-        os.environ["TEST_OPENAI_API_KEY"] = "dummy_key"
-        
     def tearDown(self):
         # Stop the server
         self.server.stop()
         
         # Clean up the temporary directory
         self.temp_dir.cleanup()
-        
-        # Clean up environment variable
-        if "TEST_OPENAI_API_KEY" in os.environ:
-            del os.environ["TEST_OPENAI_API_KEY"]
 
-
-#   def test_unix_socket_adapter(self):
-#       """Test that the UnixSocketAdapter correctly connects to the socket."""
-#       adapter = UnixSocketAdapter(self.socket_path)
-#       response = adapter.request("GET", "/test")
-#       
-#       # Check that the server received a request
-#       self.assertTrue(len(self.server.requests_received) > 0)
-#       self.assertIn("GET /test", self.server.requests_received[0])
-#   
-#   def test_text_embedder_initialization(self):
-#       """Test that the UnixSocketOpenAITextEmbedder correctly initializes."""
-#       embedder = UnixSocketOpenAITextEmbedder(
-#           socket_path=self.socket_path,
-#           api_key=Secret.from_env_var("TEST_OPENAI_API_KEY"),
-#           model="text-embedding-ada-002"
-#       )
-#       
-#       # Check that the socket path is stored
-#       self.assertEqual(embedder.socket_path, self.socket_path)
-#       
-#       # Check that the HTTP client is replaced
-#       self.assertIsInstance(embedder.client.http_client, UnixSocketAdapter)
-#       
-#       # Check that the base URL is set to http://localhost
-#       self.assertEqual(embedder.client.base_url, "http://localhost")
-#   
-#   def test_document_embedder_initialization(self):
-#       """Test that the UnixSocketOpenAIDocumentEmbedder correctly initializes."""
-#       embedder = UnixSocketOpenAIDocumentEmbedder(
-#           socket_path=self.socket_path,
-#           api_key=Secret.from_env_var("TEST_OPENAI_API_KEY"),
-#           model="text-embedding-ada-002"
-#       )
-#       
-#       # Check that the socket path is stored
-#       self.assertEqual(embedder.socket_path, self.socket_path)
-#       
-#       # Check that the HTTP client is replaced
-#       self.assertIsInstance(embedder.client.http_client, UnixSocketAdapter)
-#       
-#       # Check that the base URL is set to http://localhost
-#       self.assertEqual(embedder.client.base_url, "http://localhost")
-#   
-#   def test_text_embedder_embed_calls_unix_socket(self):
-#       """Test that the UnixSocketOpenAITextEmbedder uses the Unix socket for embedding."""
-#       # Create the embedder
-#       embedder = UnixSocketOpenAITextEmbedder(
-#           socket_path=self.socket_path,
-#           api_key=Secret.from_env_var("TEST_OPENAI_API_KEY"),
-#           model="text-embedding-ada-002"
-#       )
-#       
-#       # Verify that the HTTP client is a UnixSocketAdapter
-#       self.assertIsInstance(embedder.client.http_client, UnixSocketAdapter)
-#       
-#       # Verify that the socket path is correct
-#       self.assertEqual(embedder.client.http_client.socket_path, self.socket_path)
-#       
-#       # Call run and verify we get a result
-#       result = embedder.run(text="test text")
-#       self.assertIn("embeddings", result)
-#       self.assertTrue(len(result["embeddings"]) > 0)
     
     def test_text_embedder_real_integration(self):
         """Test that the UnixSocketOpenAITextEmbedder can embed text using the mock server."""
@@ -207,36 +128,33 @@ class TestUnixSocketEmbedders(unittest.TestCase):
             model="text-embedding-ada-002"
         )
 
-        #import pdb; pdb.set_trace()
-
         # Call run (Haystack 2.x API)
         result = embedder.run(text="test text")
         
         # Check that the result contains embeddings
-        self.assertIn("embeddings", result)
-        self.assertEqual(len(result["embeddings"]), 1)
-        self.assertEqual(len(result["embeddings"][0]), 5)
-    
-#   def test_document_embedder_real_integration(self):
-#       """Test that the UnixSocketOpenAIDocumentEmbedder can embed documents using the mock server."""
-#       # Create the embedder
-#       embedder = UnixSocketOpenAIDocumentEmbedder(
-#           socket_path=self.socket_path,
-#           api_key=Secret.from_env_var("TEST_OPENAI_API_KEY"),
-#           model="text-embedding-ada-002"
-#       )
-#       
-#       # Create a test document using Haystack 2.x Document class
-#       doc = Document(content="test document")
-#       
-#       # Call run (Haystack 2.x API)
-#       result = embedder.run(documents=[doc])
-#       
-#       # Check that the result contains documents with embeddings
-#       self.assertIn("documents", result)
-#       self.assertEqual(len(result["documents"]), 1)
-#       self.assertTrue(hasattr(result["documents"][0], "embedding"))
-#       self.assertEqual(len(result["documents"][0].embedding), 5)
+        self.assertIn("embedding", result)
+        self.assertEqual(len(result["embedding"]), 5)
+
+
+    def test_document_embedder_real_integration(self):
+        """Test that the UnixSocketOpenAIDocumentEmbedder can embed documents using the mock server."""
+        # Create the embedder
+        embedder = UnixSocketOpenAIDocumentEmbedder(
+            socket_path=self.socket_path,
+            model="text-embedding-ada-002"
+        )
+        
+        # Create a test document using Haystack 2.x Document class
+        doc = Document(content="test document")
+        
+        # Call run (Haystack 2.x API)
+        result = embedder.run(documents=[doc])
+        
+        # Check that the result contains documents with embeddings
+        self.assertIn("documents", result)
+        self.assertEqual(len(result["documents"]), 1)
+        self.assertTrue(hasattr(result["documents"][0], "embedding"))
+        self.assertEqual(len(result["documents"][0].embedding), 5)
 
 
 if __name__ == "__main__":
