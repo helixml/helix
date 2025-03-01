@@ -180,7 +180,6 @@ export const useAccountContext = (): IAccountContext => {
     setLoggingOut(true)
     router.navigate('home')
     keycloak.logout()
-    api.setToken('')
   }, [
     keycloak,
   ])
