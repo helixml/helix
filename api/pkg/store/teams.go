@@ -32,10 +32,19 @@ func (s *PostgresStore) CreateTeam(ctx context.Context, team *types.Team) (*type
 		return nil, fmt.Errorf("organization_id not specified")
 	}
 
+	// Check if team already exists
+	_, err := s.GetTeam(ctx, &GetTeamQuery{
+		OrganizationID: team.OrganizationID,
+		Name:           team.Name,
+	})
+	if err == nil {
+		return nil, fmt.Errorf("team with name %s already exists", team.Name)
+	}
+
 	team.CreatedAt = time.Now()
 	team.UpdatedAt = time.Now()
 
-	err := s.gdb.WithContext(ctx).Create(team).Error
+	err = s.gdb.WithContext(ctx).Create(team).Error
 	if err != nil {
 		return nil, err
 	}
