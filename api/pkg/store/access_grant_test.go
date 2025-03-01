@@ -301,12 +301,15 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 }
 
 func (suite *AccessGrantTestSuite) TestListAccessGrants_WithTeamsAndUserID() {
+
+	userID := system.GenerateUUID()
+
 	// Create test access grant
 	accessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
 		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset-get",
-		UserID:         "test-user-get",
+		UserID:         userID,
 	}
 
 	roles := []*types.Role{
@@ -331,7 +334,7 @@ func (suite *AccessGrantTestSuite) TestListAccessGrants_WithTeamsAndUserID() {
 		OrganizationID: suite.org.ID,
 		ResourceType:   created.ResourceType,
 		ResourceID:     created.ResourceID,
-		UserID:         created.UserID,
+		UserID:         userID,
 		TeamIDs:        []string{created.TeamID},
 	})
 	suite.Require().NoError(err)
