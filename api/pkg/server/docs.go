@@ -1798,6 +1798,14 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
                 "user_id": {
                     "description": "If granted to a user",
                     "type": "string"
@@ -1885,6 +1893,14 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                },
+                "user": {
+                    "description": "Owner user struct, populated by the server for organization views",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
                 }
             }
         },
@@ -2223,8 +2239,8 @@ const docTemplate = `{
                     "description": "Team ID",
                     "type": "string"
                 },
-                "user_id": {
-                    "description": "User ID",
+                "user_reference": {
+                    "description": "User ID or email",
                     "type": "string"
                 }
             }
@@ -2926,12 +2942,14 @@ const docTemplate = `{
             "enum": [
                 "user",
                 "runner",
-                "system"
+                "system",
+                "socket"
             ],
             "x-enum-varnames": [
                 "OwnerTypeUser",
                 "OwnerTypeRunner",
-                "OwnerTypeSystem"
+                "OwnerTypeSystem",
+                "OwnerTypeSocket"
             ]
         },
         "types.PaginatedLLMCalls": {
@@ -3767,13 +3785,15 @@ const docTemplate = `{
                 "",
                 "runner",
                 "keycloak",
-                "api_key"
+                "api_key",
+                "socket"
             ],
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
                 "TokenTypeKeycloak",
-                "TokenTypeAPIKey"
+                "TokenTypeAPIKey",
+                "TokenTypeSocket"
             ]
         },
         "types.ToolAPIAction": {
