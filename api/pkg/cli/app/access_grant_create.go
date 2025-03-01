@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
@@ -37,12 +38,16 @@ var grantAccessCmd = &cobra.Command{
 			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
+		if app.OrganizationID == "" {
+			return fmt.Errorf("app is not associated with an organization")
+		}
+
 		user, err := cmd.Flags().GetString("user")
 		if err != nil {
 			return err
 		}
 
-		team, err := cmd.Flags().GetString("team")
+		teamRef, err := cmd.Flags().GetString("team")
 		if err != nil {
 			return err
 		}
@@ -56,9 +61,14 @@ var grantAccessCmd = &cobra.Command{
 			return fmt.Errorf("specify at least one role, available roles: %v", getRoleNames())
 		}
 
+		team, err := cli.LookupTeam(cmd.Context(), apiClient, app.OrganizationID, teamRef)
+		if err != nil {
+			return fmt.Errorf("failed to lookup team: %w", err)
+		}
+
 		accessGrant := &types.CreateAccessGrantRequest{
 			UserReference: user,
-			TeamID:        team,
+			TeamID:        team.ID,
 			Roles:         roles,
 		}
 
