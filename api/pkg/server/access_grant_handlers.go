@@ -153,6 +153,23 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 		userID = newMember.ID
 	}
 
+	// If team ID is set, check if it exists in the organization
+	if req.TeamID != "" {
+		_, err := apiServer.Store.GetTeam(r.Context(), &store.GetTeamQuery{
+			OrganizationID: app.OrganizationID,
+			ID:             req.TeamID,
+		})
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				writeErrResponse(rw, fmt.Errorf("team '%s' not found", req.TeamID), http.StatusBadRequest)
+				return
+			}
+
+			writeErrResponse(rw, fmt.Errorf("error getting team '%s': %w", req.TeamID, err), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	grants, err := apiServer.Store.CreateAccessGrant(r.Context(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
