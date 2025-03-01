@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import React, { FC, useState, useCallback } from 'react'
 import { TypesOrganization } from '../api/api'
 import useApi from './useApi'
 
