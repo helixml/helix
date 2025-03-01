@@ -2,6 +2,7 @@ import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
 import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
 import useApi from '../hooks/useApi'
+import { useOrganizations } from '../hooks/useOrganisations'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
@@ -79,6 +80,7 @@ export const useAccount = () => {
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
+  const organizations = useOrganizations()
   const snackbar = useSnackbar()
   const loading = useLoading()
   const router = useRouter()
@@ -160,6 +162,7 @@ export const useAccountContext = (): IAccountContext => {
       loadStatus(),
       loadServerConfig(),
       fetchProviderEndpoints(),
+      organizations.loadData(),
     ])
   }, [
     loadStatus,
@@ -207,9 +210,10 @@ export const useAccountContext = (): IAccountContext => {
           win.$crisp.push(['set', 'user:email', user?.email])
           win.$crisp.push(['set', 'user:nickname', user?.name])
         }
-
         api.setToken(keycloak.token)
         setUser(user)
+        
+        // Set up token refresh interval
         setInterval(async () => {
           try {
             const updated = await keycloak.updateToken(10)
