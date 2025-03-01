@@ -1,5 +1,6 @@
 import axios, { AxiosRequestConfig } from 'axios'
 import { useContext, useCallback } from 'react'
+import { Api } from '../api/api'
 
 import {
   SnackbarContext,
@@ -30,6 +31,25 @@ export const getTokenHeaders = (token: string) => {
     Authorization: `Bearer ${token}`,
   }
 }
+
+type SecurityDataType = { token: string }
+
+// Create a singleton instance of the API client
+// This ensures it's only initialized once, regardless of how many components use the hook
+const apiClientSingleton = new Api({
+  baseURL: window.location.origin,
+  secure: true,
+  securityWorker: (securityData: SecurityDataType | null) => {
+    if (securityData && securityData.token) {
+      return {
+        headers: {
+          Authorization: `Bearer ${securityData.token}`,
+        }
+      }
+    }
+    return {}
+  }
+})
 
 export const useApi = () => {
 
@@ -126,7 +146,29 @@ export const useApi = () => {
   // we can just call useApi() from anywhere and we will get the token injected into the request
   // because the top level account context has called this
   const setToken = useCallback(function(token: string) {
-    axios.defaults.headers.common = token ? getTokenHeaders(token) : {}
+    if (!token) {
+      console.warn('Attempting to set empty token');
+      return;
+    }
+    
+    // Set token for direct axios calls
+    axios.defaults.headers.common = getTokenHeaders(token);    
+    
+    // Set token for OpenAPI client
+    apiClientSingleton.setSecurityData({
+      token: token,
+    });    
+    
+    // Force a direct modification of the client instance's default headers as a fallback
+    try {
+      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;      
+    } catch (e) {
+      console.error('Failed to set token directly on client instance:', e);
+    }
+  }, [])
+
+  const getApiClient = useCallback(() => {
+    return apiClientSingleton.api
   }, [])
 
   return {
@@ -135,6 +177,7 @@ export const useApi = () => {
     put,
     delete: del,
     setToken,
+    getApiClient,
   }
 }
 
