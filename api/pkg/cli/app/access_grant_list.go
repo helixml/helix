@@ -43,7 +43,7 @@ var listAccessGrantsCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Created", "Team ID", "User ID"}
+		header := []string{"ID", "Created", "Team ID", "User"}
 
 		table.SetHeader(header)
 
@@ -64,7 +64,7 @@ var listAccessGrantsCmd = &cobra.Command{
 				grant.ID,
 				grant.CreatedAt.Format(time.DateTime),
 				grant.TeamID,
-				grant.UserID,
+				grant.User.Email,
 			}
 
 			table.Append(row)
