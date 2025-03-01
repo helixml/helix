@@ -36,7 +36,14 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
 
 	if orgID != "" {
-		return s.listOrganizationApps(ctx, user, orgID, r)
+		orgApps, err := s.listOrganizationApps(ctx, user, orgID, r)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		orgApps = s.populateAppOwner(ctx, orgApps)
+
+		return orgApps, nil
 	}
 
 	userApps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
@@ -77,7 +84,32 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		filteredApps = append(filteredApps, app)
 	}
 
+	filteredApps = s.populateAppOwner(ctx, filteredApps)
+
 	return filteredApps, nil
+}
+
+func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App) []*types.App {
+	userMap := make(map[string]*types.User)
+
+	for _, app := range apps {
+		// Populate the user map if the user is not already in the map
+		if _, ok := userMap[app.Owner]; !ok {
+			appOwner, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: app.Owner})
+			if err != nil {
+				continue
+			}
+
+			userMap[app.Owner] = appOwner
+		}
+	}
+
+	// Assign the user to the app
+	for _, app := range apps {
+		app.User = *userMap[app.Owner]
+	}
+
+	return apps
 }
 
 // listOrganizationApps lists apps for an organization based on the user's access grants
@@ -114,6 +146,14 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 				Msg("user is not authorized to view app")
 			continue
 		}
+
+		// Get user for the app
+		appOwner, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: app.Owner})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		app.User = *appOwner
 
 		authorizedApps = append(authorizedApps, app)
 	}

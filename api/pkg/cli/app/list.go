@@ -50,7 +50,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Created", "Source"}
+		header := []string{"ID", "Name", "Created", "Owner"}
 
 		table.SetHeader(header)
 
@@ -71,7 +71,7 @@ var listCmd = &cobra.Command{
 				app.ID,
 				app.Config.Helix.Name,
 				app.Created.Format(time.DateTime),
-				string(app.AppSource),
+				app.User.Email,
 			}
 
 			table.Append(row)

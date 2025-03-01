@@ -1122,6 +1122,8 @@ type App struct {
 	Global    bool      `json:"global"`
 	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
+
+	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
 }
 
 type KeyPair struct {
