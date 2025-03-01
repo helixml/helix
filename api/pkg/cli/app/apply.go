@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/apps"
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -13,12 +14,13 @@ import (
 )
 
 func init() {
-	rootCmd.AddCommand(NewApplyCmd())
+	rootCmd.AddCommand(applyCmd)
 
 	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
 	applyCmd.Flags().Bool("shared", false, "Shared application")
 	applyCmd.Flags().Bool("global", false, "Global application")
 	applyCmd.Flags().Bool("refresh-knowledge", false, "Refresh knowledge, re-index all knowledge for the app")
+	applyCmd.Flags().StringVarP(&organization, "organization", "o", "", "Organization ID or name")
 }
 
 func NewApplyCmd() *cobra.Command {
@@ -46,6 +48,11 @@ var applyCmd = &cobra.Command{
 		}
 
 		global, err := cmd.Flags().GetBool("global")
+		if err != nil {
+			return err
+		}
+
+		organization, err := cmd.Flags().GetString("organization")
 		if err != nil {
 			return err
 		}
@@ -102,7 +109,7 @@ var applyCmd = &cobra.Command{
 			}
 		}
 
-		return createApp(cmd.Context(), apiClient, appConfig, shared, global)
+		return createApp(cmd.Context(), apiClient, organization, appConfig, shared, global)
 	},
 }
 
@@ -121,18 +128,24 @@ func updateApp(ctx context.Context, apiClient client.Client, app *types.App, app
 	return nil
 }
 
-func createApp(ctx context.Context, apiClient client.Client, appConfig *types.AppHelixConfig, shared, global bool) error {
+func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, shared, global bool) error {
+	org, err := cli.LookupOrganization(ctx, apiClient, orgID)
+	if err != nil {
+		return err
+	}
+
 	app := &types.App{
-		AppSource: types.AppSourceHelix,
-		Global:    global,
-		Shared:    shared,
+		OrganizationID: org.ID,
+		AppSource:      types.AppSourceHelix,
+		Global:         global,
+		Shared:         shared,
 		Config: types.AppConfig{
 			AllowedDomains: []string{}, // TODO: make configurable
 			Helix:          *appConfig,
 		},
 	}
 
-	app, err := apiClient.CreateApp(ctx, app)
+	app, err = apiClient.CreateApp(ctx, app)
 	if err != nil {
 		return err
 	}

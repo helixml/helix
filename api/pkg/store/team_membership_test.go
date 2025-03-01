@@ -94,8 +94,9 @@ func (suite *TeamMembershipTestSuite) TearDownTest() {
 
 func (suite *TeamMembershipTestSuite) TestCreateTeamMembership() {
 	membership := &types.TeamMembership{
-		UserID: suite.user.ID,
-		TeamID: suite.team.ID,
+		OrganizationID: suite.org.ID,
+		UserID:         suite.user.ID,
+		TeamID:         suite.team.ID,
 	}
 
 	created, err := suite.db.CreateTeamMembership(suite.ctx, membership)
@@ -114,8 +115,9 @@ func (suite *TeamMembershipTestSuite) TestCreateTeamMembership() {
 
 func (suite *TeamMembershipTestSuite) TestGetTeamMembership() {
 	membership := &types.TeamMembership{
-		UserID: suite.user.ID,
-		TeamID: suite.team.ID,
+		OrganizationID: suite.org.ID,
+		UserID:         suite.user.ID,
+		TeamID:         suite.team.ID,
 	}
 	created, err := suite.db.CreateTeamMembership(suite.ctx, membership)
 	suite.Require().NoError(err)
@@ -150,12 +152,14 @@ func (suite *TeamMembershipTestSuite) TestListTeamMemberships() {
 	// Create multiple memberships
 	memberships := []*types.TeamMembership{
 		{
-			UserID: system.GenerateUserID(),
-			TeamID: suite.team.ID,
+			OrganizationID: suite.org.ID,
+			UserID:         system.GenerateUserID(),
+			TeamID:         suite.team.ID,
 		},
 		{
-			UserID: system.GenerateUserID(),
-			TeamID: suite.team.ID,
+			OrganizationID: suite.org.ID,
+			UserID:         system.GenerateUserID(),
+			TeamID:         suite.team.ID,
 		},
 	}
 
@@ -199,8 +203,9 @@ func (suite *TeamMembershipTestSuite) TestListTeamMemberships() {
 
 func (suite *TeamMembershipTestSuite) TestDeleteTeamMembership() {
 	membership := &types.TeamMembership{
-		UserID: suite.user.ID,
-		TeamID: suite.team.ID,
+		OrganizationID: suite.org.ID,
+		UserID:         suite.user.ID,
+		TeamID:         suite.team.ID,
 	}
 	created, err := suite.db.CreateTeamMembership(suite.ctx, membership)
 	suite.Require().NoError(err)

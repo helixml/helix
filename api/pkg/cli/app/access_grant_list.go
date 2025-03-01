@@ -4,24 +4,21 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/client"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
-
-	"github.com/helixml/helix/api/pkg/cli"
-	"github.com/helixml/helix/api/pkg/client"
 )
 
 func init() {
-	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(listAccessGrantsCmd)
 }
 
-// listCmd represents the list command
-var listCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"ls"},
-	Short:   "List helix apps",
-	Long:    ``,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+var listAccessGrantsCmd = &cobra.Command{
+	Use:   "list-access-grants [app ID]",
+	Short: "List access grants for an app",
+	Long:  `List access grants for an app.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
@@ -32,25 +29,21 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		filter := &client.AppFilter{}
-
-		if organization != "" {
-			org, err := cli.LookupOrganization(cmd.Context(), apiClient, organization)
-			if err != nil {
-				return err
-			}
-
-			filter.OrganizationID = org.ID
+		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
+		if err != nil {
+			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
-		apps, err := apiClient.ListApps(cmd.Context(), filter)
+		grants, err := apiClient.ListAppAccessGrants(cmd.Context(), &client.AppAccessGrantsFilter{
+			AppID: app.ID,
+		})
 		if err != nil {
-			return fmt.Errorf("failed to list apps: %w", err)
+			return fmt.Errorf("failed to list access grants: %w", err)
 		}
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Created", "Owner"}
+		header := []string{"ID", "Created", "Team ID", "User"}
 
 		table.SetHeader(header)
 
@@ -66,19 +59,18 @@ var listCmd = &cobra.Command{
 		table.SetTablePadding(" ")
 		table.SetNoWhiteSpace(false)
 
-		for _, app := range apps {
+		for _, grant := range grants {
 			row := []string{
-				app.ID,
-				app.Config.Helix.Name,
-				app.Created.Format(time.DateTime),
-				app.User.Email,
+				grant.ID,
+				grant.CreatedAt.Format(time.DateTime),
+				grant.TeamID,
+				grant.User.Email,
 			}
 
 			table.Append(row)
 		}
 
 		table.Render()
-
 		return nil
 	},
 }

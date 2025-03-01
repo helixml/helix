@@ -168,7 +168,7 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	}
 
 	// Check if user is owner
-	err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)
@@ -206,7 +206,7 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)

@@ -4,18 +4,27 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/spf13/cobra"
 )
+
+// Define organization as a persistent flag
+var organization string
+
+func init() {
+	rootCmd.PersistentFlags().StringVarP(&organization, "organization", "o", "", "Organization ID or name")
+}
 
 var rootCmd = &cobra.Command{
 	Use:     "app",
 	Short:   "Helix app management",
-	Aliases: []string{"a"},
+	Aliases: []string{"apps", "a"},
 	Long:    `TODO`,
-	Run: func(*cobra.Command, []string) {
-		// Do Stuff Here
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return listCmd.RunE(cmd, args)
 	},
 }
 
@@ -23,8 +32,18 @@ func New() *cobra.Command {
 	return rootCmd
 }
 
-func lookupApp(ctx context.Context, apiClient *client.HelixClient, ref string) (*types.App, error) {
-	apps, err := apiClient.ListApps(ctx, &client.AppFilter{})
+func lookupApp(ctx context.Context, apiClient *client.HelixClient, organization, ref string) (*types.App, error) {
+	filter := &client.AppFilter{}
+
+	if organization != "" {
+		org, err := cli.LookupOrganization(ctx, apiClient, organization)
+		if err != nil {
+			return nil, fmt.Errorf("failed to lookup organization: %w", err)
+		}
+		filter.OrganizationID = org.ID
+	}
+
+	apps, err := apiClient.ListApps(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list apps: %w", err)
 	}

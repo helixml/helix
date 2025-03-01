@@ -100,6 +100,8 @@ type TeamMembership struct {
 	UserID string `json:"user_id" yaml:"user_id" gorm:"primaryKey"` // composite key
 	TeamID string `json:"team_id" yaml:"team_id" gorm:"primaryKey"`
 
+	OrganizationID string `json:"organization_id" yaml:"organization_id" gorm:"index"`
+
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 
@@ -131,6 +133,13 @@ type User struct {
 	FullName string
 }
 
+// CreateAccessGrantRequest - request to create an access grant for a team or user
+type CreateAccessGrantRequest struct {
+	UserReference string   `json:"user_reference"` // User ID or email
+	TeamID        string   `json:"team_id"`        // Team ID
+	Roles         []string `json:"roles"`          // Role names
+}
+
 // AccessGrant - grant access to a resource for a team or user. This allows users
 // to share their application, knowledge, provider endpoint, etc with other users or teams.
 type AccessGrant struct {
@@ -142,6 +151,7 @@ type AccessGrant struct {
 	OrganizationID string    `json:"organization_id" yaml:"organization_id"` // If granted to an organization
 	TeamID         string    `json:"team_id" yaml:"team_id"`                 // If granted to a team
 	UserID         string    `json:"user_id" yaml:"user_id"`                 // If granted to a user
+	User           User      `json:"user" yaml:"user" gorm:"-"`              // Populated by the server if UserID is set
 	Roles          []Role    `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
 }
 
@@ -220,6 +230,7 @@ const (
 	ResourceMembership            Resource = "Membership"
 	ResourceMembershipRoleBinding Resource = "MembershipRoleBinding"
 	ResourceApplication           Resource = "Application"
+	ResourceAccessGrants          Resource = "AccessGrants"
 	ResourceKnowledge             Resource = "Knowledge"
 	ResourceUser                  Resource = "User"
 	ResourceAny                   Resource = "*"

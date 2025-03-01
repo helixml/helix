@@ -8,6 +8,7 @@ var (
 				Resources: []Resource{
 					ResourceApplication,
 					ResourceKnowledge,
+					ResourceAccessGrants,
 				},
 				Actions: []Action{
 					ActionGet,
@@ -19,6 +20,8 @@ var (
 		},
 	}
 
+	// Can update applications, knowledge, however no
+	// access grants can be updated
 	RoleWrite = Config{
 		Rules: []Rule{
 			{
@@ -73,6 +76,6 @@ var Roles = []Role{
 	{
 		Name:        "admin",
 		Config:      RoleAdmin,
-		Description: "Can perform all actions",
+		Description: "Can perform all actions including updating access grants",
 	},
 }

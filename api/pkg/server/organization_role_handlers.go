@@ -19,7 +19,7 @@ func (apiServer *HelixAPIServer) listOrganizationRoles(rw http.ResponseWriter, r
 	orgID := mux.Vars(r)["id"]
 
 	// Check if user has access to view roles
-	err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org member")
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
