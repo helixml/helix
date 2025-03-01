@@ -152,9 +152,9 @@ function update_openapi() {
 	swag init -g api/pkg/server/swagger.go \
 	--parseDependency --parseInternal --parseDepth 3 \
 	-o api/pkg/server
-  # Copy the generated files to the frontend
-  cp -r api/pkg/server/swagger.yaml frontend/swagger/
-  npx swagger-typescript-api -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
+	# Copy the generated files to the frontend
+	cp -r api/pkg/server/swagger.yaml frontend/swagger/
+	npx swagger-typescript-api -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
 }
 
 function lint() {
