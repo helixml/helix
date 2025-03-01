@@ -146,13 +146,7 @@ export const useApi = () => {
   // we can just call useApi() from anywhere and we will get the token injected into the request
   // because the top level account context has called this
   const setToken = useCallback(function(token: string) {
-    if (!token) {
-      console.warn('Attempting to set empty token');
-      return;
-    }
-    
-    // Set token for direct axios calls
-    axios.defaults.headers.common = getTokenHeaders(token);    
+    axios.defaults.headers.common = token ? getTokenHeaders(token) : {}    
     
     // Set token for OpenAPI client
     apiClientSingleton.setSecurityData({
