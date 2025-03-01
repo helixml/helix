@@ -3,7 +3,6 @@ package roles
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -63,7 +62,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Description", "Created"}
+		header := []string{"ID", "Name", "Description"}
 
 		table.SetHeader(header)
 
@@ -80,16 +79,10 @@ var listCmd = &cobra.Command{
 		table.SetNoWhiteSpace(false)
 
 		for _, r := range roles {
-			created := r.CreatedAt.Format(time.RFC3339)
-			if r.CreatedAt.IsZero() {
-				created = "-"
-			}
-
 			row := []string{
 				r.ID,
 				r.Name,
 				r.Description,
-				created,
 			}
 
 			table.Append(row)
