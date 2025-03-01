@@ -210,6 +210,7 @@ export const useAccountContext = (): IAccountContext => {
           win.$crisp.push(['set', 'user:email', user?.email])
           win.$crisp.push(['set', 'user:nickname', user?.name])
         }
+        api.setToken(keycloak.token)
         setUser(user)
         
         // Set up token refresh interval
