@@ -516,6 +516,17 @@ export interface TypesChoice {
   text?: string;
 }
 
+export interface TypesCrawledSources {
+  urls?: TypesCrawledURL[];
+}
+
+export interface TypesCrawledURL {
+  duration_ms?: number;
+  message?: string;
+  status_code?: number;
+  url?: string;
+}
+
 export interface TypesCreateAccessGrantRequest {
   /** Role names */
   roles?: string[];
@@ -653,6 +664,68 @@ export interface TypesKeyPair {
   type?: string;
 }
 
+export interface TypesKnowledge {
+  /** AppID through which the knowledge was created */
+  app_id?: string;
+  /** URLs crawled in the last run (should match last knowledge version) */
+  crawled_sources?: TypesCrawledSources;
+  created?: string;
+  /**
+   * Description of the knowledge, will be used in the prompt
+   * to explain the knowledge to the assistant
+   */
+  description?: string;
+  id?: string;
+  /** Set if something wrong happens */
+  message?: string;
+  name?: string;
+  /** Populated by the cron job controller */
+  next_run?: string;
+  /** User ID */
+  owner?: string;
+  /** e.g. user, system, org */
+  owner_type?: TypesOwnerType;
+  /** Ephemeral state from knowledge controller */
+  progress?: TypesKnowledgeProgress;
+  rag_settings?: TypesRAGSettings;
+  /**
+   * RefreshEnabled defines if the knowledge should be refreshed periodically
+   * or on events. For example a Google Drive knowledge can be refreshed
+   * every 24 hours.
+   */
+  refresh_enabled?: boolean;
+  /**
+   * RefreshSchedule defines the schedule for refreshing the knowledge.
+   * It can be specified in cron format or as a duration for example '@every 2h'
+   * or 'every 5m' or '0 0 * * *' for daily at midnight.
+   */
+  refresh_schedule?: string;
+  /** Size of the knowledge in bytes */
+  size?: number;
+  /**
+   * Source defines where the raw data is fetched from. It can be
+   * directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+   */
+  source?: TypesKnowledgeSource;
+  state?: TypesKnowledgeState;
+  updated?: string;
+  /**
+   * Version of the knowledge, will be used to separate different versions
+   * of the same knowledge when updating it. Format is
+   * YYYY-MM-DD-HH-MM-SS.
+   */
+  version?: string;
+  versions?: TypesKnowledgeVersion[];
+}
+
+export interface TypesKnowledgeProgress {
+  elapsed_seconds?: number;
+  message?: string;
+  progress?: number;
+  started_at?: string;
+  step?: string;
+}
+
 export interface TypesKnowledgeSource {
   filestore?: TypesKnowledgeSourceHelixFilestore;
   gcs?: TypesKnowledgeSourceGCS;
@@ -686,6 +759,29 @@ export interface TypesKnowledgeSourceWeb {
 export interface TypesKnowledgeSourceWebAuth {
   password?: string;
   username?: string;
+}
+
+export enum TypesKnowledgeState {
+  KnowledgeStatePending = "pending",
+  KnowledgeStateIndexing = "indexing",
+  KnowledgeStateReady = "ready",
+  KnowledgeStateError = "error",
+}
+
+export interface TypesKnowledgeVersion {
+  crawled_sources?: TypesCrawledSources;
+  created?: string;
+  /** Model used to embed the knowledge */
+  embeddings_model?: string;
+  id?: string;
+  knowledge_id?: string;
+  /** Set if something wrong happens */
+  message?: string;
+  provider?: string;
+  size?: number;
+  state?: TypesKnowledgeState;
+  updated?: string;
+  version?: string;
 }
 
 export interface TypesLLMCall {
@@ -1595,6 +1691,85 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/apps/github/${id}`,
         method: "PUT",
         body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1KnowledgeList
+     * @request GET:/api/v1/knowledge
+     * @secure
+     */
+    v1KnowledgeList: (params: RequestParams = {}) =>
+      this.request<TypesKnowledge[], any>({
+        path: `/api/v1/knowledge`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete knowledge
+     *
+     * @tags knowledge
+     * @name V1KnowledgeDelete
+     * @summary Delete knowledge
+     * @request DELETE:/api/v1/knowledge/{id}
+     * @secure
+     */
+    v1KnowledgeDelete: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledge, any>({
+        path: `/api/v1/knowledge/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1KnowledgeDetail
+     * @request GET:/api/v1/knowledge/{id}
+     */
+    v1KnowledgeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledge, any>({
+        path: `/api/v1/knowledge/${id}`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description Refresh knowledge
+     *
+     * @tags knowledge
+     * @name V1KnowledgeRefreshCreate
+     * @summary Refresh knowledge
+     * @request POST:/api/v1/knowledge/{id}/refresh
+     * @secure
+     */
+    v1KnowledgeRefreshCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledge, any>({
+        path: `/api/v1/knowledge/${id}/refresh`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List knowledge versions
+     *
+     * @tags knowledge
+     * @name V1KnowledgeVersionsDetail
+     * @summary List knowledge versions
+     * @request GET:/api/v1/knowledge/{id}/versions
+     * @secure
+     */
+    v1KnowledgeVersionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledgeVersion[], any>({
+        path: `/api/v1/knowledge/${id}/versions`,
+        method: "GET",
         secure: true,
         ...params,
       }),
