@@ -36,7 +36,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
 
 	if orgID != "" {
-		orgApps, err := s.listOrganizationApps(ctx, user, orgID, r)
+		orgApps, err := s.listOrganizationApps(ctx, user, orgID)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
@@ -113,7 +113,7 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App
 }
 
 // listOrganizationApps lists apps for an organization based on the user's access grants
-func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.User, orgID string, r *http.Request) ([]*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.User, orgID string) ([]*types.App, *system.HTTPError) {
 	orgMembership, err := s.authorizeOrgMember(ctx, user, orgID)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
