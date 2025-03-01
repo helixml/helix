@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -54,6 +55,18 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 	if err != nil {
 		writeErrResponse(rw, err, http.StatusInternalServerError)
 		return
+	}
+
+	for _, grant := range grants {
+		if grant.UserID != "" {
+			grantUser, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{ID: grant.UserID})
+			if err != nil {
+				log.Error().Err(err).Str("user_id", grant.UserID).Msg("error getting user for access grant")
+				continue
+			}
+
+			grant.User = *grantUser
+		}
 	}
 
 	writeResponse(rw, grants, http.StatusOK)

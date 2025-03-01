@@ -151,6 +151,7 @@ type AccessGrant struct {
 	OrganizationID string    `json:"organization_id" yaml:"organization_id"` // If granted to an organization
 	TeamID         string    `json:"team_id" yaml:"team_id"`                 // If granted to a team
 	UserID         string    `json:"user_id" yaml:"user_id"`                 // If granted to a user
+	User           User      `json:"user" yaml:"user" gorm:"-"`              // Populated by the server if UserID is set
 	Roles          []Role    `json:"roles,omitempty" yaml:"roles,omitempty" gorm:"-"`
 }
 
