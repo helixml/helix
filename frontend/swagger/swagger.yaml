@@ -815,6 +815,24 @@ definitions:
       text:
         type: string
     type: object
+  types.CrawledSources:
+    properties:
+      urls:
+        items:
+          $ref: '#/definitions/types.CrawledURL'
+        type: array
+    type: object
+  types.CrawledURL:
+    properties:
+      duration_ms:
+        type: integer
+      message:
+        type: string
+      status_code:
+        type: integer
+      url:
+        type: string
+    type: object
   types.CreateAccessGrantRequest:
     properties:
       roles:
@@ -1050,6 +1068,94 @@ definitions:
       type:
         type: string
     type: object
+  types.Knowledge:
+    properties:
+      app_id:
+        description: AppID through which the knowledge was created
+        type: string
+      crawled_sources:
+        allOf:
+        - $ref: '#/definitions/types.CrawledSources'
+        description: URLs crawled in the last run (should match last knowledge version)
+      created:
+        type: string
+      description:
+        description: |-
+          Description of the knowledge, will be used in the prompt
+          to explain the knowledge to the assistant
+        type: string
+      id:
+        type: string
+      message:
+        description: Set if something wrong happens
+        type: string
+      name:
+        type: string
+      next_run:
+        description: Populated by the cron job controller
+        type: string
+      owner:
+        description: User ID
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      progress:
+        allOf:
+        - $ref: '#/definitions/types.KnowledgeProgress'
+        description: Ephemeral state from knowledge controller
+      rag_settings:
+        $ref: '#/definitions/types.RAGSettings'
+      refresh_enabled:
+        description: |-
+          RefreshEnabled defines if the knowledge should be refreshed periodically
+          or on events. For example a Google Drive knowledge can be refreshed
+          every 24 hours.
+        type: boolean
+      refresh_schedule:
+        description: |-
+          RefreshSchedule defines the schedule for refreshing the knowledge.
+          It can be specified in cron format or as a duration for example '@every 2h'
+          or 'every 5m' or '0 0 * * *' for daily at midnight.
+        type: string
+      size:
+        description: Size of the knowledge in bytes
+        type: integer
+      source:
+        allOf:
+        - $ref: '#/definitions/types.KnowledgeSource'
+        description: |-
+          Source defines where the raw data is fetched from. It can be
+          directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+      state:
+        $ref: '#/definitions/types.KnowledgeState'
+      updated:
+        type: string
+      version:
+        description: |-
+          Version of the knowledge, will be used to separate different versions
+          of the same knowledge when updating it. Format is
+          YYYY-MM-DD-HH-MM-SS.
+        type: string
+      versions:
+        items:
+          $ref: '#/definitions/types.KnowledgeVersion'
+        type: array
+    type: object
+  types.KnowledgeProgress:
+    properties:
+      elapsed_seconds:
+        type: integer
+      message:
+        type: string
+      progress:
+        type: integer
+      started_at:
+        type: string
+      step:
+        type: string
+    type: object
   types.KnowledgeSource:
     properties:
       filestore:
@@ -1104,6 +1210,45 @@ definitions:
       password:
         type: string
       username:
+        type: string
+    type: object
+  types.KnowledgeState:
+    enum:
+    - pending
+    - indexing
+    - ready
+    - error
+    type: string
+    x-enum-varnames:
+    - KnowledgeStatePending
+    - KnowledgeStateIndexing
+    - KnowledgeStateReady
+    - KnowledgeStateError
+  types.KnowledgeVersion:
+    properties:
+      crawled_sources:
+        $ref: '#/definitions/types.CrawledSources'
+      created:
+        type: string
+      embeddings_model:
+        description: Model used to embed the knowledge
+        type: string
+      id:
+        type: string
+      knowledge_id:
+        type: string
+      message:
+        description: Set if something wrong happens
+        type: string
+      provider:
+        type: string
+      size:
+        type: integer
+      state:
+        $ref: '#/definitions/types.KnowledgeState'
+      updated:
+        type: string
+      version:
         type: string
     type: object
   types.LLMCall:
@@ -2275,6 +2420,64 @@ paths:
             $ref: '#/definitions/types.App'
       security:
       - BearerAuth: []
+  /api/v1/knowledge:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Knowledge'
+            type: array
+      security:
+      - BearerAuth: []
+  /api/v1/knowledge/{id}:
+    delete:
+      description: Delete knowledge
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Knowledge'
+      security:
+      - BearerAuth: []
+      summary: Delete knowledge
+      tags:
+      - knowledge
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Knowledge'
+  /api/v1/knowledge/{id}/refresh:
+    post:
+      description: Refresh knowledge
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Knowledge'
+      security:
+      - BearerAuth: []
+      summary: Refresh knowledge
+      tags:
+      - knowledge
+  /api/v1/knowledge/{id}/versions:
+    get:
+      description: List knowledge versions
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.KnowledgeVersion'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List knowledge versions
+      tags:
+      - knowledge
   /api/v1/llm_calls:
     get:
       description: List user's LLM calls with pagination and optional session filtering
