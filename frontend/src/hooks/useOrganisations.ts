@@ -8,8 +8,7 @@ export const useOrganizations = () => {
   const api = useApi()
 
   const loadData = useCallback(async () => {
-    try {
-      // Make sure we're explicitly passing secure: true to ensure authentication
+    try {      
       const organizationsResult = await api.getApiClient().v1OrganizationsList();
       
       setOrganizations(organizationsResult.data)
