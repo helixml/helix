@@ -300,6 +300,105 @@
                 }
             }
         },
+        "/api/v1/knowledge": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Knowledge"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete knowledge",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Delete knowledge",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}/refresh": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Refresh knowledge",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Refresh knowledge",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List knowledge versions",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "List knowledge versions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.KnowledgeVersion"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/llm_calls": {
             "get": {
                 "security": [
@@ -2221,6 +2320,34 @@
                 }
             }
         },
+        "types.CrawledSources": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CrawledURL"
+                    }
+                }
+            }
+        },
+        "types.CrawledURL": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "status_code": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CreateAccessGrantRequest": {
             "type": "object",
             "properties": {
@@ -2549,6 +2676,123 @@
                 }
             }
         },
+        "types.Knowledge": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "AppID through which the knowledge was created",
+                    "type": "string"
+                },
+                "crawled_sources": {
+                    "description": "URLs crawled in the last run (should match last knowledge version)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CrawledSources"
+                        }
+                    ]
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Description of the knowledge, will be used in the prompt\nto explain the knowledge to the assistant",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Set if something wrong happens",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next_run": {
+                    "description": "Populated by the cron job controller",
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "User ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "progress": {
+                    "description": "Ephemeral state from knowledge controller",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.KnowledgeProgress"
+                        }
+                    ]
+                },
+                "rag_settings": {
+                    "$ref": "#/definitions/types.RAGSettings"
+                },
+                "refresh_enabled": {
+                    "description": "RefreshEnabled defines if the knowledge should be refreshed periodically\nor on events. For example a Google Drive knowledge can be refreshed\nevery 24 hours.",
+                    "type": "boolean"
+                },
+                "refresh_schedule": {
+                    "description": "RefreshSchedule defines the schedule for refreshing the knowledge.\nIt can be specified in cron format or as a duration for example '@every 2h'\nor 'every 5m' or '0 0 * * *' for daily at midnight.",
+                    "type": "string"
+                },
+                "size": {
+                    "description": "Size of the knowledge in bytes",
+                    "type": "integer"
+                },
+                "source": {
+                    "description": "Source defines where the raw data is fetched from. It can be\ndirectly uploaded files, S3, GCS, Google Drive, Gmail, etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.KnowledgeSource"
+                        }
+                    ]
+                },
+                "state": {
+                    "$ref": "#/definitions/types.KnowledgeState"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Version of the knowledge, will be used to separate different versions\nof the same knowledge when updating it. Format is\nYYYY-MM-DD-HH-MM-SS.",
+                    "type": "string"
+                },
+                "versions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.KnowledgeVersion"
+                    }
+                }
+            }
+        },
+        "types.KnowledgeProgress": {
+            "type": "object",
+            "properties": {
+                "elapsed_seconds": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "step": {
+                    "type": "string"
+                }
+            }
+        },
         "types.KnowledgeSource": {
             "type": "object",
             "properties": {
@@ -2634,6 +2878,61 @@
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeState": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "indexing",
+                "ready",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "KnowledgeStatePending",
+                "KnowledgeStateIndexing",
+                "KnowledgeStateReady",
+                "KnowledgeStateError"
+            ]
+        },
+        "types.KnowledgeVersion": {
+            "type": "object",
+            "properties": {
+                "crawled_sources": {
+                    "$ref": "#/definitions/types.CrawledSources"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "embeddings_model": {
+                    "description": "Model used to embed the knowledge",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "knowledge_id": {
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Set if something wrong happens",
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.KnowledgeState"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "version": {
                     "type": "string"
                 }
             }

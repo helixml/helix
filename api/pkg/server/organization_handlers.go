@@ -16,8 +16,8 @@ import (
 )
 
 // listOrganizations godoc
-// @Summary List currently configured providers
-// @Description List currently configured providers
+// @Summary List organizations
+// @Description List organizations
 // @Tags    providers
 
 // @Success 200 {array} types.Organization
