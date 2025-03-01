@@ -11,6 +11,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// listKnowledge godoc
+// @Summary List knowledge
+// @Description List knowledge
+// @Tags    knowledge
+
+// @Success 200 {array} types.Knowledge
+// @Router /api/v1/knowledge [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) ([]*types.Knowledge, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -41,6 +49,13 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	return knowledges, nil
 }
 
+// getKnowledge godoc
+// @Summary Get knowledge
+// @Description Get knowledge
+// @Tags    knowledge
+
+// @Success 200 {object} types.Knowledge
+// @Router /api/v1/knowledge/{id} [get]
 func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
@@ -63,6 +78,13 @@ func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*
 	return existing, nil
 }
 
+// listKnowledgeVersions godoc
+// @Summary List knowledge versions
+// @Description List knowledge versions
+// @Tags    knowledge
+// @Success 200 {array} types.KnowledgeVersion
+// @Router /api/v1/knowledge/{id}/versions [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listKnowledgeVersions(_ http.ResponseWriter, r *http.Request) ([]*types.KnowledgeVersion, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
@@ -89,6 +111,13 @@ func (s *HelixAPIServer) listKnowledgeVersions(_ http.ResponseWriter, r *http.Re
 	return versions, nil
 }
 
+// deleteKnowledge godoc
+// @Summary Delete knowledge
+// @Description Delete knowledge
+// @Tags    knowledge
+// @Success 200 {object} types.Knowledge
+// @Router /api/v1/knowledge/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
@@ -162,6 +191,13 @@ func (s *HelixAPIServer) deleteKnowledgeAndVersions(k *types.Knowledge) error {
 	return nil
 }
 
+// refreshKnowledge godoc
+// @Summary Refresh knowledge
+// @Description Refresh knowledge
+// @Tags    knowledge
+// @Success 200 {object} types.Knowledge
+// @Router /api/v1/knowledge/{id}/refresh [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) refreshKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
