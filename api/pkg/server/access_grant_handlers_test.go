@@ -614,6 +614,41 @@ func (suite *AppAccessGrantSuite) TestGrantAccess_HasAccess_ToUser() {
 	suite.Contains(rec.Body.String(), `access_grant_id_test`)
 }
 
+func (suite *AppAccessGrantSuite) TestGrantAccess_Denied_ToUser() {
+	app := &types.App{
+		ID:             "app_id_test",
+		OrganizationID: suite.orgID,
+		Owner:          "someone-else", // Not the caller
+	}
+
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+
+	// 1. Checking whether caller is org member
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	// 2. Caller does not have access to the app's access grant updates (can only list them)
+	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceAccessGrants}, []types.Action{types.ActionGet})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/v1/apps/app_id_test/access-grants", bytes.NewBufferString(`{"user_reference": "user_id_test", "roles": ["admin"]}`))
+	req = req.WithContext(suite.authCtx)
+	vars := map[string]string{
+		"id": "app_id_test",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	suite.server.createAppAccessGrant(rec, req)
+
+	suite.Equal(http.StatusForbidden, rec.Code)
+}
+
 func setupAuthorizationMocks(mockStore *store.MockStore, app *types.App, callerUserID string, resources []types.Resource, actions []types.Action) {
 	mockStore.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
 		OrganizationID: app.OrganizationID,
