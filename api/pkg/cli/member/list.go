@@ -3,11 +3,13 @@ package member
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func init() {
@@ -46,7 +48,7 @@ var listCmd = &cobra.Command{
 		header := []string{"User ID", "Email", "Name"}
 
 		if teamReference == "" {
-			header = append(header, "Role")
+			header = append(header, "Role", "Teams")
 		}
 
 		table.SetHeader(header)
@@ -71,7 +73,9 @@ var listCmd = &cobra.Command{
 			}
 
 			if teamReference == "" {
+				// If we are showing organization members, show the role and the teams they are a part of
 				row = append(row, m.Role)
+				row = append(row, strings.Join(m.Teams, ", "))
 			}
 
 			table.Append(row)
@@ -88,6 +92,7 @@ type member struct {
 	Email  string
 	Name   string
 	Role   string
+	Teams  []string
 }
 
 func getMembers(ctx context.Context, apiClient *client.HelixClient, orgReference, teamReference string) ([]*member, error) {
@@ -98,11 +103,17 @@ func getMembers(ctx context.Context, apiClient *client.HelixClient, orgReference
 
 	var members []*member
 
+	// Showing organization members
 	if teamReference == "" {
 		// Just getting org members
 		orgMembers, err := apiClient.ListOrganizationMembers(ctx, org.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list organization members: %w", err)
+		}
+
+		teams, err := apiClient.ListTeams(ctx, org.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list organization teams: %w", err)
 		}
 
 		for _, m := range orgMembers {
@@ -111,6 +122,7 @@ func getMembers(ctx context.Context, apiClient *client.HelixClient, orgReference
 				Email:  m.User.Email,
 				Name:   m.User.FullName,
 				Role:   string(m.Role),
+				Teams:  populateMemberTeams(m, teams),
 			})
 		}
 
@@ -136,4 +148,19 @@ func getMembers(ctx context.Context, apiClient *client.HelixClient, orgReference
 	}
 
 	return members, nil
+}
+
+func populateMemberTeams(orgMember *types.OrganizationMembership, teams []*types.Team) []string {
+	// Team names that the org member is a part of
+	memberTeams := []string{}
+
+	for _, t := range teams {
+		for _, mt := range t.Memberships {
+			if mt.UserID == orgMember.UserID {
+				memberTeams = append(memberTeams, t.Name)
+			}
+		}
+	}
+
+	return memberTeams
 }

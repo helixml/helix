@@ -1110,9 +1110,10 @@ func (Triggers) GormDataType() string {
 }
 
 type App struct {
-	ID      string    `json:"id" gorm:"primaryKey"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	ID             string    `json:"id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+	OrganizationID string    `json:"organization_id" gorm:"index"`
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
@@ -1121,6 +1122,8 @@ type App struct {
 	Global    bool      `json:"global"`
 	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
+
+	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
 }
 
 type KeyPair struct {

@@ -163,6 +163,36 @@ func (suite *AccessGrantTestSuite) TestCreateAccessGrant() {
 	}
 }
 
+func (suite *AccessGrantTestSuite) TestCreateAccessGrant_Duplicate() {
+	// Create test roles
+	roles := []*types.Role{
+		{
+			ID:             system.GenerateUUID(),
+			OrganizationID: suite.org.ID,
+			Name:           "TestRole1",
+			Description:    "Test Role 1",
+		},
+	}
+
+	// Test successful creation with user
+	accessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceApplication,
+		ResourceID:     "test-dataset-1",
+		UserID:         "test-user",
+	}
+
+	created, err := suite.db.CreateAccessGrant(suite.ctx, accessGrant, roles)
+	suite.Require().NoError(err)
+	suite.NotNil(created)
+	suite.Equal(accessGrant.ResourceID, created.ResourceID)
+
+	// Test duplicate creation
+	_, err = suite.db.CreateAccessGrant(suite.ctx, accessGrant, roles)
+	suite.Error(err)
+	suite.Contains(err.Error(), "access grant already exists")
+}
+
 func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 	// Create test access grant
 	accessGrant := &types.AccessGrant{
@@ -268,6 +298,52 @@ func (suite *AccessGrantTestSuite) TestGetAccessGrant() {
 			suite.Error(err)
 		})
 	}
+}
+
+func (suite *AccessGrantTestSuite) TestListAccessGrants_WithTeamsAndUserID() {
+
+	userID := system.GenerateUUID()
+
+	// Create test access grant
+	accessGrant := &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceType:   types.ResourceTypeDataset,
+		ResourceID:     "test-dataset-get",
+		UserID:         userID,
+	}
+
+	roles := []*types.Role{
+		{
+			ID:             system.GenerateUUID(),
+			OrganizationID: suite.org.ID,
+			Name:           "TestRole",
+			Description:    "Test Role",
+		},
+	}
+
+	// Create role
+	role, err := suite.db.CreateRole(suite.ctx, roles[0])
+	suite.Require().NoError(err)
+	suite.NotNil(role)
+
+	created, err := suite.db.CreateAccessGrant(suite.ctx, accessGrant, roles)
+	suite.Require().NoError(err)
+
+	// Test successful get by user ID
+	found, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+		OrganizationID: suite.org.ID,
+		ResourceType:   created.ResourceType,
+		ResourceID:     created.ResourceID,
+		UserID:         userID,
+		TeamIDs:        []string{created.TeamID},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(found, 1)
+	suite.Equal(created.ID, found[0].ID)
+	suite.Equal(created.UserID, found[0].UserID)
+	suite.Require().Len(found[0].Roles, 1)
+	suite.Equal(roles[0].ID, found[0].Roles[0].ID)
+
 }
 
 func (suite *AccessGrantTestSuite) TestDeleteAccessGrant() {

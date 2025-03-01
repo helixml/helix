@@ -497,6 +497,39 @@ definitions:
       usage:
         $ref: '#/definitions/github_com_sashabaranov_go-openai.Usage'
     type: object
+  types.AccessGrant:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: If granted to an organization
+        type: string
+      resource_id:
+        description: App ID, Knowledge ID, etc
+        type: string
+      resource_type:
+        allOf:
+        - $ref: '#/definitions/types.Resource'
+        description: Kind of resource (app, knowledge, provider endpoint, etc)
+      roles:
+        items:
+          $ref: '#/definitions/types.Role'
+        type: array
+      team_id:
+        description: If granted to a team
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
+      user_id:
+        description: If granted to a user
+        type: string
+    type: object
   types.Action:
     enum:
     - Get
@@ -541,6 +574,8 @@ definitions:
         type: boolean
       id:
         type: string
+      organization_id:
+        type: string
       owner:
         description: uuid of owner entity
         type: string
@@ -552,6 +587,10 @@ definitions:
         type: boolean
       updated:
         type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Owner user struct, populated by the server for organization views
     type: object
   types.AppConfig:
     properties:
@@ -774,6 +813,20 @@ definitions:
       message:
         $ref: '#/definitions/types.OpenAIMessage'
       text:
+        type: string
+    type: object
+  types.CreateAccessGrantRequest:
+    properties:
+      roles:
+        description: Role names
+        items:
+          type: string
+        type: array
+      team_id:
+        description: Team ID
+        type: string
+      user_reference:
+        description: User ID or email
         type: string
     type: object
   types.CreateTeamRequest:
@@ -1265,11 +1318,13 @@ definitions:
     - user
     - runner
     - system
+    - socket
     type: string
     x-enum-varnames:
     - OwnerTypeUser
     - OwnerTypeRunner
     - OwnerTypeSystem
+    - OwnerTypeSocket
   types.PaginatedLLMCalls:
     properties:
       calls:
@@ -1406,6 +1461,7 @@ definitions:
     - Membership
     - MembershipRoleBinding
     - Application
+    - AccessGrants
     - Knowledge
     - User
     - '*'
@@ -1418,6 +1474,7 @@ definitions:
     - ResourceMembership
     - ResourceMembershipRoleBinding
     - ResourceApplication
+    - ResourceAccessGrants
     - ResourceKnowledge
     - ResourceUser
     - ResourceAny
@@ -1810,6 +1867,8 @@ definitions:
     properties:
       created_at:
         type: string
+      organization_id:
+        type: string
       team:
         $ref: '#/definitions/types.Team'
       team_id:
@@ -1865,12 +1924,14 @@ definitions:
     - runner
     - keycloak
     - api_key
+    - socket
     type: string
     x-enum-varnames:
     - TokenTypeNone
     - TokenTypeRunner
     - TokenTypeKeycloak
     - TokenTypeAPIKey
+    - TokenTypeSocket
   types.ToolAPIAction:
     properties:
       description:
@@ -2049,6 +2110,11 @@ info:
 paths:
   /api/v1/apps:
     get:
+      parameters:
+      - description: Organization ID
+        in: query
+        name: organization_id
+        type: string
       responses:
         "200":
           description: OK
@@ -2120,6 +2186,42 @@ paths:
             $ref: '#/definitions/types.App'
       security:
       - BearerAuth: []
+  /api/v1/apps/{id}/access-grants:
+    get:
+      description: List access grants for an app (organization owners and members
+        can list access grants)
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AccessGrant'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List app access grants
+      tags:
+      - apps
+    post:
+      description: Grant access to an app to a team or organization member (organization
+        owners can grant access to teams and organization members)
+      parameters:
+      - description: Request body with team or organization member ID and role
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateAccessGrantRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AccessGrant'
+      security:
+      - BearerAuth: []
+      summary: Grant access to an app to a team or organization member
+      tags:
+      - apps
   /api/v1/apps/{id}/api-actions:
     post:
       parameters:

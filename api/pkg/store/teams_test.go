@@ -79,6 +79,30 @@ func (suite *TeamsTestSuite) TestCreateTeam() {
 	})
 }
 
+func (suite *TeamsTestSuite) TestCreateTeam_AlreadyExists() {
+	id := system.GenerateTeamID()
+	team := &types.Team{
+		ID:             id,
+		Name:           "Test Team " + id,
+		OrganizationID: suite.org.ID,
+	}
+
+	createdTeam, err := suite.db.CreateTeam(suite.ctx, team)
+	suite.Require().NoError(err)
+	suite.NotNil(createdTeam)
+	suite.Equal(team.ID, createdTeam.ID)
+	suite.Equal(team.Name, createdTeam.Name)
+	suite.Equal(team.OrganizationID, createdTeam.OrganizationID)
+
+	_, err = suite.db.CreateTeam(suite.ctx, team)
+	suite.Error(err)
+
+	suite.T().Cleanup(func() {
+		err := suite.db.DeleteTeam(suite.ctx, createdTeam.ID)
+		suite.NoError(err)
+	})
+}
+
 func (suite *TeamsTestSuite) TestGetTeam() {
 	// Create a test team first
 	id := system.GenerateTeamID()

@@ -23,6 +23,11 @@ var removeCmd = &cobra.Command{
 			return fmt.Errorf("app name or ID is required")
 		}
 
+		organization, err := cmd.Flags().GetString("organization")
+		if err != nil {
+			return err
+		}
+
 		knowledge, err := cmd.Flags().GetBool("knowledge")
 		if err != nil {
 			return err
@@ -33,7 +38,7 @@ var removeCmd = &cobra.Command{
 			return err
 		}
 
-		app, err := lookupApp(cmd.Context(), apiClient, args[0])
+		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to lookup app: %w", err)
 		}

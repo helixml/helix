@@ -45,9 +45,10 @@ type ListSecretsQuery struct {
 }
 
 type ListAppsQuery struct {
-	Owner     string          `json:"owner"`
-	OwnerType types.OwnerType `json:"owner_type"`
-	Global    bool            `json:"global"`
+	Owner          string          `json:"owner"`
+	OwnerType      types.OwnerType `json:"owner_type"`
+	Global         bool            `json:"global"`
+	OrganizationID string          `json:"organization_id"`
 }
 
 type ListDataEntitiesQuery struct {

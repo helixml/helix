@@ -13,7 +13,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(inspectCmd)
-	inspectCmd.Flags().StringP("output", "o", "yaml", "Output format. One of: json|yaml")
+
+	inspectCmd.Flags().String("output", "yaml", "Output format. One of: json|yaml")
 }
 
 var inspectCmd = &cobra.Command{
@@ -27,7 +28,12 @@ var inspectCmd = &cobra.Command{
 			return err
 		}
 
-		app, err := lookupApp(cmd.Context(), apiClient, args[0])
+		organization, err := cmd.Flags().GetString("organization")
+		if err != nil {
+			return err
+		}
+
+		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to lookup app: %w", err)
 		}

@@ -299,9 +299,10 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
 	var apps []*types.App
 	err := s.gdb.WithContext(ctx).Where(&types.App{
-		Owner:     q.Owner,
-		OwnerType: q.OwnerType,
-		Global:    q.Global,
+		Owner:          q.Owner,
+		OwnerType:      q.OwnerType,
+		Global:         q.Global,
+		OrganizationID: q.OrganizationID,
 	}).Order("id DESC").Find(&apps).Error
 	if err != nil {
 		return nil, err

@@ -13,6 +13,7 @@ import (
 
 type ListTeamsQuery struct {
 	OrganizationID string
+	UserID         string
 }
 
 type GetTeamQuery struct {
@@ -31,10 +32,19 @@ func (s *PostgresStore) CreateTeam(ctx context.Context, team *types.Team) (*type
 		return nil, fmt.Errorf("organization_id not specified")
 	}
 
+	// Check if team already exists
+	_, err := s.GetTeam(ctx, &GetTeamQuery{
+		OrganizationID: team.OrganizationID,
+		Name:           team.Name,
+	})
+	if err == nil {
+		return nil, fmt.Errorf("team with name %s already exists", team.Name)
+	}
+
 	team.CreatedAt = time.Now()
 	team.UpdatedAt = time.Now()
 
-	err := s.gdb.WithContext(ctx).Create(team).Error
+	err = s.gdb.WithContext(ctx).Create(team).Error
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +72,7 @@ func (s *PostgresStore) GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Te
 	}
 
 	var team types.Team
-	err := query.First(&team).Error
+	err := query.Preload("Memberships").First(&team).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -81,7 +91,7 @@ func (s *PostgresStore) ListTeams(ctx context.Context, q *ListTeamsQuery) ([]*ty
 	}
 
 	var teams []*types.Team
-	err := query.Find(&teams).Error
+	err := query.Preload("Memberships").Find(&teams).Error
 	if err != nil {
 		return nil, err
 	}
