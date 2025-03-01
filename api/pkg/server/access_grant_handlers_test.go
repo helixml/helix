@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -344,6 +345,71 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_HasTeamAcces
 	req = mux.SetURLVars(req, vars)
 
 	suite.server.listAppAccessGrants(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code)
+	suite.Contains(rec.Body.String(), `access_grant_id_test`)
+}
+
+// TestGrantAccess_OrgOwner org owner can grant access to a user
+func (suite *AppAccessGrantSuite) TestGrantAccess_OrgOwner_ToUser() {
+	app := &types.App{
+		ID:             "app_id_test",
+		OrganizationID: suite.orgID,
+	}
+
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+
+	// 1. Checking whether caller is org owner
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleOwner,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	// 2. Checking grantee user exists
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{
+		ID: "user_id_test",
+	}).Return(&types.User{
+		ID: "user_id_test",
+	}, nil)
+
+	// 3. Since caller is org owner, we can skip authorization check
+
+	// 4. Ensure roles
+	suite.store.EXPECT().ListRoles(gomock.Any(), suite.orgID).Return([]*types.Role{
+		{
+			Name: "admin",
+			ID:   "admin_role_id_test",
+		},
+	}, nil)
+
+	// 5. Create access grant
+	suite.store.EXPECT().CreateAccessGrant(gomock.Any(), &types.AccessGrant{
+		OrganizationID: app.OrganizationID,
+		ResourceID:     app.ID,
+		ResourceType:   types.ResourceApplication,
+		UserID:         "user_id_test",
+	}, []*types.Role{
+		{
+			Name: "admin",
+			ID:   "admin_role_id_test",
+		},
+	}).Return(&types.AccessGrant{
+		ID: "access_grant_id_test",
+	}, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/v1/apps/app_id_test/access-grants", bytes.NewBufferString(`{"user_reference": "user_id_test", "roles": ["admin"]}`))
+	req = req.WithContext(suite.authCtx)
+	vars := map[string]string{
+		"id": "app_id_test",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	suite.server.createAppAccessGrant(rec, req)
 
 	suite.Equal(http.StatusOK, rec.Code)
 	suite.Contains(rec.Body.String(), `access_grant_id_test`)
