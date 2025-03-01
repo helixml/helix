@@ -522,6 +522,10 @@ definitions:
         type: string
       updated_at:
         type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
       user_id:
         description: If granted to a user
         type: string
@@ -583,6 +587,10 @@ definitions:
         type: boolean
       updated:
         type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Owner user struct, populated by the server for organization views
     type: object
   types.AppConfig:
     properties:
@@ -817,8 +825,8 @@ definitions:
       team_id:
         description: Team ID
         type: string
-      user_id:
-        description: User ID
+      user_reference:
+        description: User ID or email
         type: string
     type: object
   types.CreateTeamRequest:
@@ -1310,11 +1318,13 @@ definitions:
     - user
     - runner
     - system
+    - socket
     type: string
     x-enum-varnames:
     - OwnerTypeUser
     - OwnerTypeRunner
     - OwnerTypeSystem
+    - OwnerTypeSocket
   types.PaginatedLLMCalls:
     properties:
       calls:
@@ -1914,12 +1924,14 @@ definitions:
     - runner
     - keycloak
     - api_key
+    - socket
     type: string
     x-enum-varnames:
     - TokenTypeNone
     - TokenTypeRunner
     - TokenTypeKeycloak
     - TokenTypeAPIKey
+    - TokenTypeSocket
   types.ToolAPIAction:
     properties:
       description:
