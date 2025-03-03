@@ -342,6 +342,44 @@ func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token str
 	return j, nil
 }
 
+// SearchUsers searches for users by search term (matches against email, username, or full name)
+func (k *KeycloakAuthenticator) SearchUsers(ctx context.Context, searchTerm string) ([]*types.User, error) {
+	adminToken, err := k.getAdminToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get admin token: %w", err)
+	}
+
+	// Create search parameters
+	params := gocloak.GetUsersParams{
+		Search: &searchTerm, // This will search across multiple fields
+		Max:    addr(20),    // Limit results to 20 users
+	}
+
+	// Search for users in Keycloak
+	keycloakUsers, err := k.gocloak.GetUsers(ctx, adminToken.AccessToken, k.cfg.Realm, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search users: %w", err)
+	}
+
+	// Convert Keycloak users to our User type
+	users := make([]*types.User, 0, len(keycloakUsers))
+	for _, ku := range keycloakUsers {
+		if ku.ID == nil || ku.Username == nil {
+			continue // Skip users with missing required fields
+		}
+
+		user := &types.User{
+			ID:       gocloak.PString(ku.ID),
+			Username: gocloak.PString(ku.Username),
+			Email:    gocloak.PString(ku.Email),
+			FullName: fmt.Sprintf("%s %s", gocloak.PString(ku.FirstName), gocloak.PString(ku.LastName)),
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}
+
 func addr[T any](t T) *T { return &t }
 
 // Compile-time interface check:

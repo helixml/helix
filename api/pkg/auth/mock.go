@@ -25,3 +25,9 @@ func (m *MockAuthenticator) GetUserByID(_ context.Context, _ string) (*types.Use
 func (m *MockAuthenticator) ValidateUserToken(_ context.Context, _ string) (*jwt.Token, error) {
 	return nil, nil
 }
+
+// SearchUsers implements the Authenticator interface for mock testing
+func (m *MockAuthenticator) SearchUsers(_ context.Context, _ string) ([]*types.User, error) {
+	// Return a slice with just the mock user
+	return []*types.User{m.user}, nil
+}

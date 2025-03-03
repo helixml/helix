@@ -79,6 +79,14 @@ type HelixAPIServer struct {
 	pingService       *version.PingService
 }
 
+// UserSearchResult represents a user search result
+type UserSearchResult struct {
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	FullName string `json:"fullName"`
+}
+
 func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
@@ -478,6 +486,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/license", apiServer.handleGetLicenseKey).Methods("GET")
 	adminRouter.HandleFunc("/license", apiServer.handleSetLicenseKey).Methods("POST")
 
+	// Add the search users endpoint
+	authRouter.HandleFunc("/users/search", system.DefaultWrapper(apiServer.searchUsers)).Methods(http.MethodGet)
+
 	apiServer.router = router
 
 	return subRouter, nil
@@ -667,4 +678,38 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	}
 
 	return nil
+}
+
+// searchUsers handles searching for users by a search term
+func (apiServer *HelixAPIServer) searchUsers(_ http.ResponseWriter, r *http.Request) ([]UserSearchResult, error) {
+	// Get the search term from the query parameter
+	searchTerm := r.URL.Query().Get("q")
+	if searchTerm == "" {
+		return nil, fmt.Errorf("search term is required")
+	}
+
+	// Get the user from the request context
+	user := getRequestUser(r)
+	if !hasUser(user) {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	// Search for users
+	users, err := apiServer.authMiddleware.authenticator.SearchUsers(r.Context(), searchTerm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search users: %w", err)
+	}
+
+	// Create a response with the search results
+	results := make([]UserSearchResult, 0, len(users))
+	for _, u := range users {
+		results = append(results, UserSearchResult{
+			ID:       u.ID,
+			Email:    u.Email,
+			Username: u.Username,
+			FullName: u.FullName,
+		})
+	}
+
+	return results, nil
 }
