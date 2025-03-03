@@ -22,27 +22,76 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const [slug, setSlug] = useState('')
   const [name, setName] = useState('')
-  const [displayName, setDisplayName] = useState('')
   const [loading, setLoading] = useState(false)
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
+  const [errors, setErrors] = useState<{slug?: string, name?: string}>({})
 
+  // Reset state when modal opens/closes or org changes
   useEffect(() => {
     if (org) {
-      setName(org.name || '')
-      setDisplayName(org.display_name || '')
+      setSlug(org.name || '')
+      setName(org.display_name || '')
     } else {
+      setSlug('')
       setName('')
-      setDisplayName('')
     }
-  }, [org])
+    setSlugManuallyEdited(false)
+    setErrors({})
+  }, [org, open])
+
+  // Generate slug from name for new organizations
+  const handleNameBlur = () => {
+    // Only auto-generate slug if:
+    // 1. Creating a new org (not editing)
+    // 2. Current slug is empty
+    // 3. User hasn't manually edited the slug
+    if (!org && slug === '' && !slugManuallyEdited && name) {
+      // Convert name to slug format: lowercase, replace spaces with hyphens
+      const generatedSlug = name.toLowerCase().replace(/\s+/g, '-')
+      setSlug(generatedSlug)
+    }
+  }
+
+  // Mark slug as manually edited when user changes it
+  const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSlugManuallyEdited(true)
+    setSlug(e.target.value)
+  }
+
+  // Validate form before submission
+  const validateForm = () => {
+    const newErrors: {slug?: string, name?: string} = {}
+    
+    // Validate name (required)
+    if (!name) {
+      newErrors.name = 'Name is required'
+    }
+    
+    // Validate slug (required and no spaces)
+    if (!slug) {
+      newErrors.slug = 'Slug is required'
+    } else if (slug.includes(' ')) {
+      newErrors.slug = 'Slug cannot contain spaces'
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
   const handleSubmit = async () => {
+    // Validate form before submission
+    if (!validateForm()) {
+      return
+    }
+    
     try {
       setLoading(true)
       await onSubmit({
         id: org?.id,
-        name,
-        display_name: displayName,
+        name: slug, // 'name' field in API is our 'slug'
+        display_name: name, // 'display_name' in API is our 'name'
       } as TypesOrganization)
       onClose()
     } finally {
@@ -62,23 +111,30 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
+          {/* Name field (formerly Display Name) */}
           <TextField
             label="Name"
             fullWidth
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onBlur={handleNameBlur}
             disabled={loading}
             required
-            helperText="Unique identifier for the organization"
+            error={!!errors.name}
+            helperText={errors.name || "Human-readable name for the organization"}
             sx={{ mb: 2 }}
           />
+          
+          {/* Slug field (formerly Name) */}
           <TextField
-            label="Display Name"
+            label="Slug"
             fullWidth
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            value={slug}
+            onChange={handleSlugChange}
             disabled={loading}
-            helperText="Human-readable name for the organization"
+            required
+            error={!!errors.slug}
+            helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
           />
         </Box>
       </DialogContent>
@@ -93,7 +149,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
           onClick={handleSubmit}
           variant="contained"
           color="primary"
-          disabled={loading || !name}
+          disabled={loading}
         >
           {org ? 'Update' : 'Create'}
         </Button>
