@@ -94,12 +94,16 @@ const Sidebar: React.FC = ({
         }}
         >
         <List disablePadding>
-          <SidebarMainLink
-            id="orgs-link"
-            routeName="orgs"
-            title="Orgs"
-            icon={ <PeopleIcon/> }
-          />
+          {
+            account.user && (
+              <SidebarMainLink
+                id="orgs-link"
+                routeName="orgs"
+                title="Orgs"
+                icon={ <PeopleIcon/> }
+              />
+            )
+          }
           <SidebarMainLink
             id="home-link"
             routeName="home"
