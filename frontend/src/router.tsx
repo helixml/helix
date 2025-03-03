@@ -5,6 +5,7 @@ import browserPlugin from 'router5-plugin-browser'
 import Session from './pages/Session'
 import Account from './pages/Account'
 import Apps from './pages/Apps'
+import Orgs from './pages/Orgs'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
@@ -68,6 +69,15 @@ const routes: IApplicationRoute[] = [{
     <FilestoreContextProvider>
       <Files />
     </FilestoreContextProvider>
+  ),
+}, {
+  name: 'orgs',
+  path: '/orgs',
+  meta: {
+    drawer: true,
+  },
+  render: () => (
+    <Orgs />
   ),
 }, {
   name: 'apps',
