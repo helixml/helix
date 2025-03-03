@@ -2,11 +2,14 @@ import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
 import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
 import useApi from '../hooks/useApi'
-import { useOrganizations } from '../hooks/useOrganisations'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import useOrganizations from '../hooks/useOrganizations'
+import {
+  TypesOrganization
+} from '../api/api'
 
 import {
   IApiKey,
@@ -25,6 +28,7 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   admin: boolean,
+  organizations: TypesOrganization[],
   user?: IKeycloakUser,
   token?: string,
   tokenUrlEscaped?: string,
@@ -49,6 +53,7 @@ export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
   admin: false,
+  organizations: [],
   loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
@@ -80,10 +85,10 @@ export const useAccount = () => {
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
-  const organizations = useOrganizations()
   const snackbar = useSnackbar()
   const loading = useLoading()
   const router = useRouter()
+  const organizationTools = useOrganizations()
   const [ admin, setAdmin ] = useState(false)
   const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
@@ -132,12 +137,10 @@ export const useAccountContext = (): IAccountContext => {
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
-    console.log('--------------------------------------------')
-    console.log(statusResult)
-    console.log('--------------------------------------------')
     setCredits(statusResult.credits)
     setAdmin(statusResult.admin)
     setUserConfig(statusResult.config)
+    await organizationTools.loadOrganizations()
   }, [])
 
   const loadServerConfig = useCallback(async () => {
@@ -165,7 +168,6 @@ export const useAccountContext = (): IAccountContext => {
       loadStatus(),
       loadServerConfig(),
       fetchProviderEndpoints(),
-      organizations.loadData(),
     ])
   }, [
     loadStatus,
@@ -304,6 +306,7 @@ export const useAccountContext = (): IAccountContext => {
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
+    organizations: organizationTools.organizations,
   }
 }
 

@@ -16,6 +16,7 @@ import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useOrganizations from '../hooks/useOrganizations'
 import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
@@ -29,7 +30,7 @@ const Layout: FC = ({
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
-
+  const organizations = useOrganizations()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
 
   const hasNewVersion = useMemo(() => {

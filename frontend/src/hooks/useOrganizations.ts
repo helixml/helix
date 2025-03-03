@@ -61,10 +61,6 @@ export default function useOrganizations() {
     }
   }, [loadOrganizations])
 
-  useEffect(() => {
-    loadOrganizations()
-  }, [])
-
   return {
     organizations,
     loading,
