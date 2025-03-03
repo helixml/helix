@@ -77,6 +77,7 @@ type HelixAPIServer struct {
 	router            *mux.Router
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
+	oidcClient        *auth.OIDCClient
 }
 
 func NewServer(
@@ -110,6 +111,20 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
+	// TODO(Phil): Eventually need to swap this out for any OIDC provider
+	providerURL := "http://localhost:8080/auth/realms/helix"
+	// TODO(Phil): This is the path to the helix backend, but obviously the host needs to be configurable
+	helixRedirectURL := "http://localhost:8080/api/v1/auth/callback"
+	oidcClient, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+		ProviderURL:  providerURL,
+		ClientID:     cfg.Keycloak.APIClientID,
+		ClientSecret: cfg.Keycloak.ClientSecret,
+		RedirectURL:  helixRedirectURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create oidc client: %w", err)
+	}
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -132,6 +147,7 @@ func NewServer(
 		knowledgeManager: knowledgeManager,
 		scheduler:        scheduler,
 		pingService:      pingService,
+		oidcClient:       oidcClient,
 	}, nil
 }
 
@@ -357,6 +373,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.deleteKnowledge)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/knowledge/{id}/refresh", system.Wrapper(apiServer.refreshKnowledge)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
+
+	// User auth, BFF
+	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
 
 	// Orgs, authz
 	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
