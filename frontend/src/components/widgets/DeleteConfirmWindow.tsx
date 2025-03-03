@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback } from 'react'
+import React, { FC, useState, useCallback, useEffect } from 'react'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
@@ -47,6 +47,12 @@ const DeleteConfirmWindow: FC<DeleteConfirmWindowProps> = ({
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if(!open) {
+      setConfirmValue('')
+    }
+  }, [open])
 
   return (
     <Dialog

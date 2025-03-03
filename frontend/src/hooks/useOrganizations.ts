@@ -57,7 +57,14 @@ export default function useOrganizations(): IOrganizationTools {
         }
       })
 
-      setOrganizations(orgsWithMembers)
+      // Sort organizations by display_name (or name if display_name is not available)
+      const sortedOrgs = [...orgsWithMembers].sort((a, b) => {
+        const aName = (a.display_name || a.name || '').toLowerCase()
+        const bName = (b.display_name || b.name || '').toLowerCase()
+        return aName.localeCompare(bName)
+      })
+
+      setOrganizations(sortedOrgs)
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)

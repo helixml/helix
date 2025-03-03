@@ -88,11 +88,22 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
     
     try {
       setLoading(true)
-      await onSubmit({
-        id: org?.id,
-        name: slug, // 'name' field in API is our 'slug'
-        display_name: name, // 'display_name' in API is our 'name'
-      } as TypesOrganization)
+      
+      // Create the updated organization object
+      // If editing existing org, merge with original data
+      // If creating new org, create minimal object
+      const updatedOrg = org 
+        ? {
+            ...org,            // Preserve all existing fields
+            name: slug,        // Update the slug
+            display_name: name // Update the display name
+          } 
+        : {
+            name: slug,        // 'name' field in API is our 'slug'
+            display_name: name // 'display_name' in API is our 'name'
+          } as TypesOrganization;
+      
+      await onSubmit(updatedOrg)
       onClose()
     } finally {
       setLoading(false)
