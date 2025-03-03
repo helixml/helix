@@ -215,12 +215,12 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end}}
-          {{- with .Values.controlplane.haystack.volumeMounts }}
           volumeMounts:
-            {{- toYaml . | nindent 12 }}
             - name: helix-embeddings-socket
               mountPath: /socket
-          {{- end}}
+            {{- with .Values.controlplane.haystack.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end}}
         {{- end }}
       volumes:
       - name: helix-embeddings-socket
