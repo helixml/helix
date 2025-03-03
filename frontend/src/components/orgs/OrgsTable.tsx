@@ -30,7 +30,7 @@ const OrgsTable: FC<{
     return data.map(org => ({
       id: org.id,
       _data: org,
-      name: (
+      display_name: (
         <a
           style={{
             textDecoration: 'none',
@@ -46,6 +46,15 @@ const OrgsTable: FC<{
         >
           {org.display_name || org.name}
         </a>
+      ),
+      slug: (
+        <Box
+          sx={{
+            fontSize: '0.9em',
+          }}
+        >
+          {org.name}
+        </Box>
       ),
       owner: org.owner,
       updated: (
@@ -99,8 +108,11 @@ const OrgsTable: FC<{
   return (
     <SimpleTable
       fields={[{
-        name: 'name',
-        title: 'Name',
+        name: 'display_name',
+        title: 'Display Name',
+      }, {
+        name: 'slug',
+        title: 'Slug',
       }, {
         name: 'owner',
         title: 'Owner'
