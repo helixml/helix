@@ -2,12 +2,32 @@ import { useState, useCallback, useEffect } from 'react'
 import { TypesOrganization } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
+import useAccount from './useAccount'
 
-export default function useOrganizations() {
+export interface IOrganizationTools {
+  organizations: TypesOrganization[],
+  loading: boolean,
+  loadOrganizations: () => Promise<void>,
+  createOrganization: (org: TypesOrganization) => Promise<boolean>,
+  updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
+  deleteOrganization: (id: string) => Promise<boolean>,
+}
+
+export const defaultOrganizationTools: IOrganizationTools = {
+  organizations: [],
+  loading: false,
+  loadOrganizations: async () => {},
+  createOrganization: async () => false,
+  updateOrganization: async () => false,
+  deleteOrganization: async () => false,
+}
+
+export default function useOrganizations(): IOrganizationTools {
   const [organizations, setOrganizations] = useState<TypesOrganization[]>([])
   const [loading, setLoading] = useState(false)
   const api = useApi()
   const snackbar = useSnackbar()
+  const account = useAccount()
 
   const loadOrganizations = useCallback(async () => {
     try {
