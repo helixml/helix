@@ -11,12 +11,16 @@ import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import useOrganizations from '../hooks/useOrganizations'
 import useSnackbar from '../hooks/useSnackbar'
+import useAccount from '../hooks/useAccount'
 
 import {
   TypesOrganization,
 } from '../api/api'
 
 const Orgs: FC = () => {
+  // Get account context to check admin status
+  const { admin } = useAccount()
+  
   const {
     organizations,
     loading,
@@ -63,7 +67,7 @@ const Orgs: FC = () => {
   return (
     <Page
       breadcrumbTitle="Organizations"
-      topbarContent={(
+      topbarContent={admin ? (
         <Button
           variant="contained"
           color="primary"
@@ -72,7 +76,7 @@ const Orgs: FC = () => {
         >
           Create Organization
         </Button>
-      )}
+      ) : null}
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3 }}>
