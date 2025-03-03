@@ -122,6 +122,7 @@ type Keycloak struct {
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
 	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
 	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
+	SecureCookies       bool   `envconfig:"KEYCLOAK_SECURE_COOKIES" default:"true"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

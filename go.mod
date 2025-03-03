@@ -75,6 +75,11 @@ require (
 )
 
 require (
+	github.com/pquerna/cachecontrol v0.2.0 // indirect
+	gopkg.in/go-jose/go-jose.v2 v2.6.3 // indirect
+)
+
+require (
 	cloud.google.com/go v0.114.0 // indirect
 	cloud.google.com/go/auth v0.5.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
@@ -103,6 +108,7 @@ require (
 	github.com/bodgit/sevenzip v1.5.2 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
+	github.com/coreos/go-oidc v2.3.0+incompatible
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/docker/cli v27.2.1+incompatible // indirect
