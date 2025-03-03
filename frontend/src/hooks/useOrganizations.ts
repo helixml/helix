@@ -3,6 +3,7 @@ import { TypesOrganization } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
+import { extractErrorMessage } from './useErrorCallback'
 
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
@@ -36,7 +37,8 @@ export default function useOrganizations(): IOrganizationTools {
       setOrganizations(result.data)
     } catch (error) {
       console.error(error)
-      snackbar.error('Error loading organizations')
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error loading organizations')
     } finally {
       setLoading(false)
     }
@@ -50,7 +52,8 @@ export default function useOrganizations(): IOrganizationTools {
       return true
     } catch (error) {
       console.error(error)
-      snackbar.error('Error creating organization')
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error creating organization')
       return false
     }
   }, [loadOrganizations])
@@ -63,7 +66,8 @@ export default function useOrganizations(): IOrganizationTools {
       return true
     } catch (error) {
       console.error(error)
-      snackbar.error('Error updating organization')
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error updating organization')
       return false
     }
   }, [loadOrganizations])
@@ -76,7 +80,8 @@ export default function useOrganizations(): IOrganizationTools {
       return true
     } catch (error) {
       console.error(error)
-      snackbar.error('Error deleting organization')
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error deleting organization')
       return false
     }
   }, [loadOrganizations])
