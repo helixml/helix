@@ -60,6 +60,9 @@ services:
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      - RAG_HAYSTACK_ENABLED=true
+      # URL in the compose stack (rather than localhost in the pod which is default for k8s)
+      - RAG_HAYSTACK_URL=http://haystack:8000
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum

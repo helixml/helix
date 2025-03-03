@@ -229,7 +229,7 @@ type RAG struct {
 
 	Haystack struct {
 		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
-		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://haystack:8000" description:"The URL to the Haystack service."`
+		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {
