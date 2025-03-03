@@ -19,16 +19,7 @@ import {
 
 const Orgs: FC = () => {
   // Get account context to check admin status
-  const { admin } = useAccount()
-  
-  const {
-    organizations,
-    loading,
-    createOrganization,
-    updateOrganization,
-    deleteOrganization,
-  } = useOrganizations()
-
+  const account  = useAccount()
   const [editOrg, setEditOrg] = useState<TypesOrganization | undefined>()
   const [deleteOrg, setDeleteOrg] = useState<TypesOrganization | undefined>()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -51,15 +42,15 @@ const Orgs: FC = () => {
 
   const handleSubmit = async (org: TypesOrganization) => {
     if (org.id) {
-      await updateOrganization(org.id, org)
+      await account.organizationTools.updateOrganization(org.id, org)
     } else {
-      await createOrganization(org)
+      await account.organizationTools.createOrganization(org)
     }
   }
 
   const handleConfirmDelete = async () => {
     if (deleteOrg) {
-      await deleteOrganization(deleteOrg.id!)
+      await account.organizationTools.deleteOrganization(deleteOrg.id!)
       setDeleteDialogOpen(false)
     }
   }
@@ -67,7 +58,7 @@ const Orgs: FC = () => {
   return (
     <Page
       breadcrumbTitle="Organizations"
-      topbarContent={admin ? (
+      topbarContent={account.admin ? (
         <Button
           variant="contained"
           color="primary"
@@ -81,10 +72,10 @@ const Orgs: FC = () => {
       <Container maxWidth="xl">
         <Box sx={{ mt: 3 }}>
           <OrgsTable
-            data={organizations}
+            data={account.organizationTools.organizations}
             onEdit={handleEdit}
             onDelete={handleDelete}
-            loading={loading}
+            loading={account.organizationTools.loading}
           />
         </Box>
       </Container>

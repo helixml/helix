@@ -6,10 +6,7 @@ import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-import useOrganizations from '../hooks/useOrganizations'
-import {
-  TypesOrganization
-} from '../api/api'
+import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
 
 import {
   IApiKey,
@@ -28,7 +25,7 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   admin: boolean,
-  organizations: TypesOrganization[],
+  organizationTools: IOrganizationTools,
   user?: IKeycloakUser,
   token?: string,
   tokenUrlEscaped?: string,
@@ -53,7 +50,7 @@ export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
   admin: false,
-  organizations: [],
+  organizationTools: defaultOrganizationTools,
   loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
@@ -306,7 +303,7 @@ export const useAccountContext = (): IAccountContext => {
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
-    organizations: organizationTools.organizations,
+    organizationTools,
   }
 }
 
