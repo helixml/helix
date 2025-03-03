@@ -84,7 +84,7 @@ spec:
             - name: INFERENCE_PROVIDER
               value: {{ . | quote }}
             {{- end }}
-            {{- with (default "" .Values.controlplane.inference.finetuningProvider) }}
+            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
             - name: FINETUNING_PROVIDER
               value: {{ . | quote }}
             {{- end }}
