@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
-import { TypesOrganization } from '../api/api'
+import { TypesOrganization, TypesOrganizationMembership } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
 import { extractErrorMessage } from './useErrorCallback'
+import bluebird from 'bluebird'
 
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
@@ -34,7 +35,29 @@ export default function useOrganizations(): IOrganizationTools {
     try {
       setLoading(true)
       const result = await api.getApiClient().v1OrganizationsList()
-      setOrganizations(result.data)
+      
+      // Fetch members for each organization in parallel
+      const orgsWithMembers = await bluebird.map(result.data, async (org) => {
+        try {
+          // Only fetch members if org has an ID
+          if (org.id) {
+            // Call the API to get members for this organization
+            const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(org.id)
+            // Create a new object with the members field populated
+            return {
+              ...org,
+              memberships: membersResult.data
+            }
+          }
+          return org
+        } catch (error) {
+          console.error(`Error fetching members for organization ${org.id}:`, error)
+          // Return the original org if there was an error fetching members
+          return org
+        }
+      })
+
+      setOrganizations(orgsWithMembers)
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)
@@ -42,7 +65,7 @@ export default function useOrganizations(): IOrganizationTools {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [api])
 
   const createOrganization = useCallback(async (org: TypesOrganization) => {
     try {

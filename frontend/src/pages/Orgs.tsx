@@ -55,6 +55,8 @@ const Orgs: FC = () => {
     }
   }
 
+  if(!account.user) return null
+
   return (
     <Page
       breadcrumbTitle="Organizations"
@@ -73,6 +75,7 @@ const Orgs: FC = () => {
         <Box sx={{ mt: 3 }}>
           <OrgsTable
             data={account.organizationTools.organizations}
+            userID={account.user?.id}
             onEdit={handleEdit}
             onDelete={handleDelete}
             loading={account.organizationTools.loading}

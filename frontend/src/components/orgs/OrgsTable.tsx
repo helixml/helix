@@ -2,12 +2,15 @@ import React, { FC, useMemo, useCallback } from 'react'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
+import useTheme from '@mui/material/styles/useTheme'
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
-import useTheme from '@mui/material/styles/useTheme'
+
+import {
+  isUserOwnerOfOrganization
+} from '../../utils/organizations'
 
 import {
   TypesOrganization,
@@ -15,11 +18,13 @@ import {
 
 const OrgsTable: FC<{
   data: TypesOrganization[],
+  userID: string,
   onEdit: (org: TypesOrganization) => void,
   onDelete: (org: TypesOrganization) => void,
   loading?: boolean,
 }> = ({
   data,
+  userID,
   onEdit,
   onDelete,
   loading,
@@ -73,7 +78,8 @@ const OrgsTable: FC<{
   ])
 
   const getActions = useCallback((org: any) => {
-    return (
+    const isOwner = isUserOwnerOfOrganization(org._data, userID)
+    return isOwner ? (
       <Box
         sx={{
           width: '100%',
@@ -102,8 +108,10 @@ const OrgsTable: FC<{
           </Tooltip>
         </ClickLink>
       </Box>
-    )
-  }, [])
+    ) : <div></div>
+  }, [
+    userID,
+  ])
 
   return (
     <SimpleTable
