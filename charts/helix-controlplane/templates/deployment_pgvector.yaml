@@ -66,17 +66,17 @@ spec:
               protocol: TCP
           env:
             - name: POSTGRES_DB
-              value: {{ .Values.pgvector.database | default "postgres" }}
+              value: {{ .Values.pgvector.auth.database | default "postgres" }}
             - name: POSTGRES_USER
-              value: {{ .Values.pgvector.username | default "postgres" }}
+              value: {{ .Values.pgvector.auth.username | default "postgres" }}
             - name: POSTGRES_PASSWORD
-              {{- if .Values.pgvector.existingSecret }}
+              {{- if .Values.pgvector.auth.existingSecret }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.pgvector.existingSecret }}
-                  key: {{ .Values.pgvector.passwordKey | default "password" }}
+                  name: {{ .Values.pgvector.auth.existingSecret }}
+                  key: {{ .Values.pgvector.auth.passwordKey | default "password" }}
               {{- else }}
-              value: {{ .Values.pgvector.password | default "pgvector" }}
+              value: {{ .Values.pgvector.auth.password | default "pgvector" }}
               {{- end }}
           {{- if .Values.pgvector.persistence.enabled }} 
           volumeMounts:
