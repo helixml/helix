@@ -21,6 +21,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SchoolIcon from '@mui/icons-material/School'
 import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
+import PeopleIcon from '@mui/icons-material/People'
 
 import SidebarMainLink from './SidebarMainLink'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -94,11 +95,18 @@ const Sidebar: React.FC = ({
         >
         <List disablePadding>
           <SidebarMainLink
+            id="orgs-link"
+            routeName="orgs"
+            title="Orgs"
+            icon={ <PeopleIcon/> }
+          />
+          <SidebarMainLink
             id="home-link"
             routeName="home"
             title="Home"
             icon={ <HomeIcon/> }
           />
+          
           {/* <Divider />
           <SidebarMainLink
             routeName="new"

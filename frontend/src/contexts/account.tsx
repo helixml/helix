@@ -132,6 +132,9 @@ export const useAccountContext = (): IAccountContext => {
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
+    console.log('--------------------------------------------')
+    console.log(statusResult)
+    console.log('--------------------------------------------')
     setCredits(statusResult.credits)
     setAdmin(statusResult.admin)
     setUserConfig(statusResult.config)
