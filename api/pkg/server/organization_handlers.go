@@ -65,7 +65,7 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 
 // createOrganization godoc
 // @Summary Create a new organization
-// @Description Create a new organization
+// @Description Create a new organization. Only admin users can create organizations.
 // @Tags    organizations
 // @Param request    body types.Organization true "Request body with organization configuration.")
 // @Success 200 {object} types.Organization
@@ -73,6 +73,12 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
+
+	// Check if user is admin
+	if !isAdmin(user) {
+		http.Error(rw, "Only admin users can create organizations", http.StatusForbidden)
+		return
+	}
 
 	organization := &types.Organization{}
 	err := json.NewDecoder(r.Body).Decode(organization)
