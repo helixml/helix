@@ -129,23 +129,26 @@ func updateApp(ctx context.Context, apiClient client.Client, app *types.App, app
 }
 
 func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, shared, global bool) error {
-	org, err := cli.LookupOrganization(ctx, apiClient, orgID)
-	if err != nil {
-		return err
-	}
-
 	app := &types.App{
-		OrganizationID: org.ID,
-		AppSource:      types.AppSourceHelix,
-		Global:         global,
-		Shared:         shared,
+		AppSource: types.AppSourceHelix,
+		Global:    global,
+		Shared:    shared,
 		Config: types.AppConfig{
 			AllowedDomains: []string{}, // TODO: make configurable
 			Helix:          *appConfig,
 		},
 	}
 
-	app, err = apiClient.CreateApp(ctx, app)
+	// Only set OrganizationID if an organization is provided
+	if orgID != "" {
+		org, err := cli.LookupOrganization(ctx, apiClient, orgID)
+		if err != nil {
+			return err
+		}
+		app.OrganizationID = org.ID
+	}
+
+	app, err := apiClient.CreateApp(ctx, app)
 	if err != nil {
 		return err
 	}
