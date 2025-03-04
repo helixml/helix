@@ -43,7 +43,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       return;
     }
 
-    const knowledgePath = `apps/${appId}/${name}`;
+    const knowledgePath = name;
 
     const newSource: IKnowledgeSource = {
       id: '',

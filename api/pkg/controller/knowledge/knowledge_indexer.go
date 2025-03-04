@@ -6,13 +6,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -496,4 +499,43 @@ func getCrawledSources(data []*indexerData) []*types.CrawledURL {
 	}
 
 	return crawledSources
+}
+
+// getFilestoreItems gets items from the filestore for a knowledge source
+func (r *Reconciler) getFilestoreItems(ctx context.Context, knowledge *types.Knowledge) ([]filestore.Item, error) {
+	// Ensure the knowledge source has a filestore path
+	if knowledge.Source.Filestore == nil || knowledge.Source.Filestore.Path == "" {
+		return nil, fmt.Errorf("knowledge source has no filestore path")
+	}
+
+	// Ensure the path is properly scoped to the app's directory
+	// This is a safety check in case the path was not properly scoped when the knowledge was created
+	path := knowledge.Source.Filestore.Path
+	if !strings.HasPrefix(path, fmt.Sprintf("apps/%s/", knowledge.AppID)) {
+		// If the path is not already scoped, scope it properly to the app's knowledge directory
+		scopedPath := fmt.Sprintf("apps/%s/knowledge/%s", knowledge.AppID, path)
+
+		// Remove the user prefix to get the relative path
+		userPrefix := filestore.GetUserPrefix(r.config.Controller.FilePrefixGlobal, knowledge.Owner)
+		path = strings.TrimPrefix(scopedPath, userPrefix)
+		path = strings.TrimPrefix(path, "/")
+
+		// Update the knowledge source path for future use
+		knowledge.Source.Filestore.Path = path
+		_, err := r.store.UpdateKnowledge(ctx, knowledge)
+		if err != nil {
+			log.Warn().Err(err).Msgf("failed to update knowledge path: %s", err)
+		}
+	}
+
+	// Get the full filestore path with user prefix
+	filestorePath := filepath.Join(filestore.GetUserPrefix(r.config.Controller.FilePrefixGlobal, knowledge.Owner), path)
+
+	// Use the full path for the filestore list operation
+	files, err := r.filestore.List(ctx, filestorePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files: %w", err)
+	}
+
+	return files, nil
 }
