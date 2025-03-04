@@ -508,6 +508,10 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export interface TypesAuthenticatedResponse {
+  authenticated?: boolean;
+}
+
 export interface TypesChoice {
   delta?: TypesOpenAIMessage;
   finish_reason?: string;
@@ -810,6 +814,10 @@ export enum TypesLLMCallStep {
   LLMCallStepPrepareAPIRequest = "prepare_api_request",
   LLMCallStepInterpretResponse = "interpret_response",
   LLMCallStepGenerateTitle = "generate_title",
+}
+
+export interface TypesLoginRequest {
+  redirect_uri?: string;
 }
 
 export interface TypesMessage {
@@ -1370,6 +1378,13 @@ export interface TypesUser {
   username?: string;
 }
 
+export interface TypesUserResponse {
+  email?: string;
+  id?: string;
+  name?: string;
+  token?: string;
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -1692,6 +1707,107 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Check if the user is authenticated
+     *
+     * @tags auth
+     * @name V1AuthAuthenticatedList
+     * @summary Authenticated
+     * @request GET:/api/v1/auth/authenticated
+     */
+    v1AuthAuthenticatedList: (params: RequestParams = {}) =>
+      this.request<TypesAuthenticatedResponse, any>({
+        path: `/api/v1/auth/authenticated`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description The callback receiver from the OIDC provider
+     *
+     * @tags auth
+     * @name V1AuthCallbackList
+     * @summary Callback from OIDC provider
+     * @request GET:/api/v1/auth/callback
+     */
+    v1AuthCallbackList: (
+      query: {
+        /** The code from the OIDC provider */
+        code: string;
+        /** The state from the OIDC provider */
+        state: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/callback`,
+        method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Login to the application
+     *
+     * @tags auth
+     * @name V1AuthLoginCreate
+     * @summary Login
+     * @request POST:/api/v1/auth/login
+     */
+    v1AuthLoginCreate: (request: TypesLoginRequest, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/login`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Logout the user
+     *
+     * @tags auth
+     * @name V1AuthLogoutCreate
+     * @summary Logout
+     * @request POST:/api/v1/auth/logout
+     */
+    v1AuthLogoutCreate: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/logout`,
+        method: "POST",
+        ...params,
+      }),
+
+    /**
+     * @description Refresh the access token
+     *
+     * @tags auth
+     * @name V1AuthRefreshCreate
+     * @summary Refresh the access token
+     * @request POST:/api/v1/auth/refresh
+     */
+    v1AuthRefreshCreate: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/refresh`,
+        method: "POST",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's information
+     *
+     * @tags auth
+     * @name V1AuthUserList
+     * @summary User information
+     * @request GET:/api/v1/auth/user
+     */
+    v1AuthUserList: (params: RequestParams = {}) =>
+      this.request<TypesUserResponse, any>({
+        path: `/api/v1/auth/user`,
+        method: "GET",
         ...params,
       }),
 

@@ -116,26 +116,20 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 }
 
 // Exchange converts an authorization code into tokens
-func (c *OIDCClient) Exchange(ctx context.Context, code string) (*TokenResponse, error) {
+func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
-	token, err := oauth2Config.Exchange(ctx, code)
-	if err != nil {
-		return nil, err
-	}
-
-	return &TokenResponse{
-		AccessToken:  token.AccessToken,
-		TokenType:    token.TokenType,
-		RefreshToken: token.RefreshToken,
-		Expiry:       token.Expiry,
-	}, nil
+	return oauth2Config.Exchange(ctx, code)
 }
 
 // VerifyIDToken verifies the ID token and returns the claims
-func (c *OIDCClient) VerifyIDToken(ctx context.Context, rawIDToken string) (*oidc.IDToken, error) {
+func (c *OIDCClient) VerifyIDToken(ctx context.Context, token *oauth2.Token) (*oidc.IDToken, error) {
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		return nil, errors.New("no id_token field in oauth2 token")
+	}
 	provider, err := c.getProvider()
 	if err != nil {
 		return nil, err
@@ -144,6 +138,25 @@ func (c *OIDCClient) VerifyIDToken(ctx context.Context, rawIDToken string) (*oid
 		ClientID: c.cfg.ClientID,
 	})
 	return verifier.Verify(ctx, rawIDToken)
+}
+
+func (c *OIDCClient) VerifyAccessToken(ctx context.Context, accessToken string) error {
+	// Try to get user info - this will fail if the token is invalid
+	_, err := c.GetUserInfo(ctx, accessToken)
+	if err != nil {
+		return fmt.Errorf("invalid access token: %w", err)
+	}
+
+	return nil
+}
+
+func (c *OIDCClient) RefreshAccessToken(ctx context.Context, refreshToken string) (*oauth2.Token, error) {
+	oauth2Config, err := c.getOauth2Config()
+	if err != nil {
+		return nil, err
+	}
+
+	return oauth2Config.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken}).Token()
 }
 
 // GetUserInfo retrieves user information using the access token
