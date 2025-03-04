@@ -22,7 +22,7 @@ const OrgsSidebarMenu: FC<{
       />
       <OrgSidebarMainLink
         id="settings-link"
-        routeName="home"
+        routeName="org_settings"
         title="Settings"
         icon={ <SettingsIcon/> }
       />

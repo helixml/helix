@@ -6,6 +6,7 @@ import Session from './pages/Session'
 import Account from './pages/Account'
 import Apps from './pages/Apps'
 import Orgs from './pages/Orgs'
+import OrgSettings from './pages/OrgSettings'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
@@ -87,7 +88,7 @@ const routes: IApplicationRoute[] = [{
     menu: 'orgs',
   },
   render: () => (
-    <Orgs />
+    <OrgSettings />
   ),
 }, {
   name: 'apps',

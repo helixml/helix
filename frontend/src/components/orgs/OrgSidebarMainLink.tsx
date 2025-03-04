@@ -27,7 +27,6 @@ const OrgSidebarMainLink: FC<{
 }) => {
   const account = useAccount()
   const router = useRouter()
-  const isBigScreen = useIsBigScreen()
   const isActive = router.name == routeName
 
   return (
