@@ -13,6 +13,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -72,8 +73,22 @@ func randString(nByte int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// login godoc
+// @Summary Login
+// @Description Login to the application
+// @Tags    auth
+// @Success 200
+// @Param request    body types.LoginRequest true "Request body with redirect URI.")
+// @Router /api/v1/auth/login [post]
 func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
+		return
+	}
+
+	var loginRequest types.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&loginRequest); err != nil {
+		log.Error().Err(err).Msg("Failed to decode login request")
+		http.Error(w, "Failed to decode login request", http.StatusBadRequest)
 		return
 	}
 
@@ -93,20 +108,28 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	cookieManager.Set(w, r, "", "state", state)
 	cookieManager.Set(w, r, "", "nonce", nonce)
 	// Store the original URL if provided in the "redirect_uri" query parameter
-	if redirectURI := r.URL.Query().Get("redirect_uri"); redirectURI != "" {
+	if loginRequest.RedirectURI != "" {
 		// Validate the redirect URI
-		if !strings.HasPrefix(redirectURI, "http://localhost:5173") {
-			log.Error().Str("redirect_uri", redirectURI).Msg("Invalid redirect URI")
+		if !strings.HasPrefix(loginRequest.RedirectURI, s.Cfg.WebServer.URL) {
+			log.Debug().Str("server_url", s.Cfg.WebServer.URL).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI")
 			http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 			return
 		}
-		cookieManager.Set(w, r, "", "redirect_uri", redirectURI)
+		cookieManager.Set(w, r, "", "redirect_uri", loginRequest.RedirectURI)
 	}
 
 	log.Trace().Str("auth_url", s.oidcClient.GetAuthURL(state, nonce)).Msg("Redirecting to auth URL")
 	http.Redirect(w, r, s.oidcClient.GetAuthURL(state, nonce), http.StatusFound)
 }
 
+// callback godoc
+// @Summary Callback from OIDC provider
+// @Description The callback receiver from the OIDC provider
+// @Tags    auth
+// @Success 200
+// @Param code query string true "The code from the OIDC provider"
+// @Param state query string true "The state from the OIDC provider"
+// @Router /api/v1/auth/callback [get]
 func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	state, err := r.Cookie("state")
@@ -134,7 +157,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := s.oidcClient.VerifyIDToken(ctx, oauth2Token.AccessToken)
+	idToken, err := s.oidcClient.VerifyIDToken(ctx, oauth2Token)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to verify ID Token")
 		http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
@@ -156,9 +179,10 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	// Set access_token cookie
 	cookieManager := NewCookieManager(s.Cfg)
 	cookieManager.Set(w, r, "/", "access_token", oauth2Token.AccessToken)
+	cookieManager.Set(w, r, "/", "refresh_token", oauth2Token.RefreshToken)
 
 	// Check if we have a stored redirect URI
-	redirectURI := "http://localhost:5173" // default redirect
+	redirectURI := s.Cfg.WebServer.URL // default redirect
 	if cookie, err := r.Cookie("redirect_uri"); err == nil {
 		redirectURI = cookie.Value
 	}
@@ -166,13 +190,12 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURI, http.StatusTemporaryRedirect)
 }
 
-type UserResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Token string `json:"token"`
-	Name  string `json:"name"`
-}
-
+// user godoc
+// @Summary User information
+// @Description Get the current user's information
+// @Tags    auth
+// @Success 200 {object} types.UserResponse
+// @Router /api/v1/auth/user [get]
 func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if r.Method == http.MethodOptions {
@@ -202,7 +225,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := UserResponse{
+	response := types.UserResponse{
 		ID:    user.ID,
 		Email: user.Email,
 		Token: access_token.Value,
@@ -211,10 +234,82 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// user godoc
+// @Summary Logout
+// @Description Logout the user
+// @Tags    auth
+// @Success 200
+// @Router /api/v1/auth/logout [post]
 func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		return
 	}
 
-	http.Redirect(w, r, s.oidcClient.GetLogoutURL("http://localhost:5173"), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL), http.StatusTemporaryRedirect)
+}
+
+// user godoc
+// @Summary Authenticated
+// @Description Check if the user is authenticated
+// @Tags    auth
+// @Success 200 {object} types.AuthenticatedResponse
+// @Router /api/v1/auth/authenticated [get]
+func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	accessToken, err := r.Cookie("access_token")
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get access_token")
+		http.Error(w, "access_token not found", http.StatusUnauthorized)
+		return
+	}
+
+	err = s.oidcClient.VerifyAccessToken(ctx, accessToken.Value)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to verify access_token")
+		json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+			Authenticated: false,
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+		Authenticated: true,
+	})
+}
+
+// user godoc
+// @Summary Refresh the access token
+// @Description Refresh the access token
+// @Tags    auth
+// @Success 204
+// @Router /api/v1/auth/refresh [post]
+func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	refreshToken, err := r.Cookie("refresh_token")
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get refresh_token")
+		http.Error(w, "refresh_token not found", http.StatusUnauthorized)
+		return
+	}
+
+	newAccessToken, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken.Value)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to refresh access_token")
+		http.Error(w, "Failed to refresh access_token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	cookieManager := NewCookieManager(s.Cfg)
+	cookieManager.Set(w, r, "/", "access_token", newAccessToken.AccessToken)
+	cookieManager.Set(w, r, "/", "refresh_token", newAccessToken.RefreshToken)
+
+	w.WriteHeader(http.StatusNoContent)
 }
