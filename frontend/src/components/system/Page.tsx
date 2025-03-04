@@ -20,6 +20,7 @@ const Page: React.FC<{
   showTopbar?: boolean,
   // if this is provided then we render a "Home : {title}" text in the topbar
   breadcrumbTitle?: string,
+  breadcrumbShowHome?: boolean,
   breadcrumbs?: IPageBreadcrumb[],
   headerContent?: ReactNode,
   footerContent?: ReactNode,
@@ -29,6 +30,7 @@ const Page: React.FC<{
   topbarContent = null,
   showTopbar = false,
   breadcrumbTitle,
+  breadcrumbShowHome = true,
   breadcrumbs = [],
   headerContent = null,
   footerContent = null,
@@ -51,7 +53,7 @@ const Page: React.FC<{
     })
   }
 
-  if(useBreadcrumbTitles.length > 0) {
+  if(useBreadcrumbTitles.length > 0 && breadcrumbShowHome) {
     useBreadcrumbTitles.unshift({
       title: 'Home',
       routeName: 'home',

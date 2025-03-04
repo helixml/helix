@@ -119,9 +119,12 @@ const OrgSettings: FC = () => {
 
   if(!account.user) return null
 
+  console.log('--------------------------------------------')
+  console.dir(account.organizationTools.organization?.display_name)
   return (
     <Page
-      breadcrumbTitle="Organization Settings"
+      breadcrumbTitle={ account.organizationTools.organization?.display_name || 'Organization Settings' }
+      breadcrumbShowHome={ false }
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3 }}>
