@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
@@ -20,6 +22,7 @@ type OIDCClient struct {
 	provider     *oidc.Provider
 	oauth2Config *oauth2.Config
 	providerURL  string
+	adminConfig  *AdminConfig
 }
 
 type OIDCConfig struct {
@@ -27,6 +30,8 @@ type OIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	AdminUserIDs []string
+	AdminUserSrc config.AdminSrcType
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -46,6 +51,10 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 
 	client := &OIDCClient{
 		cfg: cfg,
+		adminConfig: &AdminConfig{
+			AdminUserIDs: cfg.AdminUserIDs,
+			AdminUserSrc: cfg.AdminUserSrc,
+		},
 	}
 
 	// Start a go routine to periodically check if the provider is available
@@ -177,6 +186,7 @@ func (c *OIDCClient) GetUserInfo(ctx context.Context, accessToken string) (*User
 		Name     string `json:"name"`
 		Subject  string `json:"sub"`
 		Username string `json:"preferred_username"`
+		Admin    bool   `json:"admin"`
 	}
 	if err := userInfo.Claims(&claims); err != nil {
 		return nil, err
@@ -207,6 +217,26 @@ func (c *OIDCClient) GetLogoutURL(redirectURI string) string {
 	return c.providerURL + "/protocol/openid-connect/logout?redirect_uri=" + redirectURI
 }
 
+func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
+	userInfo, err := c.GetUserInfo(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid access token: %w", err)
+	}
+
+	account := account{userInfo: userInfo}
+
+	return &types.User{
+		ID:        userInfo.Subject,
+		Username:  userInfo.Username,
+		Email:     userInfo.Email,
+		FullName:  userInfo.Name,
+		Token:     accessToken,
+		TokenType: types.TokenTypeOIDC,
+		Type:      types.OwnerTypeUser,
+		Admin:     account.isAdmin(c.adminConfig),
+	}, nil
+}
+
 type TokenResponse struct {
 	AccessToken  string    `json:"access_token"`
 	TokenType    string    `json:"token_type"`
@@ -219,4 +249,5 @@ type UserInfo struct {
 	Name     string `json:"name"`
 	Subject  string `json:"sub"`
 	Username string `json:"preferred_username"`
+	Admin    bool   `json:"admin"`
 }
