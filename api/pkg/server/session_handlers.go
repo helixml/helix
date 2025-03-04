@@ -132,7 +132,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 EXAMPLE:
 If the query includes "prepare a pitch for [a specific topic]", ask "What topic would you like to prepare a pitch for?" instead of "please specify the [specific topic]"
 
-If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://tryhelix.ai or the docs at https://docs.helix.ml, using markdown links.`
+If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://tryhelix.ai or the docs at https://docs.helix.ml, using markdown links. Only offer the links if the user asks for information about Helix or installing Helix.`
 	}
 
 	message, ok := startReq.Message()

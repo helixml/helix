@@ -40,6 +40,7 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   models: IHelixModel[],
+  hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
   providerEndpoints: IProviderEndpoint[],  
   fetchProviderEndpoints: () => Promise<void>,
@@ -72,6 +73,7 @@ export const AccountContext = createContext<IAccountContext>({
   fetchModels: async () => {},
   providerEndpoints: [],
   fetchProviderEndpoints: async () => {},
+  hasImageModels: false,
 })
 
 export const useAccount = () => {
@@ -105,6 +107,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ models, setModels ] = useState<IHelixModel[]>([])
   const [ providerEndpoints, setProviderEndpoints ] = useState<IProviderEndpoint[]>([])
   const [ latestVersion, setLatestVersion ] = useState<string>()
+  const [ hasImageModels, setHasImageModels ] = useState(false)
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -260,6 +263,10 @@ export const useAccountContext = (): IAccountContext => {
       }
 
       setModels(modelData)
+      
+      // Check if there are any image models in the results
+      const hasImage = modelData.some(model => model.type === 'image')
+      setHasImageModels(hasImage)
     } catch (error) {
       console.error('Error fetching models:', error)
       setModels([])
@@ -301,6 +308,7 @@ export const useAccountContext = (): IAccountContext => {
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
+    hasImageModels,
   }
 }
 
