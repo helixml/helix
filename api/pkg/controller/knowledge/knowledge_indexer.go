@@ -316,6 +316,8 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// TODO: we probably want some parallelism here, up to whatever the pdf parser + embeddings server can manage
+	// experiment with some values to see what gets is 100, 1K, 15K PDFs handled fastest.
 	for idx, d := range data {
 		d := d
 
