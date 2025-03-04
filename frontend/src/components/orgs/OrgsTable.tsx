@@ -1,6 +1,8 @@
 import React, { FC, useMemo, useCallback } from 'react'
 import EditIcon from '@mui/icons-material/Edit'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import DeleteIcon from '@mui/icons-material/Delete'
+import SettingsIcon from '@mui/icons-material/Settings'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import useTheme from '@mui/material/styles/useTheme'
@@ -16,6 +18,8 @@ import {
   TypesOrganization,
 } from '../../api/api'
 
+import useRouter from '../../hooks/useRouter'
+
 const OrgsTable: FC<{
   data: TypesOrganization[],
   userID: string,
@@ -30,7 +34,7 @@ const OrgsTable: FC<{
   loading,
 }) => {
   const theme = useTheme()
-
+  const router = useRouter()
   const tableData = useMemo(() => {
     return data.map(org => ({
       id: org.id,
@@ -79,7 +83,7 @@ const OrgsTable: FC<{
 
   const getActions = useCallback((org: any) => {
     const isOwner = isUserOwnerOfOrganization(org._data, userID)
-    return isOwner ? (
+    return (
       <Box
         sx={{
           width: '100%',
@@ -91,24 +95,56 @@ const OrgsTable: FC<{
           pr: 2,
         }}
       >
-        <ClickLink
-          sx={{mr:2}}
-          onClick={() => onDelete(org._data)}
-        >
-          <Tooltip title="Delete">
-            <DeleteIcon />
-          </Tooltip>
-        </ClickLink>
-      
-        <ClickLink
-          onClick={() => onEdit(org._data)}
-        >
-          <Tooltip title="Edit">
-            <EditIcon />
-          </Tooltip>
-        </ClickLink>
+        {
+          isOwner && (
+            <ClickLink
+              sx={{ml:2}}
+              onClick={() => onDelete(org._data)}
+            >
+              <Tooltip title="Delete">
+                <DeleteIcon />
+              </Tooltip>
+            </ClickLink>    
+          )
+        }
+
+        {
+          isOwner && (
+            <ClickLink
+              sx={{ml:2}}
+              onClick={() => onEdit(org._data)}
+            >
+              <Tooltip title="Edit">
+                <EditIcon />
+              </Tooltip>
+            </ClickLink>
+          )
+        }
+
+        {
+          isOwner ? (
+            <ClickLink
+              sx={{ml:2}}
+              onClick={() => router.navigate('org_settings', {org_id: org._data.id})}
+            >
+              <Tooltip title="Settings">
+                <SettingsIcon />
+              </Tooltip>
+            </ClickLink>
+          ) : (
+            <ClickLink
+              sx={{ml:2}}
+              onClick={() => router.navigate('org_settings', {org_id: org._data.id})}
+            >
+              <Tooltip title="View">
+                <VisibilityIcon />
+              </Tooltip>
+            </ClickLink>
+          )
+        }
+
       </Box>
-    ) : <div></div>
+    )
   }, [
     userID,
   ])

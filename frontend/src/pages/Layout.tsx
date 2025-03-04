@@ -9,6 +9,7 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+import OrgsSidebarMenu from '../components/orgs/OrgsSidebarMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -52,6 +53,27 @@ const Layout: FC = ({
     deploymentId: account.serverConfig?.deployment_id,
     serverConfig: account.serverConfig
   });
+
+  let sidebarMenu = null
+  const isOrgMenu = router.meta.menu == 'orgs'
+
+  if(router.meta.drawer) {
+    if(router.meta.menu == 'orgs') {
+      sidebarMenu = (
+        <OrgsSidebarMenu
+
+        />
+      )
+    } else {
+      sidebarMenu = (
+        <SessionsMenu
+          onOpenSession={ () => {
+            account.setMobileMenuOpen(false)
+          }}
+        />
+      )
+    }
+  }
 
   return (
     <>
@@ -99,12 +121,10 @@ const Layout: FC = ({
                 },
               }}
             >
-              <Sidebar>
-                <SessionsMenu
-                  onOpenSession={ () => {
-                    account.setMobileMenuOpen(false)
-                  }}
-                />
+              <Sidebar
+                showTopLinks={ !isOrgMenu }
+              >
+                { sidebarMenu }
               </Sidebar>
             </Drawer>
           )

@@ -39,8 +39,11 @@ import {
   ISessionType,
 } from '../../types'
 
-const Sidebar: React.FC = ({
+const Sidebar: React.FC<{
+  showTopLinks?: boolean,
+}> = ({
   children,
+  showTopLinks = true,
 }) => {
 
   const themeConfig = useThemeConfig()
@@ -92,34 +95,38 @@ const Sidebar: React.FC = ({
           flexGrow: 0,
           width: '100%',
         }}
-        >
-        <List disablePadding>
-          {
-            account.user && (
+      >
+        {
+          showTopLinks && (
+            <List disablePadding>
+              {
+                account.user && (
+                  <SidebarMainLink
+                    id="orgs-link"
+                    routeName="orgs"
+                    title="Orgs"
+                    icon={ <PeopleIcon/> }
+                  />
+                )
+              }
               <SidebarMainLink
-                id="orgs-link"
-                routeName="orgs"
-                title="Orgs"
-                icon={ <PeopleIcon/> }
+                id="home-link"
+                routeName="home"
+                title="Home"
+                icon={ <HomeIcon/> }
               />
-            )
-          }
-          <SidebarMainLink
-            id="home-link"
-            routeName="home"
-            title="Home"
-            icon={ <HomeIcon/> }
-          />
-          
-          {/* <Divider />
-          <SidebarMainLink
-            routeName="new"
-            id="new-session-link"
-            title="New Session"
-            icon={ <AddIcon/> }
-          /> */}
-          <Divider />
-        </List>
+              
+              {/* <Divider />
+              <SidebarMainLink
+                routeName="new"
+                id="new-session-link"
+                title="New Session"
+                icon={ <AddIcon/> }
+              /> */}
+              <Divider />
+            </List>
+          )
+        }
       </Box>
       <Box
         sx={{
