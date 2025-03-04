@@ -321,6 +321,7 @@ const (
 	TokenTypeNone     TokenType = ""
 	TokenTypeRunner   TokenType = "runner"
 	TokenTypeKeycloak TokenType = "keycloak"
+	TokenTypeOIDC     TokenType = "oidc"
 	TokenTypeAPIKey   TokenType = "api_key"
 	TokenTypeSocket   TokenType = "socket"
 )
