@@ -304,6 +304,123 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/authenticated": {
+            "get": {
+                "description": "Check if the user is authenticated",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Authenticated",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AuthenticatedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/callback": {
+            "get": {
+                "description": "The callback receiver from the OIDC provider",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Callback from OIDC provider",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The code from the OIDC provider",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The state from the OIDC provider",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/login": {
+            "post": {
+                "description": "Login to the application",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Login",
+                "parameters": [
+                    {
+                        "description": "Request body with redirect URI.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.LoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/logout": {
+            "post": {
+                "description": "Logout the user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Logout",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/refresh": {
+            "post": {
+                "description": "Refresh the access token",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Refresh the access token",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/user": {
+            "get": {
+                "description": "Get the current user's information",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "User information",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -2304,6 +2421,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AuthenticatedResponse": {
+            "type": "object",
+            "properties": {
+                "authenticated": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.Choice": {
             "type": "object",
             "properties": {
@@ -3022,6 +3147,14 @@ const docTemplate = `{
                 "LLMCallStepInterpretResponse",
                 "LLMCallStepGenerateTitle"
             ]
+        },
+        "types.LoginRequest": {
+            "type": "object",
+            "properties": {
+                "redirect_uri": {
+                    "type": "string"
+                }
+            }
         },
         "types.Message": {
             "type": "object",
@@ -4310,6 +4443,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UserResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "token": {
                     "type": "string"
                 }
             }

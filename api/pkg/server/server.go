@@ -379,6 +379,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/authenticated", apiServer.authenticated).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)
 
 	// Orgs, authz
 	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
