@@ -204,9 +204,17 @@ spec:
             - name: RAG_HAYSTACK_CHUNK_OVERLAP
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.controlplane.haystack }}
             {{- with (default "" .Values.controlplane.haystack.pgvectorDsn) }}
             - name: PGVECTOR_DSN
               value: {{ . | quote }}
+            {{- else if .Values.controlplane.haystack.existingSecret }}
+            - name: PGVECTOR_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.haystack.existingSecret }}
+                  key: {{ .Values.controlplane.haystack.existingSecretDsnKey | default "dsn" }}
+            {{- end }}
             {{- end }}
             {{- with .Values.controlplane.haystack.env }}
             {{- toYaml . | nindent 12 }}
