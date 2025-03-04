@@ -12,3 +12,7 @@ type Authenticator interface {
 	GetUserByID(ctx context.Context, userID string) (*types.User, error)
 	ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error)
 }
+
+type AuthenticatorOIDC interface {
+	ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error)
+}

@@ -120,6 +120,8 @@ func NewServer(
 		ClientID:     cfg.Keycloak.APIClientID,
 		ClientSecret: cfg.Keycloak.ClientSecret,
 		RedirectURL:  helixRedirectURL,
+		AdminUserIDs: cfg.WebServer.AdminIDs,
+		AdminUserSrc: cfg.WebServer.AdminSrc,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -134,6 +136,7 @@ func NewServer(
 		gptScriptExecutor: gptScriptExecutor,
 		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
+			oidcClient,
 			authenticator,
 			store,
 			authMiddlewareConfig{
