@@ -9,8 +9,6 @@ import OrgsTable from '../components/orgs/OrgsTable'
 import EditOrgWindow from '../components/orgs/EditOrgWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
-import useOrganizations from '../hooks/useOrganizations'
-import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
 
 import {

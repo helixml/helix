@@ -80,6 +80,16 @@ const routes: IApplicationRoute[] = [{
     <Orgs />
   ),
 }, {
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <Orgs />
+  ),
+}, {
   name: 'apps',
   path: '/apps',
   meta: {
