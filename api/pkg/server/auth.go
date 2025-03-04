@@ -28,7 +28,7 @@ type CookieManager struct {
 
 func NewCookieManager(config *config.ServerConfig) *CookieManager {
 	return &CookieManager{
-		SecureCookies: config.Keycloak.SecureCookies,
+		SecureCookies: config.OIDC.SecureCookies,
 	}
 }
 

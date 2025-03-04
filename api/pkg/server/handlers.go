@@ -710,11 +710,11 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 		if token == "" {
 			return false
 		}
-		jwtToken, err := auth.authenticator.ValidateUserToken(context.Background(), token)
+		user, err := auth.authenticator.ValidateUserToken(context.Background(), token)
 		if err != nil {
 			return false
 		}
-		return auth.isTokenAdmin(jwtToken)
+		return user.Admin
 	}
 	return false
 }

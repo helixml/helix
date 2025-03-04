@@ -67,6 +67,10 @@ func New(cfg *config.Notifications, authenticator auth.Authenticator) (Notifier,
 }
 
 func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notification) error {
+	if n.authenticator == nil {
+		return nil
+	}
+
 	user, err := n.authenticator.GetUserByID(ctx, notification.Session.Owner)
 	if err != nil {
 		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
