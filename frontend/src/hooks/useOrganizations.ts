@@ -1,14 +1,16 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { TypesOrganization, TypesOrganizationMembership } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
+import useRouter from './useRouter'
 import { extractErrorMessage } from './useErrorCallback'
 import bluebird from 'bluebird'
 
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
+  organization?: TypesOrganization,
   loadOrganizations: () => Promise<void>,
   createOrganization: (org: TypesOrganization) => Promise<boolean>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
@@ -30,6 +32,25 @@ export default function useOrganizations(): IOrganizationTools {
   const api = useApi()
   const snackbar = useSnackbar()
   const account = useAccount()
+  const router = useRouter()
+
+  // Extract org_id parameter from router
+  const orgIdParam = router.params.org_id
+
+  // Find the current organization based on org_id parameter (which can be ID or name)
+  const organization = useMemo(() => {
+    if (!orgIdParam || organizations.length === 0) return undefined
+    
+    // Try to find by ID first
+    let org = organizations.find(o => o.id === orgIdParam)
+    
+    // If not found by ID, try to find by name (slug)
+    if (!org) {
+      org = organizations.find(o => o.name === orgIdParam)
+    }
+    
+    return org
+  }, [organizations, orgIdParam])
 
   const loadOrganizations = useCallback(async () => {
     try {
@@ -119,6 +140,7 @@ export default function useOrganizations(): IOrganizationTools {
   return {
     organizations,
     loading,
+    organization,
     loadOrganizations,
     createOrganization,
     updateOrganization,

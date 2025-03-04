@@ -109,28 +109,33 @@ const OrgsTable: FC<{
         }
 
         {
-          isOwner && (
-            <ClickLink
-              sx={{ml:2}}
-              onClick={() => onEdit(org._data)}
-            >
-              <Tooltip title="Edit">
-                <EditIcon />
-              </Tooltip>
-            </ClickLink>
-          )
-        }
-
-        {
           isOwner ? (
-            <ClickLink
-              sx={{ml:2}}
-              onClick={() => router.navigate('org_settings', {org_id: org._data.id})}
-            >
-              <Tooltip title="Settings">
-                <SettingsIcon />
-              </Tooltip>
-            </ClickLink>
+            <>
+              <ClickLink
+                sx={{ml:2}}
+                onClick={() => router.navigate('org_settings', {org_id: org._data.id})}
+              >
+                <Tooltip title="Settings">
+                  <SettingsIcon />
+                </Tooltip>
+              </ClickLink>
+              <ClickLink
+                sx={{ml:2}}
+                onClick={() => router.navigate('org_teams', {org_id: org._data.id})}
+              >
+                <Tooltip title="Teams">
+                  <SettingsIcon />
+                </Tooltip>
+              </ClickLink>
+              <ClickLink
+                sx={{ml:2}}
+                onClick={() => router.navigate('org_people', {org_id: org._data.id})}
+              >
+                <Tooltip title="People">
+                  <SettingsIcon />
+                </Tooltip>
+              </ClickLink>
+            </>
           ) : (
             <ClickLink
               sx={{ml:2}}
