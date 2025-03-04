@@ -228,9 +228,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak, postgresStore)
-	if err != nil {
-		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+	var keycloakAuthenticator auth.Authenticator
+	if cfg.Keycloak.KeycloakEnabled {
+		authenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak, postgresStore)
+		if err != nil {
+			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+		}
+		keycloakAuthenticator = authenticator
 	}
 
 	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)

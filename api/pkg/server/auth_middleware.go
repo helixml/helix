@@ -144,6 +144,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
+		if auth.keycloakAuthenticator == nil {
+			return nil, fmt.Errorf("keycloak is required for Helix API key authentication")
+		}
 		// we have an API key - we should load it from the database and construct our user that way
 		apiKey, err := auth.store.GetAPIKey(ctx, token)
 		if err != nil {

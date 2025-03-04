@@ -111,20 +111,44 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
-	// TODO(Phil): Eventually need to swap this out for any OIDC provider
-	providerURL := "http://localhost:8080/auth/realms/helix"
-	// TODO(Phil): This is the path to the helix backend, but obviously the host needs to be configurable
-	helixRedirectURL := "http://localhost:8080/api/v1/auth/callback"
-	oidcClient, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
-		ProviderURL:  providerURL,
-		ClientID:     cfg.Keycloak.APIClientID,
-		ClientSecret: cfg.Keycloak.ClientSecret,
-		RedirectURL:  helixRedirectURL,
-		AdminUserIDs: cfg.WebServer.AdminIDs,
-		AdminUserSrc: cfg.WebServer.AdminSrc,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create oidc client: %w", err)
+	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
+	var oidcClient *auth.OIDCClient
+	if cfg.OIDC.Enabled {
+		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+			ProviderURL:  cfg.OIDC.URL,
+			ClientID:     cfg.OIDC.ClientID,
+			ClientSecret: cfg.OIDC.ClientSecret,
+			RedirectURL:  helixRedirectURL,
+			AdminUserIDs: cfg.WebServer.AdminIDs,
+			AdminUserSrc: cfg.WebServer.AdminSrc,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create oidc client: %w", err)
+		}
+		oidcClient = client
+	} else if cfg.Keycloak.KeycloakEnabled {
+		keycloakURL, err := url.Parse(cfg.Keycloak.KeycloakFrontEndURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse keycloak front end url: %w", err)
+		}
+		// Strip any trailing slashes from the path
+		keycloakURL.Path = strings.TrimRight(keycloakURL.Path, "/")
+		keycloakURL.Path = fmt.Sprintf("%s/realms/%s", keycloakURL.Path, cfg.Keycloak.Realm)
+		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+			ProviderURL:  keycloakURL.String(),
+			ClientID:     cfg.Keycloak.APIClientID,
+			ClientSecret: cfg.Keycloak.ClientSecret,
+			RedirectURL:  helixRedirectURL,
+			AdminUserIDs: cfg.WebServer.AdminIDs,
+			AdminUserSrc: cfg.WebServer.AdminSrc,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create keycloak client: %w", err)
+		}
+		oidcClient = client
+	}
+	if oidcClient == nil {
+		return nil, fmt.Errorf("no oidc client found")
 	}
 
 	return &HelixAPIServer{
