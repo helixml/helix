@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -172,6 +173,30 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 }
 
 func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	// Ensure the knowledge source has a filestore path that is scoped to the app's directory
+	if k.Source.Filestore != nil && k.Source.Filestore.Path != "" {
+		// Check if the path is already properly scoped to the app's directory
+		expectedPrefix := fmt.Sprintf("apps/%s/", k.AppID)
+		if !strings.HasPrefix(k.Source.Filestore.Path, expectedPrefix) {
+			// If not, construct the appropriate path relative to the app's directory
+			// Extract the knowledge name from the path or use the source name
+			parts := strings.Split(k.Source.Filestore.Path, "/")
+			knowledgeName := parts[len(parts)-1]
+			if knowledgeName == "" {
+				knowledgeName = k.Name
+			}
+
+			// Update the path to be scoped to the app's directory
+			k.Source.Filestore.Path = filepath.Join("apps", k.AppID, knowledgeName)
+
+			// Save the updated knowledge
+			_, err := r.store.UpdateKnowledge(ctx, k)
+			if err != nil {
+				log.Warn().Err(err).Msgf("failed to update knowledge path: %s", err)
+			}
+		}
+	}
+
 	data, err := r.getFilestoreFiles(ctx, r.filestore, k)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get filestore files: %w", err)

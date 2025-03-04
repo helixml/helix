@@ -18,7 +18,7 @@ import (
 	"html/template"
 
 	"github.com/helixml/helix/api/pkg/apps"
-	"github.com/helixml/helix/api/pkg/cli/fs"
+	cliutil "github.com/helixml/helix/api/pkg/cli/util"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -185,14 +185,18 @@ const htmlTemplate = `
         }
         .tooltip {
             display: none;
-            position: absolute;
+            position: fixed;
             background-color: #f9f9f9;
             border: 1px solid #ddd;
-            padding: 5px;
+            padding: 10px;
             z-index: 1000;
-            max-width: 300px;
+            max-width: 500px;
+            min-width: 200px;
             word-wrap: break-word;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.4;
         }
     </style>
 </head>
@@ -323,11 +327,41 @@ const htmlTemplate = `
             el.addEventListener('mouseover', function(e) {
                 tooltip.textContent = this.getAttribute('data-full-text');
                 tooltip.style.display = 'block';
-                tooltip.style.left = e.pageX + 'px';
-                tooltip.style.top = e.pageY + 'px';
+                
+                // Position the tooltip slightly offset from the mouse cursor to avoid flicker
+                const offset = 15;
+                tooltip.style.left = (e.pageX + offset) + 'px';
+                tooltip.style.top = (e.pageY + offset) + 'px';
             });
-            el.addEventListener('mouseout', function() {
-                tooltip.style.display = 'none';
+            
+            el.addEventListener('mousemove', function(e) {
+                // Update position as mouse moves
+                const offset = 15;
+                tooltip.style.left = (e.pageX + offset) + 'px';
+                tooltip.style.top = (e.pageY + offset) + 'px';
+            });
+
+            // Use mouseLeave instead of mouseout to avoid flickering
+            el.addEventListener('mouseleave', function(e) {
+                // Check if mouse is over the tooltip
+                const tooltipRect = tooltip.getBoundingClientRect();
+                if (
+                    e.clientX >= tooltipRect.left && 
+                    e.clientX <= tooltipRect.right && 
+                    e.clientY >= tooltipRect.top && 
+                    e.clientY <= tooltipRect.bottom
+                ) {
+                    // Mouse moved to tooltip, keep it visible
+                    // Add event listeners to the tooltip itself
+                    const handleTooltipLeave = function(e) {
+                        tooltip.style.display = 'none';
+                        tooltip.removeEventListener('mouseleave', handleTooltipLeave);
+                    };
+                    tooltip.addEventListener('mouseleave', handleTooltipLeave);
+                } else {
+                    // Mouse moved elsewhere, hide tooltip
+                    tooltip.style.display = 'none';
+                }
             });
         });
 
@@ -341,23 +375,29 @@ const htmlTemplate = `
 func NewTestCmd() *cobra.Command {
 	var yamlFile string
 	var evaluationModel string
+	var syncFiles []string
+	var deleteExtraFiles bool
+	var knowledgeTimeout time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run tests for Helix app",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTest(cmd, yamlFile, evaluationModel)
+			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout)
 		},
 	}
 
 	cmd.Flags().StringVarP(&yamlFile, "file", "f", "helix.yaml", "Path to the YAML file containing test definitions")
 	cmd.Flags().StringVar(&evaluationModel, "evaluation-model", "", "Model to use for evaluating test results")
+	cmd.Flags().StringSliceVar(&syncFiles, "rsync", []string{}, "Sync local files to the filestore for knowledge sources. Format: ./local/path[:knowledge_name]. If knowledge_name is omitted, uses the first knowledge source. Can be specified multiple times.")
+	cmd.Flags().BoolVar(&deleteExtraFiles, "delete", false, "When used with --rsync, delete files in filestore that don't exist locally (similar to rsync --delete)")
+	cmd.Flags().DurationVar(&knowledgeTimeout, "knowledge-timeout", 5*time.Minute, "Timeout when waiting for knowledge indexing")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string) error {
+func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
@@ -391,6 +431,41 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string) error 
 
 	fmt.Printf("Deployed app with ID: %s\n", appID)
 	fmt.Printf("Running tests...\n")
+
+	// Handle the --rsync flag to sync local files to the filestore
+	if len(syncFiles) > 0 {
+		apiClient, err := client.NewClientFromEnv()
+		if err != nil {
+			return err
+		}
+
+		mappings, err := cliutil.ParseSyncMappings(syncFiles, &appConfig)
+		if err != nil {
+			return err
+		}
+
+		for _, mapping := range mappings {
+			fmt.Printf("Syncing local directory '%s' to knowledge source '%s' (path: %s)\n",
+				mapping.LocalDir, mapping.KnowledgeName, mapping.RemotePath)
+
+			err = cliutil.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles)
+			if err != nil {
+				return fmt.Errorf("failed to sync files for knowledge '%s': %w", mapping.KnowledgeName, err)
+			}
+		}
+	}
+
+	// Wait for knowledge to be fully indexed before running tests
+	fmt.Println("Waiting for knowledge to be indexed before running tests...")
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return err
+	}
+
+	err = cliutil.WaitForKnowledgeReady(cmd.Context(), apiClient, appID, knowledgeTimeout)
+	if err != nil {
+		return err
+	}
 
 	defer func() {
 		// Clean up the app after the test
@@ -749,21 +824,21 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 
 	// Upload JSON results
 	jsonPath := fmt.Sprintf("/test-runs/%s/%s", testID, jsonFilename)
-	err = fs.UploadFile(ctx, apiClient, jsonFilename, jsonPath)
+	err = cliutil.UploadFile(ctx, apiClient, jsonFilename, jsonPath)
 	if err != nil {
 		return fmt.Errorf("error uploading JSON results: %v", err)
 	}
 
 	// Upload HTML report
 	htmlPath := fmt.Sprintf("/test-runs/%s/%s", testID, htmlFilename)
-	err = fs.UploadFile(ctx, apiClient, htmlFilename, htmlPath)
+	err = cliutil.UploadFile(ctx, apiClient, htmlFilename, htmlPath)
 	if err != nil {
 		return fmt.Errorf("error uploading HTML report: %v", err)
 	}
 
 	// Upload summary markdown
 	summaryPath := fmt.Sprintf("/test-runs/%s/%s", testID, summaryFilename)
-	err = fs.UploadFile(ctx, apiClient, summaryFilename, summaryPath)
+	err = cliutil.UploadFile(ctx, apiClient, summaryFilename, summaryPath)
 	if err != nil {
 		return fmt.Errorf("error uploading summary markdown: %v", err)
 	}

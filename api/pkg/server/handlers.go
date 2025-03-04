@@ -298,23 +298,107 @@ func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *htt
 }
 
 func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
-	return apiServer.Controller.FilestoreList(getOwnerContext(req), req.URL.Query().Get("path"))
+	path := req.URL.Query().Get("path")
+
+	// Only admins can list the root apps directory to prevent app enumeration
+	if path == "apps" {
+		isAdmin := apiServer.isAdmin(req)
+		if !isAdmin {
+			return nil, fmt.Errorf("access denied: only administrators can list all apps")
+		}
+	}
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionList)
+		if err != nil {
+			return nil, err
+		}
+		if !hasAccess {
+			return nil, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
+	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
 func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
-	return apiServer.Controller.FilestoreGet(getOwnerContext(req), req.URL.Query().Get("path"))
+	path := req.URL.Query().Get("path")
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionGet)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
+	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
 func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
-	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), req.URL.Query().Get("path"))
+	path := req.URL.Query().Get("path")
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
+	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), path)
 }
 
 func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
-	return apiServer.Controller.FilestoreRename(getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
+	path := req.URL.Query().Get("path")
+	newPath := req.URL.Query().Get("new_path")
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionUpdate)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
+	// Also check access to the new path if it's app-scoped
+	if strings.HasPrefix(newPath, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), newPath, req, types.ActionUpdate)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", newPath)
+		}
+	}
+
+	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
 func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionDelete)
+		if err != nil {
+			return "", err
+		}
+		if !hasAccess {
+			return "", fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
 	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
@@ -322,6 +406,18 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 // TODO version of this which is session specific
 func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
+		if err != nil {
+			return false, err
+		}
+		if !hasAccess {
+			return false, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
 		return false, err

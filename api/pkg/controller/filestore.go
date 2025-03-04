@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -53,6 +54,24 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
 
 	return filepath.Join(userPrefix, path), nil
+}
+
+// GetFilestoreAppKnowledgePath returns a path scoped to the app's knowledge directory
+// This ensures that knowledge paths are always within the app's directory
+func (c *Controller) GetFilestoreAppKnowledgePath(ctx types.OwnerContext, appID, knowledgePath string) (string, error) {
+	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
+
+	// Always scope knowledge paths to apps/:app_id/
+	appPath := filepath.Join("apps", appID)
+
+	// If the path already starts with apps/:app_id, we'll strip it to avoid duplication
+	if strings.HasPrefix(knowledgePath, appPath) {
+		knowledgePath = knowledgePath[len(appPath):]
+		// Remove any leading slashes
+		knowledgePath = strings.TrimPrefix(knowledgePath, "/")
+	}
+
+	return filepath.Join(userPrefix, appPath, knowledgePath), nil
 }
 
 func (c *Controller) VerifySignature(url string) bool {
