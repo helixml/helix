@@ -78,6 +78,15 @@ type ListUsersQuery struct {
 	Username  string          `json:"username"`
 }
 
+// SearchUsersQuery defines parameters for searching users with partial matching
+type SearchUsersQuery struct {
+	EmailPattern    string `json:"email_pattern"`    // Pattern to match against email (LIKE query)
+	NamePattern     string `json:"name_pattern"`     // Pattern to match against full name (LIKE query)
+	UsernamePattern string `json:"username_pattern"` // Pattern to match against username (LIKE query)
+	Limit           int    `json:"limit"`            // Maximum number of results to return
+	Offset          int    `json:"offset"`           // Offset for pagination
+}
+
 var _ Store = &PostgresStore{}
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
@@ -137,6 +146,7 @@ type Store interface {
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
+	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
