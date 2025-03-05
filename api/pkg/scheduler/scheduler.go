@@ -276,7 +276,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
-	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
+	log.Trace().Interface("required_slots", requiredSlots).Msg("required slots")
 	// For each requirement, ensure we have enough slots for that work right now
 	for _, req := range requiredSlots {
 		// Check if we have enough slots for this work right now

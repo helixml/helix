@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 //go:embed filestore_folders.json
@@ -59,19 +60,48 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 // GetFilestoreAppKnowledgePath returns a path scoped to the app's knowledge directory
 // This ensures that knowledge paths are always within the app's directory
 func (c *Controller) GetFilestoreAppKnowledgePath(ctx types.OwnerContext, appID, knowledgePath string) (string, error) {
+	log.Debug().
+		Str("app_id", appID).
+		Str("knowledge_path", knowledgePath).
+		Msgf("Getting filestore app knowledge path")
+
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
 
 	// Always scope knowledge paths to apps/:app_id/
 	appPath := filepath.Join("apps", appID)
 
+	log.Debug().
+		Str("app_id", appID).
+		Str("knowledge_path", knowledgePath).
+		Str("app_path", appPath).
+		Bool("has_app_prefix", strings.HasPrefix(knowledgePath, appPath)).
+		Msgf("Checking if path has app prefix")
+
 	// If the path already starts with apps/:app_id, we'll strip it to avoid duplication
 	if strings.HasPrefix(knowledgePath, appPath) {
+		originalPath := knowledgePath
 		knowledgePath = knowledgePath[len(appPath):]
 		// Remove any leading slashes
 		knowledgePath = strings.TrimPrefix(knowledgePath, "/")
+
+		log.Debug().
+			Str("app_id", appID).
+			Str("original_path", originalPath).
+			Str("stripped_path", knowledgePath).
+			Msgf("Stripped app prefix from path")
 	}
 
-	return filepath.Join(userPrefix, appPath, knowledgePath), nil
+	finalPath := filepath.Join(userPrefix, appPath, knowledgePath)
+
+	log.Debug().
+		Str("app_id", appID).
+		Str("original_path", knowledgePath).
+		Str("user_prefix", userPrefix).
+		Str("app_path", appPath).
+		Str("final_path", finalPath).
+		Msgf("Constructed final filestore path")
+
+	return finalPath, nil
 }
 
 func (c *Controller) VerifySignature(url string) bool {

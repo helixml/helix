@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef } from 'react';
+import React, { FC, useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -32,6 +32,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import Link from '@mui/material/Link';
 import CloseIcon from '@mui/icons-material/Close';
 import { v4 as uuidv4 } from 'uuid';
+import debounce from 'lodash/debounce';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
@@ -85,6 +86,40 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [uploadIndex, setUploadIndex] = useState(-1);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Create a debounced update function for smoother UI experience
+  // Only triggers updates after user has stopped making changes for 300ms
+  const debouncedUpdate = useCallback(
+    debounce((updatedSources: IKnowledgeSource[]) => {
+      console.log('[KnowledgeEditor] Debounced update triggered with sources:', updatedSources);
+      onUpdate(updatedSources);
+    }, 300),
+    [onUpdate]
+  );
+
+  // Log when component props change
+  useEffect(() => {
+    console.log('[KnowledgeEditor] Component mounted or updated with props:', {
+      knowledgeSources,
+      disabled,
+      knowledgeList,
+      appId
+    });
+
+    return () => {
+      console.log('[KnowledgeEditor] Component will unmount');
+    };
+  }, [knowledgeSources, disabled, knowledgeList, appId]);
+
+  // Add logging for knowledge sources changes
+  useEffect(() => {
+    console.log('[KnowledgeEditor] Knowledge sources changed:', knowledgeSources);
+  }, [knowledgeSources]);
+
+  // Add logging for knowledge list changes (backend data)
+  useEffect(() => {
+    console.log('[KnowledgeEditor] Knowledge list (backend data) changed:', knowledgeList);
+  }, [knowledgeList]);
+
   // Debug: Log uploadProgress
   useEffect(() => {
     console.log('KnowledgeEditor uploadProgress:', uploadProgress);
@@ -99,8 +134,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
-    console.log('Knowledge update - Original source:', knowledgeSources[index]);
-    console.log('Knowledge update - Updated fields:', updatedSource);
+    console.log('[KnowledgeEditor] handleSourceUpdate - Original source:', knowledgeSources[index]);
+    console.log('[KnowledgeEditor] handleSourceUpdate - Updated fields:', updatedSource);
     
     const newSources = [...knowledgeSources];
     const existingSource = newSources[index];
@@ -108,7 +143,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     // Create a new source by carefully merging the existing source with the updates
     let newSource = { ...existingSource, ...updatedSource };    
     
-    console.log('Knowledge update - After merge:', newSource);
+    console.log('[KnowledgeEditor] handleSourceUpdate - After merge:', newSource);
 
     // Ensure refresh_schedule is always a valid cron expression or empty string
     if (newSource.refresh_schedule === 'custom') {
@@ -142,12 +177,29 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     newSources[index] = newSource;
-    console.log('Knowledge update - Final sources array being sent to parent:', newSources);
-    onUpdate(newSources);
+    console.log('[KnowledgeEditor] handleSourceUpdate - Final sources array being sent to parent:', newSources);
+    
+    // Use the debounced version for text field updates
+    if (updatedSource.name || updatedSource.description || 
+        (updatedSource.source?.web?.urls && !updatedSource.source.filestore)) {
+      debouncedUpdate(newSources);
+    } else {
+      // For non-text field updates (like checkboxes, file uploads), update immediately
+      onUpdate(newSources);
+    }
   };
 
+  // Ensure we cancel any pending debounced updates when component unmounts
+  useEffect(() => {
+    return () => {
+      debouncedUpdate.cancel();
+    };
+  }, [debouncedUpdate]);
+
   const handleAddSource = (newSource: IKnowledgeSource) => {
+    console.log('[KnowledgeEditor] handleAddSource - Adding new source:', newSource);
     let knowledges = [...knowledgeSources, newSource];
+    console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', knowledges);
     onUpdate(knowledges);
     
     // Expand the newly added knowledge source panel
@@ -160,7 +212,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const deleteSource = (index: number) => {
+    console.log('[KnowledgeEditor] deleteSource - Deleting source at index:', index);
     const newSources = knowledgeSources.filter((_, i) => i !== index);
+    console.log('[KnowledgeEditor] deleteSource - Remaining sources:', newSources);
     onUpdate(newSources);
   };
 
@@ -198,20 +252,26 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   }, [knowledgeSources]);
 
   const getSourcePreview = (source: IKnowledgeSource): string => {
-    if (source.name) {
-      return source.name;
-    }
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
-      try {
-        const url = new URL(source.source.web.urls[0]);
-        return url.hostname;
-      } catch {
-        return source.source.web.urls[0];
-      }    
+      return source.source.web.urls[0];
     } else if (source.source.filestore?.path) {
-      return source.source.filestore.path;
+      // Display cleaned path - strip apps/appId prefix and any other unnecessary prefixes
+      const path = source.source.filestore.path;
+      
+      // Strip common prefixes for cleaner display
+      if (path.startsWith(`apps/${appId}/`)) {
+        return path.substring(`apps/${appId}/`.length);
+      }
+      
+      // For paths like apps/app_01jnk1mhpshn3dyjvxtjb35t6g/pdfs
+      const appIdPattern = /^apps\/app_[a-zA-Z0-9]+\//;
+      if (appIdPattern.test(path)) {
+        return path.replace(appIdPattern, '');
+      }
+      
+      return path;
     }
-    return 'No source specified';
+    return 'Unknown source';
   };
 
   // Simplify the getKnowledge function to match by ID or name
@@ -331,6 +391,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       return;
     }
 
+    // Ensure the path is properly scoped to the app directory
+    let uploadPath = source.source.filestore.path;
+    if (!uploadPath.startsWith(`apps/${appId}/`)) {
+      uploadPath = `apps/${appId}/${uploadPath}`;
+    }
+
     // Reset cancellation state at the start of every upload
     uploadCancelledRef.current = false;
     
@@ -364,7 +430,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         // Try direct upload first
         await api.post('/api/v1/filestore/upload', formData, {
           params: {
-            path: source.source.filestore.path,
+            path: uploadPath,
           },
           signal: cancelTokenRef.current.signal,
           onUploadProgress: (progressEvent) => {
@@ -395,16 +461,25 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
 
           // Refresh the file list
-          const dirFiles = await loadFiles(source.source.filestore.path);
+          const updatedFiles = await loadFiles(uploadPath);
           setDirectoryFiles(prev => ({
             ...prev,
-            [index]: dirFiles
+            [index]: updatedFiles
           }));
 
           // Auto-save after successful file upload to trigger indexing
           if (onRequestSave) {
             console.log('Auto-saving app after file upload to trigger indexing');
             await onRequestSave();
+            
+            // After saving, also explicitly trigger re-indexing
+            // First find the knowledge source in the backend list
+            const knowledge = getKnowledge(source);
+            if (knowledge && knowledge.id) {
+              console.log('Triggering re-indexing after file upload for knowledge source:', knowledge.id);
+              onRefresh(knowledge.id);
+              snackbar.info('Re-indexing started for newly uploaded files. This may take a few minutes.');
+            }
           }
         }
       } catch (uploadError: unknown) {
@@ -424,22 +499,31 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           console.error('Direct upload failed, falling back to onUpload method:', uploadError);
           
           try {
-            await onUpload(source.source.filestore.path, files);
+            await onUpload(uploadPath, files);
             
             // Double-check cancellation state again before success
             if (!uploadCancelledRef.current) {
               snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
               
-              const dirFiles = await loadFiles(source.source.filestore.path);
+              const fallbackFiles = await loadFiles(uploadPath);
               setDirectoryFiles(prev => ({
                 ...prev,
-                [index]: dirFiles
+                [index]: fallbackFiles
               }));
 
               // Auto-save after successful file upload to trigger indexing
               if (onRequestSave) {
                 console.log('Auto-saving app after file upload to trigger indexing');
                 await onRequestSave();
+                
+                // After saving, also explicitly trigger re-indexing
+                // First find the knowledge source in the backend list
+                const knowledge = getKnowledge(source);
+                if (knowledge && knowledge.id) {
+                  console.log('Triggering re-indexing after fallback file upload for knowledge source:', knowledge.id);
+                  onRefresh(knowledge.id);
+                  snackbar.info('Re-indexing started for newly uploaded files. This may take a few minutes.');
+                }
               }
             }
           } catch (fallbackError) {
@@ -505,7 +589,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const loadDirectoryContents = async (path: string, index: number) => {
     if (!path) return;
     try {
-      const files = await loadFiles(path);
+      // Ensure the path is properly scoped to the app directory
+      let loadPath = path;
+      if (!loadPath.startsWith(`apps/${appId}/`)) {
+        loadPath = `apps/${appId}/${loadPath}`;
+      }
+      const files = await loadFiles(loadPath);
       setDirectoryFiles(prev => ({
         ...prev,
         [index]: files
@@ -530,8 +619,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         [fileId]: true
       }));
       
+      // Ensure the path is properly scoped to the app directory
+      let basePath = source.source.filestore.path;
+      if (!basePath.startsWith(`apps/${appId}/`)) {
+        basePath = `apps/${appId}/${basePath}`;
+      }
+      
       // Construct the full path to the file
-      const filePath = `${source.source.filestore.path}/${fileName}`;
+      const filePath = `${basePath}/${fileName}`;
       
       // Call the API to delete the file
       const response = await api.delete('/api/v1/filestore/delete', {
@@ -544,10 +639,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         snackbar.success(`File "${fileName}" deleted successfully`);
         
         // Refresh the file list
-        const dirFiles = await loadFiles(source.source.filestore.path);
+        const files = await loadFiles(basePath);
         setDirectoryFiles(prev => ({
           ...prev,
-          [index]: dirFiles
+          [index]: files
         }));
       } else {
         snackbar.error(`Failed to delete file "${fileName}"`);

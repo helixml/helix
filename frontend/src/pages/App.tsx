@@ -489,21 +489,31 @@ const App: FC = () => {
   }
 
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
-    setKnowledgeSources(updatedKnowledge);
+    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
+    
+    // We should update both state variables in a single batch to prevent race conditions
+    // and ensure the UI always shows consistent data
     setApp(prevApp => {
-      if (!prevApp) return prevApp;
+      if (!prevApp) {
+        console.log('[App] handleKnowledgeUpdate - No previous app state, skipping update');
+        return prevApp;
+      }
+
+      console.log('[App] handleKnowledgeUpdate - Previous app state:', prevApp);
 
       // if we don't have any assistants - create a default one
       const currentAssistants = prevApp.config.helix.assistants || [];
       let updatedAssistants = currentAssistants;
       
       if (currentAssistants.length === 0) {
+        console.log('[App] handleKnowledgeUpdate - No assistants found, creating default assistant');
         // create a default assistant
         updatedAssistants = [{
           ...getDefaultAssistant(),
           knowledge: updatedKnowledge,
         }];
       } else {
+        console.log('[App] handleKnowledgeUpdate - Updating existing assistants with new knowledge');
         // update existing assistants with new knowledge
         updatedAssistants = currentAssistants.map(assistant => ({
           ...assistant,
@@ -511,7 +521,7 @@ const App: FC = () => {
         }));
       }
 
-      return {
+      const newAppState = {
         ...prevApp,
         config: {
           ...prevApp.config,
@@ -521,6 +531,14 @@ const App: FC = () => {
           },
         },
       };
+      
+      console.log('[App] handleKnowledgeUpdate - New app state:', newAppState);
+      
+      // Update local state to keep it in sync with the app state
+      // This ensures both state values are always consistent
+      setKnowledgeSources(updatedKnowledge);
+      
+      return newAppState;
     });
   }
 

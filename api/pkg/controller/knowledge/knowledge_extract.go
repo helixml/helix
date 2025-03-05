@@ -173,10 +173,25 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 }
 
 func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	// Start with detailed logging of inputs
+	log.Debug().
+		Str("knowledge_id", k.ID).
+		Str("app_id", k.AppID).
+		Str("original_path", k.Source.Filestore.Path).
+		Msgf("Extracting data from Helix filestore")
+
 	// Ensure the knowledge source has a filestore path that is scoped to the app's directory
 	if k.Source.Filestore != nil && k.Source.Filestore.Path != "" {
 		// Check if the path is already properly scoped to the app's directory
 		expectedPrefix := fmt.Sprintf("apps/%s/", k.AppID)
+
+		log.Debug().
+			Str("knowledge_id", k.ID).
+			Str("original_path", k.Source.Filestore.Path).
+			Str("expected_prefix", expectedPrefix).
+			Bool("has_prefix", strings.HasPrefix(k.Source.Filestore.Path, expectedPrefix)).
+			Msgf("Checking if path has app prefix")
+
 		if !strings.HasPrefix(k.Source.Filestore.Path, expectedPrefix) {
 			// If not, construct the appropriate path relative to the app's directory
 			// Extract the knowledge name from the path or use the source name
@@ -187,7 +202,14 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 			}
 
 			// Update the path to be scoped to the app's directory
+			originalPath := k.Source.Filestore.Path
 			k.Source.Filestore.Path = filepath.Join("apps", k.AppID, knowledgeName)
+
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Str("original_path", originalPath).
+				Str("updated_path", k.Source.Filestore.Path).
+				Msgf("Updated knowledge path to include app prefix")
 
 			// Save the updated knowledge
 			_, err := r.store.UpdateKnowledge(ctx, k)
@@ -199,10 +221,19 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 
 	data, err := r.getFilestoreFiles(ctx, r.filestore, k)
 	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("knowledge_id", k.ID).
+			Str("path", k.Source.Filestore.Path).
+			Msgf("Failed to get filestore files")
 		return nil, fmt.Errorf("failed to get filestore files: %w", err)
 	}
 
 	if len(data) == 0 {
+		log.Warn().
+			Str("knowledge_id", k.ID).
+			Str("path", k.Source.Filestore.Path).
+			Msgf("No files found in filestore")
 		return nil, ErrNoFilesFound
 	}
 
@@ -214,9 +245,10 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 
 	log.Info().
 		Str("knowledge_id", k.ID).
-		Int64("total_size", totalSize).
-		Int64("count", int64(len(data))).
-		Msg("filestore data found")
+		Int("file_count", len(data)).
+		Int64("total_size_bytes", totalSize).
+		Str("path", k.Source.Filestore.Path).
+		Msgf("Successfully extracted data from filestore")
 
 	// Optional mode to disable text extractor and chunking,
 	// useful when the indexing server will know how to handle
@@ -249,36 +281,85 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Knowledge) ([]*indexerData, error) {
 	var result []*indexerData
 
+	log.Debug().
+		Str("knowledge_id", k.ID).
+		Str("path", k.Source.Filestore.Path).
+		Msgf("Getting files from filestore")
+
 	var recursiveList func(path string) error
 
 	recursiveList = func(path string) error {
+		log.Debug().
+			Str("knowledge_id", k.ID).
+			Str("listing_path", path).
+			Msgf("Listing files at path")
+
 		items, err := fs.List(ctx, path)
 		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Str("path", path).
+				Msgf("Failed to list files")
 			return fmt.Errorf("failed to list files at %s, error: %w", path, err)
 		}
 
+		log.Debug().
+			Str("knowledge_id", k.ID).
+			Str("path", path).
+			Int("item_count", len(items)).
+			Msgf("Found items in filestore")
+
 		for _, item := range items {
 			if item.Directory {
+				log.Debug().
+					Str("knowledge_id", k.ID).
+					Str("directory", item.Path).
+					Msgf("Found directory, recursing")
 				err := recursiveList(item.Path)
 				if err != nil {
 					return err
 				}
 			} else {
+				log.Debug().
+					Str("knowledge_id", k.ID).
+					Str("file", item.Path).
+					Int64("size", item.Size).
+					Msgf("Found file")
+
 				r, err := fs.OpenFile(ctx, item.Path)
 				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("knowledge_id", k.ID).
+						Str("file", item.Path).
+						Msgf("Failed to open file")
 					return fmt.Errorf("failed to open file at %s, error: %w", item.Path, err)
 				}
 
-				bts, err := io.ReadAll(r)
+				defer r.Close()
+
+				data, err := io.ReadAll(r)
 				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("knowledge_id", k.ID).
+						Str("file", item.Path).
+						Msgf("Failed to read file")
 					return fmt.Errorf("failed to read file at %s, error: %w", item.Path, err)
 				}
 
 				result = append(result, &indexerData{
-					Data:            bts,
 					Source:          item.Path,
+					Data:            data,
 					DocumentGroupID: getDocumentGroupID(item.Path),
 				})
+
+				log.Debug().
+					Str("knowledge_id", k.ID).
+					Str("file", item.Path).
+					Int("data_size", len(data)).
+					Msgf("Successfully read file")
 			}
 		}
 		return nil
@@ -288,10 +369,22 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 
 	path := filepath.Join(userPrefix, k.Source.Filestore.Path)
 
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Str("original_path", k.Source.Filestore.Path).
+		Str("user_prefix", userPrefix).
+		Str("full_path", path).
+		Msgf("Starting recursive file listing")
+
 	err := recursiveList(path)
 	if err != nil {
 		return nil, err
 	}
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int("file_count", len(result)).
+		Msgf("Completed file listing")
 
 	return result, nil
 }

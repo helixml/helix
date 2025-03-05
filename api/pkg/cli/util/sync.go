@@ -14,9 +14,14 @@ import (
 // It will only upload files that don't exist in the filestore, implementing an
 // rsync-like functionality. If deleteExtraFiles is true, it will also delete files
 // from the filestore that don't exist locally.
-func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, localDir, remotePath string, deleteExtraFiles bool) error {
+func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, localDir, remotePath string, deleteExtraFiles bool, appId string) error {
 	if localDir == "" || remotePath == "" {
 		return fmt.Errorf("local directory and remote path are required")
+	}
+
+	// Ensure the remote path is properly scoped to the app directory
+	if appId != "" && !strings.HasPrefix(remotePath, fmt.Sprintf("apps/%s/", appId)) {
+		remotePath = filepath.Join("apps", appId, remotePath)
 	}
 
 	// Check if local directory exists
@@ -30,7 +35,7 @@ func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, local
 	}
 
 	// Get remote files
-	remoteFiles, err := getRemoteFiles(ctx, apiClient, remotePath)
+	remoteFiles, err := getRemoteFiles(ctx, apiClient, remotePath, "") // Pass empty since remotePath is already scoped
 	if err != nil {
 		return fmt.Errorf("failed to list remote files: %w", err)
 	}
@@ -63,6 +68,8 @@ func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, local
 					return fmt.Errorf("failed to upload file %s: %w", path, err)
 				}
 				uploadCount++
+			} else {
+				fmt.Printf("Skipping %s (already exists in remote)\n", remoteFilePath)
 			}
 		}
 
@@ -113,8 +120,15 @@ func UploadFile(ctx context.Context, apiClient client.Client, localPath, remoteP
 }
 
 // getRemoteFiles recursively gets all files in the remote path
-func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath string) (map[string]bool, error) {
+func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath string, appId string) (map[string]bool, error) {
 	result := make(map[string]bool)
+
+	// Ensure the remote path is properly scoped to the app directory
+	if appId != "" && !strings.HasPrefix(remotePath, fmt.Sprintf("apps/%s/", appId)) {
+		remotePath = filepath.Join("apps", appId, remotePath)
+	}
+
+	fmt.Printf("Listing remote files in %s\n", remotePath)
 
 	items, err := apiClient.FilestoreList(ctx, remotePath)
 	if err != nil {
@@ -131,7 +145,7 @@ func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath str
 			result[item.Path] = true
 		} else {
 			// Recursively get files in subdirectories
-			subItems, err := getRemoteFiles(ctx, apiClient, item.Path)
+			subItems, err := getRemoteFiles(ctx, apiClient, item.Path, appId) // Pass appId to maintain scoping
 			if err != nil {
 				return nil, err
 			}
@@ -148,6 +162,24 @@ func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath str
 
 // fileExistsInRemote checks if a file already exists in the remote filestore
 func fileExistsInRemote(remoteFiles map[string]bool, filePath string) bool {
-	_, exists := remoteFiles[filePath]
-	return exists
+	// First check for exact match
+	if _, exists := remoteFiles[filePath]; exists {
+		return true
+	}
+
+	// If not found, check if there's a match with a user prefix
+	// Remote paths from API might have a dev/users/:user_id/ prefix
+	for remotePath := range remoteFiles {
+		// Strip any user prefix if present
+		parts := strings.Split(remotePath, "/apps/")
+		if len(parts) == 2 {
+			// Reconstruct the path without the user prefix
+			normalizedPath := "apps/" + parts[1]
+			if normalizedPath == filePath {
+				return true
+			}
+		}
+	}
+
+	return false
 }

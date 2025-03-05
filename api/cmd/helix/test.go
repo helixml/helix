@@ -45,7 +45,6 @@ import (
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 )
 
@@ -123,187 +122,405 @@ var htmlTemplate = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Helix Test Results</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 20px;
-            color: #333;
-            background-color: #f9f9f9;
+        body, html {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
         }
-        h1, h2, h3 {
-            color: #0066cc;
-        }
-        .summary {
-            margin-bottom: 30px;
-            padding: 15px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .summary table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .summary th, .summary td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        .summary th {
-            background-color: #f2f2f2;
-        }
-        .pass {
-            color: green;
-            font-weight: bold;
-        }
-        .fail {
-            color: red;
-            font-weight: bold;
-        }
-        .error {
-            color: orange;
-            font-weight: bold;
-        }
-        .test {
-            margin-bottom: 20px;
-            padding: 15px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .test-header {
+        .main-container {
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            padding: 10px 20px;
+            background-color: #f8f8f8;
+            border-bottom: 1px solid #ddd;
+            display: flex;
             align-items: center;
-            cursor: pointer;
-            padding: 10px;
-            background-color: #f2f2f2;
-            border-radius: 5px;
+            justify-content: space-between;
+            flex-wrap: wrap;
         }
-        .test-content {
-            display: none;
-            margin-top: 10px;
+        .header h1 {
+            margin: 0;
+            font-size: 1.2em;
         }
-        .expanded .test-content {
-            display: block;
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
         }
-        pre {
-            white-space: pre-wrap;
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 5px;
-            overflow-x: auto;
+        .header-info p {
+            margin: 0;
+            font-size: 0.9em;
         }
-        .turn {
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .results-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
             border: 1px solid #ddd;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            padding: 10px;
+            padding: 8px;
+            text-align: left;
         }
-        .turn-header {
-            font-weight: bold;
-            margin-bottom: 5px;
+        th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
-        .toggle-button {
-            background-color: #0066cc;
-            color: white;
+        tr.pass { background-color: #e6ffe6; }
+        tr.fail { background-color: #ffe6e6; }
+        #iframe-container {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 70%;
             border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
+        }
+        #iframe-container iframe {
+            width: 100%;
+            height: calc(100% - 10px);
+            border: none;
+        }
+        #close-iframe {
+            position: absolute;
+            top: 10px;
+            right: 10px;
             cursor: pointer;
         }
-        .toggle-button:hover {
-            background-color: #004c99;
+        #resize-handle {
+            width: 100%;
+            height: 10px;
+            background: #f0f0f0;
+            cursor: ns-resize;
+            border-top: 1px solid #ccc;
+        }
+        #view-helix-yaml {
+            padding: 5px 10px;
+            font-size: 0.9em;
+        }
+        .truncate {
+            max-width: 400px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            position: relative;
+            cursor: pointer;
+        }
+        .tooltip {
+            display: none;
+            position: absolute;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 5px;
+            z-index: 1000;
+            max-width: 300px;
+            word-wrap: break-word;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
     </style>
 </head>
 <body>
-    <h1>Helix Test Results</h1>
-    
-    <div class="summary">
-        <h2>Summary</h2>
-        <table>
-            <tr>
-                <th>Total Tests</th>
-                <th>Passed</th>
-                <th>Failed</th>
-                <th>Errors</th>
-                <th>Duration</th>
-            </tr>
-            <tr>
-                <td>{{ .TotalTests }}</td>
-                <td class="pass">{{ .Passed }}</td>
-                <td class="fail">{{ .Failed }}</td>
-                <td class="error">{{ .Errors }}</td>
-                <td>{{ .Duration }}</td>
-            </tr>
-        </table>
-        {{ if .ResultsTable }}
-        <h3>Results</h3>
-        {{ .ResultsTable }}
-        {{ end }}
-    </div>
-    
-    <h2>Test Details</h2>
-    
-    {{ range .Results }}
-    <div class="test">
-        <div class="test-header" onclick="toggleTest(this.parentElement)">
-            <div>
-                <span class="{{ .Result | lower }}">{{ .Result }}</span> - {{ .TestName }}
-                {{ if .IsMultiTurn }}
-                <span>[Turn {{ .TurnNumber }}/{{ .TotalTurns }}]</span>
-                {{ end }}
+    <div class="main-container">
+        <div class="header">
+            <h1>Helix Test Results</h1>
+            <div class="header-info">
+                <p>Total Time: {{.TotalExecutionTime}}</p>
+                <p>File: {{.LatestResultsFile}}</p>
             </div>
-            <button class="toggle-button">Show/Hide Details</button>
+            <div class="header-controls">
+                <form action="/" method="get" style="margin: 0;">
+                    <select name="file" onchange="this.form.submit()" style="padding: 5px;">
+                        {{range .AvailableResultFiles}}
+                            <option value="{{.}}" {{if eq . $.LatestResultsFile}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </form>
+                <button id="view-helix-yaml" onclick="viewHelixYaml()">View helix.yaml</button>
+            </div>
         </div>
-        <div class="test-content">
-            <h3>Details</h3>
-            <p><strong>Model:</strong> {{ .Model }}</p>
-            <p><strong>Evaluation Model:</strong> {{ .EvaluationModel }}</p>
-            <p><strong>Inference Time:</strong> {{ .InferenceTime }}</p>
-            <p><strong>Evaluation Time:</strong> {{ .EvaluationTime }}</p>
-            <p><strong>Reason:</strong> {{ .Reason }}</p>
-            <p><strong>Session ID:</strong> {{ .SessionID }}</p>
-            
-            {{ if .IsMultiTurn }}
-            <h3>Current Turn</h3>
-            <div class="turn">
-                <div class="turn-header">User Prompt:</div>
-                <pre>{{ .Prompt }}</pre>
-                <div class="turn-header">Assistant Response:</div>
-                <pre>{{ .Response }}</pre>
-                <div class="turn-header">Expected Output:</div>
-                <pre>{{ .Expected }}</pre>
-            </div>
-            {{ else }}
-            <h3>Prompt and Response</h3>
-            <p><strong>Prompt:</strong></p>
-            <pre>{{ .Prompt }}</pre>
-            <p><strong>Response:</strong></p>
-            <pre>{{ .Response }}</pre>
-            <p><strong>Expected Output:</strong></p>
-            <pre>{{ .Expected }}</pre>
-            {{ end }}
-            
-            <h3>Links</h3>
-            <p><a href="{{ .HelixURL }}/session/{{ .SessionID }}" target="_blank">View Session</a></p>
-            <p><a href="{{ .HelixURL }}/session/{{ .SessionID }}/debug" target="_blank">Debug Session</a></p>
+        <div class="results-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Test Name</th>
+                        <th>Result</th>
+                        <th>Reason</th>
+                        <th>Model</th>
+                        <th>Inference Time</th>
+                        <th>Evaluation Time</th>
+                        <th>Session Link</th>
+                        <th>Debug Link</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Tests}}
+                    <tr class="{{if eq .Result "PASS"}}pass{{else}}fail{{end}}">
+                        <td>{{.TestName}}{{if .IsMultiTurn}} [Turn {{.TurnNumber}}/{{.TotalTurns}}]{{end}}</td>
+                        <td>{{.Result}}</td>
+                        <td class="truncate" data-full-text="{{.Reason}}">{{truncate .Reason 100}}</td>
+                        <td>{{.Model}}</td>
+                        <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
+                        <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
+                        <td><a href="#" onclick="openLink('{{.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
+                        <td><a href="#" onclick="openLink('{{.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
         </div>
     </div>
-    {{ end }}
-    
+    <div id="iframe-container">
+        <div id="resize-handle"></div>
+        <div id="close-iframe" onclick="closeDashboard()" style="color: white;">Close</div>
+        <iframe id="dashboard-iframe" src=""></iframe>
+    </div>
+    <div id="tooltip" class="tooltip"></div>
     <script>
-        function toggleTest(element) {
-            element.classList.toggle('expanded');
+        function openLink(url) {
+            if (window.location.protocol === 'file:') {
+                window.open(url, '_blank');
+            } else {
+                // typically ngrok URLs don't have keycloak properly configured
+                // to use the ngrok url, so use localhost in that case
+                if (url.includes('ngrok')) {
+                    url = url.replace(/https?:\/\/[^\/]+/, 'http://localhost:8080');
+                }
+                openDashboard(url);
+            }
         }
-        
-        // Expand tests that failed
-        document.addEventListener('DOMContentLoaded', function() {
-            const failedTests = document.querySelectorAll('.test:has(.fail)');
-            failedTests.forEach(function(test) {
-                test.classList.add('expanded');
+
+        function openDashboard(url) {
+            document.getElementById('dashboard-iframe').src = url;
+            document.getElementById('iframe-container').style.display = 'block';
+            adjustContentHeight();
+        }
+
+        function closeDashboard() {
+            document.getElementById('iframe-container').style.display = 'none';
+            document.getElementById('dashboard-iframe').src = '';
+            adjustContentHeight();
+        }
+
+        function adjustContentHeight() {
+            const mainContainer = document.querySelector('.main-container');
+            const iframeContainer = document.getElementById('iframe-container');
+            if (iframeContainer.style.display === 'block') {
+                mainContainer.style.height = 'calc(100vh - ' + iframeContainer.offsetHeight + 'px)';
+            } else {
+                mainContainer.style.height = '100vh';
+            }
+        }
+
+        // Resizing functionality
+        const resizeHandle = document.getElementById('resize-handle');
+        const iframeContainer = document.getElementById('iframe-container');
+        let isResizing = false;
+        let startY = 0;
+
+        // Track resize state globally
+        document.addEventListener('mouseup', stopResize, true);
+        document.addEventListener('mouseleave', stopResize, true);
+
+        resizeHandle.addEventListener('mousedown', function(e) {
+            e.preventDefault(); // Prevent text selection
+            isResizing = true;
+            startY = e.clientY;
+            
+            // Prevent iframe from capturing events during resize
+            const iframe = document.getElementById('dashboard-iframe');
+            if (iframe) {
+                iframe.style.pointerEvents = 'none';
+            }
+            
+            // Add a class to indicate resizing state
+            iframeContainer.classList.add('resizing');
+            
+            document.addEventListener('mousemove', resize, true);
+        });
+
+        function resize(e) {
+            if (!isResizing) return;
+            
+            e.preventDefault(); // Prevent unwanted selections
+            const deltaY = startY - e.clientY;
+            const currentHeight = parseInt(window.getComputedStyle(iframeContainer).height);
+            const newHeight = currentHeight + deltaY;
+            
+            // Add reasonable limits to prevent extreme sizes
+            if (newHeight > 100 && newHeight < window.innerHeight - 100) {
+                iframeContainer.style.height = newHeight + 'px';
+                adjustContentHeight();
+                startY = e.clientY; // Update the reference point for next move
+            }
+        }
+
+        function stopResize(e) {
+            if (!isResizing) return;
+            
+            isResizing = false;
+            document.removeEventListener('mousemove', resize, true);
+            
+            // Re-enable iframe events
+            const iframe = document.getElementById('dashboard-iframe');
+            if (iframe) {
+                iframe.style.pointerEvents = 'auto';
+            }
+            
+            // Remove the resizing class
+            iframeContainer.classList.remove('resizing');
+            
+            // Prevent any pending events
+            e && e.preventDefault();
+        }
+
+        // Add necessary styles for resize handling
+        const style = document.createElement('style');
+        style.textContent = 
+            '#iframe-container {' +
+            '    position: relative;' +
+            '}' +
+            '#iframe-container.resizing {' +
+            '    user-select: none;' +
+            '}' +
+            '#iframe-container.resizing iframe {' +
+            '    pointer-events: none;' +
+            '}' +
+            '#resize-handle {' +
+            '    position: absolute;' +
+            '    top: 0;' +
+            '    left: 0;' +
+            '    right: 0;' +
+            '    height: 10px;' +
+            '    background: #f0f0f0;' +
+            '    cursor: ns-resize;' +
+            '    border-top: 1px solid #ccc;' +
+            '    z-index: 1000;' +
+            '}' +
+            '#resize-handle:hover {' +
+            '    background: #e0e0e0;' +
+            '}';
+        document.head.appendChild(style);
+
+        function viewHelixYaml() {
+            const helixYaml = {{.HelixYaml}};
+            const blob = new Blob([helixYaml], { type: 'text/yaml' });
+            const url = URL.createObjectURL(blob);
+            openDashboard(url);
+        }
+
+        // Tooltip functionality with improved responsiveness
+        const tooltip = document.getElementById('tooltip');
+        let activeElement = null;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let tooltipCheckInterval = null;
+
+        // Track mouse position globally
+        document.addEventListener('mousemove', function(e) {
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            
+            if (activeElement) {
+                updateTooltipPosition(e);
+            }
+        });
+
+        function startTooltipCheck() {
+            if (tooltipCheckInterval) clearInterval(tooltipCheckInterval);
+            tooltipCheckInterval = setInterval(checkTooltipVisibility, 100);
+        }
+
+        function stopTooltipCheck() {
+            if (tooltipCheckInterval) {
+                clearInterval(tooltipCheckInterval);
+                tooltipCheckInterval = null;
+            }
+        }
+
+        function checkTooltipVisibility() {
+            if (!activeElement || !tooltip.style.display === 'block') {
+                hideTooltip();
+                return;
+            }
+
+            const rect = activeElement.getBoundingClientRect();
+            if (!isPointNearRect(lastMouseX, lastMouseY, rect, 20)) {
+                hideTooltip();
+            }
+        }
+
+        function isPointNearRect(x, y, rect, threshold) {
+            return (
+                x >= rect.left - threshold &&
+                x <= rect.right + threshold &&
+                y >= rect.top - threshold &&
+                y <= rect.bottom + threshold
+            );
+        }
+
+        function hideTooltip() {
+            tooltip.style.display = 'none';
+            activeElement = null;
+            stopTooltipCheck();
+        }
+
+        document.querySelectorAll('.truncate').forEach(el => {
+            el.addEventListener('mouseover', function(e) {
+                activeElement = this;
+                tooltip.textContent = this.getAttribute('data-full-text');
+                tooltip.style.display = 'block';
+                updateTooltipPosition(e);
+                startTooltipCheck();
+            });
+
+            el.addEventListener('mouseout', function(e) {
+                // Let the interval handle cleanup to avoid race conditions
+                if (!isPointNearRect(e.clientX, e.clientY, this.getBoundingClientRect(), 20)) {
+                    hideTooltip();
+                }
             });
         });
+
+        function updateTooltipPosition(e) {
+            const padding = 5;
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            // Calculate initial position
+            let left = e.clientX + padding;
+            let top = e.clientY + padding;
+
+            // Adjust if tooltip would go off-screen
+            if (left + tooltipRect.width > viewportWidth) {
+                left = e.clientX - tooltipRect.width - padding;
+            }
+            if (top + tooltipRect.height > viewportHeight) {
+                top = e.clientY - tooltipRect.height - padding;
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        }
+
+        // Initial adjustment
+        adjustContentHeight();
     </script>
 </body>
 </html>
@@ -385,10 +602,40 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 			fmt.Printf("Syncing local directory '%s' to knowledge source '%s' (path: %s)\n",
 				mapping.LocalDir, mapping.KnowledgeName, mapping.RemotePath)
 
-			err = cliutil.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles)
+			err = cliutil.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles, appID)
 			if err != nil {
 				return fmt.Errorf("failed to sync files for knowledge '%s': %w", mapping.KnowledgeName, err)
 			}
+		}
+
+		// After syncing all files, refresh the knowledge to reindex
+		// Handle the case where knowledge is already queued for indexing
+		knowledgeFilter := &client.KnowledgeFilter{
+			AppID: appID,
+		}
+
+		knowledge, err := apiClient.ListKnowledge(cmd.Context(), knowledgeFilter)
+		if err != nil {
+			return err
+		}
+
+		alreadyQueued := false
+		for _, k := range knowledge {
+			err = apiClient.RefreshKnowledge(cmd.Context(), k.ID)
+			if err != nil {
+				// If knowledge is already queued for indexing, that's fine, we'll just wait
+				if strings.Contains(err.Error(), "knowledge is queued for indexing") {
+					fmt.Printf("Knowledge %s (%s) is already queued for indexing\n", k.ID, k.Name)
+					alreadyQueued = true
+					continue
+				}
+				return fmt.Errorf("failed to refresh knowledge %s (%s): %w", k.ID, k.Name, err)
+			}
+		}
+
+		// If knowledge was already queued, don't return an error, just continue to the wait step
+		if alreadyQueued {
+			fmt.Println("Some knowledge sources are already being indexed. Proceeding to wait for indexing to complete...")
 		}
 	}
 
@@ -477,6 +724,7 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 	totalStartTime := time.Now()
 
 	resultsChan := make(chan TestResult)
+	errorChan := make(chan error, 1) // Buffer of 1 to avoid blocking
 	var wg sync.WaitGroup
 
 	// Map to store session IDs for multi-turn conversations
@@ -488,10 +736,19 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 	for _, assistant := range appConfig.Assistants {
 		for _, test := range assistant.Tests {
 			// Process each test's steps sequentially for multi-turn conversation support
+			wg.Add(1)
 			go func(assistant types.AssistantConfig, test struct {
 				Name  string           `json:"name,omitempty" yaml:"name,omitempty"`
 				Steps []types.TestStep `json:"steps,omitempty" yaml:"steps,omitempty"`
 			}) {
+				// Add panic recovery for the outer goroutine
+				defer func() {
+					if r := recover(); r != nil {
+						errorChan <- fmt.Errorf("panic in test execution: %v", r)
+					}
+					wg.Done()
+				}()
+
 				testKey := assistant.Name + "-" + test.Name
 
 				for i, step := range test.Steps {
@@ -499,7 +756,13 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 
 					// Create a new goroutine for each step but execute them in order
 					func(assistantName, testName string, step types.TestStep, stepIndex int) {
-						defer wg.Done()
+						// Add panic recovery for the inner goroutine
+						defer func() {
+							if r := recover(); r != nil {
+								errorChan <- fmt.Errorf("panic in test step execution: %v", r)
+							}
+							wg.Done()
+						}()
 
 						// Get the session ID from previous steps if this is a multi-turn conversation
 						var sessionID string
@@ -536,6 +799,16 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 							result.TotalTurns = len(test.Steps)
 						}
 
+						// Before sending, check if there's an error
+						select {
+						case err := <-errorChan:
+							// Put the error back and return
+							errorChan <- err
+							return
+						default:
+							// Continue if no error
+						}
+
 						resultsChan <- result
 
 						// Output . for pass, F for fail
@@ -550,25 +823,32 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 		}
 	}
 
+	// Wait for all tests to complete or first error
 	go func() {
 		wg.Wait()
 		close(resultsChan)
 	}()
 
+	// Collect results or handle errors
 	var results []TestResult
-	for result := range resultsChan {
-		results = append(results, result)
+	for {
+		select {
+		case result, ok := <-resultsChan:
+			if !ok {
+				// Channel closed, we're done
+				fmt.Println() // Add a newline after all tests have completed
+				totalTime := time.Since(totalStartTime)
+				sort.Slice(results, func(i, j int) bool {
+					return results[i].TestName < results[j].TestName
+				})
+				return results, totalTime, nil
+			}
+			results = append(results, result)
+		case err := <-errorChan:
+			// Return early on error
+			return results, time.Since(totalStartTime), err
+		}
 	}
-
-	fmt.Println() // Add a newline after all tests have completed
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].TestName < results[j].TestName
-	})
-
-	totalTime := time.Since(totalStartTime)
-
-	return results, totalTime, nil
 }
 
 func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel, sessionID string) (TestResult, error) {
@@ -704,8 +984,8 @@ var (
 	globalHelixURL string
 )
 
-// Update the sendChatRequest function to return the response format needed
-func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, openai.ChatCompletionResponse, error) {
+// Update the sendChatRequest function to handle JSON parsing errors better
+func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResponse, error) {
 	// Save API key and URL globally
 	globalAPIKey = apiKey
 	globalHelixURL = helixURL
@@ -713,13 +993,17 @@ func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, openai.C
 	// Marshal the request to JSON
 	reqBody, err := json.Marshal(req)
 	if err != nil {
-		return "", openai.ChatCompletionResponse{}, fmt.Errorf("error marshaling request: %w", err)
+		return "", ChatResponse{}, fmt.Errorf("error marshaling request: %w", err)
 	}
 
 	// Create the HTTP request
-	httpReq, err := http.NewRequest("POST", helixURL+"/api/v1/chat/completions", bytes.NewReader(reqBody))
+	fullURL := helixURL + "/api/v1/sessions/chat"
+	fmt.Printf("Sending chat request to URL: %s\n", fullURL)
+	fmt.Printf("Request body: %s\n", string(reqBody))
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(reqBody))
 	if err != nil {
-		return "", openai.ChatCompletionResponse{}, err
+		return "", ChatResponse{}, fmt.Errorf("error creating HTTP request: %w", err)
 	}
 
 	// Set the headers
@@ -730,21 +1014,34 @@ func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, openai.C
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return "", openai.ChatCompletionResponse{}, err
+		return "", ChatResponse{}, fmt.Errorf("error sending HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		// Try to read error message from response body
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", ChatResponse{}, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
+	}
 
 	// Read the response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", openai.ChatCompletionResponse{}, err
+		return "", ChatResponse{}, fmt.Errorf("error reading response body: %w", err)
+	}
+
+	// Make sure we have some response data before trying to parse it
+	if len(respBody) == 0 {
+		return "", ChatResponse{}, fmt.Errorf("empty response body")
 	}
 
 	// Parse the response
-	var chatResp openai.ChatCompletionResponse
+	var chatResp ChatResponse
 	err = json.Unmarshal(respBody, &chatResp)
 	if err != nil {
-		return "", openai.ChatCompletionResponse{}, err
+		// Include the response in the error to help debugging
+		return "", ChatResponse{}, fmt.Errorf("error parsing JSON response (%w): %s", err, string(respBody))
 	}
 
 	// Extract the conversation ID from the response headers
@@ -834,6 +1131,7 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		"replaceSpaces": func(s string) string {
 			return strings.ReplaceAll(s, " ", "-")
 		},
+		"lower": strings.ToLower,
 	}).Parse(htmlTemplate)
 	if err != nil {
 		return fmt.Errorf("error parsing HTML template: %v", err)
@@ -852,6 +1150,13 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		AvailableResultFiles []string
 		HelixYaml            string
 		HelixURL             string
+		TotalTests           int
+		Passed               int
+		Failed               int
+		Errors               int
+		Duration             string
+		ResultsTable         template.HTML
+		Results              []TestResult
 	}{
 		Tests:                results,
 		TotalExecutionTime:   totalTime.String(),
@@ -859,6 +1164,13 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		AvailableResultFiles: []string{jsonFilename},
 		HelixYaml:            helixYamlContent,
 		HelixURL:             getHelixURL(),
+		TotalTests:           len(results),
+		Passed:               countResultsByStatus(results, "PASS"),
+		Failed:               countResultsByStatus(results, "FAIL"),
+		Errors:               countResultsByStatus(results, "ERROR"),
+		Duration:             totalTime.String(),
+		ResultsTable:         generateResultsTable(results),
+		Results:              results,
 	}
 
 	err = tmpl.Execute(htmlFile, data)
@@ -1078,4 +1390,44 @@ func getAvailableModels(apiKey, helixURL string) ([]string, error) {
 	}
 
 	return models, nil
+}
+
+func countResultsByStatus(results []TestResult, status string) int {
+	count := 0
+	for _, result := range results {
+		if result.Result == status {
+			count++
+		}
+	}
+	return count
+}
+
+func generateResultsTable(results []TestResult) template.HTML {
+	var builder strings.Builder
+	builder.WriteString("<table class=\"results-table\">")
+	builder.WriteString("<tr><th>Test Name</th><th>Result</th><th>Reason</th><th>Model</th><th>Inference Time</th><th>Evaluation Time</th><th>Session Link</th><th>Debug Link</th></tr>")
+	for _, result := range results {
+		sessionLink := fmt.Sprintf("<a href=\"%s/session/%s\" target=\"_blank\">View Session</a>", getHelixURL(), result.SessionID)
+		debugLink := fmt.Sprintf("<a href=\"%s/session/%s/debug\" target=\"_blank\">Debug Session</a>", getHelixURL(), result.SessionID)
+
+		resultClass := "error"
+		if result.Result == "PASS" {
+			resultClass = "pass"
+		} else if result.Result == "FAIL" {
+			resultClass = "fail"
+		}
+
+		builder.WriteString(fmt.Sprintf("<tr><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+			result.TestName,
+			resultClass,
+			result.Result,
+			truncate(result.Reason, 50),
+			result.Model,
+			result.InferenceTime.Round(time.Millisecond),
+			result.EvaluationTime.Round(time.Millisecond),
+			sessionLink,
+			debugLink))
+	}
+	builder.WriteString("</table>")
+	return template.HTML(builder.String())
 }

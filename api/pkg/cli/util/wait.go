@@ -73,7 +73,6 @@ func WaitForKnowledgeReady(ctx context.Context, apiClient client.Client, appID s
 			for _, k := range knowledge {
 				// Print status changes
 				if printedStatus[k.ID] != k.State {
-					fmt.Print("\n") // End the dots line before printing status
 					fmt.Printf("Knowledge '%s' status: %s\n", k.Name, k.State)
 					printedStatus[k.ID] = k.State
 				}
@@ -89,7 +88,7 @@ func WaitForKnowledgeReady(ctx context.Context, apiClient client.Client, appID s
 			}
 
 			if allReady {
-				fmt.Println("\nAll knowledge sources are ready!")
+				fmt.Println("All knowledge sources are ready!")
 				return nil
 			}
 		}

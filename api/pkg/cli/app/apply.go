@@ -11,7 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -36,16 +35,20 @@ func NewApplyCmd() *cobra.Command {
 // applyCmd represents the apply command
 var applyCmd = &cobra.Command{
 	Use:   "apply",
-	Short: "Create or update an application",
-	Long:  `Create or update an application.`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		filename, err := cmd.Flags().GetString("filename")
+	Short: "Apply a Helix app configuration",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Get flags
+		yamlFile, err := cmd.Flags().GetString("filename")
 		if err != nil {
 			return err
 		}
-
-		if filename == "" {
+		if yamlFile == "" {
 			return fmt.Errorf("filename is required")
+		}
+
+		organization, err := cmd.Flags().GetString("organization")
+		if err != nil {
+			return err
 		}
 
 		shared, err := cmd.Flags().GetBool("shared")
@@ -54,16 +57,6 @@ var applyCmd = &cobra.Command{
 		}
 
 		global, err := cmd.Flags().GetBool("global")
-		if err != nil {
-			return err
-		}
-
-		organization, err := cmd.Flags().GetString("organization")
-		if err != nil {
-			return err
-		}
-
-		refreshKnowledge, err := cmd.Flags().GetBool("refresh-knowledge")
 		if err != nil {
 			return err
 		}
@@ -78,6 +71,11 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
+		refreshKnowledge, err := cmd.Flags().GetBool("refresh-knowledge")
+		if err != nil {
+			return err
+		}
+
 		waitKnowledge, err := cmd.Flags().GetBool("wait-knowledge")
 		if err != nil {
 			return err
@@ -88,34 +86,16 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
-		localApp, err := apps.NewLocalApp(filename)
+		// Read and parse the YAML file
+		appConfig, err := apps.NewLocalApp(yamlFile)
 		if err != nil {
 			return err
 		}
 
-		appConfig := localApp.GetAppConfig()
-
+		// Create API client
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
-		}
-
-		// Handle the --rsync flag to sync local files to filestore
-		if len(syncFiles) > 0 {
-			mappings, err := util.ParseSyncMappings(syncFiles, appConfig)
-			if err != nil {
-				return err
-			}
-
-			for _, mapping := range mappings {
-				fmt.Printf("Syncing local directory '%s' to knowledge source '%s' (path: %s)\n",
-					mapping.LocalDir, mapping.KnowledgeName, mapping.RemotePath)
-
-				err = util.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles)
-				if err != nil {
-					return fmt.Errorf("failed to sync files for knowledge '%s': %w", mapping.KnowledgeName, err)
-				}
-			}
 		}
 
 		// Handle app creation or update
@@ -128,8 +108,8 @@ var applyCmd = &cobra.Command{
 		var appID string
 
 		for _, app := range existingApps {
-			if app.Config.Helix.Name == appConfig.Name {
-				log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.Name)
+			if app.Config.Helix.Name == appConfig.GetAppConfig().Name {
+				// log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.GetAppConfig().Name)
 				existingApp = app
 				appID = app.ID
 				break
@@ -137,34 +117,50 @@ var applyCmd = &cobra.Command{
 		}
 
 		if existingApp != nil {
-			err = updateApp(cmd.Context(), apiClient, existingApp, appConfig, shared, global)
+			err = updateApp(cmd.Context(), apiClient, existingApp, appConfig.GetAppConfig(), shared, global)
 			if err != nil {
 				return err
-			}
-
-			if refreshKnowledge {
-				knowledgeFilter := &client.KnowledgeFilter{
-					AppID: existingApp.ID,
-				}
-
-				knowledge, err := apiClient.ListKnowledge(cmd.Context(), knowledgeFilter)
-				if err != nil {
-					return err
-				}
-
-				for _, knowledge := range knowledge {
-					err = apiClient.RefreshKnowledge(cmd.Context(), knowledge.ID)
-					if err != nil {
-						return fmt.Errorf("failed to refresh knowledge %s (%s): %w", knowledge.ID, knowledge.Name, err)
-					}
-				}
 			}
 		} else {
-			newApp, err := createApp(cmd.Context(), apiClient, organization, appConfig, shared, global)
+			appID, err = createApp(cmd.Context(), apiClient, organization, appConfig.GetAppConfig(), shared, global)
 			if err != nil {
 				return err
 			}
-			appID = newApp
+		}
+
+		// Handle the --sync flag to sync local files to filestore
+		if len(syncFiles) > 0 {
+			mappings, err := util.ParseSyncMappings(syncFiles, appConfig.GetAppConfig())
+			if err != nil {
+				return err
+			}
+
+			for _, mapping := range mappings {
+				fmt.Printf("Syncing local directory '%s' to knowledge source '%s' (path: %s)\n",
+					mapping.LocalDir, mapping.KnowledgeName, mapping.RemotePath)
+
+				err = util.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles, appID)
+				if err != nil {
+					return fmt.Errorf("failed to sync files for knowledge '%s': %w", mapping.KnowledgeName, err)
+				}
+			}
+
+			// After syncing files, refresh the knowledge to reindex
+			err = RefreshAppKnowledge(cmd.Context(), apiClient, appID)
+			if err != nil {
+				return err
+			}
+
+			// Since we've already reindexed after syncing, skip the explicit refresh
+			refreshKnowledge = false
+		}
+
+		// Handle explicit refresh-knowledge flag
+		if refreshKnowledge {
+			err = RefreshAppKnowledge(cmd.Context(), apiClient, appID)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Wait for knowledge to be indexed if requested
@@ -177,6 +173,26 @@ var applyCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// RefreshAppKnowledge triggers a reindex of all knowledge sources for an app
+func RefreshAppKnowledge(ctx context.Context, apiClient client.Client, appID string) error {
+	knowledgeFilter := &client.KnowledgeFilter{
+		AppID: appID,
+	}
+
+	knowledge, err := apiClient.ListKnowledge(ctx, knowledgeFilter)
+	if err != nil {
+		return err
+	}
+
+	for _, knowledge := range knowledge {
+		err = apiClient.RefreshKnowledge(ctx, knowledge.ID)
+		if err != nil {
+			return fmt.Errorf("failed to refresh knowledge %s (%s): %w", knowledge.ID, knowledge.Name, err)
+		}
+	}
+	return nil
 }
 
 func updateApp(ctx context.Context, apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig, shared, global bool) error {
