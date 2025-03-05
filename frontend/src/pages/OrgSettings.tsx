@@ -117,59 +117,57 @@ const OrgSettings: FC = () => {
       breadcrumbShowHome={ false }
     >
       <Container maxWidth="xl">
-        <Box sx={{ mt: 3 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h5" component="h2" gutterBottom>
-              Organization Settings
-            </Typography>
-            
-            {organization ? (
-              <Box component="form" sx={{ mt: 3 }}>
-                {/* Name field (formerly Display Name) */}
-                <TextField
-                  label="Name"
-                  fullWidth
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onBlur={handleNameBlur}
+        <Box sx={{ mt: 3, p: 2 }}>
+          <Typography variant="h5" component="h2" gutterBottom>
+            Organization Settings
+          </Typography>
+          
+          {organization ? (
+            <Box component="form" sx={{ mt: 3 }}>
+              {/* Name field (formerly Display Name) */}
+              <TextField
+                label="Name"
+                fullWidth
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={handleNameBlur}
+                disabled={loading}
+                required
+                error={!!errors.name}
+                helperText={errors.name || "Human-readable name for the organization"}
+                sx={{ mb: 3 }}
+              />
+              
+              {/* Slug field (formerly Name) */}
+              <TextField
+                label="Slug"
+                fullWidth
+                value={slug}
+                onChange={handleSlugChange}
+                disabled={loading}
+                required
+                error={!!errors.slug}
+                helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
+                sx={{ mb: 3 }}
+              />
+              
+              <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  onClick={handleSubmit}
+                  variant="contained"
+                  color="primary"
                   disabled={loading}
-                  required
-                  error={!!errors.name}
-                  helperText={errors.name || "Human-readable name for the organization"}
-                  sx={{ mb: 3 }}
-                />
-                
-                {/* Slug field (formerly Name) */}
-                <TextField
-                  label="Slug"
-                  fullWidth
-                  value={slug}
-                  onChange={handleSlugChange}
-                  disabled={loading}
-                  required
-                  error={!!errors.slug}
-                  helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
-                  sx={{ mb: 3 }}
-                />
-                
-                <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                  <Button
-                    onClick={handleSubmit}
-                    variant="contained"
-                    color="primary"
-                    disabled={loading}
-                    startIcon={loading ? <CircularProgress size={20} /> : null}
-                  >
-                    Update Organization
-                  </Button>
-                </Box>
+                  startIcon={loading ? <CircularProgress size={20} /> : null}
+                >
+                  Update Organization
+                </Button>
               </Box>
-            ) : (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            )}
-          </Paper>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          )}
         </Box>
       </Container>
     </Page>
