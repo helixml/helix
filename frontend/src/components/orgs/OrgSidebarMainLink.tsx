@@ -18,11 +18,13 @@ const OrgSidebarMainLink: FC<{
   routeName: string,
   title: string,
   icon: React.ReactNode,
+  includeOrgId?: boolean,
 }> = ({
   id,
   routeName,
   title,
   icon,
+  includeOrgId = true,
 }) => {
   const account = useAccount()
   const router = useRouter()
@@ -51,7 +53,7 @@ const OrgSidebarMainLink: FC<{
           },
         }}
         onClick={ () => {
-          router.navigate(routeName, { org_id: account.organizationTools.organization?.id })
+          router.navigate(routeName, includeOrgId ? { org_id: account.organizationTools.organization?.name } : {})
           account.setMobileMenuOpen(false)
         }}
       >

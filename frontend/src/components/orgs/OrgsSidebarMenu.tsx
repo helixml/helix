@@ -19,6 +19,7 @@ const OrgsSidebarMenu: FC<{
         routeName="home"
         title="Exit"
         icon={ <ArrowBack/> }
+        includeOrgId={ false }
       />
       <OrgSidebarMainLink
         id="settings-link"
