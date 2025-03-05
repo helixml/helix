@@ -127,14 +127,11 @@ type Keycloak struct {
 }
 
 type OIDC struct {
-	Enabled         bool   `envconfig:"OIDC_ENABLED" default:"false"`
-	SecureCookies   bool   `envconfig:"OIDC_SECURE_COOKIES" default:"true"`
-	URL             string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
-	ClientID        string `envconfig:"OIDC_CLIENT_ID" default:"api"`
-	ClientSecret    string `envconfig:"OIDC_CLIENT_SECRET"`
-	OIDCFrontEndURL string `envconfig:"OIDC_FRONTEND_URL" default:"http://localhost:8080/auth"`
-	OIDCAdminRealm  string `envconfig:"OIDC_ADMIN_REALM" default:"master"`
-	OIDCRealm       string `envconfig:"OIDC_REALM" default:"helix"`
+	Enabled       bool   `envconfig:"OIDC_ENABLED" default:"false"`
+	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"true"`
+	URL           string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
+	ClientID      string `envconfig:"OIDC_CLIENT_ID" default:"api"`
+	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
