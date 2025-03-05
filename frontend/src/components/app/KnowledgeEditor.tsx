@@ -31,6 +31,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import Link from '@mui/material/Link';
 import CloseIcon from '@mui/icons-material/Close';
+import { v4 as uuidv4 } from 'uuid';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
@@ -54,9 +55,10 @@ interface KnowledgeEditorProps {
   disabled: boolean;
   knowledgeList: IKnowledgeSource[];
   appId: string;
+  onRequestSave?: () => Promise<any>;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId, onRequestSave }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
@@ -79,6 +81,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   // Add a state to track file count
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadIndex, setUploadIndex] = useState(-1);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Debug: Log uploadProgress
   useEffect(() => {
@@ -94,8 +99,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
+    console.log('Knowledge update - Original source:', knowledgeSources[index]);
+    console.log('Knowledge update - Updated fields:', updatedSource);
+    
     const newSources = [...knowledgeSources];
-    let newSource = { ...newSources[index], ...updatedSource };    
+    const existingSource = newSources[index];
+    
+    // Create a new source by carefully merging the existing source with the updates
+    let newSource = { ...existingSource, ...updatedSource };    
+    
+    console.log('Knowledge update - After merge:', newSource);
 
     // Ensure refresh_schedule is always a valid cron expression or empty string
     if (newSource.refresh_schedule === 'custom') {
@@ -104,16 +117,19 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.refresh_schedule = ''; // Empty string for one-off
     }
 
-    // Only update the name based on the source if no custom name is set
-    if (!updatedSource.name) {
-      // if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
-      //   newSource.name = newSource.source.web.urls.join(', ');
-      // } else if (newSource.source.filestore?.path) {
-      //   newSource.name = newSource.source.filestore.path;
-      // } else {
-      newSource.name = 'UnnamedSource';
-      // }
+    // Remove the openapi checks since they're causing linter errors
+    if (!newSource.name) {
+      if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
+        newSource.name = newSource.source.web.urls.join(', ');
+      } else if (newSource.source.filestore?.path) {
+        newSource.name = newSource.source.filestore.path;
+      } else {
+        // Generate a unique name with timestamp to avoid conflicts
+        newSource.name = `Source_${new Date().toISOString().replace(/[:.]/g, '_')}`;
+      }
     }
+    
+    console.log('Knowledge update - Final source with name logic applied:', newSource);
 
     if (newSource.source.web && newSource.source.web.crawler) {
       newSource.source.web.crawler.enabled = true;
@@ -126,6 +142,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     newSources[index] = newSource;
+    console.log('Knowledge update - Final sources array being sent to parent:', newSources);
     onUpdate(newSources);
   };
 
@@ -197,7 +214,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return 'No source specified';
   };
 
+  // Simplify the getKnowledge function to match by ID or name
   const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
+    // Try to find by ID first if available
+    if (source.id) {
+      const byId = knowledgeList.find(k => k.id === source.id);
+      if (byId) return byId;
+    }
+    
+    // Fall back to name matching
     return knowledgeList.find(k => k.name === source.name);
   };
 
@@ -375,6 +400,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             ...prev,
             [index]: dirFiles
           }));
+
+          // Auto-save after successful file upload to trigger indexing
+          if (onRequestSave) {
+            console.log('Auto-saving app after file upload to trigger indexing');
+            await onRequestSave();
+          }
         }
       } catch (uploadError: unknown) {
         // Check if this was a cancellation
@@ -404,6 +435,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 ...prev,
                 [index]: dirFiles
               }));
+
+              // Auto-save after successful file upload to trigger indexing
+              if (onRequestSave) {
+                console.log('Auto-saving app after file upload to trigger indexing');
+                await onRequestSave();
+              }
             }
           } catch (fallbackError) {
             if (!uploadCancelledRef.current) {
@@ -556,20 +593,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             helperText={errors[index]}
           />
         )}
-
-        <TextField
-          fullWidth
-          label="Name"
-          value={source.name || ''}
-          onChange={(e) => {
-            handleSourceUpdate(index, { 
-              name: e.target.value 
-            });
-          }}
-          disabled={disabled}
-          sx={{ mb: 2 }}
-          placeholder="Give this knowledge source a name (optional)"
-        />
 
         <TextField
           fullWidth

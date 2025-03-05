@@ -1006,6 +1006,7 @@ const App: FC = () => {
                         disabled={isReadOnly}
                         knowledgeList={knowledgeList}
                         appId={app.id}
+                        onRequestSave={() => onSave(true)}
                       />
                       {knowledgeErrors && showErrors && (
                         <Alert severity="error" sx={{ mt: 2 }}>
