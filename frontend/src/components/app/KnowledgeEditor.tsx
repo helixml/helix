@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useState, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -20,6 +20,8 @@ import {
   Snackbar,
   Tooltip,
   Switch,
+  CircularProgress,
+  Grid,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -28,10 +30,12 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import Link from '@mui/material/Link';
+import CloseIcon from '@mui/icons-material/Close';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
 import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
+import useApi from '../../hooks/useApi'; // Add useApi hook
 import CrawledUrlsDialog from './CrawledUrlsDialog';
 import AddKnowledgeDialog from './AddKnowledgeDialog';
 import FileUpload from '../widgets/FileUpload';
@@ -39,6 +43,7 @@ import Progress from '../widgets/Progress';
 import useFilestore from '../../hooks/useFilestore';
 import { prettyBytes } from '../../utils/format';
 import { IFilestoreUploadProgress } from '../../contexts/filestore';
+
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;  
@@ -55,10 +60,30 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
+  const api = useApi(); // Use the API hook
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [directoryFiles, setDirectoryFiles] = useState<{[key: string]: any[]}>({});
+  const [directoryFiles, setDirectoryFiles] = useState<Record<number, IFileStoreItem[]>>({});
+  const [deletingFiles, setDeletingFiles] = useState<{[key: string]: boolean}>({});
+  const [localUploadProgress, setLocalUploadProgress] = useState<IFilestoreUploadProgress | null>(null);
+  const [addSourceDialogOpen, setAddSourceDialogOpen] = useState(false);
+  const uploadStartTimeRef = useRef<number | null>(null);
+  const [uploadEta, setUploadEta] = useState<string | null>(null);
+  const cancelTokenRef = useRef<AbortController | null>(null);
+  // Add a dedicated ref for tracking cancellation state
+  const uploadCancelledRef = useRef<boolean>(false);
+  // Add a ref to track upload speed for smoothing
+  const uploadSpeedRef = useRef<number[]>([]);
+  // Add state to store the current speed for display
+  const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
+  // Add a state to track file count
+  const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
+
+  // Debug: Log uploadProgress
+  useEffect(() => {
+    console.log('KnowledgeEditor uploadProgress:', uploadProgress);
+  }, [uploadProgress]);
 
   const default_max_depth = 1;
   const default_max_pages = 5;
@@ -107,7 +132,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const handleAddSource = (newSource: IKnowledgeSource) => {
     let knowledges = [...knowledgeSources, newSource];
     onUpdate(knowledges);
-    setExpanded(`panel${knowledgeSources.length}`);    
+    
+    // Expand the newly added knowledge source panel
+    setExpanded(`panel${knowledgeSources.length}`);
+    
+    // If this is a filestore source, show a message to the user about uploading files
+    if (newSource.source.filestore) {
+      snackbar.info(`Knowledge source "${newSource.name}" created. You can now upload files.`);
+    }
   };
 
   const deleteSource = (index: number) => {
@@ -198,20 +230,239 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
+  // Improved time formatting function
+  const formatTimeRemaining = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${Math.round(seconds)}s`;
+    } else if (seconds < 3600) {
+      return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+    } else {
+      return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    }
+  };
+
+  // Format upload speed to human-readable format
+  const formatSpeed = (bytesPerSecond: number): string => {
+    if (bytesPerSecond < 1024) {
+      return `${bytesPerSecond.toFixed(1)} B/s`;
+    } else if (bytesPerSecond < 1024 * 1024) {
+      return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+    } else if (bytesPerSecond < 1024 * 1024 * 1024) {
+      return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+    } else {
+      return `${(bytesPerSecond / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
+    }
+  };
+
+  // Improved ETA calculator with smoothing
+  const calculateEta = (loaded: number, total: number, startTime: number) => {
+    const elapsedSeconds = (Date.now() - startTime) / 1000;
+    
+    // Return early guess for very small uploads
+    if (elapsedSeconds < 0.1) {
+      const percentComplete = loaded / total;
+      if (percentComplete > 0) {
+        // Make a rough initial guess
+        return formatTimeRemaining(Math.ceil((total / loaded) * elapsedSeconds));
+      }
+      return "Calculating...";
+    }
+    
+    // Calculate current speed
+    const currentSpeedValue = loaded / elapsedSeconds; // bytes per second
+    
+    // Add to speed history (keep last 5 speed measurements)
+    uploadSpeedRef.current.push(currentSpeedValue);
+    if (uploadSpeedRef.current.length > 5) {
+      uploadSpeedRef.current.shift();
+    }
+    
+    // Calculate smoothed speed (average of last 5 measurements)
+    const smoothedSpeed = uploadSpeedRef.current.reduce((sum, speed) => sum + speed, 0) / 
+                         uploadSpeedRef.current.length;
+    
+    // Update the speed state for display
+    setCurrentSpeed(smoothedSpeed);
+    
+    if (smoothedSpeed > 0) {
+      const remainingBytes = total - loaded;
+      const remainingSeconds = remainingBytes / smoothedSpeed;
+      
+      // For very small values, round up to at least 1 second
+      if (remainingSeconds < 1 && remainingSeconds > 0) {
+        return "< 1s";
+      }
+      
+      return formatTimeRemaining(remainingSeconds);
+    }
+    
+    return "Calculating...";
+  };
+
   const handleFileUpload = async (index: number, files: File[]) => {    
     const source = knowledgeSources[index];
     if (!source.source.filestore?.path) {
       snackbar.error('No filestore path specified');
       return;
-    }    
+    }
 
-    await onUpload(source.source.filestore.path, files);
+    // Reset cancellation state at the start of every upload
+    uploadCancelledRef.current = false;
+    
+    // Create abort controller for cancellation
+    cancelTokenRef.current = new AbortController();
+    
+    try {
+      // Reset speed measurement history at the start of upload
+      uploadSpeedRef.current = [];
+      // Reset current speed
+      setCurrentSpeed(null);
+      // Set the count of files being uploaded
+      setUploadingFileCount(files.length);
+      
+      // Set initial upload progress and start time
+      uploadStartTimeRef.current = Date.now();
+      setLocalUploadProgress({
+        percent: 0,
+        uploadedBytes: 0,
+        totalBytes: files.reduce((total, file) => total + file.size, 0)
+      });
+      setUploadEta("Calculating..."); 
 
-    const dirFiles = await loadFiles(source.source.filestore.path);
-    setDirectoryFiles(prev => ({
-      ...prev,
-      [index]: dirFiles
-    }));
+      // Create form data for file upload
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      try {
+        // Try direct upload first
+        await api.post('/api/v1/filestore/upload', formData, {
+          params: {
+            path: source.source.filestore.path,
+          },
+          signal: cancelTokenRef.current.signal,
+          onUploadProgress: (progressEvent) => {
+            // Skip updates if cancelled
+            if (uploadCancelledRef.current) return;
+            
+            // Update progress directly
+            const percent = progressEvent.total && progressEvent.total > 0 ?
+              Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+            
+            setLocalUploadProgress({
+              percent,
+              uploadedBytes: progressEvent.loaded || 0,
+              totalBytes: progressEvent.total || 0,
+            });
+            
+            // Calculate and update ETA immediately with any progress data
+            if (uploadStartTimeRef.current && progressEvent.total && progressEvent.loaded > 0) {
+              const eta = calculateEta(progressEvent.loaded, progressEvent.total, uploadStartTimeRef.current);
+              setUploadEta(eta);
+            }
+          }
+        });
+
+        // Only show success if we reach here without cancellation
+        if (!uploadCancelledRef.current) {
+          // Show success message
+          snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
+
+          // Refresh the file list
+          const dirFiles = await loadFiles(source.source.filestore.path);
+          setDirectoryFiles(prev => ({
+            ...prev,
+            [index]: dirFiles
+          }));
+        }
+      } catch (uploadError: unknown) {
+        // Check if this was a cancellation
+        if (
+          typeof uploadError === 'object' && 
+          uploadError !== null && 
+          ('name' in uploadError) && 
+          (uploadError.name === 'AbortError' || uploadError.name === 'CanceledError')
+        ) {
+          console.log('Upload was cancelled by user');
+          return; // Skip any further processing
+        }
+        
+        // Only proceed with fallback if not cancelled
+        if (!uploadCancelledRef.current) {
+          console.error('Direct upload failed, falling back to onUpload method:', uploadError);
+          
+          try {
+            await onUpload(source.source.filestore.path, files);
+            
+            // Double-check cancellation state again before success
+            if (!uploadCancelledRef.current) {
+              snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
+              
+              const dirFiles = await loadFiles(source.source.filestore.path);
+              setDirectoryFiles(prev => ({
+                ...prev,
+                [index]: dirFiles
+              }));
+            }
+          } catch (fallbackError) {
+            if (!uploadCancelledRef.current) {
+              console.error('Error in fallback upload:', fallbackError);
+              snackbar.error('Failed to upload files. Please try again.');
+            }
+          }
+        }
+      }
+    } catch (error: unknown) {
+      // Only show errors if not cancelled
+      if (!uploadCancelledRef.current) {
+        console.error('Error uploading files:', error);
+        snackbar.error('Failed to upload files. Please try again.');
+      }
+    } finally {
+      // Clean up based on cancellation state
+      if (uploadCancelledRef.current) {
+        // Immediate cleanup for cancellation
+        setLocalUploadProgress(null);
+        uploadStartTimeRef.current = null;
+        setUploadEta(null);
+        setUploadingFileCount(0); // Reset file count
+        cancelTokenRef.current = null;
+      } else {
+        // Delay cleanup for successful completion
+        setTimeout(() => {
+          setLocalUploadProgress(null);
+          uploadStartTimeRef.current = null;
+          setUploadEta(null);
+          setUploadingFileCount(0); // Reset file count
+          cancelTokenRef.current = null;
+        }, 1000);
+      }
+      
+      // Reset cancellation state
+      uploadCancelledRef.current = false;
+    }
+  };
+
+  // Rewrite cancel function to use the ref
+  const handleCancelUpload = () => {
+    if (cancelTokenRef.current) {
+      // Set cancellation state first
+      uploadCancelledRef.current = true;
+      
+      // Show cancellation message
+      snackbar.info('Upload cancelled');
+      
+      // Then abort the request
+      cancelTokenRef.current.abort();
+      
+      // Clean up immediately
+      setLocalUploadProgress(null);
+      uploadStartTimeRef.current = null;
+      setUploadEta(null);
+      setUploadingFileCount(0); // Reset file count
+      cancelTokenRef.current = null;
+    }
   };
 
   const loadDirectoryContents = async (path: string, index: number) => {
@@ -227,26 +478,63 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
   };
 
+  const handleDeleteFile = async (index: number, fileName: string) => {
+    const source = knowledgeSources[index];
+    if (!source.source.filestore?.path) {
+      snackbar.error('No filestore path specified');
+      return;
+    }
+    
+    try {
+      // Set deleting state for this file
+      const fileId = `${index}-${fileName}`;
+      setDeletingFiles(prev => ({
+        ...prev,
+        [fileId]: true
+      }));
+      
+      // Construct the full path to the file
+      const filePath = `${source.source.filestore.path}/${fileName}`;
+      
+      // Call the API to delete the file
+      const response = await api.delete('/api/v1/filestore/delete', {
+        params: {
+          path: filePath,
+        }
+      });
+      
+      if (response) {
+        snackbar.success(`File "${fileName}" deleted successfully`);
+        
+        // Refresh the file list
+        const dirFiles = await loadFiles(source.source.filestore.path);
+        setDirectoryFiles(prev => ({
+          ...prev,
+          [index]: dirFiles
+        }));
+      } else {
+        snackbar.error(`Failed to delete file "${fileName}"`);
+      }
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      snackbar.error('An error occurred while deleting the file');
+    } finally {
+      // Clear deleting state for this file
+      const fileId = `${index}-${fileName}`;
+      setDeletingFiles(prev => ({
+        ...prev,
+        [fileId]: false
+      }));
+    }
+  };
+
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
     const sourceType = source.source.filestore ? 'filestore' : 'web';
 
     return (
       <>
         {sourceType === 'filestore' ? (
-          <TextField
-            fullWidth            
-            label="Filestore Path"
-            value={source.source.filestore?.path || ''}
-            onChange={(e) => {
-              handleSourceUpdate(index, { 
-                source: { 
-                  filestore: { path: e.target.value } 
-                } 
-              });
-            }}
-            disabled={true}
-            sx={{ mb: 2 }}
-          />
+          null
         ) : (
           <TextField
             fullWidth
@@ -438,109 +726,214 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
         {sourceType === 'filestore' && (
           <Box sx={{ mt: 2, mb: 2 }}>
-            {uploadProgress ? (
-              <Box sx={{ width: '100%', mb: 2 }}>
-                <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
-                  Uploaded {prettyBytes(uploadProgress.uploadedBytes)} of {prettyBytes(uploadProgress.totalBytes)}
-                </Typography>
-                <Progress progress={uploadProgress.percent} />
-              </Box>
-            ) : (
-              <>
-                <FileUpload onUpload={(files) => handleFileUpload(index, files)}>
-                  {/* <Button
-                    variant="contained"
-                    color="secondary"
-                    component="span"
-                    startIcon={<CloudUploadIcon />}
-                    disabled={disabled || !source.source.filestore?.path}
-                    fullWidth
-                  >
-                    Upload Files
-                  </Button> */}
-                  <Box
-                    sx={{
-                      border: '1px dashed #ccc',
-                      borderRadius: 1,
-                      p: 2,
-                      mt: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'stretch',
-                      minHeight: '100px',
-                      cursor: disabled ? 'not-allowed' : 'pointer',
-                      opacity: disabled ? 0.5 : 1,
-                    }}
-                  >
-                    {directoryFiles[index]?.length > 0 ? (
-                      <>
-                        <Typography variant="caption" sx={{ mb: 1 }}>
-                          Current files:
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Upload Files
+            </Typography>
+
+            <Box
+              sx={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+              }}
+            >
+              {localUploadProgress ? (
+                <Box sx={{ 
+                  border: '1px solid rgba(255, 255, 255, 0.2)', 
+                  borderRadius: '8px', 
+                  padding: 3, 
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  width: '100%', 
+                  marginBottom: 2,
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  {/* Upload status and cancel button */}
+                  <Box sx={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    mb: 2
+                  }}>
+                    <Typography variant="h6" fontWeight="500" color="common.white">
+                      Uploading {uploadingFileCount} {uploadingFileCount === 1 ? 'File' : 'Files'}
+                    </Typography>
+                    
+                    <Button 
+                      variant="outlined" 
+                      color="error" 
+                      size="small" 
+                      onClick={handleCancelUpload}
+                      startIcon={<CloseIcon />}
+                      sx={{ 
+                        borderRadius: '20px'
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </Box>
+                  
+                  {/* Progress percentage and size info */}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="body1" color="common.white" fontWeight="medium">
+                      {localUploadProgress.percent}% Complete
+                    </Typography>
+                    <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
+                      {prettyBytes(localUploadProgress.uploadedBytes)} of {prettyBytes(localUploadProgress.totalBytes)}
+                    </Typography>
+                  </Box>
+                  
+                  {/* Main progress bar */}
+                  <Box sx={{ 
+                    width: '100%', 
+                    height: '8px', 
+                    backgroundColor: 'rgba(255,255,255,0.1)', 
+                    borderRadius: '4px',
+                    overflow: 'hidden',
+                    mb: 2
+                  }}>
+                    <Box 
+                      sx={{ 
+                        height: '100%', 
+                        width: `${localUploadProgress.percent}%`, 
+                        background: 'linear-gradient(90deg, #2196f3 0%, #64b5f6 100%)',
+                        transition: 'width 0.3s ease-in-out'
+                      }} 
+                    />
+                  </Box>
+                  
+                  {/* ETA and speed info */}
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                          ESTIMATED TIME REMAINING
                         </Typography>
-                        <Box sx={{ 
-                          maxHeight: '200px', 
-                          overflowY: 'auto',
-                          border: '1px solid #303047',
-                          borderRadius: 1,
-                          p: 1
-                        }}>
-                          {directoryFiles[index].map((file: any, fileIndex: number) => (
-                            <Box 
-                              key={fileIndex}
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                p: 0.5,
+                        <Typography variant="body2" color="common.white" fontWeight="medium">
+                          {uploadEta || "Calculating..."}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                          UPLOAD SPEED
+                        </Typography>
+                        <Typography variant="body2" color="common.white" fontWeight="medium">
+                          {currentSpeed ? formatSpeed(currentSpeed) : "Calculating..."}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Box>
+              ) : (
+                <>
+                  <FileUpload onUpload={(files) => handleFileUpload(index, files)}>
+                    <Box
+                      sx={{
+                        border: '1px dashed #ccc',
+                        borderRadius: 1,
+                        p: 2,
+                        mt: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '100px',
+                        width: '100%',
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        opacity: disabled ? 0.5 : 1,
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          backgroundColor: 'rgba(144, 202, 249, 0.08)',
+                          borderColor: '#90caf9'
+                        }
+                      }}
+                    >
+                      <CloudUploadIcon sx={{ fontSize: 40, mb: 1, color: '#90caf9' }} />
+                      <Typography align="center" variant="body2">
+                        Drag and drop files here or click to upload
+                      </Typography>
+                      <Typography align="center" variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Supported files: PDF, DOC, DOCX, TXT, CSV, JSON, and more
+                      </Typography>
+                    </Box>
+                  </FileUpload>
+                </>
+              )}
+            </Box>
+
+            {/* Display existing files */}
+            {directoryFiles[index]?.length > 0 && !localUploadProgress && (
+              <>
+                <Typography variant="caption" sx={{ mt: 2, mb: 1, display: 'block' }}>
+                  Current files:
+                </Typography>
+                <Box sx={{ 
+                  maxHeight: '200px', 
+                  overflowY: 'auto',
+                  border: '1px solid #303047',
+                  borderRadius: 1,
+                  p: 1,
+                  width: '100%'
+                }}>
+                  {directoryFiles[index].map((file: any, fileIndex: number) => {
+                    const fileId = `${index}-${file.name}`;
+                    const isDeleting = deletingFiles[fileId] === true;
+                    
+                    return (
+                      <Box 
+                        key={fileIndex}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          p: 0.5,
+                          borderRadius: '4px',
+                          opacity: isDeleting ? 0.6 : 1,
+                          '&:hover': {
+                            bgcolor: 'rgba(255, 255, 255, 0.05)'
+                          }
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {file.name}
+                        </Typography>
+                        <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary', minWidth: '60px', textAlign: 'right' }}>
+                          {prettyBytes(file.size || 0)}
+                        </Typography>
+                        <Tooltip title={isDeleting ? "Deleting..." : "Delete file"}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!isDeleting && window.confirm(`Are you sure you want to delete "${file.name}"?`)) {
+                                  handleDeleteFile(index, file.name);
+                                }
+                              }}
+                              disabled={disabled || isDeleting}
+                              sx={{ 
+                                ml: 1,
+                                color: 'error.main',
                                 '&:hover': {
-                                  bgcolor: 'rgba(255, 255, 255, 0.05)'
+                                  bgcolor: 'rgba(244, 67, 54, 0.08)'
                                 }
                               }}
                             >
-                              <Typography variant="caption" sx={{ flexGrow: 1 }}>
-                                {file.name}
-                              </Typography>
-                              <Typography variant="caption" sx={{ ml: 2 }}>
-                                {prettyBytes(file.size || 0)}
-                              </Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                        <Typography variant="caption" sx={{ color: '#999', mt: 1, textAlign: 'center' }}>
-                          Drop files here to upload more. Manage existing files{' '}
-                          <Link 
-                            href={`/files?path=${encodeURIComponent(source.source.filestore?.path || '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: '#90caf9' }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            here
-                          </Link>.
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography variant="caption" sx={{ color: '#999', textAlign: 'center' }}>
-                        {source.source.filestore?.path 
-                          ? <>
-                              No files yet - drop files here to upload them. Manage files{' '}
-                              <Link 
-                                href={`/files?path=${encodeURIComponent(source.source.filestore?.path)}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ color: '#90caf9' }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                here
-                              </Link>.
-                            </>
-                          : 'Specify a filestore path first'
-                        }
-                      </Typography>
-                    )}
-                  </Box>
-                </FileUpload>
+                              {isDeleting ? (
+                                <CircularProgress size={16} color="inherit" />
+                              ) : (
+                                <DeleteIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Box>
+                    );
+                  })}
+                </Box>
                 {source.source.filestore?.path && (
-                  <>
                   <Button
                     sx={{ mt: 1 }}
                     size="small"
@@ -549,9 +942,17 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   >
                     Refresh File List
                   </Button>
-                  </>
                 )}
               </>
+            )}
+            
+            {directoryFiles[index]?.length === 0 && !localUploadProgress && (
+              <Typography variant="caption" sx={{ color: '#999', textAlign: 'center', mt: 2, display: 'block' }}>
+                {source.source.filestore?.path 
+                  ? 'No files uploaded yet. Drag and drop files here to upload.'
+                  : 'Specify a filestore path first'
+                }
+              </Typography>
             )}
           </Box>
         )}
