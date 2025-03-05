@@ -13,6 +13,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -32,15 +33,13 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 	}
 }
 
-func (cm *CookieManager) Set(w http.ResponseWriter, r *http.Request, path, name, value string) {
+func (cm *CookieManager) Set(w http.ResponseWriter, name, value string) {
 	c := &http.Cookie{
 		Name:     name,
 		Value:    value,
 		MaxAge:   int(time.Hour.Seconds()),
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
-		Path:     path,
-		Domain:   "",
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, c)
@@ -63,6 +62,18 @@ func (cm *CookieManager) Get(r *http.Request, name string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrMultiple, name)
 	}
 	return cookies[0].Value, nil
+}
+
+func (cm *CookieManager) Delete(w http.ResponseWriter, name string) {
+	c := &http.Cookie{
+		Name:     name,
+		Value:    "",
+		MaxAge:   -1,
+		Secure:   cm.SecureCookies,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, c)
 }
 
 func randString(nByte int) (string, error) {
@@ -105,8 +116,8 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, r, "", "state", state)
-	cookieManager.Set(w, r, "", "nonce", nonce)
+	cookieManager.Set(w, "state", state)
+	cookieManager.Set(w, "nonce", nonce)
 	// Store the original URL if provided in the "redirect_uri" query parameter
 	if loginRequest.RedirectURI != "" {
 		// Validate the redirect URI
@@ -115,7 +126,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 			return
 		}
-		cookieManager.Set(w, r, "", "redirect_uri", loginRequest.RedirectURI)
+		cookieManager.Set(w, "redirect_uri", loginRequest.RedirectURI)
 	}
 
 	log.Trace().Str("auth_url", s.oidcClient.GetAuthURL(state, nonce)).Msg("Redirecting to auth URL")
@@ -132,15 +143,23 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/auth/callback [get]
 func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	state, err := r.Cookie("state")
+	cm := NewCookieManager(s.Cfg)
+	state, err := cm.Get(r, "state")
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get state")
-		http.Error(w, "state not found", http.StatusBadRequest)
+		http.Error(w, "failed to get state cookie", http.StatusBadRequest)
 		return
 	}
-	if r.URL.Query().Get("state") != state.Value {
-		log.Debug().Str("state", r.URL.Query().Get("state")).Str("cookie", state.Value).Msg("state did not match")
-		http.Error(w, "state did not match", http.StatusBadRequest)
+	if r.URL.Query().Get("state") != state {
+		log.Debug().Str("state", r.URL.Query().Get("state")).Str("cookie", state).Msg("state did not match")
+		// Remove the cookies and start again
+		cm.Delete(w, "state")
+		cm.Delete(w, "nonce")
+		cm.Delete(w, "redirect_uri")
+		cm.Delete(w, "access_token")
+		cm.Delete(w, "refresh_token")
+		// Redirect to the homepage
+		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
 	}
 	code := r.URL.Query().Get("code")
@@ -177,9 +196,18 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set access_token cookie
-	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, r, "/", "access_token", oauth2Token.AccessToken)
-	cookieManager.Set(w, r, "/", "refresh_token", oauth2Token.RefreshToken)
+	if oauth2Token.AccessToken != "" {
+		cm.Set(w, "access_token", oauth2Token.AccessToken)
+	} else {
+		log.Debug().Msg("access_token is empty")
+		http.Error(w, "access_token is empty", http.StatusBadRequest)
+		return
+	}
+	if oauth2Token.RefreshToken != "" {
+		cm.Set(w, "refresh_token", oauth2Token.RefreshToken)
+	} else {
+		log.Debug().Msg("refresh_token is empty, ignoring")
+	}
 
 	// Check if we have a stored redirect URI
 	redirectURI := s.Cfg.WebServer.URL // default redirect
@@ -215,14 +243,56 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to get userinfo: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Trace().Interface("userinfo", userInfo).Msg("Userinfo")
 
 	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{
 		Email: userInfo.Email,
 	})
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get user")
-		http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
-		return
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Debug().Err(err).Msg("Failed to get user")
+			http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Extract the full name from the userinfo
+	fullName := "unknown"
+	if userInfo.Name != "" {
+		fullName = userInfo.Name
+	} else if userInfo.GivenName != "" && userInfo.FamilyName != "" {
+		fullName = fmt.Sprintf("%s %s", userInfo.GivenName, userInfo.FamilyName)
+	}
+
+	if user == nil {
+		user, err = s.Store.CreateUser(ctx, &types.User{
+			ID:        system.GenerateUserID(),
+			Username:  userInfo.Email,
+			Email:     userInfo.Email,
+			FullName:  fullName,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "duplicate key") {
+				return
+			}
+			log.Error().Err(err).Msg("Failed to create user")
+			http.Error(w, "Failed to create user: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// If existing has changed, update the user
+	if user.Email != userInfo.Email || user.FullName != fullName || user.Username != userInfo.Email {
+		user.Email = userInfo.Email
+		user.FullName = fullName
+		user.Username = userInfo.Email
+		_, err = s.Store.UpdateUser(ctx, user)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to update user")
+			http.Error(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	response := types.UserResponse{
@@ -245,6 +315,15 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove cookies
+	cm := NewCookieManager(s.Cfg)
+	cm.Delete(w, "access_token")
+	cm.Delete(w, "refresh_token")
+	cm.Delete(w, "state")
+	cm.Delete(w, "nonce")
+	cm.Delete(w, "redirect_uri")
+
+	log.Debug().Str("logout_url", s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL)).Msg("Redirecting to logout URL")
 	http.Redirect(w, r, s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL), http.StatusTemporaryRedirect)
 }
 
@@ -263,7 +342,9 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	accessToken, err := r.Cookie("access_token")
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get access_token")
-		http.Error(w, "access_token not found", http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+			Authenticated: false,
+		})
 		return
 	}
 
@@ -293,23 +374,28 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refreshToken, err := r.Cookie("refresh_token")
+	cm := NewCookieManager(s.Cfg)
+	refreshToken, err := cm.Get(r, "refresh_token")
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get refresh_token")
-		http.Error(w, "refresh_token not found", http.StatusUnauthorized)
+		log.Debug().Err(err).Msg("Failed to get refresh_token, skipping refresh")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if refreshToken == "" {
+		log.Debug().Msg("refresh_token is empty, skipping refresh")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	newAccessToken, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken.Value)
+	newAccessToken, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to refresh access_token")
 		http.Error(w, "Failed to refresh access_token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, r, "/", "access_token", newAccessToken.AccessToken)
-	cookieManager.Set(w, r, "/", "refresh_token", newAccessToken.RefreshToken)
+	cm.Set(w, "access_token", newAccessToken.AccessToken)
+	cm.Set(w, "refresh_token", newAccessToken.RefreshToken)
 
 	w.WriteHeader(http.StatusNoContent)
 }

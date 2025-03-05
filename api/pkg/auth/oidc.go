@@ -182,11 +182,13 @@ func (c *OIDCClient) GetUserInfo(ctx context.Context, accessToken string) (*User
 	}
 
 	var claims struct {
-		Email    string `json:"email"`
-		Name     string `json:"name"`
-		Subject  string `json:"sub"`
-		Username string `json:"preferred_username"`
-		Admin    bool   `json:"admin"`
+		Email      string `json:"email"`
+		Name       string `json:"name"`
+		Subject    string `json:"sub"`
+		Username   string `json:"preferred_username"`
+		Admin      bool   `json:"admin"`
+		GivenName  string `json:"given_name"`
+		FamilyName string `json:"family_name"`
 	}
 	if err := userInfo.Claims(&claims); err != nil {
 		return nil, err
@@ -245,9 +247,11 @@ type TokenResponse struct {
 }
 
 type UserInfo struct {
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Subject  string `json:"sub"`
-	Username string `json:"preferred_username"`
-	Admin    bool   `json:"admin"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Subject    string `json:"sub"`
+	Username   string `json:"preferred_username"`
+	Admin      bool   `json:"admin"`
+	GivenName  string `json:"given_name"`
+	FamilyName string `json:"family_name"`
 }

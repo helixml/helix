@@ -540,6 +540,10 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
+	if !apiServer.Cfg.Keycloak.KeycloakEnabled {
+		log.Info().Msg("Keycloak is disabled, skipping proxy")
+		return
+	}
 	u, err := url.Parse(apiServer.Cfg.Keycloak.KeycloakURL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
