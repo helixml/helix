@@ -230,14 +230,15 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access_token, err := r.Cookie("access_token")
+	cm := NewCookieManager(s.Cfg)
+	accessToken, err := cm.Get(r, "access_token")
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get access_token")
 		http.Error(w, "access_token not found", http.StatusUnauthorized)
 		return
 	}
 
-	userInfo, err := s.oidcClient.GetUserInfo(ctx, access_token.Value)
+	userInfo, err := s.oidcClient.GetUserInfo(ctx, accessToken)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get userinfo")
 		http.Error(w, "Failed to get userinfo: "+err.Error(), http.StatusInternalServerError)
@@ -298,10 +299,15 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	response := types.UserResponse{
 		ID:    user.ID,
 		Email: user.Email,
-		Token: access_token.Value,
+		Token: accessToken,
 		Name:  user.FullName,
 	}
-	json.NewEncoder(w).Encode(response)
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encode user response")
+		http.Error(w, "Failed to encode user response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // user godoc
@@ -342,24 +348,39 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	accessToken, err := r.Cookie("access_token")
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get access_token")
-		json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+		err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
 			Authenticated: false,
 		})
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encode authenticated response")
+			http.Error(w, "Failed to encode authenticated response: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	err = s.oidcClient.VerifyAccessToken(ctx, accessToken.Value)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to verify access_token")
-		json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+		err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
 			Authenticated: false,
 		})
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encode authenticated response")
+			http.Error(w, "Failed to encode authenticated response: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+	err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
 		Authenticated: true,
 	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encode authenticated response")
+		http.Error(w, "Failed to encode authenticated response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // user godoc
