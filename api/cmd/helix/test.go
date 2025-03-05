@@ -1,3 +1,26 @@
+// Package helix provides the Helix CLI commands.
+//
+// Multi-turn conversation tests can be defined in helix.yaml as follows:
+//
+// ```yaml
+// assistants:
+//   - name: MyAssistant
+//     tests:
+//   - name: Multi-turn Test
+//     steps:
+//   - is_multi_turn: true
+//     turns:
+//   - user_prompt: "Hello, how are you?"
+//     expected_assistant_response: "I'm doing well, thank you for asking. How can I help you today?"
+//   - user_prompt: "Tell me about yourself"
+//     expected_assistant_response: "I am an AI assistant designed to help with various tasks."
+//   - user_prompt: "What can you help me with?"
+//     expected_assistant_response: "I can help with answering questions, providing information, and assisting with tasks."
+//
+// ```
+//
+// Each turn in a multi-turn test will be evaluated separately, and the overall test will pass only if all turns pass.
+// The test results will show details for each turn in the conversation.
 package helix
 
 import (
@@ -22,6 +45,7 @@ import (
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +80,21 @@ type TestResult struct {
 	InferenceTime   time.Duration `json:"inference_time"`
 	EvaluationTime  time.Duration `json:"evaluation_time"`
 	HelixURL        string        `json:"helix_url"`
+	IsMultiTurn     bool          `json:"is_multi_turn"`
+	TurnNumber      int           `json:"turn_number,omitempty"`
+	TotalTurns      int           `json:"total_turns,omitempty"`
+	TurnResults     []TurnResult  `json:"turn_results,omitempty"`
+}
+
+type TurnResult struct {
+	TurnNumber        int           `json:"turn_number"`
+	UserPrompt        string        `json:"user_prompt"`
+	AssistantResponse string        `json:"assistant_response"`
+	ExpectedResponse  string        `json:"expected_response"`
+	Result            string        `json:"result"`
+	Reason            string        `json:"reason"`
+	InferenceTime     time.Duration `json:"inference_time"`
+	EvaluationTime    time.Duration `json:"evaluation_time"`
 }
 
 type ChatResponse struct {
@@ -75,7 +114,8 @@ type ModelResponse struct {
 	} `json:"data"`
 }
 
-const htmlTemplate = `
+// Template for HTML report
+var htmlTemplate = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -83,290 +123,187 @@ const htmlTemplate = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Helix Test Results</title>
     <style>
-        body, html {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            overflow: hidden;
-        }
-        .main-container {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-        .header {
-            padding: 10px 20px;
-            background-color: #f8f8f8;
-            border-bottom: 1px solid #ddd;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-        }
-        .header h1 {
-            margin: 0;
-            font-size: 1.2em;
-        }
-        .header-info {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-        .header-info p {
-            margin: 0;
-            font-size: 0.9em;
-        }
-        .header-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .results-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0 20px;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        tr.pass { background-color: #e6ffe6; }
-        tr.fail { background-color: #ffe6e6; }
-        #iframe-container {
-            display: none;
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 70%;
-            border: none;
-        }
-        #iframe-container iframe {
-            width: 100%;
-            height: calc(100% - 10px);
-            border: none;
-        }
-        #close-iframe {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            cursor: pointer;
-        }
-        #resize-handle {
-            width: 100%;
-            height: 10px;
-            background: #f0f0f0;
-            cursor: ns-resize;
-            border-top: 1px solid #ccc;
-        }
-        #view-helix-yaml {
-            padding: 5px 10px;
-            font-size: 0.9em;
-        }
-        .truncate {
-            max-width: 400px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            position: relative;
-            cursor: pointer;
-        }
-        .tooltip {
-            display: none;
-            position: fixed;
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            color: #333;
             background-color: #f9f9f9;
-            border: 1px solid #ddd;
+        }
+        h1, h2, h3 {
+            color: #0066cc;
+        }
+        .summary {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .summary table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .summary th, .summary td {
             padding: 10px;
-            z-index: 1000;
-            max-width: 500px;
-            min-width: 200px;
-            word-wrap: break-word;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .summary th {
+            background-color: #f2f2f2;
+        }
+        .pass {
+            color: green;
+            font-weight: bold;
+        }
+        .fail {
+            color: red;
+            font-weight: bold;
+        }
+        .error {
+            color: orange;
+            font-weight: bold;
+        }
+        .test {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 10px;
+            background-color: #f2f2f2;
+            border-radius: 5px;
+        }
+        .test-content {
+            display: none;
+            margin-top: 10px;
+        }
+        .expanded .test-content {
+            display: block;
+        }
+        pre {
+            white-space: pre-wrap;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .turn {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+        .turn-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .toggle-button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
             border-radius: 4px;
-            font-size: 14px;
-            line-height: 1.4;
+            cursor: pointer;
+        }
+        .toggle-button:hover {
+            background-color: #004c99;
         }
     </style>
 </head>
 <body>
-    <div class="main-container">
-        <div class="header">
-            <h1>Helix Test Results</h1>
-            <div class="header-info">
-                <p>Total Time: {{.TotalExecutionTime}}</p>
-                <p>File: {{.LatestResultsFile}}</p>
-            </div>
-            <div class="header-controls">
-                <form action="/" method="get" style="margin: 0;">
-                    <select name="file" onchange="this.form.submit()" style="padding: 5px;">
-                        {{range .AvailableResultFiles}}
-                            <option value="{{.}}" {{if eq . $.LatestResultsFile}}selected{{end}}>{{.}}</option>
-                        {{end}}
-                    </select>
-                </form>
-                <button id="view-helix-yaml" onclick="viewHelixYaml()">View helix.yaml</button>
-            </div>
-        </div>
-        <div class="results-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Test Name</th>
-                        <th>Result</th>
-                        <th>Reason</th>
-                        <th>Model</th>
-                        <th>Inference Time</th>
-                        <th>Evaluation Time</th>
-                        <th>Session Link</th>
-                        <th>Debug Link</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{range .Tests}}
-                    <tr class="{{if eq .Result "PASS"}}pass{{else}}fail{{end}}">
-                        <td>{{.TestName}}</td>
-                        <td>{{.Result}}</td>
-                        <td class="truncate" data-full-text="{{.Reason}}">{{truncate .Reason 100}}</td>
-                        <td>{{.Model}}</td>
-                        <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
-                        <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
-                        <td><a href="#" onclick="openLink('{{.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
-                        <td><a href="#" onclick="openLink('{{.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
-                    </tr>
-                    {{end}}
-                </tbody>
-            </table>
-        </div>
+    <h1>Helix Test Results</h1>
+    
+    <div class="summary">
+        <h2>Summary</h2>
+        <table>
+            <tr>
+                <th>Total Tests</th>
+                <th>Passed</th>
+                <th>Failed</th>
+                <th>Errors</th>
+                <th>Duration</th>
+            </tr>
+            <tr>
+                <td>{{ .TotalTests }}</td>
+                <td class="pass">{{ .Passed }}</td>
+                <td class="fail">{{ .Failed }}</td>
+                <td class="error">{{ .Errors }}</td>
+                <td>{{ .Duration }}</td>
+            </tr>
+        </table>
+        {{ if .ResultsTable }}
+        <h3>Results</h3>
+        {{ .ResultsTable }}
+        {{ end }}
     </div>
-    <div id="iframe-container">
-        <div id="resize-handle"></div>
-        <div id="close-iframe" onclick="closeDashboard()" style="color: white;">Close</div>
-        <iframe id="dashboard-iframe" src=""></iframe>
-    </div>
-    <div id="tooltip" class="tooltip"></div>
-    <script>
-        function openLink(url) {
-            if (window.location.protocol === 'file:') {
-                window.open(url, '_blank');
-            } else {
-			    // typically ngrok URLs don't have keycloak properly configured
-			    // to use the ngrok url, so use localhost in that case
-                if (url.includes('ngrok')) {
-                    url = url.replace(/https?:\/\/[^\/]+/, 'http://localhost:8080');
-                }
-                openDashboard(url);
-            }
-        }
-
-        function openDashboard(url) {
-            document.getElementById('dashboard-iframe').src = url;
-            document.getElementById('iframe-container').style.display = 'block';
-            adjustContentHeight();
-        }
-        function closeDashboard() {
-            document.getElementById('iframe-container').style.display = 'none';
-            document.getElementById('dashboard-iframe').src = '';
-            adjustContentHeight();
-        }
-
-        function adjustContentHeight() {
-            const mainContainer = document.querySelector('.main-container');
-            const iframeContainer = document.getElementById('iframe-container');
-            if (iframeContainer.style.display === 'block') {
-                mainContainer.style.height = 'calc(100vh - ' + iframeContainer.offsetHeight + 'px)';
-            } else {
-                mainContainer.style.height = '100vh';
-            }
-        }
-
-        // Resizing functionality
-        const resizeHandle = document.getElementById('resize-handle');
-        const iframeContainer = document.getElementById('iframe-container');
-        let isResizing = false;
-
-        resizeHandle.addEventListener('mousedown', function(e) {
-            isResizing = true;
-            document.addEventListener('mousemove', resize);
-            document.addEventListener('mouseup', stopResize);
-        });
-
-        function resize(e) {
-            if (!isResizing) return;
-            const newHeight = window.innerHeight - e.clientY;
-            iframeContainer.style.height = newHeight + 'px';
-            adjustContentHeight();
-        }
-
-        function stopResize() {
-            isResizing = false;
-            document.removeEventListener('mousemove', resize);
-        }
-
-        function viewHelixYaml() {
-            const helixYaml = {{.HelixYaml}};
-            const blob = new Blob([helixYaml], { type: 'text/yaml' });
-            const url = URL.createObjectURL(blob);
-            openDashboard(url);
-        }
-
-        // Tooltip functionality
-        const tooltip = document.getElementById('tooltip');
-        document.querySelectorAll('.truncate').forEach(el => {
-            el.addEventListener('mouseover', function(e) {
-                tooltip.textContent = this.getAttribute('data-full-text');
-                tooltip.style.display = 'block';
-                
-                // Position the tooltip slightly offset from the mouse cursor to avoid flicker
-                const offset = 15;
-                tooltip.style.left = (e.pageX + offset) + 'px';
-                tooltip.style.top = (e.pageY + offset) + 'px';
-            });
+    
+    <h2>Test Details</h2>
+    
+    {{ range .Results }}
+    <div class="test">
+        <div class="test-header" onclick="toggleTest(this.parentElement)">
+            <div>
+                <span class="{{ .Result | lower }}">{{ .Result }}</span> - {{ .TestName }}
+                {{ if .IsMultiTurn }}
+                <span>[Turn {{ .TurnNumber }}/{{ .TotalTurns }}]</span>
+                {{ end }}
+            </div>
+            <button class="toggle-button">Show/Hide Details</button>
+        </div>
+        <div class="test-content">
+            <h3>Details</h3>
+            <p><strong>Model:</strong> {{ .Model }}</p>
+            <p><strong>Evaluation Model:</strong> {{ .EvaluationModel }}</p>
+            <p><strong>Inference Time:</strong> {{ .InferenceTime }}</p>
+            <p><strong>Evaluation Time:</strong> {{ .EvaluationTime }}</p>
+            <p><strong>Reason:</strong> {{ .Reason }}</p>
+            <p><strong>Session ID:</strong> {{ .SessionID }}</p>
             
-            el.addEventListener('mousemove', function(e) {
-                // Update position as mouse moves
-                const offset = 15;
-                tooltip.style.left = (e.pageX + offset) + 'px';
-                tooltip.style.top = (e.pageY + offset) + 'px';
-            });
-
-            // Use mouseLeave instead of mouseout to avoid flickering
-            el.addEventListener('mouseleave', function(e) {
-                // Check if mouse is over the tooltip
-                const tooltipRect = tooltip.getBoundingClientRect();
-                if (
-                    e.clientX >= tooltipRect.left && 
-                    e.clientX <= tooltipRect.right && 
-                    e.clientY >= tooltipRect.top && 
-                    e.clientY <= tooltipRect.bottom
-                ) {
-                    // Mouse moved to tooltip, keep it visible
-                    // Add event listeners to the tooltip itself
-                    const handleTooltipLeave = function(e) {
-                        tooltip.style.display = 'none';
-                        tooltip.removeEventListener('mouseleave', handleTooltipLeave);
-                    };
-                    tooltip.addEventListener('mouseleave', handleTooltipLeave);
-                } else {
-                    // Mouse moved elsewhere, hide tooltip
-                    tooltip.style.display = 'none';
-                }
+            {{ if .IsMultiTurn }}
+            <h3>Current Turn</h3>
+            <div class="turn">
+                <div class="turn-header">User Prompt:</div>
+                <pre>{{ .Prompt }}</pre>
+                <div class="turn-header">Assistant Response:</div>
+                <pre>{{ .Response }}</pre>
+                <div class="turn-header">Expected Output:</div>
+                <pre>{{ .Expected }}</pre>
+            </div>
+            {{ else }}
+            <h3>Prompt and Response</h3>
+            <p><strong>Prompt:</strong></p>
+            <pre>{{ .Prompt }}</pre>
+            <p><strong>Response:</strong></p>
+            <pre>{{ .Response }}</pre>
+            <p><strong>Expected Output:</strong></p>
+            <pre>{{ .Expected }}</pre>
+            {{ end }}
+            
+            <h3>Links</h3>
+            <p><a href="{{ .HelixURL }}/session/{{ .SessionID }}" target="_blank">View Session</a></p>
+            <p><a href="{{ .HelixURL }}/session/{{ .SessionID }}/debug" target="_blank">Debug Session</a></p>
+        </div>
+    </div>
+    {{ end }}
+    
+    <script>
+        function toggleTest(element) {
+            element.classList.toggle('expanded');
+        }
+        
+        // Expand tests that failed
+        document.addEventListener('DOMContentLoaded', function() {
+            const failedTests = document.querySelectorAll('.test:has(.fail)');
+            failedTests.forEach(function(test) {
+                test.classList.add('expanded');
             });
         });
-
-        // Initial adjustment
-        adjustContentHeight();
     </script>
 </body>
 </html>
@@ -541,34 +478,75 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 
 	resultsChan := make(chan TestResult)
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 10)
+
+	// Map to store session IDs for multi-turn conversations
+	sessionCache := make(map[string]string) // key: assistantName+testName, value: sessionID
+
+	// Use a mutex to protect concurrent access to the session cache
+	var sessionMutex sync.Mutex
 
 	for _, assistant := range appConfig.Assistants {
 		for _, test := range assistant.Tests {
-			for _, step := range test.Steps {
-				wg.Add(1)
-				go func(assistantName, testName string, step types.TestStep) {
-					defer wg.Done()
-					semaphore <- struct{}{}
-					defer func() { <-semaphore }()
+			// Process each test's steps sequentially for multi-turn conversation support
+			go func(assistant types.AssistantConfig, test struct {
+				Name  string           `json:"name,omitempty" yaml:"name,omitempty"`
+				Steps []types.TestStep `json:"steps,omitempty" yaml:"steps,omitempty"`
+			}) {
+				testKey := assistant.Name + "-" + test.Name
 
-					result, err := runSingleTest(assistantName, testName, step, appID, apiKey, helixURL, assistant.Model, evaluationModel)
-					if err != nil {
-						result.Reason = err.Error()
-						result.Result = "ERROR"
-						fmt.Printf("Error running test %s: %v\n", testName, err)
-					}
+				for i, step := range test.Steps {
+					wg.Add(1)
 
-					resultsChan <- result
+					// Create a new goroutine for each step but execute them in order
+					func(assistantName, testName string, step types.TestStep, stepIndex int) {
+						defer wg.Done()
 
-					// Output . for pass, F for fail
-					if result.Result == "PASS" {
-						fmt.Print(".")
-					} else {
-						fmt.Print("F")
-					}
-				}(assistant.Name, test.Name, step)
-			}
+						// Get the session ID from previous steps if this is a multi-turn conversation
+						var sessionID string
+						if stepIndex > 0 {
+							sessionMutex.Lock()
+							sessionID = sessionCache[testKey]
+							sessionMutex.Unlock()
+						}
+
+						// Include step number in test name for multi-turn conversations
+						stepTestName := testName
+						if len(test.Steps) > 1 {
+							stepTestName = fmt.Sprintf("%s (Turn %d/%d)", testName, stepIndex+1, len(test.Steps))
+						}
+
+						result, err := runSingleTest(assistantName, stepTestName, step, appID, apiKey, helixURL, assistant.Model, evaluationModel, sessionID)
+						if err != nil {
+							result.Reason = err.Error()
+							result.Result = "ERROR"
+							fmt.Printf("Error running test %s: %v\n", stepTestName, err)
+						}
+
+						// Store the session ID for subsequent steps in this test
+						if sessionID == "" && result.SessionID != "" {
+							sessionMutex.Lock()
+							sessionCache[testKey] = result.SessionID
+							sessionMutex.Unlock()
+						}
+
+						// Mark result as part of a multi-turn conversation if needed
+						if len(test.Steps) > 1 {
+							result.IsMultiTurn = true
+							result.TurnNumber = stepIndex + 1
+							result.TotalTurns = len(test.Steps)
+						}
+
+						resultsChan <- result
+
+						// Output . for pass, F for fail
+						if result.Result == "PASS" {
+							fmt.Print(".")
+						} else {
+							fmt.Print("F")
+						}
+					}(assistant.Name, test.Name, step, i)
+				}
+			}(assistant, test)
 		}
 	}
 
@@ -593,12 +571,11 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 	return results, totalTime, nil
 }
 
-func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel string) (TestResult, error) {
+func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel, sessionID string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
-	// partial result in case of error
 	result := TestResult{
-		TestName:        fmt.Sprintf("%s - %s", assistantName, testName),
+		TestName:        testName,
 		Prompt:          step.Prompt,
 		Expected:        step.ExpectedOutput,
 		Model:           model,
@@ -606,7 +583,11 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		HelixURL:        helixURL,
 	}
 
-	chatReq := ChatRequest{
+	// Create a chat request for the model
+	req := ChatRequest{
+		Model:     model,
+		SessionID: sessionID, // Use the provided session ID for continuity in multi-turn conversations
+		System:    fmt.Sprintf("You are %s.", assistantName),
 		Messages: []Message{
 			{
 				Role: "user",
@@ -619,15 +600,42 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		AppID: appID,
 	}
 
-	responseContent, chatResp, err := sendChatRequest(chatReq, apiKey, helixURL)
+	// Send the request to the model
+	inferenceStartTime = time.Now()
+	conversationID, resp, err := sendChatRequest(req, apiKey, helixURL)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("error sending chat request: %w", err)
 	}
-
 	inferenceTime := time.Since(inferenceStartTime)
 
-	evaluationStartTime := time.Now()
+	// Extract the response from the model
+	if len(resp.Choices) == 0 {
+		return result, fmt.Errorf("no response from model")
+	}
+	response := resp.Choices[0].Message.Content
+	result.Response = response
+	result.SessionID = conversationID
+	result.InferenceTime = inferenceTime
 
+	// Evaluate the response
+	evaluationStartTime := time.Now()
+	evaluationResult, evaluationReason, err := evaluateResponse(response, step.ExpectedOutput, evaluationModel)
+	if err != nil {
+		return result, fmt.Errorf("error evaluating response: %w", err)
+	}
+	result.EvaluationTime = time.Since(evaluationStartTime)
+	result.Result = evaluationResult
+	result.Reason = evaluationReason
+
+	return result, nil
+}
+
+// Function to evaluate an assistant's response against expected output
+func evaluateResponse(response, expected, evaluationModel string) (string, string, error) {
+	// Build the evaluation prompt
+	prompt := fmt.Sprintf("Does this response:\n\n%s\n\nsatisfy the expected output:\n\n%s", response, expected)
+
+	// Create the evaluation request
 	evalReq := ChatRequest{
 		Model:  evaluationModel,
 		System: "You are an AI assistant tasked with evaluating test results. Output only PASS or FAIL followed by a brief explanation on the next line. Be fairly liberal about what you consider to be a PASS, as long as everything specifically requested is present. However, if the response is not as expected, you should output FAIL.",
@@ -636,66 +644,113 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 				Role: "user",
 				Content: Content{
 					ContentType: "text",
-					Parts:       []string{fmt.Sprintf("Does this response:\n\n%s\n\nsatisfy the expected output:\n\n%s", responseContent, step.ExpectedOutput)},
+					Parts:       []string{prompt},
 				},
 			},
 		},
 	}
 
-	evalContent, _, err := sendChatRequest(evalReq, apiKey, helixURL)
+	// Get the global API key and URL
+	apiKey := globalAPIKey
+	helixURL := globalHelixURL
+
+	// Send the evaluation request
+	_, evalResp, err := sendChatRequest(evalReq, apiKey, helixURL)
 	if err != nil {
-		return result, err
+		return "ERROR", "Failed to evaluate response", err
 	}
 
-	evaluationTime := time.Since(evaluationStartTime)
+	// Extract the evaluation result
+	if len(evalResp.Choices) == 0 {
+		return "ERROR", "No evaluation result received", nil
+	}
 
-	result.Response = responseContent
-	result.Result = evalContent[:4]
-	result.Reason = evalContent[5:]
-	result.SessionID = chatResp.ID
-	result.InferenceTime = inferenceTime
-	result.EvaluationTime = evaluationTime
+	evalContent := evalResp.Choices[0].Message.Content
 
-	return result, nil
+	// Parse the result (PASS/FAIL) and reason
+	var result, reason string
+	lines := strings.Split(evalContent, "\n")
+
+	if len(lines) > 0 {
+		result = strings.TrimSpace(lines[0])
+		if result != "PASS" && result != "FAIL" {
+			// If first line doesn't contain PASS/FAIL, check if it's anywhere in the content
+			if strings.Contains(evalContent, "PASS") {
+				result = "PASS"
+			} else if strings.Contains(evalContent, "FAIL") {
+				result = "FAIL"
+			} else {
+				result = "ERROR"
+			}
+		}
+
+		// Extract the reason from the rest of the content
+		if len(lines) > 1 {
+			reason = strings.Join(lines[1:], "\n")
+		} else {
+			reason = "No reason provided"
+		}
+	} else {
+		result = "ERROR"
+		reason = "Empty evaluation result"
+	}
+
+	return result, reason, nil
 }
 
-func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResponse, error) {
-	jsonData, err := json.Marshal(req)
+// Store API key and URL as global variables so we can access them from evaluateResponse
+var (
+	globalAPIKey   string
+	globalHelixURL string
+)
+
+// Update the sendChatRequest function to return the response format needed
+func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, openai.ChatCompletionResponse, error) {
+	// Save API key and URL globally
+	globalAPIKey = apiKey
+	globalHelixURL = helixURL
+
+	// Marshal the request to JSON
+	reqBody, err := json.Marshal(req)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error marshaling JSON: %v", err)
+		return "", openai.ChatCompletionResponse{}, fmt.Errorf("error marshaling request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", helixURL+"/api/v1/sessions/chat", bytes.NewBuffer(jsonData))
+	// Create the HTTP request
+	httpReq, err := http.NewRequest("POST", helixURL+"/api/v1/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error creating request: %v", err)
+		return "", openai.ChatCompletionResponse{}, err
 	}
 
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	// Set the headers
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 
+	// Send the request
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error sending request: %v", err)
+		return "", openai.ChatCompletionResponse{}, err
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// Read the response
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error reading response: %v", err)
+		return "", openai.ChatCompletionResponse{}, err
 	}
 
-	var chatResp ChatResponse
-	err = json.Unmarshal(body, &chatResp)
+	// Parse the response
+	var chatResp openai.ChatCompletionResponse
+	err = json.Unmarshal(respBody, &chatResp)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error parsing response JSON: %v (response body: %s)", err, string(body))
+		return "", openai.ChatCompletionResponse{}, err
 	}
 
-	if len(chatResp.Choices) == 0 {
-		return "", ChatResponse{}, fmt.Errorf("no choices in the response")
-	}
+	// Extract the conversation ID from the response headers
+	conversationID := resp.Header.Get("X-Conversation-Id")
 
-	return chatResp.Choices[0].Message.Content, chatResp, nil
+	return conversationID, chatResp, nil
 }
 
 func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string, testID string) string {
@@ -714,8 +769,13 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 		sessionLink := fmt.Sprintf("%s/session/%s", reportURL, result.SessionID)
 		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", reportURL, result.SessionID)
 
+		testName := result.TestName
+		if result.IsMultiTurn {
+			testName = fmt.Sprintf("%s (Multi-turn: %d turns)", result.TestName, len(result.TurnResults))
+		}
+
 		builder.WriteString(fmt.Sprintf("| %-20s | %-6s | %-50s | %-25s | %-15s | %-15s | [Session](%s) | [Debug](%s) |\n",
-			result.TestName,
+			testName,
 			result.Result,
 			truncate(result.Reason, 50),
 			result.Model,
@@ -771,6 +831,9 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	// Generate and write HTML report
 	tmpl, err := template.New("results").Funcs(template.FuncMap{
 		"truncate": truncate,
+		"replaceSpaces": func(s string) string {
+			return strings.ReplaceAll(s, " ", "-")
+		},
 	}).Parse(htmlTemplate)
 	if err != nil {
 		return fmt.Errorf("error parsing HTML template: %v", err)
