@@ -9,7 +9,7 @@ import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 
 interface DeleteConfirmWindowProps {
-  open: boolean,
+  open?: boolean,
   title?: string,
   confirmString?: string,
   onCancel: () => void,
@@ -17,7 +17,7 @@ interface DeleteConfirmWindowProps {
 }
 
 const DeleteConfirmWindow: FC<DeleteConfirmWindowProps> = ({
-  open,
+  open = true,
   title = 'this item',
   confirmString = 'delete',
   onCancel,

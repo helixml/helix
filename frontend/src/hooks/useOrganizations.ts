@@ -15,6 +15,7 @@ export interface IOrganizationTools {
   createOrganization: (org: TypesOrganization) => Promise<boolean>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
   deleteOrganization: (id: string) => Promise<boolean>,
+  loadOrganization: (id: string) => Promise<void>,
 }
 
 export const defaultOrganizationTools: IOrganizationTools = {
@@ -24,11 +25,14 @@ export const defaultOrganizationTools: IOrganizationTools = {
   createOrganization: async () => false,
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
+  loadOrganization: async () => {},
 }
 
 export default function useOrganizations(): IOrganizationTools {
   const [organizations, setOrganizations] = useState<TypesOrganization[]>([])
+  const [organization, setOrganization] = useState<TypesOrganization | undefined>(undefined)
   const [loading, setLoading] = useState(false)
+  const [initialized, setInitialized] = useState(false)
   const api = useApi()
   const snackbar = useSnackbar()
   const account = useAccount()
@@ -37,16 +41,43 @@ export default function useOrganizations(): IOrganizationTools {
   // Extract org_id parameter from router
   const orgIdParam = router.params.org_id
 
-  // Find the current organization based on org_id parameter (which can be ID or name)
-  const organization = useMemo(() => {
-    if (!orgIdParam || organizations.length === 0) return undefined
-    
-    // Try to find by ID first
-    let org = organizations.find(o => o.id === orgIdParam || o.name === orgIdParam)
+  // Load a single organization with all its details
+  const loadOrganization = useCallback(async (id: string) => {
+    try {
+      setLoading(true)
+      // Fetch the organization details
+      const orgResult = await api.getApiClient().v1OrganizationsDetail(id)
 
-    return org
-  }, [organizations, orgIdParam])
+      // Fetch members for the organization
+      const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(id)
+      
+      // Fetch roles for the organization
+      const rolesResult = await api.getApiClient().v1OrganizationsRolesDetail(id)
+      
+      // Fetch teams for the organization
+      const teamsResult = await api.getApiClient().v1OrganizationsTeamsDetail(id)
+      
+      // Create a complete organization object with all details
+      const completeOrg = {
+        ...orgResult.data,
+        memberships: membersResult.data,
+        roles: rolesResult.data,
+        teams: teamsResult.data
+      }
+      
+      setOrganization(completeOrg)
+    } catch (error) {
+      console.error(`Error loading organization ${id}:`, error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || `Error loading organization details`)
+      setOrganization(undefined)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
+  // this is called by the top level account context once we have a login
+  // so - we can know that when 'initialized' is true, we have a user
   const loadOrganizations = useCallback(async () => {
     try {
       setLoading(true)
@@ -86,9 +117,10 @@ export default function useOrganizations(): IOrganizationTools {
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || 'Error loading organizations')
     } finally {
+      setInitialized(true)
       setLoading(false)
     }
-  }, [api])
+  }, [])
 
   const createOrganization = useCallback(async (org: TypesOrganization) => {
     try {
@@ -102,7 +134,7 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error creating organization')
       return false
     }
-  }, [loadOrganizations])
+  }, [api, loadOrganizations, loadOrganization, orgIdParam, snackbar])
 
   const updateOrganization = useCallback(async (id: string, org: TypesOrganization) => {
     try {
@@ -116,7 +148,7 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error updating organization')
       return false
     }
-  }, [loadOrganizations])
+  }, [])
 
   const deleteOrganization = useCallback(async (id: string) => {
     try {
@@ -130,7 +162,16 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error deleting organization')
       return false
     }
-  }, [loadOrganizations])
+  }, [])
+
+  // Effect to load organization when orgIdParam changes
+  useEffect(() => {
+    if (orgIdParam && initialized) {
+      const useOrg = organizations.find((org) => org.id === orgIdParam || org.name === orgIdParam)
+      if(!useOrg || !useOrg.id) return
+      loadOrganization(useOrg.id)
+    }
+  }, [orgIdParam, initialized])
 
   return {
     organizations,
@@ -140,5 +181,6 @@ export default function useOrganizations(): IOrganizationTools {
     createOrganization,
     updateOrganization,
     deleteOrganization,
+    loadOrganization,
   }
 } 

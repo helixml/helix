@@ -115,33 +115,17 @@ const OrgsTable: FC<{
             <>
               <ClickLink
                 sx={{ml:2}}
-                onClick={() => router.navigate('org_settings', {org_id: org._data.name})}
+                onClick={() => router.navigate('org_teams', {org_id: org._data.name})}
               >
                 <Tooltip title="Settings">
                   <SettingsIcon />
-                </Tooltip>
-              </ClickLink>
-              <ClickLink
-                sx={{ml:2}}
-                onClick={() => router.navigate('org_teams', {org_id: org._data.name})}
-              >
-                <Tooltip title="Teams">
-                  <GroupsIcon />
-                </Tooltip>
-              </ClickLink>
-              <ClickLink
-                sx={{ml:2}}
-                onClick={() => router.navigate('org_people', {org_id: org._data.name})}
-              >
-                <Tooltip title="People">
-                  <Person />
                 </Tooltip>
               </ClickLink>
             </>
           ) : (
             <ClickLink
               sx={{ml:2}}
-              onClick={() => router.navigate('org_settings', {org_id: org._data.name})}
+              onClick={() => router.navigate('org_teams', {org_id: org._data.name})}
             >
               <Tooltip title="View">
                 <VisibilityIcon />
