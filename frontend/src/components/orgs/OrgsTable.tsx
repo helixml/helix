@@ -6,6 +6,8 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import useTheme from '@mui/material/styles/useTheme'
+import Person from '@mui/icons-material/Person'
+import GroupsIcon from '@mui/icons-material/Groups'
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
@@ -113,7 +115,7 @@ const OrgsTable: FC<{
             <>
               <ClickLink
                 sx={{ml:2}}
-                onClick={() => router.navigate('org_settings', {org_id: org._data.id})}
+                onClick={() => router.navigate('org_settings', {org_id: org._data.name})}
               >
                 <Tooltip title="Settings">
                   <SettingsIcon />
@@ -121,25 +123,25 @@ const OrgsTable: FC<{
               </ClickLink>
               <ClickLink
                 sx={{ml:2}}
-                onClick={() => router.navigate('org_teams', {org_id: org._data.id})}
+                onClick={() => router.navigate('org_teams', {org_id: org._data.name})}
               >
                 <Tooltip title="Teams">
-                  <SettingsIcon />
+                  <GroupsIcon />
                 </Tooltip>
               </ClickLink>
               <ClickLink
                 sx={{ml:2}}
-                onClick={() => router.navigate('org_people', {org_id: org._data.id})}
+                onClick={() => router.navigate('org_people', {org_id: org._data.name})}
               >
                 <Tooltip title="People">
-                  <SettingsIcon />
+                  <Person />
                 </Tooltip>
               </ClickLink>
             </>
           ) : (
             <ClickLink
               sx={{ml:2}}
-              onClick={() => router.navigate('org_settings', {org_id: org._data.id})}
+              onClick={() => router.navigate('org_settings', {org_id: org._data.name})}
             >
               <Tooltip title="View">
                 <VisibilityIcon />
