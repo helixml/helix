@@ -21,6 +21,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download NLTK resources for document_splitter.py
+RUN python -c "import nltk; nltk.download('punkt_tab')"
+
 # Copy application code
 COPY . .
 
