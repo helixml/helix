@@ -11,7 +11,6 @@ import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
   COLORS,
-  TOOLBAR_HEIGHT,
 } from '../../config'
 
 const OrgSidebarMainLink: FC<{
@@ -52,7 +51,7 @@ const OrgSidebarMainLink: FC<{
           },
         }}
         onClick={ () => {
-          router.navigate(routeName)
+          router.navigate(routeName, { org_id: account.organizationTools.organization?.id })
           account.setMobileMenuOpen(false)
         }}
       >

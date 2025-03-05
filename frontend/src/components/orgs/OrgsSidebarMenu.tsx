@@ -28,13 +28,13 @@ const OrgsSidebarMenu: FC<{
       />
       <OrgSidebarMainLink
         id="teams-link"
-        routeName="home"
+        routeName="org_teams"
         title="Teams"
         icon={ <GroupsIcon/> }
       />
       <OrgSidebarMainLink
         id="people-link"
-        routeName="home"
+        routeName="org_people"
         title="People"
         icon={ <Person/> }
       />

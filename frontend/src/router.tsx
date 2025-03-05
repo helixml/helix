@@ -7,6 +7,8 @@ import Account from './pages/Account'
 import Apps from './pages/Apps'
 import Orgs from './pages/Orgs'
 import OrgSettings from './pages/OrgSettings'
+import OrgTeams from './pages/OrgTeams'
+import OrgPeople from './pages/OrgPeople'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
@@ -41,6 +43,45 @@ const routes: IApplicationRoute[] = [{
       <Home />
   ),
 }, {
+  name: 'orgs',
+  path: '/orgs',
+  meta: {
+    drawer: true,
+  },
+  render: () => (
+    <Orgs />
+  ),
+}, {
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgSettings />
+  ),
+}, {
+  name: 'org_teams',
+  path: '/orgs/:org_id/teams',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgTeams />
+  ),
+}, {
+  name: 'org_people',
+  path: '/orgs/:org_id/people',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgPeople />
+  ),
+}, {
   name: 'appstore',
   path: '/appstore',
   meta: {
@@ -70,25 +111,6 @@ const routes: IApplicationRoute[] = [{
     <FilestoreContextProvider>
       <Files />
     </FilestoreContextProvider>
-  ),
-}, {
-  name: 'orgs',
-  path: '/orgs',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <Orgs />
-  ),
-}, {
-  name: 'org_settings',
-  path: '/orgs/:org_id/settings',
-  meta: {
-    drawer: true,
-    menu: 'orgs',
-  },
-  render: () => (
-    <OrgSettings />
   ),
 }, {
   name: 'apps',
