@@ -47,7 +47,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
 
     setIsLoading(true);
 
-    const knowledgePath = sourceType === 'filestore' ? `apps/${appId}/${name}` : name;
+    const knowledgePath = sourceType === 'filestore' ? name : name;
 
     const newSource: IKnowledgeSource = {
       id: '',
