@@ -1,0 +1,207 @@
+version: '3'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-dev-env
+    ports:
+      - 80
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - KEYCLOAK_ENABLED=false
+      - OIDC_ENABLED=true
+      - OIDC_URL=http://proxy:8080
+      - OIDC_CLIENT_ID=client-credentials-mock-client
+      - OIDC_CLIENT_SECRET=client-credentials-mock-client-secret
+      - OIDC_SECURE_COOKIES=false
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - APP_URL=http://proxy:8080
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - SERVER_URL=http://proxy:8080
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - FRONTEND_URL=http://frontend:8081
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      - TEXT_EXTRACTION_URL=http://llamaindex:5000/api/v1/extract
+      - RAG_INDEX_URL=http://llamaindex:5000/api/v1/rag/chunk
+      - RAG_QUERY_URL=http://llamaindex:5000/api/v1/rag/query
+      - EVAL_USER_ID=${EVAL_USER_ID:-}
+      - FILESTORE_LOCALFS_PATH=/filestore
+      - TOOLS_ENABLED=true
+      - TOOLS_PROVIDER=${TOOLS_PROVIDER:-helix}
+      - TOOLS_MODEL=${TOOLS_MODEL:-llama3:instruct}
+    volumes:
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./api:/app/api
+      - ${FILESTORE_DATA:-helix-filestore}:/filestore
+    depends_on:
+      - postgres
+      - oidc
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  postgres:
+    image: postgres:12.13-alpine
+    restart: always
+    ports:
+      - 5432:5432
+    volumes:
+      - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
+      - ./scripts/postgres:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - POSTGRES_DATABASES=keycloak
+  typesense:
+    build:
+      context: .
+      dockerfile: Dockerfile.typesense
+    command: ["--data-dir", "/data", "--api-key", "typesense"]
+    ports:
+      - 8108:8108
+    volumes:
+      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+  chrome:
+    image: ghcr.io/go-rod/rod:v0.115.0
+    restart: always
+    volumes:
+      - ./integration-test/data/smoke:/integration-test/data/smoke
+    ports:
+      - 7317:7317
+  frontend:
+    ports:
+      - 8081:${FRONTEND_INTERNAL_PORT:-8081}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ui-dev-env
+    restart: always
+    volumes:
+      - ./frontend/package.json:/app/package.json
+      - ./frontend/src:/app/src
+      - ./frontend/assets:/app/assets
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+  oidc:
+    container_name: oidc-server-mock
+    image: ghcr.io/xdev-software/oidc-server-mock:latest # ARM fork
+    ports:
+      - 8080
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Development
+      AUTHENTICATION:ISSUER: http://proxy:8080
+      SERVER_OPTIONS_INLINE: |
+        {
+          "AccessTokenJwtType": "JWT",
+          "Discovery": {
+            "ShowKeySet": true
+          },
+          "Authentication": {
+            "CookieSameSiteMode": "Lax",
+            "CheckSessionCookieSameSiteMode": "Lax"
+          }
+        }
+      LOGIN_OPTIONS_INLINE: |
+        {
+          "AllowRememberLogin": false
+        }
+      LOGOUT_OPTIONS_INLINE: |
+        {
+          "AutomaticRedirectAfterSignOut": true
+        }
+      API_RESOURCES_INLINE: |
+        - Name: client-credentials-mock-client
+          Scopes:
+            - openid
+            - profile
+            - email
+      CLIENTS_CONFIGURATION_INLINE: |
+        [
+          {
+            "ClientId": "client-credentials-mock-client",
+            "ClientSecrets": ["client-credentials-mock-client-secret"],
+            "Description": "Client for client credentials flow",
+            "AllowOfflineAccess": true,
+            "AllowedGrantTypes": ["authorization_code", "refresh_token"],
+            "RedirectUris": ["http://proxy:8080"],
+            "AllowedScopes": ["openid", "profile", "email"],
+            "AlwaysIncludeUserClaimsInIdToken": true,
+            "RequirePkce": false
+          }
+        ]
+      USERS_CONFIGURATION_INLINE: |
+        [
+          {
+            "SubjectId": "1",
+            "Username": "test",
+            "Password": "test",
+            "Claims": [
+              {
+                "Type": "name",
+                "Value": "test name"
+              },
+              {
+                "Type": "email",
+                "Value": "test@example.com"
+              },
+              {
+                "Type": "preferred_username",
+                "Value": "test"
+              },
+              {
+                "Type": "family_name",
+                "Value": "Smith"
+              },
+              {
+                "Type": "given_name",
+                "Value": "John"
+              },
+              {
+                "Type": "nickname",
+                "Value": "test nickname"
+              }
+            ]
+          }
+        ]
+      ASPNET_SERVICES_OPTIONS_INLINE: |
+        {
+          "ForwardedHeadersOptions": {
+            "ForwardedHeaders" : "All"
+          }
+        }
+    # volumes:
+    #   - ./scripts/oidc:/tmp/config:ro
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./scripts/Caddyfile.oidc:/etc/caddy/Caddyfile
+    environment:
+      - DOMAIN=proxy
+    depends_on:
+      - api
+      - oidc
+
+volumes:
+  helix-keycloak-db:
+  helix-postgres-db:
+  helix-pgvector-db:
+  helix-filestore:
+  helix-typesense-db:
+
+networks:
+  default:
+    name: helix_default
