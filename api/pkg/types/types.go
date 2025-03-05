@@ -7,7 +7,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	openai "github.com/sashabaranov/go-openai"
+	"gorm.io/datatypes"
 )
 
 type Interaction struct {
@@ -978,16 +981,8 @@ type AssistantConfig struct {
 
 // Add this new type
 type TestStep struct {
-	Prompt                    string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	ExpectedOutput            string `json:"expected_output,omitempty" yaml:"expected_output,omitempty"`
-	UserPrompt                string `json:"user_prompt,omitempty" yaml:"user_prompt,omitempty"`
-	ExpectedAssistantResponse string `json:"expected_assistant_response,omitempty" yaml:"expected_assistant_response,omitempty"`
-}
-
-// Turn was previously used for multi-turn tests but is kept for backwards compatibility
-type Turn struct {
-	UserPrompt                string `json:"user_prompt" yaml:"user_prompt"`
-	ExpectedAssistantResponse string `json:"expected_assistant_response" yaml:"expected_assistant_response"`
+	Prompt         string `json:"prompt" yaml:"prompt"`
+	ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
 }
 
 type AppHelixConfig struct {
@@ -1347,4 +1342,168 @@ type RunnerLLMInferenceRequest struct {
 	InteractionID string
 
 	Request *openai.ChatCompletionRequest
+}
+
+type RunnerLLMInferenceResponse struct {
+	// RequestID is used to match the response
+	// to the request
+	RequestID string
+
+	OwnerID       string
+	SessionID     string
+	InteractionID string
+
+	Response       *openai.ChatCompletionResponse
+	StreamResponse *openai.ChatCompletionStreamResponse
+
+	// Error is set if there was an error
+	Error string
+
+	DurationMs int64
+
+	Done bool
+}
+
+// LLMCallStep used to categorize LLM call steps
+// where it's applicable
+type LLMCallStep string
+
+const (
+	LLMCallStepDefault           LLMCallStep = "default"
+	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
+	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
+	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
+	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
+)
+
+// LLMCall used to store the request and response of LLM calls
+// done by helix to LLM providers such as openai, togetherai or helix itself
+type LLMCall struct {
+	ID               string         `json:"id" gorm:"primaryKey"`
+	AppID            string         `json:"app_id" gorm:"index"`
+	UserID           string         `json:"user_id" gorm:"index"`
+	Created          time.Time      `json:"created"`
+	Updated          time.Time      `json:"updated"`
+	SessionID        string         `json:"session_id" gorm:"index"`
+	InteractionID    string         `json:"interaction_id" gorm:"index"`
+	Model            string         `json:"model"`
+	Provider         string         `json:"provider"`
+	Step             LLMCallStep    `json:"step" gorm:"index"`
+	OriginalRequest  datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
+	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
+	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
+	DurationMs       int64          `json:"duration_ms"`
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+}
+
+type CreateSecretRequest struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	AppID string `json:"app_id"`
+}
+
+type Secret struct {
+	ID        string    `json:"id,omitempty" yaml:"id,omitempty"`
+	Created   time.Time `json:"created,omitempty" yaml:"created,omitempty"`
+	Updated   time.Time `json:"updated,omitempty" yaml:"updated,omitempty"`
+	Owner     string
+	OwnerType OwnerType
+	Name      string `json:"name" yaml:"name"`
+	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
+	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+}
+
+// LicenseKey represents a license key in the database
+type LicenseKey struct {
+	ID         uint      `gorm:"primarykey" json:"id"`
+	LicenseKey string    `json:"license_key"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type GetDesiredRunnerSlotsResponse struct {
+	Data []DesiredRunnerSlot `json:"data"`
+}
+
+type DesiredSlots struct {
+	ID   string              `json:"id"`
+	Data []DesiredRunnerSlot `json:"data"`
+}
+
+type DesiredRunnerSlot struct {
+	ID         uuid.UUID                   `json:"id"`
+	Attributes DesiredRunnerSlotAttributes `json:"attributes"`
+}
+
+type WorkloadType string
+
+const (
+	WorkloadTypeLLMInferenceRequest WorkloadType = "llm"
+	WorkloadTypeSession             WorkloadType = "session"
+)
+
+type DesiredRunnerSlotAttributes struct {
+	Workload *RunnerWorkload `json:"workload,omitempty"`
+	Model    string          `json:"model"`
+	Mode     string          `json:"mode"`
+}
+
+type RunnerWorkload struct {
+	LLMInferenceRequest *RunnerLLMInferenceRequest
+	Session             *Session
+}
+
+type RunnerActualSlot struct {
+	ID         uuid.UUID                  `json:"id"`
+	Attributes RunnerActualSlotAttributes `json:"attributes"`
+}
+
+type RunnerActualSlotAttributes struct {
+	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
+	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
+	RunnerSlot       *RunnerSlot     `json:"runner_slot,omitempty"`
+}
+
+type RunAPIActionRequest struct {
+	Action     string            `json:"action"`
+	Parameters map[string]string `json:"parameters"`
+
+	Tool *Tool `json:"-"` // Set internally
+}
+
+type RunAPIActionResponse struct {
+	Response string `json:"response"` // Raw response from the API
+	Error    string `json:"error"`
+}
+
+type RunnerAttributes struct {
+	TotalMemory uint64       `json:"total_memory"`
+	FreeMemory  uint64       `json:"free_memory"`
+	Version     string       `json:"version"`
+	Slots       []RunnerSlot `json:"slots"`
+}
+
+type Runner struct {
+	ID         string           `json:"id"`
+	Attributes RunnerAttributes `json:"attributes"`
+}
+
+type GetRunnersResponse struct {
+	Runners []Runner `json:"runners"`
+}
+
+// Add this struct to represent the license info we want to send to the frontend
+type FrontendLicenseInfo struct {
+	Valid        bool      `json:"valid"`
+	Organization string    `json:"organization"`
+	ValidUntil   time.Time `json:"valid_until"`
+	Features     struct {
+		Users bool `json:"users"`
+	} `json:"features"`
+	Limits struct {
+		Users    int64 `json:"users"`
+		Machines int64 `json:"machines"`
+	} `json:"limits"`
 }
