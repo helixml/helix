@@ -205,9 +205,9 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- if .Values.controlplane.haystack }}
-            {{- with (default "" .Values.controlplane.haystack.pgvectorDsn) }}
+            {{- if .Values.controlplane.haystack.pgvectorDsn }}
             - name: PGVECTOR_DSN
-              value: {{ . | quote }}
+              value: {{ .Values.controlplane.haystack.pgvectorDsn | quote }}
             {{- else if .Values.controlplane.haystack.existingSecret }}
             - name: PGVECTOR_DSN
               valueFrom:
