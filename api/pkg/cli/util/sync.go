@@ -15,14 +15,14 @@ import (
 // rsync-like functionality. If deleteExtraFiles is true, it will also delete files
 // from the filestore that don't exist locally.
 // Returns the total number of files synced (including existing files) and any error.
-func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, localDir, remotePath string, deleteExtraFiles bool, appId string) (int, error) {
+func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, localDir, remotePath string, deleteExtraFiles bool, appID string) (int, error) {
 	if localDir == "" || remotePath == "" {
 		return 0, fmt.Errorf("local directory and remote path are required")
 	}
 
 	// Ensure the remote path is properly scoped to the app directory
-	if appId != "" && !strings.HasPrefix(remotePath, fmt.Sprintf("apps/%s/", appId)) {
-		remotePath = filepath.Join("apps", appId, remotePath)
+	if appID != "" && !strings.HasPrefix(remotePath, fmt.Sprintf("apps/%s/", appID)) {
+		remotePath = filepath.Join("apps", appID, remotePath)
 	}
 
 	// Check if local directory exists
@@ -123,12 +123,12 @@ func UploadFile(ctx context.Context, apiClient client.Client, localPath, remoteP
 }
 
 // getRemoteFiles recursively gets all files in the remote path
-func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath string, appId string) (map[string]bool, error) {
+func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath string, appID string) (map[string]bool, error) {
 	result := make(map[string]bool)
 
 	// Ensure the remote path is properly scoped to the app directory
-	if appId != "" && !strings.HasPrefix(remotePath, fmt.Sprintf("apps/%s/", appId)) {
-		remotePath = filepath.Join("apps", appId, remotePath)
+	if appID != "" && !strings.HasPrefix(remotePath, fmt.Sprintf("apps/%s/", appID)) {
+		remotePath = filepath.Join("apps", appID, remotePath)
 	}
 
 	fmt.Printf("Listing remote files in %s\n", remotePath)
@@ -148,7 +148,7 @@ func getRemoteFiles(ctx context.Context, apiClient client.Client, remotePath str
 			result[item.Path] = true
 		} else {
 			// Recursively get files in subdirectories
-			subItems, err := getRemoteFiles(ctx, apiClient, item.Path, appId) // Pass appId to maintain scoping
+			subItems, err := getRemoteFiles(ctx, apiClient, item.Path, appID) // Pass appID to maintain scoping
 			if err != nil {
 				return nil, err
 			}
