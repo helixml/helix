@@ -11,7 +11,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/store"
@@ -40,7 +39,7 @@ type PingService struct {
 	latestVersion string
 }
 
-func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL string, keycloakConfig *config.Keycloak) *PingService {
+func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL string) *PingService {
 	return &PingService{
 		db:            db,
 		launchpadURL:  launchpadURL,

@@ -24,22 +24,22 @@ func (acct *account) isAdmin(cfg *AdminConfig) bool {
 	return false
 }
 
-func (account *account) isUserAdmin(cfg *AdminConfig) bool {
+func (acct *account) isUserAdmin(cfg *AdminConfig) bool {
 	for _, adminID := range cfg.AdminUserIDs {
 		// development mode everyone is an admin
 		if adminID == types.AdminAllUsers {
 			return true
 		}
-		if adminID == account.userInfo.Subject {
+		if adminID == acct.userInfo.Subject {
 			return true
 		}
 	}
 	return false
 }
 
-func (auth *account) isTokenAdmin() bool {
-	if auth.userInfo == nil {
+func (acct *account) isTokenAdmin() bool {
+	if acct.userInfo == nil {
 		return false
 	}
-	return auth.userInfo.Admin
+	return acct.userInfo.Admin
 }
