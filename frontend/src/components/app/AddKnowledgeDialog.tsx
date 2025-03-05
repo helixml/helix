@@ -11,6 +11,7 @@ import {
   TextField,
   FormControl,
   FormHelperText,
+  CircularProgress,
 } from '@mui/material';
 import { IKnowledgeSource } from '../../types';
 
@@ -31,6 +32,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = () => {
     if (!name.trim()) {
@@ -43,7 +45,9 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       return;
     }
 
-    const knowledgePath = name;
+    setIsLoading(true);
+
+    const knowledgePath = sourceType === 'filestore' ? `apps/${appId}/${name}` : name;
 
     const newSource: IKnowledgeSource = {
       id: '',
@@ -73,7 +77,12 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
 
     onAdd(newSource);
     
-    handleClose();
+    // Adding a small delay to show the loading indicator
+    // The parent component should handle closing this dialog after processing is complete
+    setTimeout(() => {
+      setIsLoading(false);
+      handleClose();
+    }, 500);
   };
 
   const handleClose = () => {
@@ -81,6 +90,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
     setUrl('');
     setError('');
     setSourceType('web');
+    setIsLoading(false);
     onClose();
   };
 
@@ -123,15 +133,20 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
             setError('');
           }}
           error={!!error}
-          helperText={error || (sourceType === 'filestore' ? `Files will be uploaded to: apps/${appId}/${name}` : '')}
+          helperText={error || (sourceType === 'filestore' ? `Files will be uploaded to the '${name}' folder in this app` : '')}
           sx={{ mb: 2 }}
         />
 
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
-        <Button onClick={handleSubmit} variant="contained">
-          Add
+        <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>
+        <Button 
+          onClick={handleSubmit} 
+          variant="contained" 
+          disabled={isLoading}
+          startIcon={isLoading ? <CircularProgress size={20} /> : null}
+        >
+          {isLoading ? 'Adding...' : 'Add'}
         </Button>
       </DialogActions>
     </Dialog>
