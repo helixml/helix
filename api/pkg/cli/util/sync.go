@@ -14,9 +14,10 @@ import (
 // It will only upload files that don't exist in the filestore, implementing an
 // rsync-like functionality. If deleteExtraFiles is true, it will also delete files
 // from the filestore that don't exist locally.
-func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, localDir, remotePath string, deleteExtraFiles bool, appId string) error {
+// Returns the total number of files synced (including existing files) and any error.
+func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, localDir, remotePath string, deleteExtraFiles bool, appId string) (int, error) {
 	if localDir == "" || remotePath == "" {
-		return fmt.Errorf("local directory and remote path are required")
+		return 0, fmt.Errorf("local directory and remote path are required")
 	}
 
 	// Ensure the remote path is properly scoped to the app directory
@@ -27,17 +28,17 @@ func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, local
 	// Check if local directory exists
 	fileInfo, err := os.Stat(localDir)
 	if err != nil {
-		return fmt.Errorf("failed to access local directory %s: %w", localDir, err)
+		return 0, fmt.Errorf("failed to access local directory %s: %w", localDir, err)
 	}
 
 	if !fileInfo.IsDir() {
-		return fmt.Errorf("%s is not a directory", localDir)
+		return 0, fmt.Errorf("%s is not a directory", localDir)
 	}
 
 	// Get remote files
 	remoteFiles, err := getRemoteFiles(ctx, apiClient, remotePath, "") // Pass empty since remotePath is already scoped
 	if err != nil {
-		return fmt.Errorf("failed to list remote files: %w", err)
+		return 0, fmt.Errorf("failed to list remote files: %w", err)
 	}
 
 	// Keep track of local files for deletion purposes
@@ -45,12 +46,14 @@ func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, local
 
 	// Walk through local directory and upload files that don't exist remotely
 	uploadCount := 0
+	totalFiles := 0
 	err = filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if !info.IsDir() {
+			totalFiles++
 			relPath, err := filepath.Rel(localDir, path)
 			if err != nil {
 				return fmt.Errorf("failed to get relative path: %w", err)
@@ -77,10 +80,10 @@ func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, local
 	})
 
 	if err != nil {
-		return fmt.Errorf("error walking local directory: %w", err)
+		return totalFiles, fmt.Errorf("error walking local directory: %w", err)
 	}
 
-	fmt.Printf("Synced %d files to %s\n", uploadCount, remotePath)
+	fmt.Printf("Synced %d files to %s (total files: %d)\n", uploadCount, remotePath, totalFiles)
 
 	// Delete files that exist remotely but not locally
 	if deleteExtraFiles {
@@ -99,7 +102,7 @@ func SyncLocalDirToFilestore(ctx context.Context, apiClient client.Client, local
 		fmt.Printf("Deleted %d files from %s\n", deletedCount, remotePath)
 	}
 
-	return nil
+	return totalFiles, nil
 }
 
 // uploadFile uploads a single file to the filestore

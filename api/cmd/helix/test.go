@@ -66,6 +66,33 @@ type Content struct {
 	Parts       []string `json:"parts"`
 }
 
+type TurnResult struct {
+	TurnNumber        int           `json:"turn_number"`
+	UserPrompt        string        `json:"user_prompt"`
+	AssistantResponse string        `json:"assistant_response"`
+	ExpectedResponse  string        `json:"expected_response"`
+	Result            string        `json:"result"`
+	Reason            string        `json:"reason"`
+	InferenceTime     time.Duration `json:"inference_time"`
+	EvaluationTime    time.Duration `json:"evaluation_time"`
+}
+
+type RAGMetrics struct {
+	FilesUploaded     int                      `json:"files_uploaded"`
+	TotalUploadTime   time.Duration            `json:"total_upload_time"`
+	TotalIndexingTime time.Duration            `json:"total_indexing_time"`
+	KnowledgeSources  []KnowledgeSourceMetrics `json:"knowledge_sources"`
+}
+
+type KnowledgeSourceMetrics struct {
+	Name         string        `json:"name"`
+	FileCount    int           `json:"file_count"`
+	UploadTime   time.Duration `json:"upload_time"`
+	IndexingTime time.Duration `json:"indexing_time"`
+	LocalDir     string        `json:"local_dir"`
+	RemotePath   string        `json:"remote_path"`
+}
+
 type TestResult struct {
 	TestName        string        `json:"test_name"`
 	Prompt          string        `json:"prompt"`
@@ -85,17 +112,6 @@ type TestResult struct {
 	TurnResults     []TurnResult  `json:"turn_results,omitempty"`
 }
 
-type TurnResult struct {
-	TurnNumber        int           `json:"turn_number"`
-	UserPrompt        string        `json:"user_prompt"`
-	AssistantResponse string        `json:"assistant_response"`
-	ExpectedResponse  string        `json:"expected_response"`
-	Result            string        `json:"result"`
-	Reason            string        `json:"reason"`
-	InferenceTime     time.Duration `json:"inference_time"`
-	EvaluationTime    time.Duration `json:"evaluation_time"`
-}
-
 type ChatResponse struct {
 	ID      string `json:"id"`
 	Choices []struct {
@@ -111,6 +127,15 @@ type ModelResponse struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 	} `json:"data"`
+}
+
+type TestResults struct {
+	Tests             []TestResult  `json:"tests"`
+	TotalTime         time.Duration `json:"total_time"`
+	RAGMetrics        *RAGMetrics   `json:"rag_metrics,omitempty"`
+	HelixYaml         string        `json:"helix_yaml"`
+	TestID            string        `json:"test_id"`
+	NamespacedAppName string        `json:"namespaced_app_name"`
 }
 
 // Template for HTML report
@@ -137,7 +162,6 @@ var htmlTemplate = `
         .header {
             padding: 10px 20px;
             background-color: #f8f8f8;
-            border-bottom: 1px solid #ddd;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -159,7 +183,10 @@ var htmlTemplate = `
         .header-controls {
             display: flex;
             align-items: center;
-            gap: 10px;
+            margin-left: auto;
+        }
+        .header-controls select {
+            margin-right: 10px;
         }
         .results-container {
             flex: 1;
@@ -169,6 +196,7 @@ var htmlTemplate = `
         table {
             border-collapse: collapse;
             width: 100%;
+            margin-bottom: 20px;
         }
         th, td {
             border: 1px solid #ddd;
@@ -183,19 +211,51 @@ var htmlTemplate = `
         }
         tr.pass { background-color: #e6ffe6; }
         tr.fail { background-color: #ffe6e6; }
+        .section {
+            margin-bottom: 30px;
+        }
+        .section-title {
+            font-size: 1.2em;
+            margin: 20px 0 10px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #f2f2f2;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .metric-value {
+            font-size: 1.2em;
+            color: #2a6b9c;
+        }
         #iframe-container {
-            display: none;
             position: fixed;
             bottom: 0;
             left: 0;
-            width: 100%;
-            height: 70%;
-            border: none;
+            right: 0;
+            height: 50vh;
+            background: #333;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
         }
         #iframe-container iframe {
             width: 100%;
             height: calc(100% - 10px);
             border: none;
+            margin-top: 10px;
         }
         #close-iframe {
             position: absolute;
@@ -233,6 +293,43 @@ var htmlTemplate = `
             word-wrap: break-word;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
+        /* Tab styling */
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            margin-right: 5px;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            background-color: #f9f9f9;
+        }
+        .tab.active {
+            background-color: #fff;
+            border-bottom: 1px solid #fff;
+            margin-bottom: -1px;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        /* Overlay for resizing */
+        #resize-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 9999;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -255,34 +352,92 @@ var htmlTemplate = `
             </div>
         </div>
         <div class="results-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Test Name</th>
-                        <th>Result</th>
-                        <th>Reason</th>
-                        <th>Model</th>
-                        <th>Inference Time</th>
-                        <th>Evaluation Time</th>
-                        <th>Session Link</th>
-                        <th>Debug Link</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{range .Tests}}
-                    <tr class="{{if eq .Result "PASS"}}pass{{else}}fail{{end}}">
-                        <td>{{.TestName}}{{if .IsMultiTurn}} [Turn {{.TurnNumber}}/{{.TotalTurns}}]{{end}}</td>
-                        <td>{{.Result}}</td>
-                        <td class="truncate" data-full-text="{{.Reason}}">{{truncate .Reason 100}}</td>
-                        <td>{{.Model}}</td>
-                        <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
-                        <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
-                        <td><a href="#" onclick="openLink('{{.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
-                        <td><a href="#" onclick="openLink('{{.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
-                    </tr>
+            <div class="tabs">
+                <div class="tab active" data-tab="test-results">Test Results</div>
+                {{if .RAGMetrics}}
+                <div class="tab" data-tab="rag-benchmark">RAG Benchmark</div>
+                {{end}}
+            </div>
+            
+            <div id="test-results" class="tab-content active">
+                <div class="section">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Test Name</th>
+                                <th>Result</th>
+                                <th>Reason</th>
+                                <th>Model</th>
+                                <th>Inference Time</th>
+                                <th>Evaluation Time</th>
+                                <th>Session Link</th>
+                                <th>Debug Link</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Tests}}
+                            <tr class="{{if eq .Result "PASS"}}pass{{else}}fail{{end}}">
+                                <td>{{.TestName}}</td>
+                                <td>{{.Result}}</td>
+                                <td class="truncate" data-full-text="{{.Reason}}">{{truncate .Reason 100}}</td>
+                                <td>{{.Model}}</td>
+                                <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
+                                <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
+                                <td><a href="#" onclick="openLink('{{$.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
+                                <td><a href="#" onclick="openLink('{{$.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            {{if .RAGMetrics}}
+            <div id="rag-benchmark" class="tab-content">
+                <div class="section">
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-title">Total Files Uploaded</div>
+                            <div class="metric-value">{{.RAGMetrics.FilesUploaded}}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-title">Total Upload Time</div>
+                            <div class="metric-value">{{printf "%.2f" .RAGMetrics.TotalUploadTime.Seconds}}s</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-title">Total Indexing Time</div>
+                            <div class="metric-value">{{printf "%.2f" .RAGMetrics.TotalIndexingTime.Seconds}}s</div>
+                        </div>
+                    </div>
+                    {{if .RAGMetrics.KnowledgeSources}}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Knowledge Source</th>
+                                <th>Files</th>
+                                <th>Upload Time</th>
+                                <th>Indexing Time</th>
+                                <th>Local Directory</th>
+                                <th>Remote Path</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .RAGMetrics.KnowledgeSources}}
+                            <tr>
+                                <td>{{.Name}}</td>
+                                <td>{{.FileCount}}</td>
+                                <td>{{printf "%.2f" .UploadTime.Seconds}}s</td>
+                                <td>{{printf "%.2f" .IndexingTime.Seconds}}s</td>
+                                <td>{{.LocalDir}}</td>
+                                <td>{{.RemotePath}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
                     {{end}}
-                </tbody>
-            </table>
+                </div>
+            </div>
+            {{end}}
         </div>
     </div>
     <div id="iframe-container">
@@ -290,8 +445,25 @@ var htmlTemplate = `
         <div id="close-iframe" onclick="closeDashboard()" style="color: white;">Close</div>
         <iframe id="dashboard-iframe" src=""></iframe>
     </div>
+    <div id="resize-overlay"></div>
     <div id="tooltip" class="tooltip"></div>
     <script>
+        // Tab functionality
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs and content
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                
+                // Show corresponding content
+                const tabId = tab.getAttribute('data-tab');
+                document.getElementById(tabId).classList.add('active');
+            });
+        });
+
         function openLink(url) {
             if (window.location.protocol === 'file:') {
                 window.open(url, '_blank');
@@ -327,93 +499,71 @@ var htmlTemplate = `
             }
         }
 
-        // Resizing functionality
+        // Improved resize handling
         const resizeHandle = document.getElementById('resize-handle');
         const iframeContainer = document.getElementById('iframe-container');
+        const resizeOverlay = document.getElementById('resize-overlay');
         let isResizing = false;
         let startY = 0;
-
-        // Track resize state globally
-        document.addEventListener('mouseup', stopResize, true);
-        document.addEventListener('mouseleave', stopResize, true);
+        let startHeight = 0;
 
         resizeHandle.addEventListener('mousedown', function(e) {
-            e.preventDefault(); // Prevent text selection
+            e.preventDefault();
             isResizing = true;
             startY = e.clientY;
+            startHeight = parseInt(window.getComputedStyle(iframeContainer).height);
             
-            // Prevent iframe from capturing events during resize
-            const iframe = document.getElementById('dashboard-iframe');
-            if (iframe) {
-                iframe.style.pointerEvents = 'none';
-            }
+            // Show the overlay to capture mouse events
+            resizeOverlay.style.display = 'block';
             
-            // Add a class to indicate resizing state
-            iframeContainer.classList.add('resizing');
-            
-            document.addEventListener('mousemove', resize, true);
+            // Add resizing class for visual feedback
+            document.body.classList.add('resizing');
         });
 
-        function resize(e) {
+        document.addEventListener('mousemove', function(e) {
             if (!isResizing) return;
             
-            e.preventDefault(); // Prevent unwanted selections
             const deltaY = startY - e.clientY;
-            const currentHeight = parseInt(window.getComputedStyle(iframeContainer).height);
-            const newHeight = currentHeight + deltaY;
+            let newHeight = startHeight + deltaY;
             
-            // Add reasonable limits to prevent extreme sizes
-            if (newHeight > 100 && newHeight < window.innerHeight - 100) {
-                iframeContainer.style.height = newHeight + 'px';
-                adjustContentHeight();
-                startY = e.clientY; // Update the reference point for next move
-            }
-        }
+            // Set reasonable limits
+            newHeight = Math.max(150, Math.min(newHeight, window.innerHeight - 100));
+            
+            iframeContainer.style.height = newHeight + 'px';
+            adjustContentHeight();
+        });
 
-        function stopResize(e) {
-            if (!isResizing) return;
-            
-            isResizing = false;
-            document.removeEventListener('mousemove', resize, true);
-            
-            // Re-enable iframe events
-            const iframe = document.getElementById('dashboard-iframe');
-            if (iframe) {
-                iframe.style.pointerEvents = 'auto';
+        document.addEventListener('mouseup', function() {
+            if (isResizing) {
+                isResizing = false;
+                resizeOverlay.style.display = 'none';
+                document.body.classList.remove('resizing');
             }
-            
-            // Remove the resizing class
-            iframeContainer.classList.remove('resizing');
-            
-            // Prevent any pending events
-            e && e.preventDefault();
-        }
+        });
 
-        // Add necessary styles for resize handling
+        // Ensure resize stops if mouse leaves window
+        document.addEventListener('mouseleave', function() {
+            if (isResizing) {
+                isResizing = false;
+                resizeOverlay.style.display = 'none';
+                document.body.classList.remove('resizing');
+            }
+        });
+
+        // Add additional style for body when resizing
         const style = document.createElement('style');
         style.textContent = 
-            '#iframe-container {' +
-            '    position: relative;' +
-            '}' +
-            '#iframe-container.resizing {' +
+            'body.resizing {' +
+            '    cursor: ns-resize !important;' +
             '    user-select: none;' +
             '}' +
-            '#iframe-container.resizing iframe {' +
+            'body.resizing iframe,' +
+            'body.resizing a,' +
+            'body.resizing button {' +
             '    pointer-events: none;' +
             '}' +
-            '#resize-handle {' +
-            '    position: absolute;' +
-            '    top: 0;' +
-            '    left: 0;' +
-            '    right: 0;' +
-            '    height: 10px;' +
-            '    background: #f0f0f0;' +
+            '#resize-overlay {' +
             '    cursor: ns-resize;' +
-            '    border-top: 1px solid #ccc;' +
-            '    z-index: 1000;' +
-            '}' +
-            '#resize-handle:hover {' +
-            '    background: #e0e0e0;' +
             '}';
         document.head.appendChild(style);
 
@@ -584,10 +734,14 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	}
 
 	fmt.Printf("Deployed app with ID: %s\n", appID)
-	fmt.Printf("Running tests...\n")
 
-	// Handle the --rsync flag to sync local files to the filestore
+	// Initialize RAG metrics
+	var ragMetrics *RAGMetrics
 	if len(syncFiles) > 0 {
+		ragMetrics = &RAGMetrics{
+			KnowledgeSources: make([]KnowledgeSourceMetrics, 0),
+		}
+
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
@@ -598,18 +752,34 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 			return err
 		}
 
+		totalFilesUploaded := 0
+		totalUploadStart := time.Now()
+
 		for _, mapping := range mappings {
 			fmt.Printf("Syncing local directory '%s' to knowledge source '%s' (path: %s)\n",
 				mapping.LocalDir, mapping.KnowledgeName, mapping.RemotePath)
 
-			err = cliutil.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles, appID)
+			uploadStart := time.Now()
+			fileCount, err := cliutil.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles, appID)
 			if err != nil {
 				return fmt.Errorf("failed to sync files for knowledge '%s': %w", mapping.KnowledgeName, err)
 			}
+			uploadTime := time.Since(uploadStart)
+
+			totalFilesUploaded += fileCount
+			ragMetrics.KnowledgeSources = append(ragMetrics.KnowledgeSources, KnowledgeSourceMetrics{
+				Name:       mapping.KnowledgeName,
+				FileCount:  fileCount,
+				UploadTime: uploadTime,
+				LocalDir:   mapping.LocalDir,
+				RemotePath: mapping.RemotePath,
+			})
 		}
 
+		ragMetrics.FilesUploaded = totalFilesUploaded
+		ragMetrics.TotalUploadTime = time.Since(totalUploadStart)
+
 		// After syncing all files, refresh the knowledge to reindex
-		// Handle the case where knowledge is already queued for indexing
 		knowledgeFilter := &client.KnowledgeFilter{
 			AppID: appID,
 		}
@@ -633,23 +803,31 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 			}
 		}
 
-		// If knowledge was already queued, don't return an error, just continue to the wait step
 		if alreadyQueued {
 			fmt.Println("Some knowledge sources are already being indexed. Proceeding to wait for indexing to complete...")
 		}
+
+		// Wait for knowledge to be fully indexed before running tests
+		fmt.Println("Waiting for knowledge to be indexed before running tests...")
+		indexingStart := time.Now()
+		err = cliutil.WaitForKnowledgeReady(cmd.Context(), apiClient, appID, knowledgeTimeout)
+		if err != nil {
+			return err
+		}
+		ragMetrics.TotalIndexingTime = time.Since(indexingStart)
+
+		// Update individual knowledge source indexing times
+		for _, k := range knowledge {
+			for j, ks := range ragMetrics.KnowledgeSources {
+				if k.Name == ks.Name {
+					ragMetrics.KnowledgeSources[j].IndexingTime = ragMetrics.TotalIndexingTime
+					break
+				}
+			}
+		}
 	}
 
-	// Wait for knowledge to be fully indexed before running tests
-	fmt.Println("Waiting for knowledge to be indexed before running tests...")
-	apiClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return err
-	}
-
-	err = cliutil.WaitForKnowledgeReady(cmd.Context(), apiClient, appID, knowledgeTimeout)
-	if err != nil {
-		return err
-	}
+	fmt.Printf("Running tests...\n")
 
 	defer func() {
 		// Clean up the app after the test
@@ -664,9 +842,18 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 		return err
 	}
 
-	displayResults(cmd, results, totalTime, helixURL, testID)
+	testResults := &TestResults{
+		Tests:             results,
+		TotalTime:         totalTime,
+		RAGMetrics:        ragMetrics,
+		HelixYaml:         helixYamlContent,
+		TestID:            testID,
+		NamespacedAppName: namespacedAppName,
+	}
 
-	err = writeResultsToFile(results, totalTime, helixYamlContent, testID, namespacedAppName)
+	displayResults(cmd, testResults, helixURL)
+
+	err = writeResultsToFile(testResults)
 	if err != nil {
 		return err
 	}
@@ -778,7 +965,7 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 							stepTestName = fmt.Sprintf("%s (Turn %d/%d)", testName, stepIndex+1, len(test.Steps))
 						}
 
-						result, err := runSingleTest(assistantName, stepTestName, step, appID, apiKey, helixURL, assistant.Model, evaluationModel, sessionID)
+						result, err := runSingleTest(assistantName, stepTestName, step, appID, apiKey, helixURL, assistant.Model, evaluationModel)
 						if err != nil {
 							result.Reason = err.Error()
 							result.Result = "ERROR"
@@ -851,11 +1038,12 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 	}
 }
 
-func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel, sessionID string) (TestResult, error) {
+func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
+	// partial result in case of error
 	result := TestResult{
-		TestName:        testName,
+		TestName:        fmt.Sprintf("%s - %s", assistantName, testName),
 		Prompt:          step.Prompt,
 		Expected:        step.ExpectedOutput,
 		Model:           model,
@@ -863,11 +1051,7 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		HelixURL:        helixURL,
 	}
 
-	// Create a chat request for the model
-	req := ChatRequest{
-		Model:     model,
-		SessionID: sessionID, // Use the provided session ID for continuity in multi-turn conversations
-		System:    fmt.Sprintf("You are %s.", assistantName),
+	chatReq := ChatRequest{
 		Messages: []Message{
 			{
 				Role: "user",
@@ -880,42 +1064,15 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		AppID: appID,
 	}
 
-	// Send the request to the model
-	inferenceStartTime = time.Now()
-	conversationID, resp, err := sendChatRequest(req, apiKey, helixURL)
+	responseContent, chatResp, err := sendChatRequest(chatReq, apiKey, helixURL)
 	if err != nil {
-		return result, fmt.Errorf("error sending chat request: %w", err)
+		return result, err
 	}
+
 	inferenceTime := time.Since(inferenceStartTime)
 
-	// Extract the response from the model
-	if len(resp.Choices) == 0 {
-		return result, fmt.Errorf("no response from model")
-	}
-	response := resp.Choices[0].Message.Content
-	result.Response = response
-	result.SessionID = conversationID
-	result.InferenceTime = inferenceTime
-
-	// Evaluate the response
 	evaluationStartTime := time.Now()
-	evaluationResult, evaluationReason, err := evaluateResponse(response, step.ExpectedOutput, evaluationModel)
-	if err != nil {
-		return result, fmt.Errorf("error evaluating response: %w", err)
-	}
-	result.EvaluationTime = time.Since(evaluationStartTime)
-	result.Result = evaluationResult
-	result.Reason = evaluationReason
 
-	return result, nil
-}
-
-// Function to evaluate an assistant's response against expected output
-func evaluateResponse(response, expected, evaluationModel string) (string, string, error) {
-	// Build the evaluation prompt
-	prompt := fmt.Sprintf("Does this response:\n\n%s\n\nsatisfy the expected output:\n\n%s", response, expected)
-
-	// Create the evaluation request
 	evalReq := ChatRequest{
 		Model:  evaluationModel,
 		System: "You are an AI assistant tasked with evaluating test results. Output only PASS or FAIL followed by a brief explanation on the next line. Be fairly liberal about what you consider to be a PASS, as long as everything specifically requested is present. However, if the response is not as expected, you should output FAIL.",
@@ -924,134 +1081,93 @@ func evaluateResponse(response, expected, evaluationModel string) (string, strin
 				Role: "user",
 				Content: Content{
 					ContentType: "text",
-					Parts:       []string{prompt},
+					Parts:       []string{fmt.Sprintf("Does this response:\n\n%s\n\nsatisfy the expected output:\n\n%s", responseContent, step.ExpectedOutput)},
 				},
 			},
 		},
 	}
 
-	// Get the global API key and URL
-	apiKey := globalAPIKey
-	helixURL := globalHelixURL
-
-	// Send the evaluation request
-	_, evalResp, err := sendChatRequest(evalReq, apiKey, helixURL)
+	evalContent, _, err := sendChatRequest(evalReq, apiKey, helixURL)
 	if err != nil {
-		return "ERROR", "Failed to evaluate response", err
+		return result, err
 	}
 
-	// Extract the evaluation result
-	if len(evalResp.Choices) == 0 {
-		return "ERROR", "No evaluation result received", nil
-	}
+	evaluationTime := time.Since(evaluationStartTime)
 
-	evalContent := evalResp.Choices[0].Message.Content
+	result.Response = responseContent
+	result.Result = evalContent[:4]
+	result.Reason = evalContent[5:]
+	result.SessionID = chatResp.ID
+	result.InferenceTime = inferenceTime
+	result.EvaluationTime = evaluationTime
 
-	// Parse the result (PASS/FAIL) and reason
-	var result, reason string
-	lines := strings.Split(evalContent, "\n")
-
-	if len(lines) > 0 {
-		result = strings.TrimSpace(lines[0])
-		if result != "PASS" && result != "FAIL" {
-			// If first line doesn't contain PASS/FAIL, check if it's anywhere in the content
-			if strings.Contains(evalContent, "PASS") {
-				result = "PASS"
-			} else if strings.Contains(evalContent, "FAIL") {
-				result = "FAIL"
-			} else {
-				result = "ERROR"
-			}
-		}
-
-		// Extract the reason from the rest of the content
-		if len(lines) > 1 {
-			reason = strings.Join(lines[1:], "\n")
-		} else {
-			reason = "No reason provided"
-		}
-	} else {
-		result = "ERROR"
-		reason = "Empty evaluation result"
-	}
-
-	return result, reason, nil
+	return result, nil
 }
 
-// Store API key and URL as global variables so we can access them from evaluateResponse
-var (
-	globalAPIKey   string
-	globalHelixURL string
-)
-
-// Update the sendChatRequest function to handle JSON parsing errors better
 func sendChatRequest(req ChatRequest, apiKey, helixURL string) (string, ChatResponse, error) {
-	// Save API key and URL globally
-	globalAPIKey = apiKey
-	globalHelixURL = helixURL
-
-	// Marshal the request to JSON
-	reqBody, err := json.Marshal(req)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error marshaling request: %w", err)
+		return "", ChatResponse{}, fmt.Errorf("error marshaling JSON: %v", err)
 	}
 
-	// Create the HTTP request
-	fullURL := helixURL + "/api/v1/sessions/chat"
-	fmt.Printf("Sending chat request to URL: %s\n", fullURL)
-	fmt.Printf("Request body: %s\n", string(reqBody))
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequest("POST", helixURL+"/api/v1/sessions/chat", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error creating HTTP request: %w", err)
+		return "", ChatResponse{}, fmt.Errorf("error creating request: %v", err)
 	}
 
-	// Set the headers
-	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	// Send the request
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error sending HTTP request: %w", err)
+		return "", ChatResponse{}, fmt.Errorf("error sending request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Check for non-200 status codes
-	if resp.StatusCode != http.StatusOK {
-		// Try to read error message from response body
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", ChatResponse{}, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	// Read the response
-	respBody, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", ChatResponse{}, fmt.Errorf("error reading response body: %w", err)
+		return "", ChatResponse{}, fmt.Errorf("error reading response: %v", err)
 	}
 
-	// Make sure we have some response data before trying to parse it
-	if len(respBody) == 0 {
-		return "", ChatResponse{}, fmt.Errorf("empty response body")
-	}
-
-	// Parse the response
 	var chatResp ChatResponse
-	err = json.Unmarshal(respBody, &chatResp)
+	err = json.Unmarshal(body, &chatResp)
 	if err != nil {
-		// Include the response in the error to help debugging
-		return "", ChatResponse{}, fmt.Errorf("error parsing JSON response (%w): %s", err, string(respBody))
+		return "", ChatResponse{}, fmt.Errorf("error parsing response JSON: %v (response body: %s)", err, string(body))
 	}
 
-	// Extract the conversation ID from the response headers
-	conversationID := resp.Header.Get("X-Conversation-Id")
+	if len(chatResp.Choices) == 0 {
+		return "", ChatResponse{}, fmt.Errorf("no choices in the response")
+	}
 
-	return conversationID, chatResp, nil
+	return chatResp.Choices[0].Message.Content, chatResp, nil
 }
 
-func generateResultsSummary(results []TestResult, totalTime time.Duration, helixURL string, testID string) string {
+func displayResults(cmd *cobra.Command, results *TestResults, helixURL string) {
+	cmd.Println(generateResultsSummary(results, helixURL))
+}
+
+func generateResultsSummary(results *TestResults, helixURL string) string {
 	var builder strings.Builder
+
+	// Add RAG metrics if available
+	if results.RAGMetrics != nil {
+		builder.WriteString("\nRAG Benchmark:\n")
+		builder.WriteString(fmt.Sprintf("Total Files Uploaded: %d\n", results.RAGMetrics.FilesUploaded))
+		builder.WriteString(fmt.Sprintf("Total Upload Time: %.2fs\n", results.RAGMetrics.TotalUploadTime.Seconds()))
+		builder.WriteString(fmt.Sprintf("Total Indexing Time: %.2fs\n\n", results.RAGMetrics.TotalIndexingTime.Seconds()))
+
+		if len(results.RAGMetrics.KnowledgeSources) > 0 {
+			builder.WriteString("Knowledge Sources:\n")
+			for _, ks := range results.RAGMetrics.KnowledgeSources {
+				builder.WriteString(fmt.Sprintf("- %s: %d files, Upload: %.2fs, Index: %.2fs\n",
+					ks.Name, ks.FileCount, ks.UploadTime.Seconds(), ks.IndexingTime.Seconds()))
+			}
+			builder.WriteString("\n")
+		}
+	}
+
+	// Add test results table
 	builder.WriteString("| Test Name | Result | Reason | Model | Inference Time | Evaluation Time | Session Link | Debug Link |\n")
 	builder.WriteString("|-----------|--------|--------|-------|----------------|-----------------|--------------|------------|\n")
 
@@ -1062,7 +1178,7 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 	}
 
 	overallResult := "PASS"
-	for _, result := range results {
+	for _, result := range results.Tests {
 		sessionLink := fmt.Sprintf("%s/session/%s", reportURL, result.SessionID)
 		debugLink := fmt.Sprintf("%s/dashboard?tab=llm_calls&filter_sessions=%s", reportURL, result.SessionID)
 
@@ -1086,37 +1202,25 @@ func generateResultsSummary(results []TestResult, totalTime time.Duration, helix
 		}
 	}
 
-	builder.WriteString(fmt.Sprintf("\nTotal execution time: %s\n", totalTime.Round(time.Millisecond)))
+	builder.WriteString(fmt.Sprintf("\nTotal execution time: %s\n", results.TotalTime.Round(time.Millisecond)))
 	builder.WriteString(fmt.Sprintf("Overall result: %s\n", overallResult))
 
 	// Add report link at the bottom
 	builder.WriteString(fmt.Sprintf("\n* [View full test report 🚀](%s/files?path=/test-runs/%s)\n",
 		reportURL,
-		testID))
+		results.TestID))
 
 	return builder.String()
 }
 
-func displayResults(cmd *cobra.Command, results []TestResult, totalTime time.Duration, helixURL string, testID string) {
-	cmd.Println(generateResultsSummary(results, totalTime, helixURL, testID))
-}
-
-func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYamlContent string, testID, namespacedAppName string) error {
+func writeResultsToFile(results *TestResults) error {
 	timestamp := time.Now().Format("20060102150405")
-	jsonFilename := fmt.Sprintf("results_%s_%s.json", testID, timestamp)
-	htmlFilename := fmt.Sprintf("report_%s_%s.html", testID, timestamp)
-	summaryFilename := fmt.Sprintf("summary_%s_%s.md", testID, timestamp)
-
-	resultMap := map[string]interface{}{
-		"test_id":              testID,
-		"namespaced_app_name":  namespacedAppName,
-		"tests":                results,
-		"total_execution_time": totalTime.String(),
-		"helix_yaml":           helixYamlContent,
-	}
+	jsonFilename := fmt.Sprintf("results_%s_%s.json", results.TestID, timestamp)
+	htmlFilename := fmt.Sprintf("report_%s_%s.html", results.TestID, timestamp)
+	summaryFilename := fmt.Sprintf("summary_%s_%s.md", results.TestID, timestamp)
 
 	// Write JSON results
-	jsonResults, err := json.MarshalIndent(resultMap, "", "  ")
+	jsonResults, err := json.MarshalIndent(results, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error marshaling results to JSON: %v", err)
 	}
@@ -1128,10 +1232,6 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	// Generate and write HTML report
 	tmpl, err := template.New("results").Funcs(template.FuncMap{
 		"truncate": truncate,
-		"replaceSpaces": func(s string) string {
-			return strings.ReplaceAll(s, " ", "-")
-		},
-		"lower": strings.ToLower,
 	}).Parse(htmlTemplate)
 	if err != nil {
 		return fmt.Errorf("error parsing HTML template: %v", err)
@@ -1150,27 +1250,15 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 		AvailableResultFiles []string
 		HelixYaml            string
 		HelixURL             string
-		TotalTests           int
-		Passed               int
-		Failed               int
-		Errors               int
-		Duration             string
-		ResultsTable         template.HTML
-		Results              []TestResult
+		RAGMetrics           *RAGMetrics
 	}{
-		Tests:                results,
-		TotalExecutionTime:   totalTime.String(),
+		Tests:                results.Tests,
+		TotalExecutionTime:   results.TotalTime.String(),
 		LatestResultsFile:    jsonFilename,
 		AvailableResultFiles: []string{jsonFilename},
-		HelixYaml:            helixYamlContent,
+		HelixYaml:            results.HelixYaml,
 		HelixURL:             getHelixURL(),
-		TotalTests:           len(results),
-		Passed:               countResultsByStatus(results, "PASS"),
-		Failed:               countResultsByStatus(results, "FAIL"),
-		Errors:               countResultsByStatus(results, "ERROR"),
-		Duration:             totalTime.String(),
-		ResultsTable:         generateResultsTable(results),
-		Results:              results,
+		RAGMetrics:           results.RAGMetrics,
 	}
 
 	err = tmpl.Execute(htmlFile, data)
@@ -1179,7 +1267,7 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	}
 
 	// Write summary markdown file
-	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, totalTime, getHelixURL(), testID)
+	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, getHelixURL())
 	err = os.WriteFile(summaryFilename, []byte(summaryContent), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
@@ -1198,21 +1286,21 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	ctx := context.Background()
 
 	// Upload JSON results
-	jsonPath := fmt.Sprintf("/test-runs/%s/%s", testID, jsonFilename)
+	jsonPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, jsonFilename)
 	err = cliutil.UploadFile(ctx, apiClient, jsonFilename, jsonPath)
 	if err != nil {
 		return fmt.Errorf("error uploading JSON results: %v", err)
 	}
 
 	// Upload HTML report
-	htmlPath := fmt.Sprintf("/test-runs/%s/%s", testID, htmlFilename)
+	htmlPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, htmlFilename)
 	err = cliutil.UploadFile(ctx, apiClient, htmlFilename, htmlPath)
 	if err != nil {
 		return fmt.Errorf("error uploading HTML report: %v", err)
 	}
 
 	// Upload summary markdown
-	summaryPath := fmt.Sprintf("/test-runs/%s/%s", testID, summaryFilename)
+	summaryPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, summaryFilename)
 	err = cliutil.UploadFile(ctx, apiClient, summaryFilename, summaryPath)
 	if err != nil {
 		return fmt.Errorf("error uploading summary markdown: %v", err)
@@ -1225,11 +1313,11 @@ func writeResultsToFile(results []TestResult, totalTime time.Duration, helixYaml
 	if strings.Contains(helixURL, "ngrok") {
 		helixURL = "http://localhost:8080"
 	}
-	fmt.Printf("View results at: %s/files?path=/test-runs/%s\n", helixURL, testID)
+	fmt.Printf("View results at: %s/files?path=/test-runs/%s\n", helixURL, results.TestID)
 
 	// Attempt to open the HTML report in the default browser
 	if isGraphicalEnvironment() {
-		openBrowser(getHelixURL() + "/files?path=/test-runs/" + testID)
+		openBrowser(getHelixURL() + "/files?path=/test-runs/" + results.TestID)
 	}
 
 	return nil
@@ -1390,44 +1478,4 @@ func getAvailableModels(apiKey, helixURL string) ([]string, error) {
 	}
 
 	return models, nil
-}
-
-func countResultsByStatus(results []TestResult, status string) int {
-	count := 0
-	for _, result := range results {
-		if result.Result == status {
-			count++
-		}
-	}
-	return count
-}
-
-func generateResultsTable(results []TestResult) template.HTML {
-	var builder strings.Builder
-	builder.WriteString("<table class=\"results-table\">")
-	builder.WriteString("<tr><th>Test Name</th><th>Result</th><th>Reason</th><th>Model</th><th>Inference Time</th><th>Evaluation Time</th><th>Session Link</th><th>Debug Link</th></tr>")
-	for _, result := range results {
-		sessionLink := fmt.Sprintf("<a href=\"%s/session/%s\" target=\"_blank\">View Session</a>", getHelixURL(), result.SessionID)
-		debugLink := fmt.Sprintf("<a href=\"%s/session/%s/debug\" target=\"_blank\">Debug Session</a>", getHelixURL(), result.SessionID)
-
-		resultClass := "error"
-		if result.Result == "PASS" {
-			resultClass = "pass"
-		} else if result.Result == "FAIL" {
-			resultClass = "fail"
-		}
-
-		builder.WriteString(fmt.Sprintf("<tr><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
-			result.TestName,
-			resultClass,
-			result.Result,
-			truncate(result.Reason, 50),
-			result.Model,
-			result.InferenceTime.Round(time.Millisecond),
-			result.EvaluationTime.Round(time.Millisecond),
-			sessionLink,
-			debugLink))
-	}
-	builder.WriteString("</table>")
-	return template.HTML(builder.String())
 }
