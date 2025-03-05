@@ -139,7 +139,7 @@ var applyCmd = &cobra.Command{
 				fmt.Printf("Syncing local directory '%s' to knowledge source '%s' (path: %s)\n",
 					mapping.LocalDir, mapping.KnowledgeName, mapping.RemotePath)
 
-				err = util.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles, appID)
+				_, err = util.SyncLocalDirToFilestore(cmd.Context(), apiClient, mapping.LocalDir, mapping.RemotePath, deleteExtraFiles, appID)
 				if err != nil {
 					return fmt.Errorf("failed to sync files for knowledge '%s': %w", mapping.KnowledgeName, err)
 				}
