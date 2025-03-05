@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { TypesOrganization, TypesOrganizationMembership } from '../api/api'
+import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
@@ -16,6 +16,13 @@ export interface IOrganizationTools {
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
   deleteOrganization: (id: string) => Promise<boolean>,
   loadOrganization: (id: string) => Promise<void>,
+  // Team management methods
+  createTeam: (team: TypesTeam) => Promise<boolean>,
+  updateTeam: (teamId: string, team: TypesTeam) => Promise<boolean>,
+  deleteTeam: (teamId: string) => Promise<boolean>,
+  // Member management methods
+  addMember: (userReference: string, role?: string) => Promise<boolean>,
+  deleteMember: (userId: string) => Promise<boolean>,
 }
 
 export const defaultOrganizationTools: IOrganizationTools = {
@@ -26,6 +33,13 @@ export const defaultOrganizationTools: IOrganizationTools = {
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
   loadOrganization: async () => {},
+  // Default team methods
+  createTeam: async () => false,
+  updateTeam: async () => false,
+  deleteTeam: async () => false,
+  // Default member methods
+  addMember: async () => false,
+  deleteMember: async () => false,
 }
 
 export default function useOrganizations(): IOrganizationTools {
@@ -173,6 +187,101 @@ export default function useOrganizations(): IOrganizationTools {
     }
   }, [orgIdParam, initialized])
 
+  const createTeam = useCallback(async (team: TypesTeam) => {
+    if (!organization || !organization.id) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      const request: TypesCreateTeamRequest = {
+        name: team.name,
+        organization_id: organization.id
+      }
+      await api.getApiClient().v1OrganizationsTeamsCreate(organization.id, request)
+      snackbar.success('Team created')
+      await loadOrganization(organization.id)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error creating team')
+      return false
+    }
+  }, [api, organization, loadOrganization, snackbar])
+
+  const updateTeam = useCallback(async (teamId: string, team: TypesTeam) => {
+    if (!organization || !organization.id) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      const request: TypesUpdateTeamRequest = {
+        name: team.name
+      }
+      await api.getApiClient().v1OrganizationsTeamsUpdate(organization.id, teamId, request)
+      snackbar.success('Team updated')
+      await loadOrganization(organization.id)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error updating team')
+      return false
+    }
+  }, [api, organization, loadOrganization, snackbar])
+
+  const deleteTeam = useCallback(async (teamId: string) => {
+    if (!organization || !organization.id) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      await api.getApiClient().v1OrganizationsTeamsDelete(organization.id, teamId)
+      snackbar.success('Team deleted')
+      await loadOrganization(organization.id)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error deleting team')
+      return false
+    }
+  }, [api, organization, loadOrganization, snackbar])
+
+  const addMember = useCallback(async (userReference: string, role?: string) => {
+    if (!organization || !organization.id) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    console.log('Adding member', userReference, 'with role', role || 'member')
+    // This is a placeholder that just returns true for now
+    // Will be implemented later with search functionality
+    return true
+  }, [organization, snackbar])
+
+  const deleteMember = useCallback(async (userId: string) => {
+    if (!organization || !organization.id) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      await api.getApiClient().v1OrganizationsMembersDelete(organization.id, userId)
+      snackbar.success('Member removed')
+      await loadOrganization(organization.id)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error removing member')
+      return false
+    }
+  }, [api, organization, loadOrganization, snackbar])
+
   return {
     organizations,
     loading,
@@ -182,5 +291,12 @@ export default function useOrganizations(): IOrganizationTools {
     updateOrganization,
     deleteOrganization,
     loadOrganization,
+    // Include team methods
+    createTeam,
+    updateTeam,
+    deleteTeam,
+    // Include member methods
+    addMember,
+    deleteMember,
   }
 } 
