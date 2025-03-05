@@ -11,7 +11,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/Nerzal/gocloak/v13"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/license"
@@ -33,26 +32,22 @@ type PingResponse struct {
 }
 
 type PingService struct {
-	db             *store.PostgresStore
-	launchpadURL   string
-	ticker         *time.Ticker
-	done           chan bool
-	envLicenseKey  string // renamed from licenseKey to be more explicit
-	latestVersion  string
-	keycloakConfig *config.Keycloak
-	gocloak        *gocloak.GoCloak
+	db            *store.PostgresStore
+	launchpadURL  string
+	ticker        *time.Ticker
+	done          chan bool
+	envLicenseKey string // renamed from licenseKey to be more explicit
+	latestVersion string
 }
 
 func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL string, keycloakConfig *config.Keycloak) *PingService {
 	return &PingService{
-		db:             db,
-		launchpadURL:   launchpadURL,
-		ticker:         time.NewTicker(1 * time.Hour),
-		done:           make(chan bool),
-		envLicenseKey:  envLicenseKey,
-		latestVersion:  "",
-		keycloakConfig: keycloakConfig,
-		gocloak:        gocloak.NewClient(keycloakConfig.KeycloakURL),
+		db:            db,
+		launchpadURL:  launchpadURL,
+		ticker:        time.NewTicker(1 * time.Hour),
+		done:          make(chan bool),
+		envLicenseKey: envLicenseKey,
+		latestVersion: "",
 	}
 }
 
@@ -65,7 +60,7 @@ func (s *PingService) Start(ctx context.Context) {
 
 	go func() {
 		// Send initial ping
-		s.SendPing()
+		s.SendPing(ctx)
 
 		for {
 			select {
@@ -74,7 +69,7 @@ func (s *PingService) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-s.ticker.C:
-				s.SendPing()
+				s.SendPing(ctx)
 			}
 		}
 	}()
@@ -85,7 +80,7 @@ func (s *PingService) Stop() {
 	s.done <- true
 }
 
-func (s *PingService) SendPing() {
+func (s *PingService) SendPing(ctx context.Context) {
 	// Get app count from database
 	appCount, err := s.db.GetAppCount()
 	if err != nil {
@@ -93,8 +88,8 @@ func (s *PingService) SendPing() {
 		return
 	}
 
-	// Get user count from Keycloak
-	userCount, err := s.getUserCount()
+	// Get user count
+	userCount, err := s.getUserCount(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Error getting user count")
 		return
@@ -137,30 +132,14 @@ func (s *PingService) SendPing() {
 	s.latestVersion = pingResp.LatestVersion
 }
 
-func (s *PingService) getUserCount() (int, error) {
-	// Get admin token
-	token, err := s.gocloak.LoginAdmin(
-		context.Background(),
-		s.keycloakConfig.Username,
-		s.keycloakConfig.Password,
-		s.keycloakConfig.AdminRealm,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get admin token: %w", err)
-	}
-
-	// Get users count
-	count, err := s.gocloak.GetUserCount(
-		context.Background(),
-		token.AccessToken,
-		s.keycloakConfig.Realm,
-		gocloak.GetUsersParams{},
-	)
+func (s *PingService) getUserCount(ctx context.Context) (int64, error) {
+	// Get the number of users from the database
+	userCount, err := s.db.CountUsers(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get user count: %w", err)
 	}
 
-	return count, nil
+	return userCount, nil
 }
 
 func (s *PingService) GetLatestVersion() string {
