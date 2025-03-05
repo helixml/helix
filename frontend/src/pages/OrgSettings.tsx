@@ -19,33 +19,14 @@ const OrgSettings: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   
-  // Get organization ID from route params
-  const orgId = router.params.org_id
-  
   // Form state
   const [slug, setSlug] = useState('')
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
   const [errors, setErrors] = useState<{slug?: string, name?: string}>({})
-  const [organization, setOrganization] = useState<TypesOrganization | null>(null)
 
-  // Load the organization data when component mounts
-  useEffect(() => {
-    const loadOrganization = async () => {
-      if (!orgId) return
-      
-      // Find the organization in the list
-      const org = account.organizationTools.organizations.find(o => o.id === orgId)
-      if (org) {
-        setOrganization(org)
-        setSlug(org.name || '')
-        setName(org.display_name || '')
-      }
-    }
-    
-    loadOrganization()
-  }, [orgId, account.organizationTools.organizations])
+  const organization = account.organizationTools.organization
 
   // Generate slug from name for new organizations
   const handleNameBlur = () => {
@@ -109,6 +90,10 @@ const OrgSettings: FC = () => {
       
       await account.organizationTools.updateOrganization(organization.id, updatedOrg)
       snackbar.success('Organization updated successfully')
+
+      if(slug != organization.name) {
+        router.navigate('org_settings', {org_id: slug})
+      }
     } catch (error) {
       console.error('Error updating organization:', error)
       snackbar.error('Failed to update organization')
@@ -117,10 +102,15 @@ const OrgSettings: FC = () => {
     }
   }
 
+  useEffect(() => {
+    if (organization) {
+      setSlug(organization.name || '')
+      setName(organization.display_name || '')
+    }
+  }, [organization])
+
   if(!account.user) return null
 
-  console.log('--------------------------------------------')
-  console.dir(account.organizationTools.organization?.display_name)
   return (
     <Page
       breadcrumbTitle={ account.organizationTools.organization?.display_name || 'Organization Settings' }

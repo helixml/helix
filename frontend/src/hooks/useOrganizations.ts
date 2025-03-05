@@ -42,13 +42,8 @@ export default function useOrganizations(): IOrganizationTools {
     if (!orgIdParam || organizations.length === 0) return undefined
     
     // Try to find by ID first
-    let org = organizations.find(o => o.id === orgIdParam)
-    
-    // If not found by ID, try to find by name (slug)
-    if (!org) {
-      org = organizations.find(o => o.name === orgIdParam)
-    }
-    
+    let org = organizations.find(o => o.id === orgIdParam || o.name === orgIdParam)
+
     return org
   }, [organizations, orgIdParam])
 

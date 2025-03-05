@@ -38,12 +38,12 @@ const OrgsSidebarMenu: FC<{
         title="People"
         icon={ <Person/> }
       />
-      <OrgSidebarMainLink
+      {/* <OrgSidebarMainLink
         id="billing-link"
         routeName="home"
         title="Billing"
         icon={ <PaymentIcon/> }
-      />
+      /> */}
     </List>
   )
 }
