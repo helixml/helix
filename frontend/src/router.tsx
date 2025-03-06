@@ -9,6 +9,7 @@ import Orgs from './pages/Orgs'
 import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
 import OrgPeople from './pages/OrgPeople'
+import TeamPeople from './pages/TeamPeople'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
@@ -62,6 +63,16 @@ const routes: IApplicationRoute[] = [{
     <OrgSettings />
   ),
 }, {
+  name: 'org_people',
+  path: '/orgs/:org_id/people',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgPeople />
+  ),
+}, {
   name: 'org_teams',
   path: '/orgs/:org_id/teams',
   meta: {
@@ -72,14 +83,15 @@ const routes: IApplicationRoute[] = [{
     <OrgTeams />
   ),
 }, {
-  name: 'org_people',
-  path: '/orgs/:org_id/people',
+  name: 'team_people',
+  path: '/orgs/:org_id/teams/:team_id/people',
   meta: {
     drawer: true,
     menu: 'orgs',
+    orgRouteName: 'org_teams',
   },
   render: () => (
-    <OrgPeople />
+    <TeamPeople />
   ),
 }, {
   name: 'appstore',
