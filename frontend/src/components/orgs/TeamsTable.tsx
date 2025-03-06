@@ -5,6 +5,7 @@ import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import useTheme from '@mui/material/styles/useTheme'
 import GroupsIcon from '@mui/icons-material/Groups'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
@@ -18,11 +19,13 @@ const TeamsTable: FC<{
   data: TypesTeam[],
   onEdit: (team: TypesTeam) => void,
   onDelete: (team: TypesTeam) => void,
+  onView: (team: TypesTeam) => void,
   loading?: boolean,
 }> = ({
   data,
   onEdit,
   onDelete,
+  onView,
   loading,
 }) => {
   const theme = useTheme()
@@ -89,16 +92,23 @@ const TeamsTable: FC<{
         }}
       >
         <ClickLink
-          sx={{ml:2}}
+          sx={{mr:2}}
           onClick={() => onDelete(team._data)}
         >
           <Tooltip title="Delete">
             <DeleteIcon />
           </Tooltip>
         </ClickLink>
+        <ClickLink
+          onClick={() => onView(team._data)}
+        >
+          <Tooltip title="View">
+            <VisibilityIcon />
+          </Tooltip>
+        </ClickLink>
       </Box>
     )
-  }, [onDelete])
+  }, [onDelete, onView])
 
   return (
     <SimpleTable

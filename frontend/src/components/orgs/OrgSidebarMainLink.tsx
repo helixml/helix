@@ -28,7 +28,7 @@ const OrgSidebarMainLink: FC<{
 }) => {
   const account = useAccount()
   const router = useRouter()
-  const isActive = router.name == routeName
+  const isActive = router.name == routeName || router.meta.orgRouteName == routeName
 
   return (
     <ListItem

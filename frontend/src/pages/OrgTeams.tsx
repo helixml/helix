@@ -38,6 +38,13 @@ const OrgTeams: FC = () => {
     setEditDialogOpen(true)
   }
 
+  const handleView = (team: TypesTeam) => {
+    router.navigate('team_people', {
+      org_id: account.organizationTools.organization?.name,
+      team_id: team.id,
+    })
+  }
+
   // Handler for editing an existing team
   const handleEdit = (team: TypesTeam) => {
     setEditTeam(team)
@@ -102,6 +109,7 @@ const OrgTeams: FC = () => {
           {account.organizationTools.organization?.teams && (
             <TeamsTable
               data={account.organizationTools.organization.teams}
+              onView={handleView}
               onEdit={handleEdit}
               onDelete={handleDelete}
               loading={account.organizationTools.loading}

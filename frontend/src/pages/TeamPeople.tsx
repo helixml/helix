@@ -15,8 +15,8 @@ import useSnackbar from '../hooks/useSnackbar'
 
 import { TypesOrganizationMembership } from '../api/api'
 
-// Organization People page that lists and manages members
-const OrgPeople: FC = () => {
+// Team People page that lists and manages team members
+const TeamPeople: FC = () => {
   // Get account context and router
   const account = useAccount()
   const router = useRouter()
@@ -28,7 +28,7 @@ const OrgPeople: FC = () => {
 
   // Handler for adding a new member (for now just logs to console)
   const handleAdd = () => {
-    console.log('Add member clicked - will implement search functionality later')
+    console.log('Add team member clicked - will implement search functionality later')
   }
 
   // Handler for initiating delete of a member
@@ -40,14 +40,15 @@ const OrgPeople: FC = () => {
   // Handler for confirming member deletion
   const handleConfirmDelete = async () => {
     if (deleteMember) {
+      // TODO: Update this to use team-specific API call instead of organization
       await account.organizationTools.deleteMemberFromOrganization(account.organizationTools.organization?.id!, deleteMember.user_id!)
       setDeleteDialogOpen(false)
     }
   }
 
-  // Check if the current user is an organization owner 
+  // Check if the current user is a team owner 
   // to determine if they can add/remove members
-  const isOrgOwner = account.user && account.organizationTools.organization?.memberships?.some(
+  const isTeamOwner = account.user && account.organizationTools.organization?.memberships?.some(
     m => m.user_id === account.user?.id && m.role === 'owner'
   )
  
@@ -55,16 +56,16 @@ const OrgPeople: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={ account.organizationTools.organization?.display_name || 'Organization People' }
+      breadcrumbTitle={ 'Team Members' } // TODO: Update with actual team name
       breadcrumbShowHome={ false }
-      topbarContent={isOrgOwner ? (
+      topbarContent={isTeamOwner ? (
         <Button
           variant="contained"
           color="primary"
           startIcon={<AddIcon />}
           onClick={handleAdd}
         >
-          Add Member
+          Add Team Member
         </Button>
       ) : null}
     >
@@ -83,7 +84,7 @@ const OrgPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={`team member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />
@@ -91,4 +92,4 @@ const OrgPeople: FC = () => {
   )
 }
 
-export default OrgPeople
+export default TeamPeople 
