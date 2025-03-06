@@ -72,6 +72,17 @@ func (r *Reconciler) index(ctx context.Context) error {
 					k.State = types.KnowledgeStatePending
 					k.Message = "waiting for files to be uploaded"
 					_, _ = r.store.UpdateKnowledge(ctx, k)
+
+					// Create a pending version for logs and test expectations
+					_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+						KnowledgeID:     k.ID,
+						Version:         version,
+						Size:            k.Size,
+						State:           types.KnowledgeStatePending,
+						Message:         "waiting for files to be uploaded",
+						EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+						Provider:        string(r.config.RAG.DefaultRagProvider),
+					})
 					return
 				}
 
