@@ -77,7 +77,7 @@ type HelixAPIServer struct {
 	router            *mux.Router
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
-	oidcClient        *auth.OIDCClient
+	oidcClient        auth.OIDC
 }
 
 func NewServer(
@@ -112,7 +112,7 @@ func NewServer(
 	}
 
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
-	var oidcClient *auth.OIDCClient
+	var oidcClient auth.OIDC
 	if cfg.OIDC.Enabled {
 		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
 			ProviderURL:  cfg.OIDC.URL,
