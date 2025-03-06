@@ -13,11 +13,8 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  RadioGroup,
   FormControlLabel,
-  Radio,
   Chip,
-  Snackbar,
   Tooltip,
   Switch,
   CircularProgress,
@@ -29,20 +26,15 @@ import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import Link from '@mui/material/Link';
 import CloseIcon from '@mui/icons-material/Close';
-import { v4 as uuidv4 } from 'uuid';
 import debounce from 'lodash/debounce';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
-import MuiAlert, { AlertProps } from '@mui/material/Alert';
-import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
-import useApi from '../../hooks/useApi'; // Add useApi hook
+import useSnackbar from '../../hooks/useSnackbar';
+import useApi from '../../hooks/useApi';
 import CrawledUrlsDialog from './CrawledUrlsDialog';
 import AddKnowledgeDialog from './AddKnowledgeDialog';
 import FileUpload from '../widgets/FileUpload';
-import Progress from '../widgets/Progress';
-import useFilestore from '../../hooks/useFilestore';
 import { prettyBytes } from '../../utils/format';
 import { IFilestoreUploadProgress } from '../../contexts/filestore';
 
@@ -70,7 +62,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [directoryFiles, setDirectoryFiles] = useState<Record<number, IFileStoreItem[]>>({});
   const [deletingFiles, setDeletingFiles] = useState<{[key: string]: boolean}>({});
   const [localUploadProgress, setLocalUploadProgress] = useState<IFilestoreUploadProgress | null>(null);
-  const [addSourceDialogOpen, setAddSourceDialogOpen] = useState(false);
   const uploadStartTimeRef = useRef<number | null>(null);
   const [uploadEta, setUploadEta] = useState<string | null>(null);
   const cancelTokenRef = useRef<AbortController | null>(null);
@@ -82,9 +73,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   // Add a state to track file count
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadIndex, setUploadIndex] = useState(-1);
-  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Create a debounced update function for smoother UI experience
   // Only triggers updates after user has stopped making changes for 300ms
@@ -127,7 +115,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const default_max_depth = 1;
   const default_max_pages = 5;
-  const default_readability = true;
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
