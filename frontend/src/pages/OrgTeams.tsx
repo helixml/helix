@@ -52,18 +52,23 @@ const OrgTeams: FC = () => {
 
   // Handler for submitting team creation/edit
   const handleSubmit = async (team: TypesTeam) => {
+    const org = account.organizationTools.organization
+    if(!org || !org.id) return
+    if(!account.user || !account.user.id) return
     if (team.id) {
-      await account.organizationTools.updateTeam(team.id, team)
+      await account.organizationTools.updateTeam(org.id, team.id, team)
     } else {
-      await account.organizationTools.createTeam(team)
+      await account.organizationTools.createTeamWithCreator(org.id, account.user.id, team)
     }
     setEditDialogOpen(false)
   }
 
   // Handler for confirming team deletion
   const handleConfirmDelete = async () => {
+    const org = account.organizationTools.organization
+    if(!org || !org.id) return
     if (deleteTeam) {
-      await account.organizationTools.deleteTeam(deleteTeam.id!)
+      await account.organizationTools.deleteTeam(org.id, deleteTeam.id!)
       setDeleteDialogOpen(false)
     }
   }
@@ -75,6 +80,7 @@ const OrgTeams: FC = () => {
   )
  
   if(!account.user) return null
+  if(!account.organizationTools.organization) return null
 
   return (
     <Page
