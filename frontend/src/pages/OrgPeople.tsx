@@ -8,6 +8,7 @@ import AddIcon from '@mui/icons-material/Add'
 import Page from '../components/system/Page'
 import MembersTable from '../components/orgs/MembersTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import UserSearchModal from '../components/orgs/UserSearchModal'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -25,10 +26,19 @@ const OrgPeople: FC = () => {
   // State for the delete modal
   const [deleteMember, setDeleteMember] = useState<TypesOrganizationMembership | undefined>()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  
+  // State for the user search modal
+  const [searchModalOpen, setSearchModalOpen] = useState(false)
 
-  // Handler for adding a new member (for now just logs to console)
+  // Handler for opening the search modal
   const handleAdd = () => {
-    console.log('Add member clicked - will implement search functionality later')
+    setSearchModalOpen(true)
+  }
+
+  // Handler for adding a member
+  const addMemberToOrganisation = (userId: string) => {
+    console.log('Add member to organization:', userId)
+    // This is just a stub - we'll implement the actual functionality later
   }
 
   // Handler for initiating delete of a member
@@ -86,6 +96,12 @@ const OrgPeople: FC = () => {
         title={`member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
+      />
+      
+      <UserSearchModal
+        open={searchModalOpen}
+        onClose={() => setSearchModalOpen(false)}
+        onAddMember={addMemberToOrganisation}
       />
     </Page>
   )

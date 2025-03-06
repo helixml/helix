@@ -7,6 +7,22 @@ import useRouter from './useRouter'
 import { extractErrorMessage } from './useErrorCallback'
 import bluebird from 'bluebird'
 
+export interface UserSearchResult {
+  id: string;
+  email: string;
+  fullName?: string;
+  username?: string;
+}
+
+export interface SearchUsersResponse {
+  users: UserSearchResult[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+  };
+}
+
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
@@ -27,6 +43,8 @@ export interface IOrganizationTools {
   // Team member management methods
   addTeamMember: (organizationId: string, teamId: string, userReference: string) => Promise<boolean>,
   removeTeamMember: (organizationId: string, teamId: string, userId: string) => Promise<boolean>,
+  // User search method
+  searchUsers: (query: { email?: string, name?: string, username?: string }) => Promise<SearchUsersResponse>,
 }
 
 export const defaultOrganizationTools: IOrganizationTools = {
@@ -48,6 +66,8 @@ export const defaultOrganizationTools: IOrganizationTools = {
   // Default team member methods
   addTeamMember: async () => false,
   removeTeamMember: async () => false,
+  // Default user search method
+  searchUsers: async () => ({ users: [], pagination: { total: 0, limit: 0, offset: 0 } }),
 }
 
 export default function useOrganizations(): IOrganizationTools {
@@ -436,6 +456,33 @@ export default function useOrganizations(): IOrganizationTools {
     }
   }, [])
 
+  // Add the searchUsers function implementation
+  const searchUsers = useCallback(async (query: { email?: string, name?: string, username?: string }) => {
+    try {
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (query.email) params.append('email', query.email);
+      if (query.name) params.append('name', query.name);
+      if (query.username) params.append('username', query.username);
+      
+      // Call the API endpoint
+      const response = await api.get(`/api/v1/users/search?${params.toString()}`);
+      
+      // Return the response data if it exists, otherwise return empty results
+      if (response && response.data) {
+        return response.data as SearchUsersResponse;
+      }
+      
+      return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
+    } catch (error) {
+      console.error('Error searching users:', error);
+      const errorMessage = extractErrorMessage(error);
+      snackbar.error(errorMessage || 'Error searching users');
+      // Return empty result on error
+      return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
+    }
+  }, []);
+
   // Effect to load organization when orgIdParam changes
   useEffect(() => {
     if (orgIdParam && initialized) {
@@ -465,5 +512,7 @@ export default function useOrganizations(): IOrganizationTools {
     // Include team member methods
     addTeamMember,
     removeTeamMember,
+    // Include user search method
+    searchUsers,
   }
 } 
