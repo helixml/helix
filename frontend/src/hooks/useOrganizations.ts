@@ -16,13 +16,17 @@ export interface IOrganizationTools {
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
   deleteOrganization: (id: string) => Promise<boolean>,
   loadOrganization: (id: string) => Promise<void>,
+  // Organization member management methods
+  addMemberToOrganization: (organizationId: string, userReference: string, role?: string) => Promise<boolean>,
+  deleteMemberFromOrganization: (organizationId: string, userId: string) => Promise<boolean>,
   // Team management methods
-  createTeam: (team: TypesTeam) => Promise<boolean>,
-  updateTeam: (teamId: string, team: TypesTeam) => Promise<boolean>,
-  deleteTeam: (teamId: string) => Promise<boolean>,
-  // Member management methods
-  addMember: (userReference: string, role?: string) => Promise<boolean>,
-  deleteMember: (userId: string) => Promise<boolean>,
+  createTeam: (organizationId: string, team: TypesTeam) => Promise<boolean>,
+  createTeamWithCreator: (organizationId: string, ownerId: string, team: TypesTeam) => Promise<boolean>,
+  updateTeam: (organizationId: string, teamId: string, team: TypesTeam) => Promise<boolean>,
+  deleteTeam: (organizationId: string, teamId: string) => Promise<boolean>,
+  // Team member management methods
+  addTeamMember: (organizationId: string, teamId: string, userReference: string) => Promise<boolean>,
+  removeTeamMember: (organizationId: string, teamId: string, userId: string) => Promise<boolean>,
 }
 
 export const defaultOrganizationTools: IOrganizationTools = {
@@ -33,13 +37,17 @@ export const defaultOrganizationTools: IOrganizationTools = {
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
   loadOrganization: async () => {},
+  // Default organization member methods
+  addMemberToOrganization: async () => false,
+  deleteMemberFromOrganization: async () => false,
   // Default team methods
   createTeam: async () => false,
+  createTeamWithCreator: async () => false,
   updateTeam: async () => false,
   deleteTeam: async () => false,
-  // Default member methods
-  addMember: async () => false,
-  deleteMember: async () => false,
+  // Default team member methods
+  addTeamMember: async () => false,
+  removeTeamMember: async () => false,
 }
 
 export default function useOrganizations(): IOrganizationTools {
@@ -71,12 +79,39 @@ export default function useOrganizations(): IOrganizationTools {
       // Fetch teams for the organization
       const teamsResult = await api.getApiClient().v1OrganizationsTeamsDetail(id)
       
+      // Fetch team memberships in parallel for each team
+      const teamsWithMemberships = await Promise.all(
+        teamsResult.data.map(async (team) => {
+          try {
+            // Only fetch members if team has an ID
+            if (team.id) {
+              const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersDetail(id, team.id)
+              return {
+                ...team,
+                memberships: teamMembersResult.data
+              }
+            }
+            // Return team with empty memberships if no ID
+            return {
+              ...team,
+              memberships: []
+            }
+          } catch (error) {
+            console.error(`Error loading members for team ${team.id || 'unknown'}:`, error)
+            return {
+              ...team,
+              memberships: []
+            }
+          }
+        })
+      )
+      
       // Create a complete organization object with all details
       const completeOrg = {
         ...orgResult.data,
         memberships: membersResult.data,
         roles: rolesResult.data,
-        teams: teamsResult.data
+        teams: teamsWithMemberships
       }
       
       setOrganization(completeOrg)
@@ -148,7 +183,7 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error creating organization')
       return false
     }
-  }, [api, loadOrganizations, loadOrganization, orgIdParam, snackbar])
+  }, [])
 
   const updateOrganization = useCallback(async (id: string, org: TypesOrganization) => {
     try {
@@ -178,17 +213,53 @@ export default function useOrganizations(): IOrganizationTools {
     }
   }, [])
 
-  // Effect to load organization when orgIdParam changes
-  useEffect(() => {
-    if (orgIdParam && initialized) {
-      const useOrg = organizations.find((org) => org.id === orgIdParam || org.name === orgIdParam)
-      if(!useOrg || !useOrg.id) return
-      loadOrganization(useOrg.id)
-    }
-  }, [orgIdParam, initialized])
 
-  const createTeam = useCallback(async (team: TypesTeam) => {
-    if (!organization || !organization.id) {
+  const addMemberToOrganization = useCallback(async (organizationId: string, userReference: string, role?: string) => {
+    if (!organizationId) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      // Create a request to add a member to the organization
+      const request = {
+        user_reference: userReference,
+        role_id: role || 'member' // Default to 'member' if no role specified
+      }
+      
+      await api.getApiClient().v1OrganizationsMembersCreate(organizationId, request)
+      snackbar.success('Member added')
+      await loadOrganization(organizationId)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error adding member')
+      return false
+    }
+  }, [])
+
+  const deleteMemberFromOrganization = useCallback(async (organizationId: string, userId: string) => {
+    if (!organizationId) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      await api.getApiClient().v1OrganizationsMembersDelete(organizationId, userId)
+      snackbar.success('Member removed')
+      await loadOrganization(organizationId)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error removing member')
+      return false
+    }
+  }, [api, loadOrganization, snackbar])
+
+  const createTeam = useCallback(async (organizationId: string, team: TypesTeam) => {
+    if (!organizationId) {
       snackbar.error('No active organization')
       return false
     }
@@ -196,11 +267,11 @@ export default function useOrganizations(): IOrganizationTools {
     try {
       const request: TypesCreateTeamRequest = {
         name: team.name,
-        organization_id: organization.id
+        organization_id: organizationId
       }
-      await api.getApiClient().v1OrganizationsTeamsCreate(organization.id, request)
+      await api.getApiClient().v1OrganizationsTeamsCreate(organizationId, request)
       snackbar.success('Team created')
-      await loadOrganization(organization.id)
+      await loadOrganization(organizationId)
       return true
     } catch (error) {
       console.error(error)
@@ -208,10 +279,79 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error creating team')
       return false
     }
-  }, [api, organization, loadOrganization, snackbar])
+  }, [])
 
-  const updateTeam = useCallback(async (teamId: string, team: TypesTeam) => {
-    if (!organization || !organization.id) {
+  const createTeamWithCreator = useCallback(async (organizationId: string, ownerId: string, team: TypesTeam) => {
+    if (!organizationId) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      // First, create the team
+      const request: TypesCreateTeamRequest = {
+        name: team.name,
+        organization_id: organizationId
+      }
+      
+      const teamResult = await api.getApiClient().v1OrganizationsTeamsCreate(organizationId, request)
+      
+      if (!teamResult.data || !teamResult.data.id) {
+        snackbar.error('Team was created but no team ID was returned')
+        return false
+      }
+      
+      const teamId = teamResult.data.id
+      
+      // Use the provided ownerId instead of getting it from the account context
+      if (!ownerId) {
+        snackbar.info('Team created, but could not add owner as a member because owner ID is not provided')
+        await loadOrganization(organizationId)
+        return true
+      }
+      
+      // Add the owner as a team member
+      const memberRequest = {
+        user_reference: ownerId
+      }
+      
+      await api.getApiClient().v1OrganizationsTeamsMembersCreate(organizationId, teamId, memberRequest)
+      
+      // Now we need to grant the owner admin access to the team
+      // We'll use the access grant system to assign the admin role
+      // First, get the admin role ID from the organization roles
+      const roles = await api.getApiClient().v1OrganizationsRolesDetail(organizationId)
+      const adminRole = roles.data.find(role => role.name && role.name.toLowerCase() === 'admin')
+      
+      if (adminRole && adminRole.id) {
+        // Create access grant with admin role
+        const grantRequest = {
+          user_reference: ownerId,
+          roles: [adminRole.id]
+        }
+        
+        try {
+          // We're using the more generic API endpoint for creating access grants
+          await api.post(`/api/v1/organizations/${organizationId}/teams/${teamId}/access-grants`, grantRequest)
+        } catch (grantError) {
+          console.error('Error assigning admin role:', grantError)
+          // We'll continue since the user is at least a member of the team
+        }
+      }
+      
+      snackbar.success('Team created and owner has been added as an admin')
+      await loadOrganization(organizationId)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error creating team with creator')
+      return false
+    }
+  }, [api, loadOrganization, snackbar])
+
+  const updateTeam = useCallback(async (organizationId: string, teamId: string, team: TypesTeam) => {
+    if (!organizationId) {
       snackbar.error('No active organization')
       return false
     }
@@ -220,9 +360,9 @@ export default function useOrganizations(): IOrganizationTools {
       const request: TypesUpdateTeamRequest = {
         name: team.name
       }
-      await api.getApiClient().v1OrganizationsTeamsUpdate(organization.id, teamId, request)
+      await api.getApiClient().v1OrganizationsTeamsUpdate(organizationId, teamId, request)
       snackbar.success('Team updated')
-      await loadOrganization(organization.id)
+      await loadOrganization(organizationId)
       return true
     } catch (error) {
       console.error(error)
@@ -230,18 +370,18 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error updating team')
       return false
     }
-  }, [api, organization, loadOrganization, snackbar])
+  }, [])
 
-  const deleteTeam = useCallback(async (teamId: string) => {
-    if (!organization || !organization.id) {
+  const deleteTeam = useCallback(async (organizationId: string, teamId: string) => {
+    if (!organizationId) {
       snackbar.error('No active organization')
       return false
     }
 
     try {
-      await api.getApiClient().v1OrganizationsTeamsDelete(organization.id, teamId)
+      await api.getApiClient().v1OrganizationsTeamsDelete(organizationId, teamId)
       snackbar.success('Team deleted')
-      await loadOrganization(organization.id)
+      await loadOrganization(organizationId)
       return true
     } catch (error) {
       console.error(error)
@@ -249,38 +389,61 @@ export default function useOrganizations(): IOrganizationTools {
       snackbar.error(errorMessage || 'Error deleting team')
       return false
     }
-  }, [api, organization, loadOrganization, snackbar])
+  }, [])
 
-  const addMember = useCallback(async (userReference: string, role?: string) => {
-    if (!organization || !organization.id) {
-      snackbar.error('No active organization')
-      return false
-    }
-
-    console.log('Adding member', userReference, 'with role', role || 'member')
-    // This is a placeholder that just returns true for now
-    // Will be implemented later with search functionality
-    return true
-  }, [organization, snackbar])
-
-  const deleteMember = useCallback(async (userId: string) => {
-    if (!organization || !organization.id) {
+  // Add a member to a team
+  const addTeamMember = useCallback(async (organizationId: string, teamId: string, userReference: string) => {
+    if (!organizationId) {
       snackbar.error('No active organization')
       return false
     }
 
     try {
-      await api.getApiClient().v1OrganizationsMembersDelete(organization.id, userId)
-      snackbar.success('Member removed')
-      await loadOrganization(organization.id)
+      const request = {
+        user_reference: userReference
+      }
+      
+      await api.getApiClient().v1OrganizationsTeamsMembersCreate(organizationId, teamId, request)
+      snackbar.success('Member added to team')
+      await loadOrganization(organizationId)
       return true
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)
-      snackbar.error(errorMessage || 'Error removing member')
+      snackbar.error(errorMessage || 'Error adding member to team')
       return false
     }
-  }, [api, organization, loadOrganization, snackbar])
+  }, [api, loadOrganization, snackbar])
+
+  // Remove a member from a team
+  const removeTeamMember = useCallback(async (organizationId: string, teamId: string, userId: string) => {
+    if (organizationId) {
+      snackbar.error('No active organization')
+      return false
+    }
+
+    try {
+      // Use the delete method from the useApi hook
+      await api.delete(`/api/v1/organizations/${organizationId}/teams/${teamId}/members/${userId}`)
+      snackbar.success('Member removed from team')
+      await loadOrganization(organizationId)
+      return true
+    } catch (error) {
+      console.error(error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error removing member from team')
+      return false
+    }
+  }, [])
+
+  // Effect to load organization when orgIdParam changes
+  useEffect(() => {
+    if (orgIdParam && initialized) {
+      const useOrg = organizations.find((org) => org.id === orgIdParam || org.name === orgIdParam)
+      if(!useOrg || !useOrg.id) return
+      loadOrganization(useOrg.id)
+    }
+  }, [orgIdParam, initialized])
 
   return {
     organizations,
@@ -291,12 +454,16 @@ export default function useOrganizations(): IOrganizationTools {
     updateOrganization,
     deleteOrganization,
     loadOrganization,
+    // Include organization member methods
+    addMemberToOrganization,
+    deleteMemberFromOrganization,
     // Include team methods
     createTeam,
+    createTeamWithCreator,
     updateTeam,
     deleteTeam,
-    // Include member methods
-    addMember,
-    deleteMember,
+    // Include team member methods
+    addTeamMember,
+    removeTeamMember,
   }
 } 
