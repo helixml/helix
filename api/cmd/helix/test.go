@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -1215,9 +1216,20 @@ func generateResultsSummary(results *TestResults, helixURL string) string {
 
 func writeResultsToFile(results *TestResults) error {
 	timestamp := time.Now().Format("20060102150405")
-	jsonFilename := fmt.Sprintf("results_%s_%s.json", results.TestID, timestamp)
-	htmlFilename := fmt.Sprintf("report_%s_%s.html", results.TestID, timestamp)
-	summaryFilename := fmt.Sprintf("summary_%s_%s.md", results.TestID, timestamp)
+
+	// Create test_results directory if it doesn't exist
+	resultsDir := "test_results"
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		return fmt.Errorf("error creating test_results directory: %v", err)
+	}
+
+	// Define filenames with appropriate paths
+	jsonFilename := fmt.Sprintf("%s/results_%s_%s.json", resultsDir, results.TestID, timestamp)
+	htmlFilename := fmt.Sprintf("%s/report_%s_%s.html", resultsDir, results.TestID, timestamp)
+	summaryFilename := fmt.Sprintf("%s/summary_%s_%s.md", resultsDir, results.TestID, timestamp)
+
+	// Define latest report in current directory
+	reportLatestFilename := "report_latest.html"
 
 	// Write JSON results
 	jsonResults, err := json.MarshalIndent(results, "", "  ")
@@ -1266,15 +1278,29 @@ func writeResultsToFile(results *TestResults) error {
 		return fmt.Errorf("error executing HTML template: %v", err)
 	}
 
-	// Write summary markdown file
+	// Also create report_latest.html in current directory
+	reportLatestFile, err := os.Create(reportLatestFilename)
+	if err != nil {
+		return fmt.Errorf("error creating latest HTML report file: %v", err)
+	}
+	defer reportLatestFile.Close()
+
+	err = tmpl.Execute(reportLatestFile, data)
+	if err != nil {
+		return fmt.Errorf("error executing HTML template for latest report: %v", err)
+	}
+
+	// Write summary markdown file to test_results directory
 	summaryContent := "# Helix Test Summary\n\n" + generateResultsSummary(results, getHelixURL())
 	err = os.WriteFile(summaryFilename, []byte(summaryContent), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing summary to markdown file: %v", err)
 	}
+
+	// Keep summary_latest.md in current directory as requested
 	err = os.WriteFile("summary_latest.md", []byte(summaryContent), 0644)
 	if err != nil {
-		return fmt.Errorf("error writing summary to markdown file: %v", err)
+		return fmt.Errorf("error writing latest summary to markdown file: %v", err)
 	}
 
 	// Create a client for uploading
@@ -1285,22 +1311,25 @@ func writeResultsToFile(results *TestResults) error {
 
 	ctx := context.Background()
 
-	// Upload JSON results
-	jsonPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, jsonFilename)
+	// Upload JSON results - extract filename without directory for remote path
+	jsonBasename := filepath.Base(jsonFilename)
+	jsonPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, jsonBasename)
 	err = cliutil.UploadFile(ctx, apiClient, jsonFilename, jsonPath)
 	if err != nil {
 		return fmt.Errorf("error uploading JSON results: %v", err)
 	}
 
-	// Upload HTML report
-	htmlPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, htmlFilename)
+	// Upload HTML report - extract filename without directory for remote path
+	htmlBasename := filepath.Base(htmlFilename)
+	htmlPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, htmlBasename)
 	err = cliutil.UploadFile(ctx, apiClient, htmlFilename, htmlPath)
 	if err != nil {
 		return fmt.Errorf("error uploading HTML report: %v", err)
 	}
 
-	// Upload summary markdown
-	summaryPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, summaryFilename)
+	// Upload summary markdown - extract filename without directory for remote path
+	summaryBasename := filepath.Base(summaryFilename)
+	summaryPath := fmt.Sprintf("/test-runs/%s/%s", results.TestID, summaryBasename)
 	err = cliutil.UploadFile(ctx, apiClient, summaryFilename, summaryPath)
 	if err != nil {
 		return fmt.Errorf("error uploading summary markdown: %v", err)
@@ -1308,7 +1337,9 @@ func writeResultsToFile(results *TestResults) error {
 
 	fmt.Printf("\nResults written to %s\n", jsonFilename)
 	fmt.Printf("HTML report written to %s\n", htmlFilename)
+	fmt.Printf("Latest HTML report written to %s\n", reportLatestFilename)
 	fmt.Printf("Summary written to %s\n", summaryFilename)
+	fmt.Printf("Latest summary written to summary_latest.md\n")
 	helixURL := getHelixURL()
 	if strings.Contains(helixURL, "ngrok") {
 		helixURL = "http://localhost:8080"
