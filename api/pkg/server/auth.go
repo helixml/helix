@@ -121,16 +121,27 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	// Store the original URL if provided in the "redirect_uri" query parameter
 	if loginRequest.RedirectURI != "" {
 		// Validate the redirect URI
+		if s.Cfg.WebServer.URL == "" {
+			log.Error().Msg("WebServer.URL is not set, unable to validate redirect URI")
+			http.Error(w, "unable to validate redirect URI", http.StatusBadRequest)
+			return
+		}
 		if !strings.HasPrefix(loginRequest.RedirectURI, s.Cfg.WebServer.URL) {
 			log.Debug().Str("server_url", s.Cfg.WebServer.URL).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI")
-			http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+			http.Error(w, "invalid redirect URI", http.StatusBadRequest)
 			return
 		}
 		cookieManager.Set(w, "redirect_uri", loginRequest.RedirectURI)
 	}
 
-	log.Trace().Str("auth_url", s.oidcClient.GetAuthURL(state, nonce)).Msg("Redirecting to auth URL")
-	http.Redirect(w, r, s.oidcClient.GetAuthURL(state, nonce), http.StatusFound)
+	redirectURL := s.oidcClient.GetAuthURL(state, nonce)
+	if redirectURL == "" {
+		log.Error().Msg("empty redirect URL")
+		http.Error(w, "empty redirect URL", http.StatusBadGateway)
+		return
+	}
+	log.Trace().Str("auth_url", redirectURL).Msg("Redirecting to auth URL")
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 // callback godoc
@@ -195,7 +206,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set access_token cookie
+	// Set cookies, if applicable
 	if oauth2Token.AccessToken != "" {
 		cm.Set(w, "access_token", oauth2Token.AccessToken)
 	} else {
@@ -215,7 +226,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		redirectURI = cookie.Value
 	}
 
-	http.Redirect(w, r, redirectURI, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, redirectURI, http.StatusFound)
 }
 
 // user godoc
@@ -329,8 +340,14 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	cm.Delete(w, "nonce")
 	cm.Delete(w, "redirect_uri")
 
-	log.Debug().Str("logout_url", s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL)).Msg("Redirecting to logout URL")
-	http.Redirect(w, r, s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL), http.StatusTemporaryRedirect)
+	logoutURL := s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL)
+	if logoutURL == "" {
+		log.Error().Msg("empty logout URL")
+		http.Error(w, "empty logout URL", http.StatusBadGateway)
+		return
+	}
+	log.Debug().Str("logout_url", logoutURL).Msg("Redirecting to logout URL")
+	http.Redirect(w, r, logoutURL, http.StatusTemporaryRedirect)
 }
 
 // user godoc
