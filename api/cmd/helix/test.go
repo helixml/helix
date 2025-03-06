@@ -176,6 +176,7 @@ var htmlTemplate = `
             display: flex;
             align-items: center;
             gap: 20px;
+            padding-left: 10px;
         }
         .header-info p {
             margin: 0;
@@ -794,9 +795,10 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 		for _, k := range knowledge {
 			err = apiClient.RefreshKnowledge(cmd.Context(), k.ID)
 			if err != nil {
-				// If knowledge is already queued for indexing, that's fine, we'll just wait
-				if strings.Contains(err.Error(), "knowledge is queued for indexing") {
-					fmt.Printf("Knowledge %s (%s) is already queued for indexing\n", k.ID, k.Name)
+				// If knowledge is already queued for indexing or already being indexed, that's fine, we'll just wait
+				if strings.Contains(err.Error(), "knowledge is queued for indexing") ||
+					strings.Contains(err.Error(), "knowledge is already being indexed") {
+					fmt.Printf("Knowledge %s (%s) is already being processed for indexing\n", k.ID, k.Name)
 					alreadyQueued = true
 					continue
 				}
