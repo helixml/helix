@@ -66,7 +66,19 @@ const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember 
           name: debouncedSearchQuery,
         })
         
-        setSearchResults(response.users)
+        // Normalize the case of API response fields
+        const normalizedResults = response.users.map((user: UserSearchResult) => {
+          // Use type assertion to access capitalized properties
+          const anyUser = user as any;
+          return {
+            id: user.id,
+            email: user.email || anyUser.Email || '',
+            fullName: user.fullName || anyUser.FullName || '',
+            username: user.username || anyUser.Username || ''
+          };
+        });
+        
+        setSearchResults(normalizedResults)
       } catch (error) {
         console.error('Error searching users:', error)
         setSearchResults([])
@@ -76,7 +88,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember 
     }
     
     performSearch()
-  }, [debouncedSearchQuery])
+  }, [debouncedSearchQuery, searchUsers])
   
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>

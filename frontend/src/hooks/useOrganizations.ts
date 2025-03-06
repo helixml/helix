@@ -467,10 +467,10 @@ export default function useOrganizations(): IOrganizationTools {
       
       // Call the API endpoint
       const response = await api.get(`/api/v1/users/search?${params.toString()}`);
-      
+
       // Return the response data if it exists, otherwise return empty results
-      if (response && response.data) {
-        return response.data as SearchUsersResponse;
+      if (response) {
+        return response
       }
       
       return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
