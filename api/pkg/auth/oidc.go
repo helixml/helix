@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/coreos/go-oidc"
@@ -126,10 +127,12 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
+	log.Info().Str("code", code).Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
+	log.Info().Str("code", code).Msg("Exchanged code for token")
 	return oauth2Config.Exchange(ctx, code)
 }
 
@@ -212,11 +215,13 @@ func (c *OIDCClient) GetLogoutURL(redirectURI string) string {
 	oidcConfig := &struct {
 		EndSessionEndpoint string `json:"end_session_endpoint"`
 	}{}
-	if err := provider.Claims(oidcConfig); err == nil {
-		return oidcConfig.EndSessionEndpoint
+	err = provider.Claims(oidcConfig)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get provider end session endpoint")
+		return ""
 	}
 
-	return c.providerURL + "/protocol/openid-connect/logout?redirect_uri=" + redirectURI
+	return fmt.Sprintf("%s?redirect_uri=%s", oidcConfig.EndSessionEndpoint, url.QueryEscape(redirectURI))
 }
 
 func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
