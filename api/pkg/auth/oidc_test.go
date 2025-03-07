@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -176,10 +175,9 @@ func (s *OIDCSuite) TestGetLogoutURL() {
 	})
 	s.NoError(err)
 
-	redirectURI := "http://localhost:8080/home"
-	logoutURL := client.GetLogoutURL(redirectURI)
-	encodedRedirectURI := url.QueryEscape(redirectURI)
-	expectedURL := s.mockOIDCServer.URL() + "/protocol/openid-connect/logout?redirect_uri=" + encodedRedirectURI
+	logoutURL, err := client.GetLogoutURL()
+	s.NoError(err)
+	expectedURL := s.mockOIDCServer.URL() + "/protocol/openid-connect/logout"
 	s.Equal(expectedURL, logoutURL)
 }
 
