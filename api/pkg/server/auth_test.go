@@ -39,7 +39,7 @@ type AuthSuite struct {
 	ctrl       *gomock.Controller
 	authCtx    context.Context
 	server     *HelixAPIServer
-	oidcClient *auth.MockOIDCClient
+	oidcClient *auth.MockOIDC
 	store      *store.MockStore
 }
 
@@ -54,7 +54,7 @@ func (suite *AuthSuite) SetupTest() {
 	suite.store = store.NewMockStore(ctrl)
 	cfg := &config.ServerConfig{}
 	cfg.WebServer.URL = testServerURL
-	suite.oidcClient = auth.NewMockOIDCClient(ctrl)
+	suite.oidcClient = auth.NewMockOIDC(ctrl)
 	suite.server = &HelixAPIServer{
 		Cfg:        cfg,
 		oidcClient: suite.oidcClient,
@@ -256,7 +256,9 @@ func (suite *AuthSuite) TestCallback() {
 			checkResponse: func(rec *httptest.ResponseRecorder) {
 				suite.Equal(testServerURL+"/dashboard", rec.Header().Get("Location"))
 				// Verify access_token and refresh_token are set
-				for _, cookie := range rec.Result().Cookies() {
+				res := rec.Result()
+				defer res.Body.Close()
+				for _, cookie := range res.Cookies() {
 					switch cookie.Name {
 					case "access_token":
 						suite.NotEmpty(cookie.Value)
@@ -585,10 +587,10 @@ func (suite *AuthSuite) TestLogout() {
 			setupMocks: func() {
 				logoutURL := "http://auth-provider/logout"
 				suite.oidcClient.EXPECT().
-					GetLogoutURL(testServerURL).
-					Return(logoutURL)
+					GetLogoutURL().
+					Return(logoutURL, nil)
 			},
-			expectedStatus: http.StatusTemporaryRedirect,
+			expectedStatus: http.StatusFound,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
 				res := rec.Result()
 				defer res.Body.Close()
