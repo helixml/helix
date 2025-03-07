@@ -23,6 +23,38 @@ var (
 	ErrMultiple = errors.New("multiple found")
 )
 
+// Cookies are set, used and deleted at different points in the lifecycle of the request.
+// If found it hard to line these up correctly, especially the paths, so we'll use a struct to
+// represent each cookie.
+type Cookie struct {
+	Name string
+	Path string
+}
+
+var (
+	accessTokenCookie = Cookie{
+		Name: "access_token",
+		Path: "/",
+	}
+	refreshTokenCookie = Cookie{
+		Name: "refresh_token",
+		Path: "/",
+	}
+	stateCookie = Cookie{
+		Name: "state",
+		Path: "",
+	}
+	nonceCookie = Cookie{
+		Name: "nonce",
+		Path: "",
+	}
+	redirectURICookie = Cookie{
+		Name: "redirect_uri",
+		Path: "",
+	}
+)
+
+// CookieManager is a helper for setting, getting and deleting cookies.
 type CookieManager struct {
 	SecureCookies bool
 }
@@ -33,47 +65,57 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 	}
 }
 
-func (cm *CookieManager) Set(w http.ResponseWriter, name, value string) {
-	c := &http.Cookie{
-		Name:     name,
+func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
+	cookie := &http.Cookie{
+		Name:     c.Name,
+		Path:     c.Path,
 		Value:    value,
 		MaxAge:   int(time.Hour.Seconds()),
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	}
-	http.SetCookie(w, c)
+	http.SetCookie(w, cookie)
 }
 
-func (cm *CookieManager) Get(r *http.Request, name string) (string, error) {
+func (cm *CookieManager) Get(r *http.Request, c Cookie) (string, error) {
 	// Check that there's only one cookie with this name, had issues before where there were
 	// multiple cookies with this name
-	cookies := r.Cookies()
+	cookies := r.CookiesNamed(c.Name)
 	numNamedCookies := 0
 	for _, cookie := range cookies {
-		if cookie.Name == name {
+		if cookie.Name == c.Name {
 			numNamedCookies++
 		}
 	}
 	if numNamedCookies == 0 {
-		return "", fmt.Errorf("%w: %s", ErrNotFound, name)
+		return "", fmt.Errorf("%w: %s", ErrNotFound, c.Name)
 	}
 	if numNamedCookies > 1 {
-		return "", fmt.Errorf("%w: %s", ErrMultiple, name)
+		return "", fmt.Errorf("%w: %s", ErrMultiple, c.Name)
 	}
 	return cookies[0].Value, nil
 }
 
-func (cm *CookieManager) Delete(w http.ResponseWriter, name string) {
-	c := &http.Cookie{
-		Name:     name,
+func (cm *CookieManager) DeleteAllCookies(w http.ResponseWriter) {
+	cm.delete(w, accessTokenCookie)
+	cm.delete(w, refreshTokenCookie)
+	cm.delete(w, stateCookie)
+	cm.delete(w, nonceCookie)
+	cm.delete(w, redirectURICookie)
+}
+
+func (cm *CookieManager) delete(w http.ResponseWriter, c Cookie) {
+	cookie := &http.Cookie{
+		Name:     c.Name,
+		Path:     c.Path,
 		Value:    "",
 		MaxAge:   -1,
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	}
-	http.SetCookie(w, c)
+	http.SetCookie(w, cookie)
 }
 
 func randString(nByte int) (string, error) {
@@ -116,8 +158,8 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, "state", state)
-	cookieManager.Set(w, "nonce", nonce)
+	cookieManager.Set(w, stateCookie, state)
+	cookieManager.Set(w, nonceCookie, nonce)
 	// Store the original URL if provided in the "redirect_uri" query parameter
 	if loginRequest.RedirectURI != "" {
 		// Validate the redirect URI
@@ -131,7 +173,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid redirect URI", http.StatusBadRequest)
 			return
 		}
-		cookieManager.Set(w, "redirect_uri", loginRequest.RedirectURI)
+		cookieManager.Set(w, redirectURICookie, loginRequest.RedirectURI)
 	}
 
 	redirectURL := s.oidcClient.GetAuthURL(state, nonce)
@@ -155,7 +197,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cm := NewCookieManager(s.Cfg)
-	state, err := cm.Get(r, "state")
+	state, err := cm.Get(r, stateCookie)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get state")
 		http.Error(w, "failed to get state cookie", http.StatusBadRequest)
@@ -164,11 +206,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("state") != state {
 		log.Debug().Str("state", r.URL.Query().Get("state")).Str("cookie", state).Msg("state did not match")
 		// Remove the cookies and start again
-		cm.Delete(w, "state")
-		cm.Delete(w, "nonce")
-		cm.Delete(w, "redirect_uri")
-		cm.Delete(w, "access_token")
-		cm.Delete(w, "refresh_token")
+		cm.DeleteAllCookies(w)
 		// Redirect to the homepage
 		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
@@ -194,36 +232,36 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nonce, err := r.Cookie("nonce")
+	nonce, err := cm.Get(r, nonceCookie)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get nonce")
 		http.Error(w, "nonce not found", http.StatusBadRequest)
 		return
 	}
-	if idToken.Nonce != nonce.Value {
-		log.Debug().Str("nonce", idToken.Nonce).Str("cookie", nonce.Value).Msg("nonce did not match")
+	if idToken.Nonce != nonce {
+		log.Debug().Str("nonce", idToken.Nonce).Str("cookie", nonce).Msg("nonce did not match")
 		http.Error(w, "nonce did not match", http.StatusBadRequest)
 		return
 	}
 
 	// Set cookies, if applicable
 	if oauth2Token.AccessToken != "" {
-		cm.Set(w, "access_token", oauth2Token.AccessToken)
+		cm.Set(w, accessTokenCookie, oauth2Token.AccessToken)
 	} else {
 		log.Debug().Msg("access_token is empty")
 		http.Error(w, "access_token is empty", http.StatusBadRequest)
 		return
 	}
 	if oauth2Token.RefreshToken != "" {
-		cm.Set(w, "refresh_token", oauth2Token.RefreshToken)
+		cm.Set(w, refreshTokenCookie, oauth2Token.RefreshToken)
 	} else {
 		log.Debug().Msg("refresh_token is empty, ignoring")
 	}
 
 	// Check if we have a stored redirect URI
 	redirectURI := s.Cfg.WebServer.URL // default redirect
-	if cookie, err := r.Cookie("redirect_uri"); err == nil {
-		redirectURI = cookie.Value
+	if cookie, err := cm.Get(r, redirectURICookie); err == nil {
+		redirectURI = cookie
 	}
 
 	http.Redirect(w, r, redirectURI, http.StatusFound)
@@ -242,10 +280,10 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cm := NewCookieManager(s.Cfg)
-	accessToken, err := cm.Get(r, "access_token")
+	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get access_token")
-		http.Error(w, "access_token not found", http.StatusUnauthorized)
+		log.Debug().Err(err).Str("cookie", accessTokenCookie.Name).Msg("failed to get cookie")
+		http.Error(w, fmt.Sprintf("failed to get cookie: %s", accessTokenCookie.Name), http.StatusUnauthorized)
 		return
 	}
 
@@ -333,12 +371,7 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove cookies
-	cm := NewCookieManager(s.Cfg)
-	cm.Delete(w, "access_token")
-	cm.Delete(w, "refresh_token")
-	cm.Delete(w, "state")
-	cm.Delete(w, "nonce")
-	cm.Delete(w, "redirect_uri")
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
 	logoutURL := s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL)
 	if logoutURL == "" {
@@ -362,9 +395,10 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := r.Cookie("access_token")
+	cm := NewCookieManager(s.Cfg)
+	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get access_token")
+		log.Debug().Err(err).Str("cookie", accessTokenCookie.Name).Msg("failed to get cookie")
 		err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
 			Authenticated: false,
 		})
@@ -376,7 +410,7 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.oidcClient.VerifyAccessToken(ctx, accessToken.Value)
+	err = s.oidcClient.VerifyAccessToken(ctx, accessToken)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to verify access_token")
 		err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
@@ -413,7 +447,7 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cm := NewCookieManager(s.Cfg)
-	refreshToken, err := cm.Get(r, "refresh_token")
+	refreshToken, err := cm.Get(r, refreshTokenCookie)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get refresh_token, skipping refresh")
 		w.WriteHeader(http.StatusNoContent)
@@ -432,8 +466,8 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cm.Set(w, "access_token", newAccessToken.AccessToken)
-	cm.Set(w, "refresh_token", newAccessToken.RefreshToken)
+	cm.Set(w, accessTokenCookie, newAccessToken.AccessToken)
+	cm.Set(w, refreshTokenCookie, newAccessToken.RefreshToken)
 
 	w.WriteHeader(http.StatusNoContent)
 }

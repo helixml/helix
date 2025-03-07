@@ -255,6 +255,19 @@ func (suite *AuthSuite) TestCallback() {
 			expectedStatus: http.StatusFound,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
 				suite.Equal(testServerURL+"/dashboard", rec.Header().Get("Location"))
+				// Verify access_token and refresh_token are set
+				for _, cookie := range rec.Result().Cookies() {
+					switch cookie.Name {
+					case "access_token":
+						suite.NotEmpty(cookie.Value)
+						suite.Equal(testAccessToken, cookie.Value)
+						suite.Equal("/", cookie.Path)
+					case "refresh_token":
+						suite.NotEmpty(cookie.Value)
+						suite.Equal(testRefreshToken, cookie.Value)
+						suite.Equal("/", cookie.Path)
+					}
+				}
 			},
 		},
 		{
