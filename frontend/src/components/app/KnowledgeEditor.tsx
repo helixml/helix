@@ -27,7 +27,10 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import debounce from 'lodash/debounce';
+import useAccount from '../../hooks/useAccount';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import useSnackbar from '../../hooks/useSnackbar';
@@ -52,30 +55,26 @@ interface KnowledgeEditorProps {
 }
 
 const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId, onRequestSave }) => {
+  const [localKnowledgeSources, setLocalKnowledgeSources] = useState<IKnowledgeSource[]>([]);
   const [expanded, setExpanded] = useState<string | false>(false);
-  const [errors, setErrors] = useState<{ [key: number]: string }>({});
-  const snackbar = useSnackbar(); // Use the snackbar hook
-  const api = useApi(); // Use the API hook
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const { error: snackbarError, info: snackbarInfo, success: snackbarSuccess } = useSnackbar();
+  const api = useApi();
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [directoryFiles, setDirectoryFiles] = useState<Record<number, IFileStoreItem[]>>({});
-  const [deletingFiles, setDeletingFiles] = useState<{[key: string]: boolean}>({});
-  const [localUploadProgress, setLocalUploadProgress] = useState<IFilestoreUploadProgress | null>(null);
+  const [deletingFiles, setDeletingFiles] = useState<Record<string, boolean>>({});
+  const [localUploadProgress, setLocalUploadProgress] = useState<any>(null);
   const uploadStartTimeRef = useRef<number | null>(null);
   const [uploadEta, setUploadEta] = useState<string | null>(null);
   const cancelTokenRef = useRef<AbortController | null>(null);
-  // Add a dedicated ref for tracking cancellation state
   const uploadCancelledRef = useRef<boolean>(false);
-  // Add a ref to track upload speed for smoothing
   const uploadSpeedRef = useRef<number[]>([]);
-  // Add state to store the current speed for display
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
-  // Add a state to track file count
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
+  const account = useAccount();
 
-  // Create a debounced update function for smoother UI experience
-  // Only triggers updates after user has stopped making changes for 300ms
   const debouncedUpdate = useCallback(
     debounce((updatedSources: IKnowledgeSource[]) => {
       console.log('[KnowledgeEditor] Debounced update triggered with sources:', updatedSources);
@@ -84,7 +83,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     [onUpdate]
   );
 
-  // Log when component props change
   useEffect(() => {
     console.log('[KnowledgeEditor] Component mounted or updated with props:', {
       knowledgeSources,
@@ -98,17 +96,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     };
   }, [knowledgeSources, disabled, knowledgeList, appId]);
 
-  // Add logging for knowledge sources changes
   useEffect(() => {
     console.log('[KnowledgeEditor] Knowledge sources changed:', knowledgeSources);
   }, [knowledgeSources]);
 
-  // Add logging for knowledge list changes (backend data)
   useEffect(() => {
     console.log('[KnowledgeEditor] Knowledge list (backend data) changed:', knowledgeList);
   }, [knowledgeList]);
 
-  // Debug: Log uploadProgress
   useEffect(() => {
     console.log('KnowledgeEditor uploadProgress:', uploadProgress);
   }, [uploadProgress]);
@@ -127,37 +122,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     const newSources = [...knowledgeSources];
     const existingSource = newSources[index];
     
-    // Create a new source by carefully merging the existing source with the updates
     let newSource = { ...existingSource, ...updatedSource };    
     
     console.log('[KnowledgeEditor] handleSourceUpdate - After merge:', newSource);
 
-    // Ensure refresh_schedule is always a valid cron expression or empty string
     if (newSource.refresh_schedule === 'custom') {
-      newSource.refresh_schedule = '0 0 * * *'; // Default to daily at midnight
+      newSource.refresh_schedule = '0 0 * * *';
     } else if (newSource.refresh_schedule === 'One off') {
-      newSource.refresh_schedule = ''; // Empty string for one-off
+      newSource.refresh_schedule = '';
     }
-
-    // Remove the openapi checks since they're causing linter errors
-    if (!newSource.name) {
-      if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
-        newSource.name = newSource.source.web.urls.join(', ');
-      } else if (newSource.source.filestore?.path) {
-        newSource.name = newSource.source.filestore.path;
-      } else {
-        // Generate a unique name with timestamp to avoid conflicts
-        newSource.name = `Source_${new Date().toISOString().replace(/[:.]/g, '_')}`;
-      }
-    }
-    
-    console.log('Knowledge update - Final source with name logic applied:', newSource);
 
     if (newSource.source.web && newSource.source.web.crawler) {
       newSource.source.web.crawler.enabled = true;
     }
 
-    // Ensure default values for max_depth and max_pages
     if (newSource.source.web?.crawler) {
       newSource.source.web.crawler.max_depth = newSource.source.web.crawler.max_depth || default_max_depth;
       newSource.source.web.crawler.max_pages = newSource.source.web.crawler.max_pages || default_max_pages;
@@ -166,17 +144,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     newSources[index] = newSource;
     console.log('[KnowledgeEditor] handleSourceUpdate - Final sources array being sent to parent:', newSources);
     
-    // Use the debounced version for text field updates
     if (updatedSource.name || updatedSource.description || 
         (updatedSource.source?.web?.urls && !updatedSource.source.filestore)) {
       debouncedUpdate(newSources);
     } else {
-      // For non-text field updates (like checkboxes, file uploads), update immediately
       onUpdate(newSources);
     }
   };
 
-  // Ensure we cancel any pending debounced updates when component unmounts
   useEffect(() => {
     return () => {
       debouncedUpdate.cancel();
@@ -189,12 +164,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', knowledges);
     onUpdate(knowledges);
     
-    // Expand the newly added knowledge source panel
     setExpanded(`panel${knowledgeSources.length}`);
     
-    // If this is a filestore source, show a message to the user about uploading files
     if (newSource.source.filestore) {
-      snackbar.info(`Knowledge source "${newSource.name}" created. You can now upload files.`);
+      snackbarInfo(`Knowledge source "${newSource.name}" created. You can now upload files.`);
     }
   };
 
@@ -206,20 +179,18 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const refreshSource = (index: number) => {
-    // Find ID of knowledge source
     const knowledge = knowledgeList.find(k => k.name === knowledgeSources[index].name);
     if (knowledge) {
       onRefresh(knowledge.id);
-      // Show success message using snackbar
-      snackbar.success('Knowledge refresh initiated. This may take a few minutes.');
+      snackbarSuccess('Knowledge refresh initiated. This may take a few minutes.');
     }
   };
 
   const validateSources = () => {
-    const newErrors: { [key: number]: string } = {};
+    const newErrors: Record<string, string[]> = {};
     knowledgeSources.forEach((source, index) => {      
       if ((!source.source.web?.urls || source.source.web.urls.length === 0) && !source.source.filestore?.path) {
-        newErrors[index] = "At least one URL or a filestore path must be specified.";
+        newErrors[`${index}`] = ["At least one URL or a filestore path must be specified."];
       }
     });
     setErrors(newErrors);
@@ -242,15 +213,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
       return source.source.web.urls[0];
     } else if (source.source.filestore?.path) {
-      // Display cleaned path - strip apps/appId prefix and any other unnecessary prefixes
       const path = source.source.filestore.path;
       
-      // Strip common prefixes for cleaner display
       if (path.startsWith(`apps/${appId}/`)) {
         return path.substring(`apps/${appId}/`.length);
       }
       
-      // For paths like apps/app_01jnk1mhpshn3dyjvxtjb35t6g/pdfs
       const appIdPattern = /^apps\/app_[a-zA-Z0-9]+\//;
       if (appIdPattern.test(path)) {
         return path.replace(appIdPattern, '');
@@ -261,15 +229,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return 'Unknown source';
   };
 
-  // Simplify the getKnowledge function to match by ID or name
   const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
-    // Try to find by ID first if available
     if (source.id) {
       const byId = knowledgeList.find(k => k.id === source.id);
       if (byId) return byId;
     }
     
-    // Fall back to name matching
     return knowledgeList.find(k => k.name === source.name);
   };
 
@@ -288,7 +253,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       case 'error':
         color = 'error';
         break;
-      // Add more cases as needed
     }
 
     if (knowledge.message) {
@@ -302,7 +266,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
-  // Improved time formatting function
   const formatTimeRemaining = (seconds: number): string => {
     if (seconds < 60) {
       return `${Math.round(seconds)}s`;
@@ -313,7 +276,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
   };
 
-  // Format upload speed to human-readable format
   const formatSpeed = (bytesPerSecond: number): string => {
     if (bytesPerSecond < 1024) {
       return `${bytesPerSecond.toFixed(1)} B/s`;
@@ -326,41 +288,33 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
   };
 
-  // Improved ETA calculator with smoothing
   const calculateEta = (loaded: number, total: number, startTime: number) => {
     const elapsedSeconds = (Date.now() - startTime) / 1000;
     
-    // Return early guess for very small uploads
     if (elapsedSeconds < 0.1) {
       const percentComplete = loaded / total;
       if (percentComplete > 0) {
-        // Make a rough initial guess
         return formatTimeRemaining(Math.ceil((total / loaded) * elapsedSeconds));
       }
       return "Calculating...";
     }
     
-    // Calculate current speed
-    const currentSpeedValue = loaded / elapsedSeconds; // bytes per second
+    const currentSpeedValue = loaded / elapsedSeconds;
     
-    // Add to speed history (keep last 5 speed measurements)
     uploadSpeedRef.current.push(currentSpeedValue);
     if (uploadSpeedRef.current.length > 5) {
       uploadSpeedRef.current.shift();
     }
     
-    // Calculate smoothed speed (average of last 5 measurements)
     const smoothedSpeed = uploadSpeedRef.current.reduce((sum, speed) => sum + speed, 0) / 
                          uploadSpeedRef.current.length;
     
-    // Update the speed state for display
     setCurrentSpeed(smoothedSpeed);
     
     if (smoothedSpeed > 0) {
       const remainingBytes = total - loaded;
       const remainingSeconds = remainingBytes / smoothedSpeed;
       
-      // For very small values, round up to at least 1 second
       if (remainingSeconds < 1 && remainingSeconds > 0) {
         return "< 1s";
       }
@@ -374,31 +328,24 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const handleFileUpload = async (index: number, files: File[]) => {    
     const source = knowledgeSources[index];
     if (!source.source.filestore?.path) {
-      snackbar.error('No filestore path specified');
+      snackbarError('No filestore path specified');
       return;
     }
 
-    // Ensure the path is properly scoped to the app directory
     let uploadPath = source.source.filestore.path;
     if (!uploadPath.startsWith(`apps/${appId}/`)) {
       uploadPath = `apps/${appId}/${uploadPath}`;
     }
 
-    // Reset cancellation state at the start of every upload
     uploadCancelledRef.current = false;
     
-    // Create abort controller for cancellation
     cancelTokenRef.current = new AbortController();
     
     try {
-      // Reset speed measurement history at the start of upload
       uploadSpeedRef.current = [];
-      // Reset current speed
       setCurrentSpeed(null);
-      // Set the count of files being uploaded
       setUploadingFileCount(files.length);
       
-      // Set initial upload progress and start time
       uploadStartTimeRef.current = Date.now();
       setLocalUploadProgress({
         percent: 0,
@@ -407,24 +354,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       });
       setUploadEta("Calculating..."); 
 
-      // Create form data for file upload
       const formData = new FormData();
       files.forEach((file) => {
         formData.append("files", file);
       });
 
       try {
-        // Try direct upload first
         await api.post('/api/v1/filestore/upload', formData, {
           params: {
             path: uploadPath,
           },
           signal: cancelTokenRef.current.signal,
           onUploadProgress: (progressEvent) => {
-            // Skip updates if cancelled
             if (uploadCancelledRef.current) return;
             
-            // Update progress directly
             const percent = progressEvent.total && progressEvent.total > 0 ?
               Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
             
@@ -434,7 +377,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               totalBytes: progressEvent.total || 0,
             });
             
-            // Calculate and update ETA immediately with any progress data
             if (uploadStartTimeRef.current && progressEvent.total && progressEvent.loaded > 0) {
               const eta = calculateEta(progressEvent.loaded, progressEvent.total, uploadStartTimeRef.current);
               setUploadEta(eta);
@@ -442,35 +384,28 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           }
         });
 
-        // Only show success if we reach here without cancellation
         if (!uploadCancelledRef.current) {
-          // Show success message
-          snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
+          snackbarSuccess(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
 
-          // Refresh the file list
           const updatedFiles = await loadFiles(uploadPath);
           setDirectoryFiles(prev => ({
             ...prev,
             [index]: updatedFiles
           }));
 
-          // Auto-save after successful file upload to trigger indexing
           if (onRequestSave) {
             console.log('Auto-saving app after file upload to trigger indexing');
             await onRequestSave();
             
-            // After saving, also explicitly trigger re-indexing
-            // First find the knowledge source in the backend list
             const knowledge = getKnowledge(source);
             if (knowledge && knowledge.id) {
               console.log('Triggering re-indexing after file upload for knowledge source:', knowledge.id);
               onRefresh(knowledge.id);
-              snackbar.info('Re-indexing started for newly uploaded files. This may take a few minutes.');
+              snackbarInfo('Re-indexing started for newly uploaded files. This may take a few minutes.');
             }
           }
         }
       } catch (uploadError: unknown) {
-        // Check if this was a cancellation
         if (
           typeof uploadError === 'object' && 
           uploadError !== null && 
@@ -478,19 +413,17 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           (uploadError.name === 'AbortError' || uploadError.name === 'CanceledError')
         ) {
           console.log('Upload was cancelled by user');
-          return; // Skip any further processing
+          return;
         }
         
-        // Only proceed with fallback if not cancelled
         if (!uploadCancelledRef.current) {
           console.error('Direct upload failed, falling back to onUpload method:', uploadError);
           
           try {
             await onUpload(uploadPath, files);
             
-            // Double-check cancellation state again before success
             if (!uploadCancelledRef.current) {
-              snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
+              snackbarSuccess(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
               
               const fallbackFiles = await loadFiles(uploadPath);
               setDirectoryFiles(prev => ({
@@ -498,77 +431,64 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 [index]: fallbackFiles
               }));
 
-              // Auto-save after successful file upload to trigger indexing
               if (onRequestSave) {
                 console.log('Auto-saving app after file upload to trigger indexing');
                 await onRequestSave();
                 
-                // After saving, also explicitly trigger re-indexing
-                // First find the knowledge source in the backend list
                 const knowledge = getKnowledge(source);
                 if (knowledge && knowledge.id) {
                   console.log('Triggering re-indexing after fallback file upload for knowledge source:', knowledge.id);
                   onRefresh(knowledge.id);
-                  snackbar.info('Re-indexing started for newly uploaded files. This may take a few minutes.');
+                  snackbarInfo('Re-indexing started for newly uploaded files. This may take a few minutes.');
                 }
               }
             }
           } catch (fallbackError) {
             if (!uploadCancelledRef.current) {
               console.error('Error in fallback upload:', fallbackError);
-              snackbar.error('Failed to upload files. Please try again.');
+              snackbarError('Failed to upload files. Please try again.');
             }
           }
         }
       }
     } catch (error: unknown) {
-      // Only show errors if not cancelled
       if (!uploadCancelledRef.current) {
         console.error('Error uploading files:', error);
-        snackbar.error('Failed to upload files. Please try again.');
+        snackbarError('Failed to upload files. Please try again.');
       }
     } finally {
-      // Clean up based on cancellation state
       if (uploadCancelledRef.current) {
-        // Immediate cleanup for cancellation
         setLocalUploadProgress(null);
         uploadStartTimeRef.current = null;
         setUploadEta(null);
-        setUploadingFileCount(0); // Reset file count
+        setUploadingFileCount(0);
         cancelTokenRef.current = null;
       } else {
-        // Delay cleanup for successful completion
         setTimeout(() => {
           setLocalUploadProgress(null);
           uploadStartTimeRef.current = null;
           setUploadEta(null);
-          setUploadingFileCount(0); // Reset file count
+          setUploadingFileCount(0);
           cancelTokenRef.current = null;
         }, 1000);
       }
       
-      // Reset cancellation state
       uploadCancelledRef.current = false;
     }
   };
 
-  // Rewrite cancel function to use the ref
   const handleCancelUpload = () => {
     if (cancelTokenRef.current) {
-      // Set cancellation state first
       uploadCancelledRef.current = true;
       
-      // Show cancellation message
-      snackbar.info('Upload cancelled');
+      snackbarInfo('Upload cancelled');
       
-      // Then abort the request
       cancelTokenRef.current.abort();
       
-      // Clean up immediately
       setLocalUploadProgress(null);
       uploadStartTimeRef.current = null;
       setUploadEta(null);
-      setUploadingFileCount(0); // Reset file count
+      setUploadingFileCount(0);
       cancelTokenRef.current = null;
     }
   };
@@ -576,7 +496,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const loadDirectoryContents = async (path: string, index: number) => {
     if (!path) return;
     try {
-      // Ensure the path is properly scoped to the app directory
       let loadPath = path;
       if (!loadPath.startsWith(`apps/${appId}/`)) {
         loadPath = `apps/${appId}/${loadPath}`;
@@ -594,28 +513,24 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const handleDeleteFile = async (index: number, fileName: string) => {
     const source = knowledgeSources[index];
     if (!source.source.filestore?.path) {
-      snackbar.error('No filestore path specified');
+      snackbarError('No filestore path specified');
       return;
     }
     
     try {
-      // Set deleting state for this file
       const fileId = `${index}-${fileName}`;
       setDeletingFiles(prev => ({
         ...prev,
         [fileId]: true
       }));
       
-      // Ensure the path is properly scoped to the app directory
       let basePath = source.source.filestore.path;
       if (!basePath.startsWith(`apps/${appId}/`)) {
         basePath = `apps/${appId}/${basePath}`;
       }
       
-      // Construct the full path to the file
       const filePath = `${basePath}/${fileName}`;
       
-      // Call the API to delete the file
       const response = await api.delete('/api/v1/filestore/delete', {
         params: {
           path: filePath,
@@ -623,22 +538,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       });
       
       if (response) {
-        snackbar.success(`File "${fileName}" deleted successfully`);
+        snackbarSuccess(`File "${fileName}" deleted successfully`);
         
-        // Refresh the file list
         const files = await loadFiles(basePath);
         setDirectoryFiles(prev => ({
           ...prev,
           [index]: files
         }));
       } else {
-        snackbar.error(`Failed to delete file "${fileName}"`);
+        snackbarError(`Failed to delete file "${fileName}"`);
       }
     } catch (error) {
       console.error('Error deleting file:', error);
-      snackbar.error('An error occurred while deleting the file');
+      snackbarError('An error occurred while deleting the file');
     } finally {
-      // Clear deleting state for this file
       const fileId = `${index}-${fileName}`;
       setDeletingFiles(prev => ({
         ...prev,
@@ -671,8 +584,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             }}
             disabled={disabled}
             sx={{ mb: 2 }}
-            error={!!errors[index]}
-            helperText={errors[index]}
+            error={!!errors[`${index}`]}
+            helperText={errors[`${index}`]?.join(', ')}
           />
         )}
 
@@ -854,7 +767,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   position: 'relative',
                   overflow: 'hidden'
                 }}>
-                  {/* Upload status and cancel button */}
                   <Box sx={{ 
                     display: 'flex', 
                     justifyContent: 'space-between', 
@@ -879,7 +791,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     </Button>
                   </Box>
                   
-                  {/* Progress percentage and size info */}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                     <Typography variant="body1" color="common.white" fontWeight="medium">
                       {localUploadProgress.percent}% Complete
@@ -889,7 +800,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     </Typography>
                   </Box>
                   
-                  {/* Main progress bar */}
                   <Box sx={{ 
                     width: '100%', 
                     height: '8px', 
@@ -908,7 +818,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     />
                   </Box>
                   
-                  {/* ETA and speed info */}
                   <Grid container spacing={2}>
                     <Grid item xs={6}>
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -969,7 +878,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               )}
             </Box>
 
-            {/* Display existing files */}
             {directoryFiles[index]?.length > 0 && !localUploadProgress && (
               <>
                 <Typography variant="caption" sx={{ mt: 2, mb: 1, display: 'block' }}>
@@ -1001,12 +909,42 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                           }
                         }}
                       >
-                        <Typography variant="caption" sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {file.name}
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            flexGrow: 1, 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis',
+                            '& > span': {
+                              cursor: 'pointer',
+                              color: 'primary.main',
+                              textDecoration: 'none',
+                              '&:hover': {
+                                textDecoration: 'underline'
+                              }
+                            }
+                          }}
+                        >
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!file.directory) {
+                                openFileInNewTab(file, source.source.filestore?.path || '');
+                              }
+                            }}
+                            style={{ 
+                              opacity: file.directory ? 0.5 : 1,
+                              cursor: file.directory ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            {file.name}
+                          </span>
                         </Typography>
                         <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary', minWidth: '60px', textAlign: 'right' }}>
                           {prettyBytes(file.size || 0)}
                         </Typography>
+                        
+                        {/* Delete file button */}
                         <Tooltip title={isDeleting ? "Deleting..." : "Delete file"}>
                           <span>
                             <IconButton
@@ -1039,14 +977,23 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   })}
                 </Box>
                 {source.source.filestore?.path && (
-                  <Button
-                    sx={{ mt: 1 }}
-                    size="small"
-                    startIcon={<RefreshIcon />}
-                    onClick={() => loadDirectoryContents(source.source.filestore?.path || '', index)}
-                  >
-                    Refresh File List
-                  </Button>
+                  <Box sx={{ display: 'flex', mt: 1 }}>
+                    <Button
+                      size="small"
+                      startIcon={<RefreshIcon />}
+                      onClick={() => loadDirectoryContents(source.source.filestore?.path || '', index)}
+                    >
+                      Refresh Files
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<FolderOpenIcon />}
+                      onClick={() => openInFilestore(source.source.filestore?.path || '')}
+                      sx={{ ml: 1 }}
+                    >
+                      Open in Filestore
+                    </Button>
+                  </Box>
                 )}
               </>
             )}
@@ -1063,6 +1010,35 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         )}
       </>
     );
+  };
+
+  // Add functions to open files in a new tab and in the filestore
+  const openFileInNewTab = (file: IFileStoreItem, sourcePath: string) => {
+    if (!account.token) {
+      snackbarError('Must be logged in to view files');
+      return;
+    }
+
+    // Ensure the path is properly scoped to the app directory
+    let basePath = sourcePath;
+    if (!basePath.startsWith(`apps/${appId}/`)) {
+      basePath = `apps/${appId}/${basePath}`;
+    }
+
+    // Construct the full URL to the file
+    const fileUrl = `${file.url}?access_token=${account.tokenUrlEscaped}`;
+    window.open(fileUrl, '_blank');
+  };
+
+  const openInFilestore = (sourcePath: string) => {
+    // Ensure the path is properly scoped to the app directory
+    let basePath = sourcePath;
+    if (!basePath.startsWith(`apps/${appId}/`)) {
+      basePath = `apps/${appId}/${basePath}`;
+    }
+
+    // Open the filestore page with the given path
+    window.open(`/files?path=${encodeURIComponent(basePath)}`, '_blank');
   };
 
   return (
