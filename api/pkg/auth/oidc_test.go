@@ -230,7 +230,7 @@ func NewMockOIDCServer() *MockOIDCServer {
 	mux := http.NewServeMux()
 
 	// .well-known/openid-configuration endpoint
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		config := map[string]interface{}{
 			"issuer":                                                          m.server.URL,
 			"authorization_endpoint":                                          m.server.URL + "/protocol/openid-connect/auth",
@@ -297,11 +297,15 @@ func NewMockOIDCServer() *MockOIDCServer {
 			"authorization_response_iss_parameter_supported": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(config)
+		err := json.NewEncoder(w).Encode(config)
+		if err != nil {
+			http.Error(w, "Failed to encode config", http.StatusInternalServerError)
+			return
+		}
 	})
 
 	// Certs
-	mux.HandleFunc("/protocol/openid-connect/certs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/protocol/openid-connect/certs", func(w http.ResponseWriter, _ *http.Request) {
 		keys := map[string]interface{}{
 			"keys": []map[string]interface{}{
 				{
@@ -315,112 +319,27 @@ func NewMockOIDCServer() *MockOIDCServer {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(keys)
+		err := json.NewEncoder(w).Encode(keys)
+		if err != nil {
+			http.Error(w, "Failed to encode keys", http.StatusInternalServerError)
+			return
+		}
 	})
 
 	// Userinfo endpoint
-	mux.HandleFunc("/protocol/openid-connect/userinfo", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/protocol/openid-connect/userinfo", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"sub":            "test-user-id",
 			"name":           "Test User",
 			"email":          "test@example.com",
 			"email_verified": true,
 		})
+		if err != nil {
+			http.Error(w, "Failed to encode userinfo", http.StatusInternalServerError)
+			return
+		}
 	})
-
-	// // JWKS endpoint
-	// mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
-	// 	jwks := map[string]interface{}{
-	// 		"keys": []map[string]interface{}{
-	// 			{
-	// 				"kid": "test-key-id",
-	// 				"kty": "RSA",
-	// 				"alg": "RS256",
-	// 				"use": "sig",
-	// 				"n":   "test-modulus",
-	// 				"e":   "AQAB",
-	// 			},
-	// 		},
-	// 	}
-	// 	w.Header().Set("Content-Type", "application/json")
-	// 	json.NewEncoder(w).Encode(jwks)
-	// })
-
-	// // Auth endpoint
-	// // /auth/realms/helix/protocol/openid-connect/auth?client_id=api&nonce=oG4-yM8BlmT4iTZh_ZioYpl07-0T_uRel1-q4WfGZGcVVfNN22dSjkyy5ZTEtszxuwtCGBvgCE-OchIBD9U7OA&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fapi%2Fv1%2Fauth%2Fcallback&response_type=code&scope=openid+profile+email&state=cmQsB0KGMUn90h2nKVhjsOGEod9U3_Jamnmx4_4l0gwWI7g1pGtqGL3dIqPjJJXeN-3I-3oM2_4MmC0LlwRXgQ
-	// mux.HandleFunc("/protocol/openid-connect/auth", func(w http.ResponseWriter, r *http.Request) {
-	// 	if err := r.ParseForm(); err != nil {
-	// 		http.Error(w, "Invalid request", http.StatusBadRequest)
-	// 		return
-	// 	}
-
-	// 	clientID := r.FormValue("client_id")
-	// 	nonce := r.FormValue("nonce")
-	// 	redirectURI := r.FormValue("redirect_uri")
-	// 	responseType := r.FormValue("response_type")
-	// 	scope := r.FormValue("scope")
-	// 	state := r.FormValue("state")
-
-	// 	// Log all of this
-	// 	log.Info().
-	// 		Str("client_id", clientID).
-	// 		Str("nonce", nonce).
-	// 		Str("redirect_uri", redirectURI).
-	// 		Str("response_type", responseType).
-	// 		Str("scope", scope).
-	// 		Str("state", state).
-	// 		Msg("OIDC auth request")
-	// })
-
-	// // Token endpoint
-	// mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-	// 	if err := r.ParseForm(); err != nil {
-	// 		http.Error(w, "Invalid request", http.StatusBadRequest)
-	// 		return
-	// 	}
-
-	// 	response := map[string]interface{}{
-	// 		"access_token":  "test-access-token",
-	// 		"token_type":    "Bearer",
-	// 		"refresh_token": "test-refresh-token",
-	// 		"expires_in":    3600,
-	// 		"id_token":      "test-id-token",
-	// 	}
-	// 	w.Header().Set("Content-Type", "application/json")
-	// 	json.NewEncoder(w).Encode(response)
-	// })
-
-	// // Userinfo endpoint
-	// mux.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
-	// 	userInfo := map[string]interface{}{
-	// 		"sub":            "test-user-id",
-	// 		"name":           "Test User",
-	// 		"email":          "test@example.com",
-	// 		"email_verified": true,
-	// 	}
-	// 	w.Header().Set("Content-Type", "application/json")
-	// 	json.NewEncoder(w).Encode(userInfo)
-	// })
-
-	// mux.HandleFunc("/auth/realms/helix/login-actions/authenticate", func(w http.ResponseWriter, r *http.Request) {
-	// 	queryParams := r.URL.Query()
-	// 	// session_code=_8EpnFwzpwX4G4v7rgD8smonJ7cPk8kD86f903TjGGQ&execution=3d058947-71c9-45b7-a52a-c76439d0058c&client_id=api&tab_id=hLQ8Veu0vsQ
-	// 	sessionCode := queryParams.Get("session_code")
-	// 	execution := queryParams.Get("execution")
-	// 	clientID := queryParams.Get("client_id")
-	// 	tabID := queryParams.Get("tab_id")
-
-	// 	log.Info().
-	// 		Str("session_code", sessionCode).
-	// 		Str("execution", execution).
-	// 		Str("client_id", clientID).
-	// 		Str("tab_id", tabID).Msg("OIDC login action authenticate")
-	// 	w.Header().Set("Content-Type", "application/json")
-	// 	json.NewEncoder(w).Encode(map[string]interface{}{
-	// 		"active": true,
-	// 	})
-	// })
 
 	// token_endpoint
 	mux.HandleFunc("/protocol/openid-connect/token", func(w http.ResponseWriter, r *http.Request) {
@@ -440,13 +359,17 @@ func NewMockOIDCServer() *MockOIDCServer {
 			Msg("OIDC token request")
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"access_token": "test-access-token",
 		})
+		if err != nil {
+			http.Error(w, "Failed to encode token", http.StatusInternalServerError)
+			return
+		}
 	})
 
 	// Catch all handler to log any requests
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(_ http.ResponseWriter, r *http.Request) {
 		log.Info().Str("method", r.Method).Str("url", r.URL.String()).Msg("OIDC request")
 	})
 
