@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/coreos/go-oidc"
@@ -206,10 +205,10 @@ func (c *OIDCClient) GetUserInfo(ctx context.Context, accessToken string) (*User
 }
 
 // GetLogoutURL returns the URL to log out from the OIDC provider
-func (c *OIDCClient) GetLogoutURL(redirectURI string) string {
+func (c *OIDCClient) GetLogoutURL() (string, error) {
 	provider, err := c.getProvider()
 	if err != nil {
-		return ""
+		return "", err
 	}
 	// Get the provider's OpenID configuration
 	oidcConfig := &struct {
@@ -218,10 +217,10 @@ func (c *OIDCClient) GetLogoutURL(redirectURI string) string {
 	err = provider.Claims(oidcConfig)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get provider end session endpoint")
-		return ""
+		return "", fmt.Errorf("failed to get provider end session endpoint: %w", err)
 	}
 
-	return fmt.Sprintf("%s?redirect_uri=%s", oidcConfig.EndSessionEndpoint, url.QueryEscape(redirectURI))
+	return oidcConfig.EndSessionEndpoint, nil
 }
 
 func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
