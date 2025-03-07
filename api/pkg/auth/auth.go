@@ -27,5 +27,5 @@ type OIDC interface {
 	VerifyAccessToken(ctx context.Context, accessToken string) error
 	RefreshAccessToken(ctx context.Context, refreshToken string) (*oauth2.Token, error)
 	GetUserInfo(ctx context.Context, accessToken string) (*UserInfo, error)
-	GetLogoutURL(redirectURI string) string
+	GetLogoutURL() (string, error)
 }
