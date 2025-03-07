@@ -213,6 +213,7 @@ export const useAccountContext = (): IAccountContext => {
       if (authenticated.data.authenticated) {
         const userResponse = await client.v1AuthUserList()
         const user = userResponse.data as IKeycloakUser
+        api.setToken(user.token)
         const win = (window as any)
         if (win.setUser) {
           win.setUser(user)
@@ -224,9 +225,6 @@ export const useAccountContext = (): IAccountContext => {
         }
 
         setUser(user)
-        if (user.token) {
-          api.setToken(user.token)
-        }
 
         // Set up token refresh interval
         setInterval(async () => {
