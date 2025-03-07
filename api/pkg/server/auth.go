@@ -373,14 +373,19 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	// Remove cookies
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
-	logoutURL := s.oidcClient.GetLogoutURL(s.Cfg.WebServer.URL)
+	logoutURL, err := s.oidcClient.GetLogoutURL()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get logout URL")
+		http.Error(w, "Failed to get logout URL: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if logoutURL == "" {
 		log.Error().Msg("empty logout URL")
 		http.Error(w, "empty logout URL", http.StatusBadGateway)
 		return
 	}
 	log.Debug().Str("logout_url", logoutURL).Msg("Redirecting to logout URL")
-	http.Redirect(w, r, logoutURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, logoutURL, http.StatusFound)
 }
 
 // user godoc
