@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -38,22 +37,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
-
-// nolint:unused
-func printStackTrace() {
-	// Allocate a buffer large enough to store the stack trace
-	buf := make([]byte, 1024)
-	for {
-		n := runtime.Stack(buf, false)
-		if n < len(buf) {
-			buf = buf[:n]
-			break
-		}
-		// Double the buffer size if the trace is larger than the current buffer
-		buf = make([]byte, len(buf)*2)
-	}
-	fmt.Printf("Stack trace:\n%s\n", buf)
-}
 
 func NewServeConfig() (*config.ServerConfig, error) {
 	serverConfig, err := config.LoadServerConfig()
