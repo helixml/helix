@@ -78,23 +78,22 @@ func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
 	http.SetCookie(w, cookie)
 }
 
-func (cm *CookieManager) Get(r *http.Request, c Cookie) (string, error) {
+func (cm *CookieManager) Get(r *http.Request, name string) (string, error) {
 	// Check that there's only one cookie with this name, had issues before where there were
 	// multiple cookies with this name
-	cookies := r.CookiesNamed(c.Name)
-	numNamedCookies := 0
-	for _, cookie := range cookies {
-		if cookie.Name == c.Name {
-			numNamedCookies++
+	var found *http.Cookie
+	for _, cookie := range r.Cookies() {
+		if cookie.Name == name {
+			if found != nil {
+				return "", fmt.Errorf("%w: %s", ErrMultiple, name)
+            		}
+			found = cookie
 		}
 	}
-	if numNamedCookies == 0 {
-		return "", fmt.Errorf("%w: %s", ErrNotFound, c.Name)
+	if found == nil {
+		return "", fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
-	if numNamedCookies > 1 {
-		return "", fmt.Errorf("%w: %s", ErrMultiple, c.Name)
-	}
-	return cookies[0].Value, nil
+	return found.Value, nil
 }
 
 func (cm *CookieManager) DeleteAllCookies(w http.ResponseWriter) {
