@@ -126,6 +126,15 @@ spec:
             {{- with .Values.controlplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+            {{- if .Values.secretEnvVariables}}
+            {{- range $envName, $secret := .Values.secretEnvVariables }}
+            - name: {{ $envName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret.secretName }}
+                  key: {{ $secret.secretKey }}
+            {{- end }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -134,7 +143,10 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
           {{- if .Values.controlplane.extraVolumeMounts }}
-          {{- toYaml .Values.controlplane.extraVolumeMounts | nindent 12 }}
+            {{- range $name, $volume := .Values.controlplane.extraVolumeMounts }}
+            - name: {{ $name }}
+            {{- toYaml $volume | nindent 14 }}
+            {{- end }}
           {{- end }}
           {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
             - name: helix-embeddings-socket
@@ -158,18 +170,24 @@ spec:
           args:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.controlplane.sidecar.env }}
+          {{- if .Values.controlplane.sidecar.envVariables }}
           env:
-            {{- toYaml . | nindent 12 }}
+          {{- range $key, $value := .Values.controlplane.sidecar.envVariables }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+          {{- end }}
           {{- end }}
           {{- with .Values.controlplane.sidecar.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end}}
-          {{- with .Values.controlplane.sidecar.volumeMounts }}
+          {{- if .Values.controlplane.sidecar.volumeMounts }}
           volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end}}
+            {{- range $name, $volume := .Values.controlplane.sidecar.volumeMounts }}
+            - name: {{ $name }}
+            {{- toYaml $volume | nindent 14 }}
+            {{- end }}
+          {{- end }}
         {{- end }}
         {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
@@ -234,7 +252,10 @@ spec:
       - name: helix-embeddings-socket
         emptyDir: {}
       {{- if .Values.controlplane.extraVolumes }}
-      {{- toYaml .Values.controlplane.extraVolumes | nindent 6 }}
+      {{- range $name, $volume := .Values.controlplane.extraVolumes }}
+      - name: {{ $name }}
+      {{- toYaml $volume | nindent 8 }}
+      {{- end }}
       {{- end }}
       {{- if .Values.persistence.enabled }}     
       - name: controlplane-storage

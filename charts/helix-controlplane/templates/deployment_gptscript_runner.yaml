@@ -1,3 +1,4 @@
+{{- if .Values.gptscript.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,3 +56,4 @@ spec:
               value: "{{ .Values.gptscript.maxTasks }}"
             - name: GPTSCRIPT_PROVIDER_{{ include "helix-controlplane.fullname" . | replace "." "_" | replace "-" "_" | upper }}_API_KEY
               value: "{{ .Values.envVariables.HELIX_API_KEY }}"
+{{- end }}
