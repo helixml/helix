@@ -27,7 +27,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
-import VisibilityIcon from '@mui/icons-material/Visibility';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import debounce from 'lodash/debounce';
 import useAccount from '../../hooks/useAccount';
@@ -55,7 +54,6 @@ interface KnowledgeEditorProps {
 }
 
 const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId, onRequestSave }) => {
-  const [localKnowledgeSources, setLocalKnowledgeSources] = useState<IKnowledgeSource[]>([]);
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const { error: snackbarError, info: snackbarInfo, success: snackbarSuccess } = useSnackbar();
