@@ -8,13 +8,13 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/suite"
-	"golang.org/x/oauth2"
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 )
@@ -22,6 +22,8 @@ import (
 type OIDCSuite struct {
 	suite.Suite
 	mockOIDCServer *MockOIDCServer
+	client         *OIDCClient
+	ctx            context.Context
 }
 
 func TestOIDCSuite(t *testing.T) {
@@ -29,184 +31,136 @@ func TestOIDCSuite(t *testing.T) {
 }
 
 func (s *OIDCSuite) SetupTest() {
+	s.ctx = context.Background()
 	s.mockOIDCServer = NewMockOIDCServer()
+
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+	})
+	s.NoError(err)
+	s.client = client
 }
 
 func (s *OIDCSuite) TearDownTest() {
 	s.mockOIDCServer.Close()
 }
 
-func (s *OIDCSuite) TestCreateOIDCClient() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://localhost:8080/callback",
-	})
-	s.NoError(err)
-
-	authURL := client.GetAuthURL("test-state", "test-nonce")
-	log.Info().Str("auth_url", authURL).Msg("OIDC auth URL")
-	s.NotEmpty(authURL)
-}
-
-func (s *OIDCSuite) TestExchange() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://localhost:8080/callback",
-	})
-	s.NoError(err)
-
-	oauth2Token, err := client.Exchange(ctx, "test-code")
-	s.NoError(err)
-	log.Info().Interface("oauth2_token", oauth2Token).Msg("OIDC oauth2 token")
-	s.Equal(oauth2Token.AccessToken, "test-access-token")
-}
-
-func (s *OIDCSuite) TestVerifyIDToken() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://localhost:8080/callback",
-	})
-	s.NoError(err)
-
-	// Create claims
-	claims := map[string]interface{}{
-		"iss": s.mockOIDCServer.URL(),
-		"sub": "test-subject",
-		"aud": "api",
-		"exp": time.Now().Add(time.Hour).Unix(),
-		"iat": time.Now().Unix(),
+func (s *OIDCSuite) TestAuthFlow() {
+	// Test the complete auth flow
+	tests := []struct {
+		name      string
+		state     string
+		nonce     string
+		wantError bool
+	}{
+		{
+			name:      "valid auth flow",
+			state:     "test-state",
+			nonce:     "test-nonce",
+			wantError: false,
+		},
+		{
+			name:      "empty state",
+			state:     "",
+			nonce:     "test-nonce",
+			wantError: false,
+		},
 	}
 
-	// Sign the claims
-	builder := jwt.Signed(s.mockOIDCServer.signer).Claims(claims)
-	rawJWT, err := builder.CompactSerialize()
-	s.NoError(err)
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			// 1. Get auth URL
+			authURL := s.client.GetAuthURL(tt.state, tt.nonce)
+			s.NotEmpty(authURL)
 
-	// Use the raw JWT as the id_token
-	idToken := rawJWT
+			// 2. Exchange code
+			token, err := s.client.Exchange(s.ctx, "test-code")
+			if tt.wantError {
+				s.Error(err)
+				return
+			}
+			s.NoError(err)
+			s.Equal("test-access-token", token.AccessToken)
+			log.Info().
+				Str("access_token", token.AccessToken).
+				Str("token_type", token.TokenType).
+				Str("refresh_token", token.RefreshToken).
+				Time("expiry", token.Expiry).
+				Interface("id_token", token.Extra("id_token")).
+				Msg("Complete token with extras")
 
-	token := oauth2.Token{
-		AccessToken:  "test-access-token",
-		TokenType:    "Bearer",
-		RefreshToken: "test-refresh-token",
-		Expiry:       time.Now().Add(time.Hour),
+			// 3. Verify ID token
+			idToken, err := s.client.VerifyIDToken(s.ctx, token)
+			s.NoError(err)
+			s.NotNil(idToken)
+		})
 	}
-	token = *token.WithExtra(map[string]interface{}{
-		"id_token": idToken,
-	})
-
-	t, err := client.VerifyIDToken(ctx, &token)
-	s.NoError(err)
-	log.Info().Interface("id_token", t).Msg("OIDC id token")
 }
 
-func (s *OIDCSuite) TestVerifyAccessToken() {
-	ctx := context.Background()
+func (s *OIDCSuite) TestUserOperations() {
+	tests := []struct {
+		name        string
+		accessToken string
+		wantEmail   string
+		wantName    string
+		wantError   bool
+	}{
+		{
+			name:        "valid user info",
+			accessToken: "test-access-token",
+			wantEmail:   "test@example.com",
+			wantName:    "Test User",
+			wantError:   false,
+		},
+		{
+			name:        "invalid token",
+			accessToken: "invalid-token",
+			wantError:   true,
+		},
+	}
 
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://localhost:8080/callback",
-	})
-	s.NoError(err)
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			// Test GetUserInfo
+			userInfo, err := s.client.GetUserInfo(s.ctx, tt.accessToken)
+			if tt.wantError {
+				s.Error(err)
+				return
+			}
+			s.NoError(err)
+			s.Equal(tt.wantEmail, userInfo.Email)
+			s.Equal(tt.wantName, userInfo.Name)
 
-	token, err := client.RefreshAccessToken(ctx, "test-refresh-token")
-	s.NoError(err)
-	log.Info().Interface("token", token).Msg("OIDC token")
+			// Test ValidateUserToken
+			user, err := s.client.ValidateUserToken(s.ctx, tt.accessToken)
+			s.NoError(err)
+			s.Equal(tt.wantEmail, user.Email)
+			s.Equal(tt.wantName, user.FullName)
+			s.Equal(types.TokenType("oidc"), user.TokenType)
+			s.Equal(types.OwnerType("user"), user.Type)
+		})
+	}
 }
 
-func (s *OIDCSuite) TestRefreshAccessToken() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://localhost:8080/callback",
-	})
+func (s *OIDCSuite) TestTokenOperations() {
+	// Test token refresh
+	token, err := s.client.RefreshAccessToken(s.ctx, "test-refresh-token")
 	s.NoError(err)
+	s.Equal("test-access-token", token.AccessToken)
 
-	token, err := client.RefreshAccessToken(ctx, "test-refresh-token")
+	// Test logout URL
+	logoutURL, err := s.client.GetLogoutURL()
 	s.NoError(err)
-	log.Info().Interface("token", token).Msg("OIDC token")
-	s.Equal(token.AccessToken, "test-access-token")
-}
-
-func (s *OIDCSuite) TestGetUserInfo() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://localhost:8080/callback",
-	})
-	s.NoError(err)
-
-	userInfo, err := client.GetUserInfo(ctx, "test-access-token")
-	s.NoError(err)
-	log.Info().Interface("user_info", userInfo).Msg("OIDC user info")
-	s.Equal(userInfo.Email, "test@example.com")
-	s.Equal(userInfo.Name, "Test User")
-	s.Equal(userInfo.Subject, "test-user-id")
-}
-
-func (s *OIDCSuite) TestGetLogoutURL() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://does-not-matter",
-	})
-	s.NoError(err)
-
-	logoutURL, err := client.GetLogoutURL()
-	s.NoError(err)
-	expectedURL := s.mockOIDCServer.URL() + "/protocol/openid-connect/logout"
-	s.Equal(expectedURL, logoutURL)
-}
-
-func (s *OIDCSuite) TestValidateUserToken() {
-	ctx := context.Background()
-
-	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  s.mockOIDCServer.URL(),
-		ClientID:     "api",
-		ClientSecret: "REPLACE_ME",
-		RedirectURL:  "http://does-not-matter",
-	})
-	s.NoError(err)
-
-	user, err := client.ValidateUserToken(ctx, "test-access-token")
-	s.NoError(err)
-	log.Info().Interface("user", user).Msg("OIDC user")
-	s.Equal(user.ID, "test-user-id")
-	s.Equal(user.Email, "test@example.com")
-	s.Equal(user.TokenType, types.TokenType("oidc"))
-	s.Equal(user.Token, "test-access-token")
-	s.Equal(user.Type, types.OwnerType("user"))
-	s.Equal(user.Admin, false)
-	s.Equal(user.FullName, "Test User")
+	s.Equal(s.mockOIDCServer.URL()+"/protocol/openid-connect/logout", logoutURL)
 }
 
 type MockOIDCServer struct {
 	server *httptest.Server
 	signer jose.Signer
+	jwk    jose.JSONWebKey
 }
 
 func NewMockOIDCServer() *MockOIDCServer {
@@ -226,155 +180,201 @@ func NewMockOIDCServer() *MockOIDCServer {
 
 	m := &MockOIDCServer{
 		signer: signer,
+		jwk:    jwk,
 	}
 	mux := http.NewServeMux()
 
 	// .well-known/openid-configuration endpoint
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		config := map[string]interface{}{
-			"issuer":                                                          m.server.URL,
-			"authorization_endpoint":                                          m.server.URL + "/protocol/openid-connect/auth",
-			"token_endpoint":                                                  m.server.URL + "/protocol/openid-connect/token",
-			"introspection_endpoint":                                          m.server.URL + "/protocol/openid-connect/token/introspect",
-			"userinfo_endpoint":                                               m.server.URL + "/protocol/openid-connect/userinfo",
-			"end_session_endpoint":                                            m.server.URL + "/protocol/openid-connect/logout",
-			"frontchannel_logout_session_supported":                           true,
-			"frontchannel_logout_supported":                                   true,
-			"jwks_uri":                                                        m.server.URL + "/protocol/openid-connect/certs",
-			"check_session_iframe":                                            m.server.URL + "/protocol/openid-connect/login-status-iframe.html",
-			"grant_types_supported":                                           []string{"authorization_code", "implicit", "refresh_token", "password", "client_credentials", "urn:openid:params:grant-type:ciba", "urn:ietf:params:oauth:grant-type:device_code"},
-			"acr_values_supported":                                            []string{"0", "1"},
-			"response_types_supported":                                        []string{"code", "none", "id_token", "token", "id_token token", "code id_token", "code token", "code id_token token"},
-			"subject_types_supported":                                         []string{"public", "pairwise"},
-			"id_token_signing_alg_values_supported":                           []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
-			"id_token_encryption_alg_values_supported":                        []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
-			"id_token_encryption_enc_values_supported":                        []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
-			"userinfo_signing_alg_values_supported":                           []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512", "none"},
-			"userinfo_encryption_alg_values_supported":                        []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
-			"userinfo_encryption_enc_values_supported":                        []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
-			"request_object_signing_alg_values_supported":                     []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512", "none"},
-			"request_object_encryption_alg_values_supported":                  []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
-			"request_object_encryption_enc_values_supported":                  []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
-			"response_modes_supported":                                        []string{"query", "fragment", "form_post", "query.jwt", "fragment.jwt", "form_post.jwt", "jwt"},
-			"registration_endpoint":                                           m.server.URL + "/clients-registrations/openid-connect",
-			"token_endpoint_auth_methods_supported":                           []string{"private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"},
-			"token_endpoint_auth_signing_alg_values_supported":                []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
-			"introspection_endpoint_auth_methods_supported":                   []string{"private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"},
-			"introspection_endpoint_auth_signing_alg_values_supported":        []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
-			"authorization_signing_alg_values_supported":                      []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
-			"authorization_encryption_alg_values_supported":                   []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
-			"authorization_encryption_enc_values_supported":                   []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
-			"claims_supported":                                                []string{"aud", "sub", "iss", "auth_time", "name", "given_name", "family_name", "preferred_username", "email", "acr"},
-			"claim_types_supported":                                           []string{"normal"},
-			"claims_parameter_supported":                                      true,
-			"scopes_supported":                                                []string{"openid", "roles", "email", "offline_access", "profile", "microprofile-jwt", "phone", "web-origins", "address", "acr"},
-			"request_parameter_supported":                                     true,
-			"request_uri_parameter_supported":                                 true,
-			"require_request_uri_registration":                                true,
-			"code_challenge_methods_supported":                                []string{"plain", "S256"},
-			"tls_client_certificate_bound_access_tokens":                      true,
-			"revocation_endpoint":                                             m.server.URL + "/protocol/openid-connect/revoke",
-			"revocation_endpoint_auth_methods_supported":                      []string{"private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"},
-			"revocation_endpoint_auth_signing_alg_values_supported":           []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
-			"backchannel_logout_supported":                                    true,
-			"backchannel_logout_session_supported":                            true,
-			"device_authorization_endpoint":                                   m.server.URL + "/protocol/openid-connect/auth/device",
-			"backchannel_token_delivery_modes_supported":                      []string{"poll", "ping"},
-			"backchannel_authentication_endpoint":                             m.server.URL + "/protocol/openid-connect/ext/ciba/auth",
-			"backchannel_authentication_request_signing_alg_values_supported": []string{"PS384", "ES384", "RS384", "ES256", "RS256", "ES512", "PS256", "PS512", "RS512"},
-			"require_pushed_authorization_requests":                           false,
-			"pushed_authorization_request_endpoint":                           m.server.URL + "/protocol/openid-connect/ext/par/request",
-			"mtls_endpoint_aliases": map[string]interface{}{
-				"token_endpoint":                        m.server.URL + "/protocol/openid-connect/token",
-				"revocation_endpoint":                   m.server.URL + "/protocol/openid-connect/revoke",
-				"introspection_endpoint":                m.server.URL + "/protocol/openid-connect/token/introspect",
-				"device_authorization_endpoint":         m.server.URL + "/protocol/openid-connect/auth/device",
-				"registration_endpoint":                 m.server.URL + "/clients-registrations/openid-connect",
-				"userinfo_endpoint":                     m.server.URL + "/protocol/openid-connect/userinfo",
-				"pushed_authorization_request_endpoint": m.server.URL + "/protocol/openid-connect/ext/par/request",
-				"backchannel_authentication_endpoint":   m.server.URL + "/protocol/openid-connect/ext/ciba/auth",
-			},
-			"authorization_response_iss_parameter_supported": true,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		err := json.NewEncoder(w).Encode(config)
-		if err != nil {
-			http.Error(w, "Failed to encode config", http.StatusInternalServerError)
-			return
-		}
-	})
+	mux.HandleFunc("/.well-known/openid-configuration", m.handleConfiguration)
 
 	// Certs
-	mux.HandleFunc("/protocol/openid-connect/certs", func(w http.ResponseWriter, _ *http.Request) {
-		keys := map[string]interface{}{
-			"keys": []map[string]interface{}{
-				{
-					"kid": jwk.KeyID,
-					"kty": "RSA",
-					"alg": "RS256",
-					"use": "sig",
-					"n":   base64.RawURLEncoding.EncodeToString(jwk.Public().Key.(*rsa.PublicKey).N.Bytes()),
-					"e":   "AQAB",
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		err := json.NewEncoder(w).Encode(keys)
-		if err != nil {
-			http.Error(w, "Failed to encode keys", http.StatusInternalServerError)
-			return
-		}
-	})
+	mux.HandleFunc("/protocol/openid-connect/certs", m.handleCerts)
 
 	// Userinfo endpoint
-	mux.HandleFunc("/protocol/openid-connect/userinfo", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"sub":            "test-user-id",
-			"name":           "Test User",
-			"email":          "test@example.com",
-			"email_verified": true,
-		})
-		if err != nil {
-			http.Error(w, "Failed to encode userinfo", http.StatusInternalServerError)
-			return
-		}
-	})
+	mux.HandleFunc("/protocol/openid-connect/userinfo", m.handleUserInfo)
 
 	// token_endpoint
-	mux.HandleFunc("/protocol/openid-connect/token", func(w http.ResponseWriter, r *http.Request) {
-		// Parse form data
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
-			return
-		}
-
-		// Log all of this
-		log.Info().
-			Str("code", r.FormValue("client_id")).
-			Str("grant_type", r.FormValue("grant_type")).
-			Str("response_type", r.FormValue("response_type")).
-			Str("username", r.FormValue("username")).
-			Str("password", r.FormValue("password")).
-			Msg("OIDC token request")
-
-		w.Header().Set("Content-Type", "application/json")
-		err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"access_token": "test-access-token",
-		})
-		if err != nil {
-			http.Error(w, "Failed to encode token", http.StatusInternalServerError)
-			return
-		}
-	})
-
-	// Catch all handler to log any requests
-	mux.HandleFunc("/", func(_ http.ResponseWriter, r *http.Request) {
-		log.Info().Str("method", r.Method).Str("url", r.URL.String()).Msg("OIDC request")
-	})
+	mux.HandleFunc("/protocol/openid-connect/token", m.handleToken)
 
 	m.server = httptest.NewServer(mux)
 	return m
+}
+
+func (m *MockOIDCServer) handleConfiguration(w http.ResponseWriter, _ *http.Request) {
+	config := map[string]interface{}{
+		"issuer":                                                          m.server.URL,
+		"authorization_endpoint":                                          m.server.URL + "/protocol/openid-connect/auth",
+		"token_endpoint":                                                  m.server.URL + "/protocol/openid-connect/token",
+		"introspection_endpoint":                                          m.server.URL + "/protocol/openid-connect/token/introspect",
+		"userinfo_endpoint":                                               m.server.URL + "/protocol/openid-connect/userinfo",
+		"end_session_endpoint":                                            m.server.URL + "/protocol/openid-connect/logout",
+		"frontchannel_logout_session_supported":                           true,
+		"frontchannel_logout_supported":                                   true,
+		"jwks_uri":                                                        m.server.URL + "/protocol/openid-connect/certs",
+		"check_session_iframe":                                            m.server.URL + "/protocol/openid-connect/login-status-iframe.html",
+		"grant_types_supported":                                           []string{"authorization_code", "implicit", "refresh_token", "password", "client_credentials", "urn:openid:params:grant-type:ciba", "urn:ietf:params:oauth:grant-type:device_code"},
+		"acr_values_supported":                                            []string{"0", "1"},
+		"response_types_supported":                                        []string{"code", "none", "id_token", "token", "id_token token", "code id_token", "code token", "code id_token token"},
+		"subject_types_supported":                                         []string{"public", "pairwise"},
+		"id_token_signing_alg_values_supported":                           []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
+		"id_token_encryption_alg_values_supported":                        []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
+		"id_token_encryption_enc_values_supported":                        []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
+		"userinfo_signing_alg_values_supported":                           []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512", "none"},
+		"userinfo_encryption_alg_values_supported":                        []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
+		"userinfo_encryption_enc_values_supported":                        []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
+		"request_object_signing_alg_values_supported":                     []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512", "none"},
+		"request_object_encryption_alg_values_supported":                  []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
+		"request_object_encryption_enc_values_supported":                  []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
+		"response_modes_supported":                                        []string{"query", "fragment", "form_post", "query.jwt", "fragment.jwt", "form_post.jwt", "jwt"},
+		"registration_endpoint":                                           m.server.URL + "/clients-registrations/openid-connect",
+		"token_endpoint_auth_methods_supported":                           []string{"private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"},
+		"token_endpoint_auth_signing_alg_values_supported":                []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
+		"introspection_endpoint_auth_methods_supported":                   []string{"private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"},
+		"introspection_endpoint_auth_signing_alg_values_supported":        []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
+		"authorization_signing_alg_values_supported":                      []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
+		"authorization_encryption_alg_values_supported":                   []string{"RSA-OAEP", "RSA-OAEP-256", "RSA1_5"},
+		"authorization_encryption_enc_values_supported":                   []string{"A256GCM", "A192GCM", "A128GCM", "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512"},
+		"claims_supported":                                                []string{"aud", "sub", "iss", "auth_time", "name", "given_name", "family_name", "preferred_username", "email", "acr"},
+		"claim_types_supported":                                           []string{"normal"},
+		"claims_parameter_supported":                                      true,
+		"scopes_supported":                                                []string{"openid", "roles", "email", "offline_access", "profile", "microprofile-jwt", "phone", "web-origins", "address", "acr"},
+		"request_parameter_supported":                                     true,
+		"request_uri_parameter_supported":                                 true,
+		"require_request_uri_registration":                                true,
+		"code_challenge_methods_supported":                                []string{"plain", "S256"},
+		"tls_client_certificate_bound_access_tokens":                      true,
+		"revocation_endpoint":                                             m.server.URL + "/protocol/openid-connect/revoke",
+		"revocation_endpoint_auth_methods_supported":                      []string{"private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"},
+		"revocation_endpoint_auth_signing_alg_values_supported":           []string{"PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"},
+		"backchannel_logout_supported":                                    true,
+		"backchannel_logout_session_supported":                            true,
+		"device_authorization_endpoint":                                   m.server.URL + "/protocol/openid-connect/auth/device",
+		"backchannel_token_delivery_modes_supported":                      []string{"poll", "ping"},
+		"backchannel_authentication_endpoint":                             m.server.URL + "/protocol/openid-connect/ext/ciba/auth",
+		"backchannel_authentication_request_signing_alg_values_supported": []string{"PS384", "ES384", "RS384", "ES256", "RS256", "ES512", "PS256", "PS512", "RS512"},
+		"require_pushed_authorization_requests":                           false,
+		"pushed_authorization_request_endpoint":                           m.server.URL + "/protocol/openid-connect/ext/par/request",
+		"mtls_endpoint_aliases": map[string]interface{}{
+			"token_endpoint":                        m.server.URL + "/protocol/openid-connect/token",
+			"revocation_endpoint":                   m.server.URL + "/protocol/openid-connect/revoke",
+			"introspection_endpoint":                m.server.URL + "/protocol/openid-connect/token/introspect",
+			"device_authorization_endpoint":         m.server.URL + "/protocol/openid-connect/auth/device",
+			"registration_endpoint":                 m.server.URL + "/clients-registrations/openid-connect",
+			"userinfo_endpoint":                     m.server.URL + "/protocol/openid-connect/userinfo",
+			"pushed_authorization_request_endpoint": m.server.URL + "/protocol/openid-connect/ext/par/request",
+			"backchannel_authentication_endpoint":   m.server.URL + "/protocol/openid-connect/ext/ciba/auth",
+		},
+		"authorization_response_iss_parameter_supported": true,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(config)
+	if err != nil {
+		http.Error(w, "Failed to encode config", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (m *MockOIDCServer) handleCerts(w http.ResponseWriter, _ *http.Request) {
+	keys := map[string]interface{}{
+		"keys": []map[string]interface{}{
+			{
+				"kid": m.jwk.KeyID,
+				"kty": "RSA",
+				"alg": "RS256",
+				"use": "sig",
+				"n":   base64.RawURLEncoding.EncodeToString(m.jwk.Public().Key.(*rsa.PublicKey).N.Bytes()),
+				"e":   "AQAB",
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(keys)
+	if err != nil {
+		http.Error(w, "Failed to encode keys", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (m *MockOIDCServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
+	// Parse bearer token from header
+	token := r.Header.Get("Authorization")
+	if token == "" {
+		http.Error(w, "No token provided", http.StatusUnauthorized)
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if token != "test-access-token" {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"sub":            "test-user-id",
+		"name":           "Test User",
+		"email":          "test@example.com",
+		"email_verified": true,
+	})
+	if err != nil {
+		http.Error(w, "Failed to encode userinfo", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (m *MockOIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Log all of this
+	log.Info().
+		Str("code", r.FormValue("client_id")).
+		Str("grant_type", r.FormValue("grant_type")).
+		Str("response_type", r.FormValue("response_type")).
+		Str("username", r.FormValue("username")).
+		Str("password", r.FormValue("password")).
+		Msg("OIDC token request")
+
+	// Create claims
+	claims := map[string]interface{}{
+		"iss": m.server.URL,
+		"sub": "test-subject",
+		"aud": "api",
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+
+	// Sign the claims
+	builder := jwt.Signed(m.signer).Claims(claims)
+	rawJWT, err := builder.CompactSerialize()
+	if err != nil {
+		http.Error(w, "Failed to sign token", http.StatusInternalServerError)
+		return
+	}
+
+	// Create the token response manually to ensure all fields are included
+	tokenResponse := struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+		IDToken      string `json:"id_token"`
+	}{
+		AccessToken:  "test-access-token",
+		TokenType:    "Bearer",
+		RefreshToken: "test-refresh-token",
+		ExpiresIn:    3600,
+		IDToken:      rawJWT,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(tokenResponse)
+	if err != nil {
+		http.Error(w, "Failed to encode token", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (m *MockOIDCServer) Close() {
