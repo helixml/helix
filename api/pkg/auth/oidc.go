@@ -21,7 +21,6 @@ type OIDCClient struct {
 	cfg          OIDCConfig
 	provider     *oidc.Provider
 	oauth2Config *oauth2.Config
-	providerURL  string
 	adminConfig  *AdminConfig
 }
 
