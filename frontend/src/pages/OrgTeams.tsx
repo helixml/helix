@@ -23,14 +23,13 @@ const OrgTeams: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
 
-  console.log('--------------------------------------------')
-  console.dir(account.organizationTools.organization)
-  
   // State for the edit/delete modals
   const [editTeam, setEditTeam] = useState<TypesTeam | undefined>()
   const [deleteTeam, setDeleteTeam] = useState<TypesTeam | undefined>()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
+  const organization = account.organizationTools.organization
 
   // Handler for creating a new team
   const handleCreate = () => {
@@ -91,7 +90,7 @@ const OrgTeams: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={ account.organizationTools.organization?.display_name || 'Organization Teams' }
+      breadcrumbTitle={ organization ? `${organization.display_name} : Teams` : 'Organization Teams' }
       breadcrumbShowHome={ false }
       topbarContent={isOrgOwner ? (
         <Button

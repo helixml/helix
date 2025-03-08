@@ -437,7 +437,7 @@ export default function useOrganizations(): IOrganizationTools {
 
   // Remove a member from a team
   const removeTeamMember = useCallback(async (organizationId: string, teamId: string, userId: string) => {
-    if (organizationId) {
+    if (!organizationId) {
       snackbar.error('No active organization')
       return false
     }

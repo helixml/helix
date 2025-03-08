@@ -9,17 +9,20 @@ import useTheme from '@mui/material/styles/useTheme'
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
 
-import { TypesOrganizationMembership } from '../../api/api'
+import { TypesOrganizationMembership, TypesTeamMembership } from '../../api/api'
+
+// Type for membership that can be either organization or team membership
+type Membership = TypesOrganizationMembership | TypesTeamMembership
 
 // Props for the MembersTable component
 interface MembersTableProps {
-  data: TypesOrganizationMembership[]
-  onDelete: (member: TypesOrganizationMembership) => void
+  data: Membership[]
+  onDelete: (member: Membership) => void
   loading?: boolean
   currentUserID?: string
 }
 
-// Display a table of organization members with their roles and actions
+// Display a table of organization or team members with their roles and actions
 const MembersTable: FC<MembersTableProps> = ({ 
   data, 
   onDelete, 
@@ -28,11 +31,8 @@ const MembersTable: FC<MembersTableProps> = ({
 }) => {
   const theme = useTheme()
 
-  console.log('--------------------------------------------')
-  console.dir(data)
-
   // Get the role display name and color
-  const getRoleDisplay = (role: string) => {
+  const getRoleDisplay = (role: string | undefined) => {
     switch (role) {
       case 'owner':
         return { label: 'Owner', color: 'error' }
@@ -52,7 +52,10 @@ const MembersTable: FC<MembersTableProps> = ({
   // Transform member data for the table display
   const tableData = useMemo(() => {
     return data.map(member => {
-      const roleDisplay = getRoleDisplay(member.role || 'member')
+      // For organization memberships, use the role field
+      // For team memberships, default to 'member' since they don't have roles
+      const isOrgMembership = 'role' in member
+      const roleDisplay = getRoleDisplay(isOrgMembership ? member.role : 'member')
 
       // TODO: this is because the props are coming in as uppercase
       // let's fix this in the api so the props come through lowercase
@@ -94,24 +97,18 @@ const MembersTable: FC<MembersTableProps> = ({
         pl: 2,
         pr: 2,
       }}>
-        {isCurrentUser ? (
-          <Tooltip title="You cannot remove yourself">
-            <span>
-              <DeleteIcon color="disabled" />
-            </span>
-          </Tooltip>
-        ) : (
+        {!isCurrentUser && (
           <ClickLink
             onClick={() => onDelete(row._data)}
           >
             <Tooltip title="Delete">
-              <DeleteIcon color="error" />
+              <DeleteIcon color="action" />
             </Tooltip>
           </ClickLink>
         )}
       </Box>
     )
-  }, [onDelete, currentUserID, isSelf])
+  }, [onDelete])
 
   return (
     <SimpleTable

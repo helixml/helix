@@ -30,15 +30,33 @@ const OrgPeople: FC = () => {
   // State for the user search modal
   const [searchModalOpen, setSearchModalOpen] = useState(false)
 
+  const organization = account.organizationTools.organization
+
   // Handler for opening the search modal
   const handleAdd = () => {
     setSearchModalOpen(true)
   }
 
   // Handler for adding a member
-  const addMemberToOrganisation = (userId: string) => {
-    console.log('Add member to organization:', userId)
-    // This is just a stub - we'll implement the actual functionality later
+  const addMemberToOrganisation = async (userId: string) => {
+    if (!organization?.id) {
+      snackbar.error('No active organization')
+      return
+    }
+    
+    try {
+      const success = await account.organizationTools.addMemberToOrganization(
+        organization.id,
+        userId
+      )
+      
+      if (success) {
+        setSearchModalOpen(false)
+      }
+    } catch (error) {
+      console.error('Error adding member:', error)
+      snackbar.error('Failed to add member to organization')
+    }
   }
 
   // Handler for initiating delete of a member
@@ -63,9 +81,11 @@ const OrgPeople: FC = () => {
  
   if(!account.user) return null
 
+  const deleteUserAny = deleteMember?.user as any
+
   return (
     <Page
-      breadcrumbTitle={ account.organizationTools.organization?.display_name || 'Organization People' }
+      breadcrumbTitle={ organization ? `${organization.display_name} : People` : 'Organization People' }
       breadcrumbShowHome={ false }
       topbarContent={isOrgOwner ? (
         <Button
@@ -93,7 +113,7 @@ const OrgPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={`member from organization "${deleteUserAny?.FullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />
