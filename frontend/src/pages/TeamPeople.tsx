@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -8,12 +8,13 @@ import AddIcon from '@mui/icons-material/Add'
 import Page from '../components/system/Page'
 import MembersTable from '../components/orgs/MembersTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import UserSearchModal from '../components/orgs/UserSearchModal'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 
-import { TypesOrganizationMembership } from '../api/api'
+import { TypesOrganizationMembership, TypesTeamMembership, TypesTeam } from '../api/api'
 
 // Team People page that lists and manages team members
 const TeamPeople: FC = () => {
@@ -25,30 +26,84 @@ const TeamPeople: FC = () => {
   // State for the delete modal
   const [deleteMember, setDeleteMember] = useState<TypesOrganizationMembership | undefined>()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  
+  // State for the user search modal
+  const [searchModalOpen, setSearchModalOpen] = useState(false)
+  
+  // State for the current team
+  const [currentTeam, setCurrentTeam] = useState<TypesTeam | undefined>()
 
-  // Handler for adding a new member (for now just logs to console)
+  // Extract org_id and team_id parameters from router
+  const orgId = router.params.org_id
+  const teamId = router.params.team_id
+  
+  // Find the current team in the organization's teams array
+  useEffect(() => {
+    if (account.organizationTools.organization?.teams && teamId) {
+      const team = account.organizationTools.organization.teams.find(t => t.id === teamId)
+      setCurrentTeam(team)
+    }
+  }, [account.organizationTools.organization, teamId])
+
+  // Handler for opening the search modal
   const handleAdd = () => {
-    console.log('Add team member clicked - will implement search functionality later')
+    setSearchModalOpen(true)
+  }
+
+  // Handler for adding a team member
+  const addTeamMember = async (userId: string) => {
+    if (!orgId || !teamId) {
+      snackbar.error('Organization or team ID not found')
+      return
+    }
+    
+    try {
+      const success = await account.organizationTools.addTeamMember(
+        orgId,
+        teamId,
+        userId
+      )
+      
+      if (success) {
+        setSearchModalOpen(false)
+      }
+    } catch (error) {
+      console.error('Error adding team member:', error)
+      snackbar.error('Failed to add member to team')
+    }
   }
 
   // Handler for initiating delete of a member
-  const handleDelete = (member: TypesOrganizationMembership) => {
-    setDeleteMember(member)
+  const handleDelete = (member: TypesOrganizationMembership | TypesTeamMembership) => {
+    setDeleteMember(member as TypesOrganizationMembership)
     setDeleteDialogOpen(true)
   }
 
   // Handler for confirming member deletion
   const handleConfirmDelete = async () => {
     if (deleteMember) {
-      // TODO: Update this to use team-specific API call instead of organization
-      await account.organizationTools.deleteMemberFromOrganization(account.organizationTools.organization?.id!, deleteMember.user_id!)
-      setDeleteDialogOpen(false)
+      if (!orgId || !teamId) {
+        snackbar.error('Organization or team ID not found')
+        return
+      }
+      
+      try {
+        await account.organizationTools.removeTeamMember(
+          orgId,
+          teamId,
+          deleteMember.user_id!
+        )
+        setDeleteDialogOpen(false)
+      } catch (error) {
+        console.error('Error removing team member:', error)
+        snackbar.error('Failed to remove member from team')
+      }
     }
   }
 
-  // Check if the current user is a team owner 
-  // to determine if they can add/remove members
-  const isTeamOwner = account.user && account.organizationTools.organization?.memberships?.some(
+  // Check if the current user is an organization owner 
+  // to determine if they can add/remove team members
+  const isOrgOwner = account.user && account.organizationTools.organization?.memberships?.some(
     m => m.user_id === account.user?.id && m.role === 'owner'
   )
  
@@ -56,9 +111,9 @@ const TeamPeople: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={ 'Team Members' } // TODO: Update with actual team name
+      breadcrumbTitle={ currentTeam ? `Team: ${currentTeam.name}` : 'Team Members' }
       breadcrumbShowHome={ false }
-      topbarContent={isTeamOwner ? (
+      topbarContent={isOrgOwner ? (
         <Button
           variant="contained"
           color="primary"
@@ -71,13 +126,17 @@ const TeamPeople: FC = () => {
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3 }}>
-          {account.organizationTools.organization?.memberships && (
+          {currentTeam?.memberships ? (
             <MembersTable
-              data={account.organizationTools.organization.memberships}
+              data={currentTeam.memberships}
               onDelete={handleDelete}
               loading={account.organizationTools.loading}
               currentUserID={account.user?.id}
             />
+          ) : (
+            <Typography variant="body1" color="text.secondary" align="center">
+              {account.organizationTools.loading ? 'Loading team members...' : 'No team members found'}
+            </Typography>
           )}
         </Box>
       </Container>
@@ -87,6 +146,12 @@ const TeamPeople: FC = () => {
         title={`team member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
+      />
+      
+      <UserSearchModal
+        open={searchModalOpen}
+        onClose={() => setSearchModalOpen(false)}
+        onAddMember={addTeamMember}
       />
     </Page>
   )
