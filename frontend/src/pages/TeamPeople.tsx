@@ -109,6 +109,10 @@ const TeamPeople: FC = () => {
   if(!organization) return null
   if(!currentTeam) return null
 
+  console.log('--------------------------------------------')
+  console.log('isOrgOwner', isOrgOwner)
+  console.log('--------------------------------------------')
+
   return (
     <Page
       breadcrumbTitle={ currentTeam ? `${organization.display_name} : Teams : ${currentTeam.name} : Members` : 'Team Members' }
@@ -132,6 +136,7 @@ const TeamPeople: FC = () => {
               onDelete={handleDelete}
               loading={account.organizationTools.loading}
               showRoles={false}
+              isOrgAdmin={isOrgOwner}
             />
           ) : (
             <Typography variant="body1" color="text.secondary" align="center">

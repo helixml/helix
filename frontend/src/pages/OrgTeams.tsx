@@ -109,6 +109,7 @@ const OrgTeams: FC = () => {
               onEdit={handleEdit}
               onDelete={handleDelete}
               loading={account.organizationTools.loading}
+              isOrgAdmin={isOrgOwner}
             />
           )}
         </Box>
