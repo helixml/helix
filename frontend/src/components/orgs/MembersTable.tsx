@@ -129,13 +129,17 @@ const MembersTable: FC<MembersTableProps> = ({
             </Tooltip>
           </ClickLink>
         )}
-        <ClickLink
-          onClick={() => onDelete(row._data)}
-        >
-          <Tooltip title="Delete">
-            <DeleteIcon color="action" />
-          </Tooltip>
-        </ClickLink>
+        {
+          isOrgAdmin && (
+            <ClickLink
+              onClick={() => onDelete(row._data)}
+            >
+              <Tooltip title="Delete">
+                <DeleteIcon color="action" />
+              </Tooltip>
+            </ClickLink>
+          )
+        }
       </Box>
     )
   }, [onDelete, showRoles, isOrgAdmin, handleEdit])
@@ -155,7 +159,7 @@ const MembersTable: FC<MembersTableProps> = ({
           title: 'Role',
         }] : [])]}
         data={tableData}
-        getActions={getActions}
+        getActions={ isOrgAdmin ? getActions : undefined }
         loading={loading}
       />
 

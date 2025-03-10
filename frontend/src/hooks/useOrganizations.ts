@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
-import useAccount from './useAccount'
 import useRouter from './useRouter'
 import { extractErrorMessage } from './useErrorCallback'
 import bluebird from 'bluebird'
@@ -27,7 +26,6 @@ export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
   organization?: TypesOrganization,
-  isOrgAdmin: boolean,
   loadOrganizations: () => Promise<void>,
   createOrganization: (org: TypesOrganization) => Promise<boolean>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
@@ -52,7 +50,6 @@ export interface IOrganizationTools {
 export const defaultOrganizationTools: IOrganizationTools = {
   organizations: [],
   loading: false,
-  isOrgAdmin: false,
   loadOrganizations: async () => { },
   createOrganization: async () => false,
   updateOrganization: async () => false,
@@ -74,15 +71,19 @@ export const defaultOrganizationTools: IOrganizationTools = {
   searchUsers: async () => ({ users: [], pagination: { total: 0, limit: 0, offset: 0 } }),
 }
 
+/*
+
+  WARNING: you cannot use `useAccount` inside this hook
+  because this hook is used inside `useAccount`
+  
+*/
 export default function useOrganizations(): IOrganizationTools {
   const [organizations, setOrganizations] = useState<TypesOrganization[]>([])
   const [organization, setOrganization] = useState<TypesOrganization | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [initialized, setInitialized] = useState(false)
-  const [isOrgAdmin, setIsOrgAdmin] = useState(false)
   const api = useApi()
   const snackbar = useSnackbar()
-  const account = useAccount()
   const router = useRouter()
   // Extract org_id parameter from router
   const orgIdParam = router.params.org_id
@@ -166,19 +167,11 @@ export default function useOrganizations(): IOrganizationTools {
       }
 
       setOrganization(completeOrg)
-      
-      // Calculate and set isOrgAdmin state
-      const isAdmin = (account.user && completeOrg.memberships?.some(
-          m => m.user_id === account.user?.id && m.role === 'owner'
-        ) || false)
-      
-      setIsOrgAdmin(isAdmin)
     } catch (error) {
       console.error(`Error loading organization ${id}:`, error)
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || `Error loading organization details`)
       setOrganization(undefined)
-      setIsOrgAdmin(false);
     } finally {
       setLoading(false)
     }
@@ -578,7 +571,6 @@ export default function useOrganizations(): IOrganizationTools {
     organizations,
     loading,
     organization,
-    isOrgAdmin,
     loadOrganizations,
     createOrganization,
     updateOrganization,

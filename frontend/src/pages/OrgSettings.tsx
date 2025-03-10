@@ -110,6 +110,10 @@ const OrgSettings: FC = () => {
   }, [organization])
 
   if(!account.user) return null
+  // if(!account.isOrgMember) return null
+
+  // Determine if the user can edit the organization settings
+  const isReadOnly = !account.isOrgAdmin
 
   return (
     <Page
@@ -120,6 +124,11 @@ const OrgSettings: FC = () => {
         <Box sx={{ mt: 3, p: 2 }}>
           <Typography variant="h5" component="h2" gutterBottom>
             Organization Settings
+            {isReadOnly && (
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+                (Read-only: Admin privileges required to make changes)
+              </Typography>
+            )}
           </Typography>
           
           {organization ? (
@@ -131,11 +140,14 @@ const OrgSettings: FC = () => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onBlur={handleNameBlur}
-                disabled={loading}
+                disabled={loading || isReadOnly}
                 required
                 error={!!errors.name}
                 helperText={errors.name || "Human-readable name for the organization"}
                 sx={{ mb: 3 }}
+                InputProps={{
+                  readOnly: isReadOnly,
+                }}
               />
               
               {/* Slug field (formerly Name) */}
@@ -144,24 +156,29 @@ const OrgSettings: FC = () => {
                 fullWidth
                 value={slug}
                 onChange={handleSlugChange}
-                disabled={loading}
+                disabled={loading || isReadOnly}
                 required
                 error={!!errors.slug}
                 helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
                 sx={{ mb: 3 }}
+                InputProps={{
+                  readOnly: isReadOnly,
+                }}
               />
               
-              <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  onClick={handleSubmit}
-                  variant="contained"
-                  color="primary"
-                  disabled={loading}
-                  startIcon={loading ? <CircularProgress size={20} /> : null}
-                >
-                  Update Organization
-                </Button>
-              </Box>
+              {!isReadOnly && (
+                <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    onClick={handleSubmit}
+                    variant="contained"
+                    color="primary"
+                    disabled={loading}
+                    startIcon={loading ? <CircularProgress size={20} /> : null}
+                  >
+                    Update Organization
+                  </Button>
+                </Box>
+              )}
             </Box>
           ) : (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>

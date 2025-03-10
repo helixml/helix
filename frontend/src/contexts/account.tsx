@@ -27,6 +27,7 @@ export interface IAccountContext {
   admin: boolean,
   organizationTools: IOrganizationTools,
   isOrgAdmin: boolean,
+  isOrgMember: boolean,
   user?: IKeycloakUser,
   token?: string,
   tokenUrlEscaped?: string,
@@ -53,6 +54,7 @@ export const AccountContext = createContext<IAccountContext>({
   admin: false,
   organizationTools: defaultOrganizationTools,
   isOrgAdmin: false,
+  isOrgMember: false,
   loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
@@ -126,6 +128,34 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [
     user,
+  ])
+
+  const isOrgAdmin = useMemo(() => {
+    if(admin) return true
+    if(!organizationTools.organization) return false
+    if(!user) return false
+    return organizationTools.organization?.memberships?.some(
+      m => m.user_id === user?.id && m.role === 'owner'
+    ) ? true : false
+  }, [
+    admin,
+    organizationTools.organization,
+    user,
+  ])
+  
+  const isOrgMember = useMemo(() => {
+    if(admin) return true
+    if(isOrgAdmin) return true
+    if(!user) return false
+    if(!organizationTools.organization) return false
+    return organizationTools.organization?.memberships?.some(
+      m => m.user_id === user?.id
+    ) ? true : false
+  }, [
+    admin,
+    organizationTools.organization,
+    user,
+    isOrgAdmin,
   ])
 
   const tokenUrlEscaped = useMemo(() => {
@@ -306,7 +336,8 @@ export const useAccountContext = (): IAccountContext => {
     fetchProviderEndpoints,
     providerEndpoints,
     organizationTools,
-    isOrgAdmin: admin || organizationTools.isOrgAdmin,
+    isOrgAdmin,
+    isOrgMember,
   }
 }
 

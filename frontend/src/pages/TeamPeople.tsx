@@ -103,7 +103,7 @@ const TeamPeople: FC = () => {
   }
 
   // Use the isOrgAdmin property from the useOrganizations hook
-  const isOrgOwner = account.organizationTools.isOrgAdmin
+  const isOrgOwner = account.isOrgAdmin
 
   if(!account.user) return null
   if(!organization) return null
