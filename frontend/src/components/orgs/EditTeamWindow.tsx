@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useRef } from 'react'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -25,16 +25,21 @@ const EditTeamWindow: FC<EditTeamWindowProps> = ({
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<{name?: string}>({})
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
-  // Reset state when modal opens/closes or team changes
+  // Focus the name input when the dialog opens
   useEffect(() => {
-    if (team) {
-      setName(team.name || '')
-    } else {
-      setName('')
+    if(open) {
+      if(team) {
+        setName(team.name || '')
+      }
+      setTimeout(() => {
+        if(nameInputRef.current) {
+          nameInputRef.current.focus()
+        }
+      }, 300)
     }
-    setErrors({})
-  }, [team, open])
+  }, [open]);
 
   // Validate form before submission
   const validateForm = () => {
@@ -77,12 +82,29 @@ const EditTeamWindow: FC<EditTeamWindowProps> = ({
     }
   }
 
+  // Handle Enter key press with optimistic update
+  const handleEnterKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      
+      // If we're editing an existing team, update its name optimistically
+      if (team) {
+        team.name = name;
+      }
+      
+      handleSubmit();
+    }
+  }
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
       maxWidth="sm"
       fullWidth
+      // Add this to prevent Dialog from stealing focus
+      disableAutoFocus
+      disableEnforceFocus
     >
       <DialogTitle>
         {team ? 'Edit Team' : 'Create Team'}
@@ -91,6 +113,7 @@ const EditTeamWindow: FC<EditTeamWindowProps> = ({
         <Box sx={{ mt: 2 }}>
           {/* Team name field */}
           <TextField
+            inputRef={nameInputRef}
             label="Team Name"
             fullWidth
             value={name}
@@ -99,6 +122,7 @@ const EditTeamWindow: FC<EditTeamWindowProps> = ({
             required
             error={!!errors.name}
             helperText={errors.name || "Name for the team"}
+            onKeyDown={handleEnterKeyPress}
           />
         </Box>
       </DialogContent>
