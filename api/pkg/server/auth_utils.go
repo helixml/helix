@@ -138,6 +138,7 @@ func hasUserOrRunner(user *types.User) bool {
 }
 
 func isAdmin(user *types.User) bool {
+	log.Info().Interface("user", user).Msg("isAdmin")
 	return hasUser(user) && user.Admin
 }
 

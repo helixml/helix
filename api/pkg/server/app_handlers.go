@@ -93,9 +93,11 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		filteredApps = append(filteredApps, app)
 	}
 
+	log.Info().Str("user_id", user.ID).Msg("listApps got filteredApps")
+
 	filteredApps = s.populateAppOwner(ctx, filteredApps)
 
-	log.Info().Str("user_id", user.ID).Msg("listApps got filteredApps")
+	log.Info().Str("user_id", user.ID).Msg("listApps populatedAppOwner")
 
 	return filteredApps, nil
 }
