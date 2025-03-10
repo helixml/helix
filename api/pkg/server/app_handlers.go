@@ -57,7 +57,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	log.Info().Str("user_id", user.ID).Msg("listApps got userApps")
+	log.Info().Str("user_id", user.ID).Interface("userApps", userApps).Msg("listApps got userApps")
 
 	// remove global apps from the list in case this is the admin user who created the global app
 	nonGlobalUserApps := []*types.App{}
@@ -67,7 +67,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		}
 	}
 
-	log.Info().Str("user_id", user.ID).Msg("listApps got nonGlobalUserApps")
+	log.Info().Str("user_id", user.ID).Interface("nonGlobalUserApps", nonGlobalUserApps).Msg("listApps got nonGlobalUserApps")
 
 	globalApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
 		Global: true,
@@ -76,7 +76,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	log.Info().Str("user_id", user.ID).Msg("listApps got globalApps")
+	log.Info().Str("user_id", user.ID).Interface("globalApps", globalApps).Msg("listApps got globalApps")
 
 	allApps := append(nonGlobalUserApps, globalApps...)
 
@@ -93,7 +93,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		filteredApps = append(filteredApps, app)
 	}
 
-	log.Info().Str("user_id", user.ID).Msg("listApps got filteredApps")
+	log.Info().Str("user_id", user.ID).Interface("filteredApps", filteredApps).Msg("listApps got filteredApps")
 
 	filteredApps = s.populateAppOwner(ctx, filteredApps)
 
@@ -105,6 +105,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App) []*types.App {
 	userMap := make(map[string]*types.User)
 
+	log.Info().Msg("populateAppOwner start")
 	for _, app := range apps {
 		// Populate the user map if the user is not already in the map
 		if _, ok := userMap[app.Owner]; !ok {
@@ -116,11 +117,13 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App
 			userMap[app.Owner] = appOwner
 		}
 	}
+	log.Info().Interface("userMap", userMap).Msg("populateAppOwner got userMap")
 
 	// Assign the user to the app
 	for _, app := range apps {
 		app.User = *userMap[app.Owner]
 	}
+	log.Info().Interface("apps", apps).Msg("populateAppOwner got apps")
 
 	return apps
 }
