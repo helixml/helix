@@ -61,6 +61,10 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
     onAddMember(user.id)
     onClose()
   }, [onAddMember, onClose])
+
+  useEffect(() => {
+    setSearchQuery('')
+  }, [open])
   
   // Perform search when debounced query changes
   useEffect(() => {
@@ -106,7 +110,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   // Get the results message
   const getResultsMessage = () => {
     if (searchResults.length === 0 && !searching && debouncedSearchQuery.length >= 2) {
-      return 'No users found. Try a different search term.';
+      return `${ messagePrefix ? messagePrefix + ' ' : '' }No users found. Try a different search term.`;
     } else if (searchResults.length > 0) {
       const resultsText = `Found ${searchResults.length} user${searchResults.length === 1 ? '' : 's'}`;
       return messagePrefix ? `${messagePrefix} ${resultsText}` : resultsText;

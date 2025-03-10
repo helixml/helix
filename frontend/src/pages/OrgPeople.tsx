@@ -14,7 +14,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 
-import { TypesOrganizationMembership } from '../api/api'
+import { TypesOrganizationMembership, TypesOrganizationRole } from '../api/api'
 
 // Organization People page that lists and manages members
 const OrgPeople: FC = () => {
@@ -61,6 +61,12 @@ const OrgPeople: FC = () => {
 
   // Handler for initiating delete of a member
   const handleDelete = (member: TypesOrganizationMembership) => {
+    // Check if this is the last owner and prevent deletion
+    if (member.role === 'owner' && isLastOwner(member)) {
+      snackbar.error('Cannot delete the last owner of the organization')
+      return
+    }
+    
     setDeleteMember(member)
     setDeleteDialogOpen(true)
   }
@@ -71,6 +77,44 @@ const OrgPeople: FC = () => {
       await account.organizationTools.deleteMemberFromOrganization(account.organizationTools.organization?.id!, deleteMember.user_id!)
       setDeleteDialogOpen(false)
     }
+  }
+
+  // Handler for changing a user's role
+  const handleUserRoleChanged = async (member: TypesOrganizationMembership, newRole: TypesOrganizationRole) => {
+    if (!organization?.id) {
+      snackbar.error('No active organization')
+      return
+    }
+
+    // Check if changing the last owner to a member
+    if (member.role === 'owner' && newRole === 'member' && isLastOwner(member)) {
+      snackbar.error('Cannot change the role of the last owner')
+      return
+    }
+
+    try {
+      // Implement the role change using the organization tools
+      const success = await account.organizationTools.updateOrganizationMemberRole(
+        organization.id,
+        member.user_id!,
+        newRole
+      )
+      
+      if (success) {
+        snackbar.success(`User role updated to ${newRole}`)
+      }
+    } catch (error) {
+      console.error('Error updating member role:', error)
+      snackbar.error('Failed to update member role')
+    }
+  }
+
+  // Check if the given member is the last owner in the organization
+  const isLastOwner = (member: TypesOrganizationMembership): boolean => {
+    if (!organization?.memberships) return false
+    
+    const owners = organization.memberships.filter(m => m.role === 'owner')
+    return owners.length === 1 && owners[0].user_id === member.user_id
   }
 
   // Check if the current user is an organization owner 
@@ -104,8 +148,10 @@ const OrgPeople: FC = () => {
             <MembersTable
               data={account.organizationTools.organization.memberships}
               onDelete={handleDelete}
+              onUserRoleChanged={handleUserRoleChanged}
               loading={account.organizationTools.loading}
               showRoles={true}
+              isOrgAdmin={isOrgOwner}
             />
           )}
         </Box>

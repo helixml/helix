@@ -125,6 +125,45 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 		return
 	}
 
+	// Get the membership we're trying to remove
+	memberToRemove, err := apiServer.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         userIDToRemove,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting organization membership")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// If the member is an owner, check if they're the last owner
+	if memberToRemove.Role == types.OrganizationRoleOwner {
+		// Get all owners in the organization
+		allMembers, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+			OrganizationID: orgID,
+		})
+		if err != nil {
+			log.Err(err).Msg("error listing organization members")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Count owners
+		ownerCount := 0
+		for _, member := range allMembers {
+			if member.Role == types.OrganizationRoleOwner {
+				ownerCount++
+			}
+		}
+
+		// If this is the last owner, prevent deletion
+		if ownerCount <= 1 {
+			log.Warn().Msg("attempted to remove the last owner of an organization")
+			http.Error(rw, "Cannot remove the last owner of an organization", http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Delete membership (this will cascade delete team memberships in the store layer)
 	err = apiServer.Store.DeleteOrganizationMembership(r.Context(), orgID, userIDToRemove)
 	if err != nil {
@@ -174,6 +213,34 @@ func (apiServer *HelixAPIServer) updateOrganizationMember(rw http.ResponseWriter
 		log.Err(err).Msg("error getting organization membership")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// If changing from owner to member, check if they're the last owner
+	if membership.Role == types.OrganizationRoleOwner && req.Role != types.OrganizationRoleOwner {
+		// Get all owners in the organization
+		allMembers, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+			OrganizationID: orgID,
+		})
+		if err != nil {
+			log.Err(err).Msg("error listing organization members")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Count owners
+		ownerCount := 0
+		for _, member := range allMembers {
+			if member.Role == types.OrganizationRoleOwner {
+				ownerCount++
+			}
+		}
+
+		// If this is the last owner, prevent role change
+		if ownerCount <= 1 {
+			log.Warn().Msg("attempted to change the role of the last owner of an organization")
+			http.Error(rw, "Cannot change the role of the last owner of an organization", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Update role
