@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest } from '../api/api'
+import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
@@ -35,6 +35,7 @@ export interface IOrganizationTools {
   // Organization member management methods
   addMemberToOrganization: (organizationId: string, userReference: string, role?: string) => Promise<boolean>,
   deleteMemberFromOrganization: (organizationId: string, userId: string) => Promise<boolean>,
+  updateOrganizationMemberRole: (organizationId: string, userId: string, role: TypesOrganizationRole) => Promise<boolean>,
   // Team management methods
   createTeam: (organizationId: string, team: TypesTeam) => Promise<boolean>,
   createTeamWithCreator: (organizationId: string, ownerId: string, team: TypesTeam) => Promise<boolean>,
@@ -58,6 +59,7 @@ export const defaultOrganizationTools: IOrganizationTools = {
   // Default organization member methods
   addMemberToOrganization: async () => false,
   deleteMemberFromOrganization: async () => false,
+  updateOrganizationMemberRole: async () => false,
   // Default team methods
   createTeam: async () => false,
   createTeamWithCreator: async () => false,
@@ -106,9 +108,23 @@ export default function useOrganizations(): IOrganizationTools {
             // Only fetch members if team has an ID
             if (team.id) {
               const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersDetail(id, team.id)
+              
+              // Sort team members by name in a case-insensitive manner
+              const sortedTeamMembers = [...teamMembersResult.data].sort((a, b) => {
+                // Handle any type issues by casting to any
+                const aUser = a.user as any
+                const bUser = b.user as any
+                
+                // Get the name from FullName, fullName, or email as fallback
+                const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
+                const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
+                
+                return aName.localeCompare(bName)
+              })
+              
               return {
                 ...team,
-                memberships: teamMembersResult.data
+                memberships: sortedTeamMembers
               }
             }
             // Return team with empty memberships if no ID
@@ -126,10 +142,23 @@ export default function useOrganizations(): IOrganizationTools {
         })
       )
       
+      // Sort organization members by name in a case-insensitive manner
+      const sortedOrgMembers = [...membersResult.data].sort((a, b) => {
+        // Handle any type issues by casting to any
+        const aUser = a.user as any
+        const bUser = b.user as any
+        
+        // Get the name from FullName, fullName, or email as fallback
+        const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
+        const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
+        
+        return aName.localeCompare(bName)
+      })
+      
       // Create a complete organization object with all details
       const completeOrg = {
         ...orgResult.data,
-        memberships: membersResult.data,
+        memberships: sortedOrgMembers,
         roles: rolesResult.data,
         teams: teamsWithMemberships
       }
@@ -159,10 +188,24 @@ export default function useOrganizations(): IOrganizationTools {
           if (org.id) {
             // Call the API to get members for this organization
             const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(org.id)
+            
+            // Sort organization members by name in a case-insensitive manner
+            const sortedMembers = [...membersResult.data].sort((a, b) => {
+              // Handle any type issues by casting to any
+              const aUser = a.user as any
+              const bUser = b.user as any
+              
+              // Get the name from FullName, fullName, or email as fallback
+              const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
+              const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
+              
+              return aName.localeCompare(bName)
+            })
+            
             // Create a new object with the members field populated
             return {
               ...org,
-              memberships: membersResult.data
+              memberships: sortedMembers
             }
           }
           return org
@@ -484,6 +527,34 @@ export default function useOrganizations(): IOrganizationTools {
     }
   }, [api, snackbar]);
 
+  // Add this method to the useOrganizations hook
+  const updateOrganizationMemberRole = useCallback(async (organizationId: string, userId: string, role: TypesOrganizationRole) => {
+    if (!organizationId || !userId) {
+      snackbar.error('Missing organization ID or user ID')
+      return false
+    }
+
+    try {
+      // Create a request to update the member's role
+      const request = {
+        role: role
+      }
+      
+      // Call the API to update the member's role
+      await api.getApiClient().v1OrganizationsMembersUpdate(organizationId, userId, request)
+      
+      // Reload the organization to get the updated memberships
+      await loadOrganization(organizationId)
+      
+      return true
+    } catch (error) {
+      console.error(`Error updating member role in organization ${organizationId}:`, error)
+      const errorMessage = extractErrorMessage(error)
+      snackbar.error(errorMessage || 'Error updating member role')
+      return false
+    }
+  }, [api, snackbar, loadOrganization])
+
   // Effect to load organization when orgIdParam changes
   useEffect(() => {
     if (orgIdParam && initialized) {
@@ -505,6 +576,7 @@ export default function useOrganizations(): IOrganizationTools {
     // Include organization member methods
     addMemberToOrganization,
     deleteMemberFromOrganization,
+    updateOrganizationMemberRole,
     // Include team methods
     createTeam,
     createTeamWithCreator,

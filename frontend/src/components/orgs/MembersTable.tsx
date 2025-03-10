@@ -1,5 +1,6 @@
-import React, { FC, useMemo, useCallback } from 'react'
+import React, { FC, useMemo, useCallback, useState } from 'react'
 import DeleteIcon from '@mui/icons-material/Delete'
+import EditIcon from '@mui/icons-material/Edit'
 import PersonIcon from '@mui/icons-material/Person'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
@@ -8,8 +9,9 @@ import useTheme from '@mui/material/styles/useTheme'
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
+import EditRoleModal from './EditRoleModal'
 
-import { TypesOrganizationMembership, TypesTeamMembership } from '../../api/api'
+import { TypesOrganizationMembership, TypesTeamMembership, TypesOrganizationRole } from '../../api/api'
 
 // Type for membership that can be either organization or team membership
 type Membership = TypesOrganizationMembership | TypesTeamMembership
@@ -18,18 +20,24 @@ type Membership = TypesOrganizationMembership | TypesTeamMembership
 interface MembersTableProps {
   data: Membership[]
   onDelete: (member: Membership) => void
+  onUserRoleChanged?: (member: TypesOrganizationMembership, newRole: TypesOrganizationRole) => Promise<void>
   loading?: boolean
   showRoles?: boolean
+  isOrgAdmin?: boolean
 }
 
 // Display a table of organization or team members with their roles and actions
 const MembersTable: FC<MembersTableProps> = ({ 
   data, 
   onDelete, 
+  onUserRoleChanged,
   loading = false,
-  showRoles = true
+  showRoles = true,
+  isOrgAdmin = false
 }) => {
   const theme = useTheme()
+  const [editMember, setEditMember] = useState<TypesOrganizationMembership | undefined>(undefined)
+  const [editModalOpen, setEditModalOpen] = useState(false)
 
   // Get the role display name and color
   const getRoleDisplay = (role: string | undefined) => {
@@ -78,8 +86,31 @@ const MembersTable: FC<MembersTableProps> = ({
     })
   }, [data])
 
+  // Check if there's only one owner in the organization
+  const hasOnlyOneOwner = useMemo(() => {
+    const owners = data.filter(member => 'role' in member && member.role === 'owner')
+    return owners.length === 1
+  }, [data])
+
+  // Handle opening the edit modal
+  const handleEdit = useCallback((member: Membership) => {
+    if ('role' in member) {
+      setEditMember(member as TypesOrganizationMembership)
+      setEditModalOpen(true)
+    }
+  }, [])
+
+  // Handle saving the role change
+  const handleSaveRole = async (member: TypesOrganizationMembership, newRole: TypesOrganizationRole) => {
+    if (onUserRoleChanged) {
+      await onUserRoleChanged(member, newRole)
+    }
+  }
+
   // Generate action buttons for each member row
   const getActions = useCallback((row: any) => {
+    const isOrgMembership = 'role' in row._data
+    
     return (
       <Box sx={{
         width: '100%',
@@ -89,7 +120,17 @@ const MembersTable: FC<MembersTableProps> = ({
         justifyContent: 'flex-end',
         pl: 2,
         pr: 2,
+        gap: 2
       }}>
+        {showRoles && isOrgMembership && isOrgAdmin && (
+          <ClickLink
+            onClick={() => handleEdit(row._data)}
+          >
+            <Tooltip title="Edit Role">
+              <EditIcon color="action" />
+            </Tooltip>
+          </ClickLink>
+        )}
         <ClickLink
           onClick={() => onDelete(row._data)}
         >
@@ -99,25 +140,37 @@ const MembersTable: FC<MembersTableProps> = ({
         </ClickLink>
       </Box>
     )
-  }, [onDelete])
+  }, [onDelete, showRoles, isOrgAdmin, handleEdit])
 
   return (
-    <SimpleTable
-      fields={[{
-        name: 'user',
-        title: 'User',
-      }, {
-        name: 'email',
-        title: 'Email',
-      }, 
-      ...(showRoles ? [{
-        name: 'role',
-        title: 'Role',
-      }] : [])]}
-      data={tableData}
-      getActions={getActions}
-      loading={loading}
-    />
+    <>
+      <SimpleTable
+        fields={[{
+          name: 'user',
+          title: 'User',
+        }, {
+          name: 'email',
+          title: 'Email',
+        }, 
+        ...(showRoles ? [{
+          name: 'role',
+          title: 'Role',
+        }] : [])]}
+        data={tableData}
+        getActions={getActions}
+        loading={loading}
+      />
+
+      {editMember && (
+        <EditRoleModal
+          open={editModalOpen}
+          member={editMember}
+          onClose={() => setEditModalOpen(false)}
+          onSave={handleSaveRole}
+          isLastOwner={hasOnlyOneOwner && editMember.role === 'owner'}
+        />
+      )}
+    </>
   )
 }
 
