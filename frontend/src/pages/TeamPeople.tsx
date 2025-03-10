@@ -109,10 +109,6 @@ const TeamPeople: FC = () => {
   if(!organization) return null
   if(!currentTeam) return null
 
-  console.log('--------------------------------------------')
-  console.log('isOrgOwner', isOrgOwner)
-  console.log('--------------------------------------------')
-
   return (
     <Page
       breadcrumbTitle={ currentTeam ? `${organization.display_name} : Teams : ${currentTeam.name} : Members` : 'Team Members' }
