@@ -295,7 +295,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	log.Trace().Interface("userinfo", userInfo).Msg("Userinfo")
 
 	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{
-		ID: userInfo.Subject,
+		Email: userInfo.Email,
 	})
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
