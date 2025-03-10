@@ -684,13 +684,14 @@ func NewTestCmd() *cobra.Command {
 	var syncFiles []string
 	var deleteExtraFiles bool
 	var knowledgeTimeout time.Duration
+	var skipCleanup bool
 
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run tests for Helix app",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout)
+			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout, skipCleanup)
 		},
 	}
 
@@ -699,11 +700,12 @@ func NewTestCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&syncFiles, "rsync", []string{}, "Sync local files to the filestore for knowledge sources. Format: ./local/path[:knowledge_name]. If knowledge_name is omitted, uses the first knowledge source. Can be specified multiple times.")
 	cmd.Flags().BoolVar(&deleteExtraFiles, "delete", false, "When used with --rsync, delete files in filestore that don't exist locally (similar to rsync --delete)")
 	cmd.Flags().DurationVar(&knowledgeTimeout, "knowledge-timeout", 5*time.Minute, "Timeout when waiting for knowledge indexing")
+	cmd.Flags().BoolVar(&skipCleanup, "skip-cleanup", false, "Skip cleaning up the test app after tests complete")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration) error {
+func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration, skipCleanup bool) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
@@ -736,6 +738,17 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	}
 
 	fmt.Printf("Deployed app with ID: %s\n", appID)
+
+	// Setup cleanup function
+	cleanup := func() {
+		if !skipCleanup {
+			if err := deleteApp(namespacedAppName); err != nil {
+				fmt.Printf("Error deleting app: %v\n", err)
+			}
+		}
+	}
+	// Ensure cleanup runs at the end unless skipped
+	defer cleanup()
 
 	// Initialize RAG metrics
 	var ragMetrics *RAGMetrics
@@ -832,14 +845,6 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 
 	fmt.Printf("Running tests...\n")
 
-	defer func() {
-		// Clean up the app after the test
-		err := deleteApp(namespacedAppName)
-		if err != nil {
-			fmt.Printf("Error deleting app: %v\n", err)
-		}
-	}()
-
 	results, totalTime, err := runTests(appConfig, appID, apiKey, helixURL, evaluationModel)
 	if err != nil {
 		return err
@@ -864,6 +869,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	// Check if any test failed
 	for _, result := range results {
 		if result.Result != "PASS" {
+			cleanup() // Ensure cleanup runs before exit
 			os.Exit(1)
 		}
 	}
