@@ -11,6 +11,29 @@ import (
 // authorizeOrgOwner used to check if the user is an owner of the organization to perform certain actions
 // such as creating, updating teams, updating or deleting organization
 func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	// Global admins can perform any operation, regardless of their organization membership
+	if user.Admin {
+		// For global admins, we'll still try to get their membership if it exists
+		membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+		})
+
+		// If the global admin has membership, return it
+		if err == nil {
+			return membership, nil
+		}
+
+		// If the global admin doesn't have a membership, create a temporary one with owner role
+		// This won't be stored in the database, just returned for the current operation
+		return &types.OrganizationMembership{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+			Role:           types.OrganizationRoleOwner,
+		}, nil
+	}
+
+	// For non-admin users, proceed with the existing logic
 	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
@@ -29,6 +52,29 @@ func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *ty
 // deleting used to check if the user is a member of the organization to perform certain actions
 // such as listing teams, listing members, etc
 func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	// Global admins can perform any operation, regardless of their organization membership
+	if user.Admin {
+		// For global admins, we'll still try to get their membership if it exists
+		membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+		})
+
+		// If the global admin has membership, return it
+		if err == nil {
+			return membership, nil
+		}
+
+		// If the global admin doesn't have a membership, create a temporary one with owner role
+		// This won't be stored in the database, just returned for the current operation
+		return &types.OrganizationMembership{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+			Role:           types.OrganizationRoleOwner,
+		}, nil
+	}
+
+	// For non-admin users, proceed with the existing logic
 	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,

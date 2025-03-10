@@ -79,11 +79,8 @@ const OrgTeams: FC = () => {
     }
   }
 
-  // Check if the current user is an organization owner 
-  // to determine if they can add/edit/delete teams
-  const isOrgOwner = account.user && account.organizationTools.organization?.memberships?.some(
-    m => m.user_id === account.user?.id && m.role === 'owner'
-  )
+  // Use the isOrgAdmin property from the useOrganizations hook
+  const isOrgOwner = account.organizationTools.isOrgAdmin
  
   if(!account.user) return null
   if(!account.organizationTools.organization) return null

@@ -27,6 +27,7 @@ export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
   organization?: TypesOrganization,
+  isOrgAdmin: boolean,
   loadOrganizations: () => Promise<void>,
   createOrganization: (org: TypesOrganization) => Promise<boolean>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
@@ -51,11 +52,12 @@ export interface IOrganizationTools {
 export const defaultOrganizationTools: IOrganizationTools = {
   organizations: [],
   loading: false,
-  loadOrganizations: async () => {},
+  isOrgAdmin: false,
+  loadOrganizations: async () => { },
   createOrganization: async () => false,
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
-  loadOrganization: async () => {},
+  loadOrganization: async () => { },
   // Default organization member methods
   addMemberToOrganization: async () => false,
   deleteMemberFromOrganization: async () => false,
@@ -77,16 +79,16 @@ export default function useOrganizations(): IOrganizationTools {
   const [organization, setOrganization] = useState<TypesOrganization | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false)
   const api = useApi()
   const snackbar = useSnackbar()
   const account = useAccount()
   const router = useRouter()
-
   // Extract org_id parameter from router
   const orgIdParam = router.params.org_id
 
   // Load a single organization with all its details
-  const loadOrganization = useCallback(async (id: string) => {
+  const loadOrganization = async (id: string) => {
     try {
       setLoading(true)
       // Fetch the organization details
@@ -94,13 +96,13 @@ export default function useOrganizations(): IOrganizationTools {
 
       // Fetch members for the organization
       const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(id)
-      
+
       // Fetch roles for the organization
       const rolesResult = await api.getApiClient().v1OrganizationsRolesDetail(id)
-      
+
       // Fetch teams for the organization
       const teamsResult = await api.getApiClient().v1OrganizationsTeamsDetail(id)
-      
+
       // Fetch team memberships in parallel for each team
       const teamsWithMemberships = await Promise.all(
         teamsResult.data.map(async (team) => {
@@ -108,20 +110,20 @@ export default function useOrganizations(): IOrganizationTools {
             // Only fetch members if team has an ID
             if (team.id) {
               const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersDetail(id, team.id)
-              
+
               // Sort team members by name in a case-insensitive manner
               const sortedTeamMembers = [...teamMembersResult.data].sort((a, b) => {
                 // Handle any type issues by casting to any
                 const aUser = a.user as any
                 const bUser = b.user as any
-                
+
                 // Get the name from FullName, fullName, or email as fallback
                 const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
                 const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
-                
+
                 return aName.localeCompare(bName)
               })
-              
+
               return {
                 ...team,
                 memberships: sortedTeamMembers
@@ -141,20 +143,20 @@ export default function useOrganizations(): IOrganizationTools {
           }
         })
       )
-      
+
       // Sort organization members by name in a case-insensitive manner
       const sortedOrgMembers = [...membersResult.data].sort((a, b) => {
         // Handle any type issues by casting to any
         const aUser = a.user as any
         const bUser = b.user as any
-        
+
         // Get the name from FullName, fullName, or email as fallback
         const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
         const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
-        
+
         return aName.localeCompare(bName)
       })
-      
+
       // Create a complete organization object with all details
       const completeOrg = {
         ...orgResult.data,
@@ -162,17 +164,25 @@ export default function useOrganizations(): IOrganizationTools {
         roles: rolesResult.data,
         teams: teamsWithMemberships
       }
-      
+
       setOrganization(completeOrg)
+      
+      // Calculate and set isOrgAdmin state
+      const isAdmin = (account.user && completeOrg.memberships?.some(
+          m => m.user_id === account.user?.id && m.role === 'owner'
+        ) || false)
+      
+      setIsOrgAdmin(isAdmin)
     } catch (error) {
       console.error(`Error loading organization ${id}:`, error)
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || `Error loading organization details`)
       setOrganization(undefined)
+      setIsOrgAdmin(false);
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
 
   // this is called by the top level account context once we have a login
   // so - we can know that when 'initialized' is true, we have a user
@@ -180,7 +190,7 @@ export default function useOrganizations(): IOrganizationTools {
     try {
       setLoading(true)
       const result = await api.getApiClient().v1OrganizationsList()
-      
+
       // Fetch members for each organization in parallel
       const orgsWithMembers = await bluebird.map(result.data, async (org) => {
         try {
@@ -188,20 +198,20 @@ export default function useOrganizations(): IOrganizationTools {
           if (org.id) {
             // Call the API to get members for this organization
             const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(org.id)
-            
+
             // Sort organization members by name in a case-insensitive manner
             const sortedMembers = [...membersResult.data].sort((a, b) => {
               // Handle any type issues by casting to any
               const aUser = a.user as any
               const bUser = b.user as any
-              
+
               // Get the name from FullName, fullName, or email as fallback
               const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
               const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
-              
+
               return aName.localeCompare(bName)
             })
-            
+
             // Create a new object with the members field populated
             return {
               ...org,
@@ -289,7 +299,7 @@ export default function useOrganizations(): IOrganizationTools {
         user_reference: userReference,
         role_id: role || 'member' // Default to 'member' if no role specified
       }
-      
+
       await api.getApiClient().v1OrganizationsMembersCreate(organizationId, request)
       snackbar.success('Member added')
       await loadOrganization(organizationId)
@@ -356,43 +366,43 @@ export default function useOrganizations(): IOrganizationTools {
         name: team.name,
         organization_id: organizationId
       }
-      
+
       const teamResult = await api.getApiClient().v1OrganizationsTeamsCreate(organizationId, request)
-      
+
       if (!teamResult.data || !teamResult.data.id) {
         snackbar.error('Team was created but no team ID was returned')
         return false
       }
-      
+
       const teamId = teamResult.data.id
-      
+
       // Use the provided ownerId instead of getting it from the account context
       if (!ownerId) {
         snackbar.info('Team created, but could not add owner as a member because owner ID is not provided')
         await loadOrganization(organizationId)
         return true
       }
-      
+
       // Add the owner as a team member
       const memberRequest = {
         user_reference: ownerId
       }
-      
+
       await api.getApiClient().v1OrganizationsTeamsMembersCreate(organizationId, teamId, memberRequest)
-      
+
       // Now we need to grant the owner admin access to the team
       // We'll use the access grant system to assign the admin role
       // First, get the admin role ID from the organization roles
       const roles = await api.getApiClient().v1OrganizationsRolesDetail(organizationId)
       const adminRole = roles.data.find(role => role.name && role.name.toLowerCase() === 'admin')
-      
+
       if (adminRole && adminRole.id) {
         // Create access grant with admin role
         const grantRequest = {
           user_reference: ownerId,
           roles: [adminRole.id]
         }
-        
+
         try {
           // We're using the more generic API endpoint for creating access grants
           await api.post(`/api/v1/organizations/${organizationId}/teams/${teamId}/access-grants`, grantRequest)
@@ -401,7 +411,7 @@ export default function useOrganizations(): IOrganizationTools {
           // We'll continue since the user is at least a member of the team
         }
       }
-      
+
       snackbar.success('Team created and owner has been added as an admin')
       await loadOrganization(organizationId)
       return true
@@ -465,7 +475,7 @@ export default function useOrganizations(): IOrganizationTools {
       const request = {
         user_reference: userReference
       }
-      
+
       await api.getApiClient().v1OrganizationsTeamsMembersCreate(organizationId, teamId, request)
       snackbar.success('Member added to team')
       await loadOrganization(organizationId)
@@ -508,7 +518,7 @@ export default function useOrganizations(): IOrganizationTools {
       if (query.name) params.append('name', query.name);
       if (query.username) params.append('username', query.username);
       if (query.organizationId) params.append('organization_id', query.organizationId);
-      
+
       // Call the API endpoint
       const response = await api.get(`/api/v1/users/search?${params.toString()}`);
 
@@ -516,13 +526,13 @@ export default function useOrganizations(): IOrganizationTools {
       if (response) {
         return response
       }
-      
+
       return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
     } catch (error) {
       console.error('Error searching users:', error);
       const errorMessage = extractErrorMessage(error);
       snackbar.error(errorMessage || 'Error searching users');
-      
+
       return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
     }
   }, [api, snackbar]);
@@ -539,13 +549,13 @@ export default function useOrganizations(): IOrganizationTools {
       const request = {
         role: role
       }
-      
+
       // Call the API to update the member's role
       await api.getApiClient().v1OrganizationsMembersUpdate(organizationId, userId, request)
-      
+
       // Reload the organization to get the updated memberships
       await loadOrganization(organizationId)
-      
+
       return true
     } catch (error) {
       console.error(`Error updating member role in organization ${organizationId}:`, error)
@@ -559,7 +569,7 @@ export default function useOrganizations(): IOrganizationTools {
   useEffect(() => {
     if (orgIdParam && initialized) {
       const useOrg = organizations.find((org) => org.id === orgIdParam || org.name === orgIdParam)
-      if(!useOrg || !useOrg.id) return
+      if (!useOrg || !useOrg.id) return
       loadOrganization(useOrg.id)
     }
   }, [orgIdParam, initialized])
@@ -568,6 +578,7 @@ export default function useOrganizations(): IOrganizationTools {
     organizations,
     loading,
     organization,
+    isOrgAdmin,
     loadOrganizations,
     createOrganization,
     updateOrganization,
