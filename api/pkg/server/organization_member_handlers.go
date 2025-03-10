@@ -125,7 +125,7 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 		return
 	}
 
-	// Delete membership
+	// Delete membership (this will cascade delete team memberships in the store layer)
 	err = apiServer.Store.DeleteOrganizationMembership(r.Context(), orgID, userIDToRemove)
 	if err != nil {
 		log.Err(err).Msg("error removing organization member")
