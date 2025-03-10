@@ -150,6 +150,18 @@ func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.File
 	if err != nil {
 		return nil, err
 	}
+
+	// Create the users and apps top-level directories
+	_, err = store.CreateFolder(ctx, filepath.Join(cfg.Controller.FilePrefixGlobal, "users"))
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = store.CreateFolder(ctx, filepath.Join(cfg.Controller.FilePrefixGlobal, "apps"))
+	if err != nil {
+		return nil, err
+	}
+
 	return store, nil
 }
 
