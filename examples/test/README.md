@@ -19,7 +19,7 @@ Tests are defined within your helix.yaml file under each assistant configuration
 
 ### Structure of a Test
 
-Here’s the basic structure of how tests are defined in helix.yaml:
+Here's the basic structure of how tests are defined in helix.yaml:
 
 ```yaml
 assistants:
@@ -31,6 +31,32 @@ assistants:
           - prompt: "User input or question."
             expected_output: "Expected assistant response."
 ```
+
+### Multi-Turn Conversation Tests
+
+Helix supports testing multi-turn conversations, where multiple interactions between the user and assistant are tested in sequence. Each step in a test represents a turn in the conversation, and the session state is maintained between steps.
+
+Here's how to structure a multi-turn test:
+
+```yaml
+tests:
+  - name: multi_turn_conversation
+    steps:
+      - prompt: "First user message"
+        expected_output: "First expected assistant response"
+      - prompt: "Second user message (follows up on first message)"
+        expected_output: "Second expected assistant response (should show awareness of previous context)"
+      - prompt: "Third user message (continues the conversation)"
+        expected_output: "Third expected assistant response (builds on entire conversation history)"
+```
+
+The test runner will:
+1. Use the same session for all steps in a test
+2. Evaluate each turn separately
+3. Consider the test successful only if all turns pass
+4. Show detailed results for each turn in the test report
+
+For a complete example, see the [multi_turn_test.yaml](../multi_turn_test.yaml) file.
 
 ### Example
 
@@ -51,16 +77,16 @@ assistants:
             expected_output: "2"
 ```
 
-In this example, we have an assistant named math_assistant using the `llama3:instruct` model. We’ve defined two tests:
+In this example, we have an assistant named math_assistant using the `llama3:instruct` model. We've defined two tests:
 
-1. addition_test: Checks if the assistant correctly answers “What is 2 + 2?” with “4”.
-2. subtraction_test: Checks if the assistant correctly answers “What is 5 - 3?” with “2”.
+1. addition_test: Checks if the assistant correctly answers "What is 2 + 2?" with "4".
+2. subtraction_test: Checks if the assistant correctly answers "What is 5 - 3?" with "2".
 
 Tips for Writing Effective Tests
 
 - Be Specific: Clearly define the prompts and expected outputs.
 - Edge Cases: Include tests for edge cases or common failure points.
-- Consistent Formatting: Ensure the expected output matches the assistant’s expected response format.
+- Consistent Formatting: Ensure the expected output matches the assistant's expected response format.
 
 ### API Integration Example
 
@@ -110,7 +136,7 @@ Prerequisites:
 
 - Helix CLI Installed: Ensure you have the [Helix command-line interface installed](https://docs.helix.ml/helix/using-helix/client/).
 - API Key: Set the `HELIX_API_KEY` environment variable with your Helix API key.
-- Helix URL (Optional): If you’re using a custom Helix instance, set the `HELIX_URL` environment variable.
+- Helix URL (Optional): If you're using a custom Helix instance, set the `HELIX_URL` environment variable.
 
 ### Running Tests
 
@@ -120,19 +146,19 @@ Use the following command to run tests:
 helix test --file helix.yaml
 ```
 
-- Replace path/to/helix.yaml with the path to your YAML file if it’s not in the current directory.
+- Replace path/to/helix.yaml with the path to your YAML file if it's not in the current directory.
 - The tool will read the tests from the specified YAML file, deploy the app, run the tests, and generate reports.
 
 ### Understanding the Output
 
-As the tests run, you’ll see output in the terminal indicating progress:
+As the tests run, you'll see output in the terminal indicating progress:
 
 - A `.` (dot) represents a passing test.
 - An F represents a failing test.
 
 ### Loading and Interpreting Results
 
-After the tests have completed, the tool generates and uploads reports. Here’s how to access and interpret them.
+After the tests have completed, the tool generates and uploads reports. Here's how to access and interpret them.
 
 #### Accessing the Reports
 
@@ -165,7 +191,7 @@ The HTML report provides a comprehensive view of your test results.
 - Debug Link: Link to debug information in the Helix platform.
 - Interactive Features:
 - View helix.yaml: Button to view the helix.yaml content used for the tests.
-- Tooltips: Hover over truncated text in the “Reason” column to see the full explanation.
+- Tooltips: Hover over truncated text in the "Reason" column to see the full explanation.
 
 #### JSON Results
 
@@ -181,7 +207,7 @@ For failing tests:
 
 1. Review the Reason: Understand why the test failed based on the explanation.
 2. Use Session and Debug Links: Click the links to see the actual assistant responses and debug logs.
-3. Adjust Tests or Assistant Configuration: Based on your findings, you may need to update your tests or modify the assistant’s configuration.
+3. Adjust Tests or Assistant Configuration: Based on your findings, you may need to update your tests or modify the assistant's configuration.
 
 ## Best Practices
 
@@ -195,7 +221,7 @@ For failing tests:
 - API Key Issues: Ensure that the HELIX_API_KEY environment variable is set correctly.
 - Network Connectivity: Check your internet connection if requests to the Helix API fail.
 - Environment Variables: Confirm that all necessary environment variables are set, including HELIX_URL if using a custom instance.
-- Graphical Environment: If the HTML report doesn’t open automatically, ensure you’re in a graphical environment or open the report manually.
+- Graphical Environment: If the HTML report doesn't open automatically, ensure you're in a graphical environment or open the report manually.
 
 ## Example Workflow
 
@@ -243,8 +269,8 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 	
 6. Interpret Results
 
-- PASS: The assistant’s response matches the expected output.
-- FAIL: The response doesn’t match; review the reason and consider updating the assistant or test.
+- PASS: The assistant's response matches the expected output.
+- FAIL: The response doesn't match; review the reason and consider updating the assistant or test.
 
 7. Update Tests or Assistant
 
@@ -256,7 +282,7 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 - Q: What is the status of this tool?
   A: Helix test is in beta. APIs and usage may change at any time.
 - Q: How do I integrate this tool into my CI/CD pipeline?
-  A: Since the tool exits with a non-zero status code when tests fail, you can incorporate it into your pipeline scripts to automatically fail builds when tests don’t pass.
+  A: Since the tool exits with a non-zero status code when tests fail, you can incorporate it into your pipeline scripts to automatically fail builds when tests don't pass.
 - Q: Can I test multiple assistants in one helix.yaml file?
   A: Yes, you can define multiple assistants and their respective tests within the same helix.yaml file.
 - Q: What models are supported for testing?
@@ -266,6 +292,6 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 
 ## Conclusion
 
-The Helix Testing Tool is a powerful utility that simplifies the testing process for Helix applications. By defining tests in your helix.yaml file and using the tool to run them, you can efficiently validate your assistant’s behavior, generate informative reports, and maintain high-quality applications.
+The Helix Testing Tool is a powerful utility that simplifies the testing process for Helix applications. By defining tests in your helix.yaml file and using the tool to run them, you can efficiently validate your assistant's behavior, generate informative reports, and maintain high-quality applications.
 
 For further assistance or questions, refer to the [Helix documentation](https://docs.helix.ml/helix/) or contact support.

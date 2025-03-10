@@ -135,8 +135,20 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 		}
 	}
 
-	// Sort models: meta-llama/* models first, then the rest, both in alphabetical order
+	// Sort models: llama-33-70b-instruct models first, then other llama models, then meta-llama/* models, then the rest
 	sort.Slice(models, func(i, j int) bool {
+		// First priority: any XXX/llama-33-70b-instruct model
+		iIsLlama33_70b := strings.Contains(strings.ToLower(models[i].ID), "llama-33-70b-instruct")
+		jIsLlama33_70b := strings.Contains(strings.ToLower(models[j].ID), "llama-33-70b-instruct")
+
+		if iIsLlama33_70b && !jIsLlama33_70b {
+			return true
+		}
+		if !iIsLlama33_70b && jIsLlama33_70b {
+			return false
+		}
+
+		// Second priority: Meta-Llama-3.1-8B-Instruct-Turbo
 		if models[i].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
 			return true
 		}
@@ -144,6 +156,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return false
 		}
 
+		// Third priority: Meta-Llama 3.1 models
 		iIsMetaLlama31 := strings.HasPrefix(models[i].ID, "meta-llama/Meta-Llama-3.1")
 		jIsMetaLlama31 := strings.HasPrefix(models[j].ID, "meta-llama/Meta-Llama-3.1")
 
@@ -154,6 +167,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return false
 		}
 
+		// Fourth priority: Other Meta-Llama models
 		iIsMetaLlama := strings.HasPrefix(models[i].ID, "meta-llama/")
 		jIsMetaLlama := strings.HasPrefix(models[j].ID, "meta-llama/")
 
@@ -164,6 +178,18 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return false
 		}
 
+		// Fifth priority: any llama prefix model
+		iIsLlama := strings.Contains(strings.ToLower(models[i].ID), "llama")
+		jIsLlama := strings.Contains(strings.ToLower(models[j].ID), "llama")
+
+		if iIsLlama && !jIsLlama {
+			return true
+		}
+		if !iIsLlama && jIsLlama {
+			return false
+		}
+
+		// Finally: alphabetical order
 		return models[i].ID < models[j].ID
 	})
 

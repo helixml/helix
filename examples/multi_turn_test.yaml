@@ -1,0 +1,86 @@
+name: Multi-Turn Test Example
+description: An example showing how to define multi-turn conversation tests
+avatar: 🧪
+assistants:
+  - id: arithmetic-helper
+    name: Math Helper
+    description: An assistant that helps with arithmetic calculations
+    model: openai/gpt-4-turbo
+    system_prompt: |
+      You are a helpful math assistant. You should:
+      1. Do arithmetic calculations when asked
+      2. Show your work step by step
+      3. Format your answers clearly
+      4. Be concise and to the point
+    
+    tests:
+      - name: Simple Addition
+        steps:
+          - prompt: What is 2 + 2?
+            expected_output: |
+              The sum of 2 + 2 = 4.
+      
+      - name: Multi-Turn Calculation
+        # Each step in this test represents a turn in a multi-turn conversation
+        # Steps share the same session, allowing for continuity in the conversation
+        steps:
+          - prompt: I need to calculate the area of a rectangle.
+            expected_output: |
+              I can help you calculate the area of a rectangle. 
+              The formula for the area of a rectangle is:
+              Area = Length × Width
+              
+              Please provide the length and width of your rectangle.
+          
+          - prompt: The length is 10 meters and the width is 5 meters.
+            expected_output: |
+              Let's calculate the area of your rectangle:
+              
+              Area = Length × Width
+              Area = 10 meters × 5 meters
+              Area = 50 square meters
+              
+              The area of your rectangle is 50 square meters.
+          
+          - prompt: What would the perimeter be?
+            expected_output: |
+              Let's calculate the perimeter of your rectangle:
+              
+              The formula for the perimeter of a rectangle is:
+              Perimeter = 2 × (Length + Width)
+              
+              Using your dimensions:
+              Perimeter = 2 × (10 meters + 5 meters)
+              Perimeter = 2 × 15 meters
+              Perimeter = 30 meters
+              
+              The perimeter of your rectangle is 30 meters.
+      
+      - name: Problem Solving
+        steps:
+          - prompt: |
+              I'm organizing a party for 20 people. If each person eats 3 slices of pizza, 
+              and each pizza has 8 slices, how many pizzas should I order?
+            expected_output: |
+              Let's solve this step-by-step:
+              
+              1. Calculate the total number of slices needed:
+                 20 people × 3 slices per person = 60 slices
+                 
+              2. Determine how many pizzas that equals:
+                 60 slices ÷ 8 slices per pizza = 7.5 pizzas
+                 
+              Since you can't order a partial pizza, you should order 8 pizzas to ensure everyone gets their 3 slices.
+          
+          - prompt: |
+              What if we also need 2 cans of soda per person? How many packs of soda should I buy if they come in 6-packs?
+            expected_output: |
+              Let's calculate how many 6-packs of soda you'll need:
+              
+              1. Total cans needed:
+                 20 people × 2 cans per person = 40 cans
+                 
+              2. Number of 6-packs needed:
+                 40 cans ÷ 6 cans per pack = 6.67 packs
+                 
+              Since you can't buy a partial pack, you should buy 7 six-packs of soda to have enough for everyone. 

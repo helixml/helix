@@ -1,0 +1,6 @@
+---
+description: Everything
+globs: *
+alwaysApply: false
+---
+Don't make unrelated changes

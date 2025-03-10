@@ -12,7 +12,6 @@ import ConfigWindow from '../components/create/ConfigWindow'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import InferenceTextField from '../components/create/InferenceTextField'
 import SessionTypeButton from '../components/create/SessionTypeButton'
-import SessionTypeTabs from '../components/create/SessionTypeTabs'
 import Toolbar from '../components/create/Toolbar'
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
@@ -87,6 +86,7 @@ const Create: FC = () => {
   const [showImageLabelsEmptyError, setShowImageLabelsEmptyError] = useState(false)
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [isLoadingApp, setIsLoadingApp] = useState(false)
   const initialModelSetRef = useRef(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
@@ -276,12 +276,24 @@ const Create: FC = () => {
   useEffect(() => {
     if (!account.user) return
     if (!appID) return
-    apps.loadApp(appID)
+    setIsLoadingApp(true)
+    apps.loadApp(appID).finally(() => {
+      setIsLoadingApp(false)
+    })
     return () => apps.setApp(undefined)
-  }, [
-    account.user,
-    appID,
-  ])
+  }, [account.user, appID])
+
+  // Reset focusInput after it's been used
+  useEffect(() => {
+    if (focusInput) {
+      setFocusInput(false)
+    }
+  }, [focusInput])
+
+  // If we have an appID and are still loading the app, don't render anything yet
+  if (appID && (isLoadingApp || !apps.app)) {
+    return null
+  }
 
   /*
    *
@@ -608,13 +620,6 @@ const Create: FC = () => {
     backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
     backgroundRepeat: 'no-repeat',
   }
-
-  // Reset focusInput after it's been used
-  useEffect(() => {
-    if (focusInput) {
-      setFocusInput(false)
-    }
-  }, [focusInput])
 
   return (
     <Page

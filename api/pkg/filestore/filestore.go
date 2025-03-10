@@ -58,3 +58,9 @@ type FileStore interface {
 func GetUserPrefix(filestorePrefix, userID string) string {
 	return filepath.Join(filestorePrefix, "users", userID)
 }
+
+// GetAppPrefix returns the path for an app's filestore directory
+// This creates a path structure like: {filestorePrefix}/apps/{appID}
+func GetAppPrefix(filestorePrefix, appID string) string {
+	return filepath.Join(filestorePrefix, "apps", appID)
+}

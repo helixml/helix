@@ -72,6 +72,17 @@ func (r *Reconciler) index(ctx context.Context) error {
 					k.State = types.KnowledgeStatePending
 					k.Message = "waiting for files to be uploaded"
 					_, _ = r.store.UpdateKnowledge(ctx, k)
+
+					// Create a pending version for logs and test expectations
+					_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+						KnowledgeID:     k.ID,
+						Version:         version,
+						Size:            k.Size,
+						State:           types.KnowledgeStatePending,
+						Message:         "waiting for files to be uploaded",
+						EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+						Provider:        string(r.config.RAG.DefaultRagProvider),
+					})
 					return
 				}
 
@@ -316,6 +327,8 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// TODO: we probably want some parallelism here, up to whatever the pdf parser + embeddings server can manage
+	// experiment with some values to see what gets is 100, 1K, 15K PDFs handled fastest.
 	for idx, d := range data {
 		d := d
 
