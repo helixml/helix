@@ -132,6 +132,8 @@ type OIDC struct {
 	URL           string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
 	ClientID      string `envconfig:"OIDC_CLIENT_ID" default:"api"`
 	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
+	Audience      string `envconfig:"OIDC_AUDIENCE"`
+	Scopes        string `envconfig:"OIDC_SCOPES" default:"openid,profile,email"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

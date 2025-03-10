@@ -21,9 +21,11 @@ import (
 
 type OIDCSuite struct {
 	suite.Suite
-	mockOIDCServer *MockOIDCServer
-	client         *OIDCClient
-	ctx            context.Context
+	mockOIDCServer       *MockOIDCServer
+	client               *OIDCClient
+	ctx                  context.Context
+	testToken            string
+	invalidAudienceToken string
 }
 
 func TestOIDCSuite(t *testing.T) {
@@ -39,9 +41,29 @@ func (s *OIDCSuite) SetupTest() {
 		ClientID:     "api",
 		ClientSecret: "REPLACE_ME",
 		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
 	})
 	s.NoError(err)
 	s.client = client
+
+	// Generate a valid access token
+	s.testToken = s.generateToken("test-aud")
+	s.invalidAudienceToken = s.generateToken("invalid-aud")
+}
+
+func (s *OIDCSuite) generateToken(aud string) string {
+	claims := jwt.Claims{
+		Audience: jwt.Audience{aud},
+		Subject:  "test-sub",
+		Expiry:   jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		Issuer:   s.mockOIDCServer.URL(),
+	}
+
+	builder := jwt.Signed(s.mockOIDCServer.signer).Claims(claims)
+	tokenString, err := builder.CompactSerialize()
+	s.NoError(err)
+	log.Info().Str("token", tokenString).Msg("Generated token")
+	return tokenString
 }
 
 func (s *OIDCSuite) TearDownTest() {
@@ -102,15 +124,16 @@ func (s *OIDCSuite) TestAuthFlow() {
 
 func (s *OIDCSuite) TestUserOperations() {
 	tests := []struct {
-		name        string
-		accessToken string
-		wantEmail   string
-		wantName    string
-		wantError   bool
+		name                string
+		accessToken         string
+		wantEmail           string
+		wantName            string
+		wantError           bool
+		wantValidationError bool
 	}{
 		{
 			name:        "valid user info",
-			accessToken: "test-access-token",
+			accessToken: s.testToken,
 			wantEmail:   "test@example.com",
 			wantName:    "Test User",
 			wantError:   false,
@@ -119,6 +142,13 @@ func (s *OIDCSuite) TestUserOperations() {
 			name:        "invalid token",
 			accessToken: "invalid-token",
 			wantError:   true,
+		},
+		{
+			name:                "invalid audience",
+			accessToken:         s.invalidAudienceToken,
+			wantEmail:           "test@example.com",
+			wantName:            "Test User",
+			wantValidationError: true,
 		},
 	}
 
@@ -136,6 +166,10 @@ func (s *OIDCSuite) TestUserOperations() {
 
 			// Test ValidateUserToken
 			user, err := s.client.ValidateUserToken(s.ctx, tt.accessToken)
+			if tt.wantValidationError {
+				s.Error(err)
+				return
+			}
 			s.NoError(err)
 			s.Equal(tt.wantEmail, user.Email)
 			s.Equal(tt.wantName, user.FullName)
@@ -303,7 +337,7 @@ func (m *MockOIDCServer) handleUserInfo(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	token = strings.TrimPrefix(token, "Bearer ")
-	if token != "test-access-token" {
+	if token == "invalid-token" {
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
