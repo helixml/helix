@@ -26,13 +26,17 @@ def _convert_filters_to_where_clause_and_params(
 ) -> Tuple[SQL, Tuple]:
     """
     Convert Haystack filters to a WHERE clause and a tuple of params to query PostgreSQL.
+    Always uses positional parameters (%s) for consistency.
     """
     if "field" in filters:
         query, values = _parse_comparison_condition(filters)
     else:
         query, values = _parse_logical_condition(filters)
 
+    # Ensure we use consistent WHERE operator 
     where_clause = SQL(f" {operator} ") + SQL(query)
+    
+    # Filter out NO_VALUE placeholders
     params = tuple(value for value in values if value != NO_VALUE)
 
     return where_clause, params

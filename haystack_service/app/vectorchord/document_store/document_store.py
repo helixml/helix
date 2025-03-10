@@ -291,6 +291,10 @@ class VectorchordDocumentStore:
                         # Add the VectorChord-BM25 extension
                         cur.execute("CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;")
                         
+                        # Set up search path for bm25_catalog schema (session level instead of system level)
+                        # This adds bm25_catalog to the search path so PostgreSQL can find the bm25vector type
+                        cur.execute("SET search_path TO \"$user\", public, bm25_catalog;")
+                        
                         self._conn.commit()
                 except Error as err:
                     error_msg = f"Failed to create VectorChord extension: {err}"
@@ -527,27 +531,41 @@ class VectorchordDocumentStore:
         :param filters: Filters to narrow down the documents to retrieve.
         :returns: List of `Document`s that match the given filters.
         """
-        # Start with the base SELECT statement
-        query_parts = [
-            SQL(SELECT_STATEMENT).format(
-                schema_name=Identifier(self.schema_name),
-                table_name=Identifier(self.table_name),
-            )
-        ]
+        # Start with the base SELECT statement without filters
+        base_query = SQL(SELECT_STATEMENT).format(
+            schema_name=Identifier(self.schema_name),
+            table_name=Identifier(self.table_name),
+        )
 
-        params = {}
-
+        # Prepare parameters and WHERE clause
+        params = []
+        
         # If filters are provided, add a WHERE clause
         if filters:
-            # Convert the filters to a SQL WHERE clause
-            where_clause, where_params = _convert_filters_to_where_clause_and_params(filters)
-            query_parts.append(SQL(" WHERE ") + where_clause)
-            params.update(where_params)
-
-        # Combine the query parts
-        query = query_parts[0]
-        for part in query_parts[1:]:
-            query = query + part
+            try:
+                # Import here to avoid circular imports
+                from .filters import _convert_filters_to_where_clause_and_params
+                
+                # Convert the filters to a SQL WHERE clause
+                where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
+                
+                # Create the full query with WHERE clause
+                query = SQL("{base_query} {where_clause}").format(
+                    base_query=base_query, 
+                    where_clause=where_clause
+                )
+                
+                # Add filter parameters to our list - ensure positional style
+                if isinstance(filter_params, tuple):
+                    params.extend(filter_params)
+                else:
+                    params.append(filter_params)
+            except Exception as e:
+                logger.warning(f"Failed to apply filters: {str(e)}. Continuing without filters.")
+                query = base_query
+        else:
+            # No filters, just use the base query
+            query = base_query
 
         # Execute the query
         self.dict_cursor.execute(query, params)
@@ -629,7 +647,16 @@ class VectorchordDocumentStore:
             blob_data = None
             blob_meta = None
             blob_mime_type = None
-            meta_dict = doc.meta.to_dict() if doc.meta else {}
+            
+            # Handle meta - could be a dict already or an object with to_dict method
+            if doc.meta:
+                if hasattr(doc.meta, 'to_dict'):
+                    meta_dict = doc.meta.to_dict()
+                else:
+                    # Already a dictionary
+                    meta_dict = doc.meta
+            else:
+                meta_dict = {}
 
             if doc.blob:
                 if isinstance(doc.blob, ByteStream):
@@ -817,54 +844,86 @@ class VectorchordDocumentStore:
         # Convert query_embedding to proper PostgreSQL vector format
         query_embedding_str = f"[{','.join(str(val) for val in query_embedding)}]"
 
-        params = {"query_embedding": query_embedding_str, "top_k": top_k}
-
-        # Start with the base query
-        base_query = SQL("""
-            SELECT *
-            FROM {schema_name}.{table_name}
-            ORDER BY embedding {operator} %(query_embedding)s::vector {direction}
-            LIMIT %(top_k)s
-        """).format(
-            schema_name=Identifier(self.schema_name),
-            table_name=Identifier(self.table_name),
-            operator=SQL(operator),
-            direction=SQL(direction),
-        )
-        query_parts = [base_query]
-
-        # If filters are provided, add a WHERE clause
-        if filters:
-            where_clause, where_params = _convert_filters_to_where_clause_and_params(filters)
-            # We need to modify the base query to include the WHERE clause
-            query_parts = [
-                SQL(
-                    """
+        # Prepare parameters
+        params = []
+        
+        # Construct the base query without filters
+        if not filters:
+            base_query = SQL("""
+                SELECT *
+                FROM {schema_name}.{table_name}
+                ORDER BY embedding {operator} %s::vector {direction}
+                LIMIT %s
+            """).format(
+                schema_name=Identifier(self.schema_name),
+                table_name=Identifier(self.table_name),
+                operator=SQL(operator),
+                direction=SQL(direction),
+            )
+            
+            # Add parameters
+            params.append(query_embedding_str)
+            params.append(top_k)
+            
+            # Use the base query
+            query = base_query
+        else:
+            # Handle query with filters
+            try:
+                # Import here to avoid circular imports
+                from .filters import _convert_filters_to_where_clause_and_params
+                
+                # Get the filter clause
+                where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
+                
+                # Create a query template with the WHERE clause
+                query_template = SQL("""
                     SELECT *
                     FROM {schema_name}.{table_name}
-                    WHERE
-                    """
-                ).format(
+                    {where_clause}
+                    ORDER BY embedding {operator} %s::vector {direction}
+                    LIMIT %s
+                """)
+                
+                # Format the query with all the parts
+                query = query_template.format(
                     schema_name=Identifier(self.schema_name),
                     table_name=Identifier(self.table_name),
-                ),
-                where_clause,
-                SQL(" ORDER BY embedding {operator} %(query_embedding)s::vector {direction} LIMIT %(top_k)s").format(
+                    where_clause=where_clause,
                     operator=SQL(operator),
                     direction=SQL(direction),
-                ),
-            ]
-            params.update(where_params)
-
-        # Combine the query parts
-        if len(query_parts) > 1:
-            query = query_parts[0]
-            for i in range(1, len(query_parts)):
-                query = query + query_parts[i]
-        else:
-            query = query_parts[0]
-
-        # Execute the query
+                )
+                
+                # Add filter parameters
+                if isinstance(filter_params, tuple):
+                    params.extend(filter_params)
+                else:
+                    params.append(filter_params)
+                
+                # Add vector parameters
+                params.append(query_embedding_str)
+                params.append(top_k)
+            except Exception as e:
+                logger.warning(f"Failed to apply filters: {str(e)}. Continuing without filters.")
+                
+                # Fall back to query without filters
+                base_query = SQL("""
+                    SELECT *
+                    FROM {schema_name}.{table_name}
+                    ORDER BY embedding {operator} %s::vector {direction}
+                    LIMIT %s
+                """).format(
+                    schema_name=Identifier(self.schema_name),
+                    table_name=Identifier(self.table_name),
+                    operator=SQL(operator),
+                    direction=SQL(direction),
+                )
+                
+                # Add parameters
+                params = [query_embedding_str, top_k]
+                query = base_query
+        
+        # Execute the query with parameters
         self.dict_cursor.execute(query, params)
         results = self.dict_cursor.fetchall()
 

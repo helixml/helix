@@ -8,6 +8,7 @@ from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack.components.writers import DocumentWriter
 from haystack.dataclasses import Document
 from haystack.utils.auth import Secret
+from haystack.document_stores.types import DuplicatePolicy
 
 from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
 from .unix_socket_embedders import UnixSocketOpenAIDocumentEmbedder, UnixSocketOpenAITextEmbedder
@@ -92,7 +93,10 @@ class HaystackService:
         splitter.warm_up()
         
         # Writer for the vector store (which now handles both embeddings and BM25)
-        vector_writer = DocumentWriter(document_store=self.document_store)
+        vector_writer = DocumentWriter(
+            document_store=self.document_store,
+            policy=DuplicatePolicy.OVERWRITE  # Use overwrite policy to handle duplicate documents
+        )
         
         # Add components
         self.indexing_pipeline.add_component("converter", converter)
@@ -215,7 +219,7 @@ class HaystackService:
         
         # Set up the parameters for the indexing pipeline
         params = {
-            "converter": {"paths": [file_path], "metadata": metadata},
+            "converter": {"paths": [file_path], "meta": metadata},
         }
         
         try:
@@ -250,12 +254,40 @@ class HaystackService:
         """
         logger.info(f"Querying with: '{query_text}'")
         
+        # Format filters correctly if they're provided
+        formatted_filters = None
+        if filters:
+            try:
+                # Simple filters might just be key-value pairs like {"data_entity_id": "some_id"}
+                # We need to convert them to the format expected by Haystack with operator and conditions
+                if not any(key in filters for key in ["operator", "conditions", "field"]):
+                    # Simple key-value filters need to be converted to proper format
+                    conditions = []
+                    for key, value in filters.items():
+                        conditions.append({
+                            "field": f"meta.{key}",
+                            "operator": "==",
+                            "value": value
+                        })
+                    
+                    formatted_filters = {
+                        "operator": "AND",
+                        "conditions": conditions
+                    }
+                else:
+                    # Filters are already in the correct format
+                    formatted_filters = filters
+                    
+                logger.debug(f"Using formatted filters: {formatted_filters}")
+            except Exception as e:
+                logger.warning(f"Failed to format filters: {str(e)}. Continuing without filters.")
+        
         # Update retriever parameters
         self.vector_retriever.top_k = top_k
-        self.vector_retriever.filters = filters
+        self.vector_retriever.filters = formatted_filters
         
         self.bm25_retriever.top_k = top_k
-        self.bm25_retriever.filters = filters
+        self.bm25_retriever.filters = formatted_filters
         
         # Set up the parameters for the query pipeline
         params = {
