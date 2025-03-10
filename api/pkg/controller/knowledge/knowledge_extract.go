@@ -180,9 +180,9 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 		Str("original_path", k.Source.Filestore.Path).
 		Msgf("Extracting data from Helix filestore")
 
-	// Only support app-scoped knowledge sources
-	if !strings.HasPrefix(k.Source.Filestore.Path, "apps/") || k.AppID == "" {
-		return nil, fmt.Errorf("invalid knowledge path: must use app-scoped path format (apps/%s/...)", k.AppID)
+	// Ensure we have an app ID for app-scoped paths
+	if k.AppID == "" {
+		return nil, fmt.Errorf("knowledge must be associated with an app")
 	}
 
 	data, err := r.getFilestoreFiles(ctx, r.filestore, k)
@@ -252,22 +252,41 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 		Str("path", k.Source.Filestore.Path).
 		Msgf("Getting files from filestore")
 
-	// Extract the relative path within the app
-	appPathPrefix := fmt.Sprintf("apps/%s/", k.AppID)
-	relativePath := strings.TrimPrefix(k.Source.Filestore.Path, appPathPrefix)
+	// Determine the physical storage path based on the knowledge path
+	var path string
 
-	// Use the GetAppPrefix function to get the correct app path
-	appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
-	path := filepath.Join(appPrefix, relativePath)
+	// If the path already has the app prefix, use it directly
+	if strings.HasPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID)) {
+		// The path already includes the apps/app_id prefix
+		appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
+		relativePath := strings.TrimPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID))
+		path = filepath.Join(appPrefix, relativePath)
+
+		log.Debug().
+			Str("knowledge_id", k.ID).
+			Str("app_id", k.AppID).
+			Str("path_type", "already_prefixed").
+			Str("physical_path", path).
+			Msgf("Using already prefixed path")
+	} else {
+		// Simple path (like "pdfs") - construct the app-scoped path
+		appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
+		path = filepath.Join(appPrefix, k.Source.Filestore.Path)
+
+		log.Debug().
+			Str("knowledge_id", k.ID).
+			Str("app_id", k.AppID).
+			Str("path_type", "simple").
+			Str("logical_path", k.Source.Filestore.Path).
+			Str("physical_path", path).
+			Msgf("Using inferred app-scoped path")
+	}
 
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Str("original_path", k.Source.Filestore.Path).
-		Str("app_id", k.AppID).
-		Str("app_prefix", appPrefix).
-		Str("relative_path", relativePath).
-		Str("full_path", path).
-		Msgf("Using app-scoped path for file listing")
+		Str("physical_path", path).
+		Msgf("Starting recursive file listing")
 
 	var recursiveList func(path string) error
 
