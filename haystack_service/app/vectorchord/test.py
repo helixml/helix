@@ -51,25 +51,21 @@ PG_CONN_STR = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}
 
 
 def start_docker_container() -> bool:
-    """Start the VectorChord-bm25 Docker container if not already running."""
-    # Check if container is already running
-    result = subprocess.run(
-        ["docker", "ps", "-q", "-f", f"name={CONTAINER_NAME}"],
-        capture_output=True,
-        text=True
-    )
+    """Start a fresh VectorChord-bm25 Docker container for testing."""
+    # Always stop and remove the container if it exists (for a fresh start)
+    logger.info(f"Ensuring clean environment for testing...")
+    subprocess.run(["docker", "rm", "-f", CONTAINER_NAME], 
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    if result.stdout.strip():
-        logger.info(f"Container {CONTAINER_NAME} is already running")
-        return True
-    
-    # Start the container
-    logger.info(f"Starting container {CONTAINER_NAME}...")
+    # Start a fresh container
+    logger.info(f"Starting fresh container {CONTAINER_NAME}...")
     cmd = [
         "docker", "run",
         "--name", CONTAINER_NAME,
         "-e", f"POSTGRES_PASSWORD={POSTGRES_PASSWORD}",
         "-p", f"{POSTGRES_PORT}:5432",
+        # Explicitly use ephemeral container with no volumes
+        "--rm",
         "-d", "ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1"
     ]
     

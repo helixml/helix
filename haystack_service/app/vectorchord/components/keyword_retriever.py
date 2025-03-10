@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from typing import Any, Dict, List, Optional, Union
 import math
+import logging
 
 from haystack import component, default_from_dict, default_to_dict
 from haystack.dataclasses import Document
@@ -11,6 +12,8 @@ from haystack.document_stores.types.filter_policy import apply_filter_policy
 
 from ..document_store import VectorchordDocumentStore
 
+# Configure logger
+logger = logging.getLogger(__name__)
 
 @component
 class VectorchordBM25Retriever:
