@@ -110,7 +110,9 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App
 	log.Info().Interface("userMap", userMap).Msg("populateAppOwner got userMap")
 
 	// Assign the user to the app
+	log.Info().Int("numApps", len(apps)).Msg("populateAppOwner assigning apps")
 	for _, app := range apps {
+		log.Info().Str("app_id", app.ID).Str("app_owner", app.Owner).Msg("populateAppOwner assigning app")
 		app.User = *userMap[app.Owner]
 	}
 	log.Info().Interface("apps", apps).Msg("populateAppOwner got apps")
