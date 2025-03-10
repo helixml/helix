@@ -59,7 +59,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: pgvector
-          image: pgvector/pgvector:pg17
+          image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
           ports:
             - name: tcp-pgvector
               containerPort: 5432

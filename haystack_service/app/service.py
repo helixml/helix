@@ -3,9 +3,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 from haystack import Pipeline
-from haystack.components.converters import DocumentCleaner
 from haystack.components.joiners import DocumentJoiner
-from haystack.components.preprocessors import DocumentSplitter
+from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack.components.writers import DocumentWriter
 from haystack.dataclasses import Document
 from haystack.utils.auth import Secret
