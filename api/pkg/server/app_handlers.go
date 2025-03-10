@@ -47,6 +47,8 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		return orgApps, nil
 	}
 
+	log.Info().Str("user_id", user.ID).Msg("listApps got user")
+
 	userApps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
@@ -54,6 +56,8 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	log.Info().Str("user_id", user.ID).Msg("listApps got userApps")
 
 	// remove global apps from the list in case this is the admin user who created the global app
 	nonGlobalUserApps := []*types.App{}
@@ -63,12 +67,16 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		}
 	}
 
+	log.Info().Str("user_id", user.ID).Msg("listApps got nonGlobalUserApps")
+
 	globalApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
 		Global: true,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	log.Info().Str("user_id", user.ID).Msg("listApps got globalApps")
 
 	allApps := append(nonGlobalUserApps, globalApps...)
 
@@ -86,6 +94,8 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	}
 
 	filteredApps = s.populateAppOwner(ctx, filteredApps)
+
+	log.Info().Str("user_id", user.ID).Msg("listApps got filteredApps")
 
 	return filteredApps, nil
 }
