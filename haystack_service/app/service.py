@@ -30,8 +30,9 @@ class HaystackService:
         # Initialize document stores
         try:
             # VectorChord store for both dense embeddings and BM25
+            pgvector_secret = Secret.from_token(settings.PGVECTOR_DSN)
             self.document_store = VectorchordDocumentStore(
-                connection_string=Secret.from_token(settings.PGVECTOR_DSN),
+                connection_string=pgvector_secret,  # Pass Secret object directly
                 embedding_dimension=settings.EMBEDDING_DIM,
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",

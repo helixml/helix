@@ -89,15 +89,15 @@ VECTOR_FUNCTION_TO_ORDER_DIRECTION = {
 
 CREATE_KEYWORD_INDEX_STATEMENT = """
 CREATE INDEX IF NOT EXISTS {index_name}
-ON {schema_name}.{table_name} USING GIN (to_tsvector('{language}'::regconfig, content))
+ON {schema_name}.{table_name} USING GIN (to_tsvector({language}, content))
 """
 
 KEYWORD_SELECT_STATEMENT = """
 SELECT *,
-    ts_rank_cd(to_tsvector('{language}'::regconfig, content),
-               to_tsquery('{language}'::regconfig, %(query)s)) AS rank
+    ts_rank_cd(to_tsvector({language}, content),
+               to_tsquery({language}, %(query)s)) AS rank
 FROM {schema_name}.{table_name}
-WHERE to_tsvector('{language}'::regconfig, content) @@ to_tsquery('{language}'::regconfig, %(query)s)
+WHERE to_tsvector({language}, content) @@ to_tsquery({language}, %(query)s)
 ORDER BY rank DESC
 LIMIT %(top_k)s
 """
@@ -271,7 +271,13 @@ class VectorchordDocumentStore:
                     pass
 
             # Create a new connection
-            self._conn = connect(str(self.connection_string))
+            # Use the Secret object's value property to get the actual connection string
+            if isinstance(self.connection_string, Secret):
+                conn_str = self.connection_string.resolve_value()
+            else:
+                conn_str = str(self.connection_string)
+                
+            self._conn = connect(conn_str)
             register_vector(self._conn)
 
             # Create the VectorChord extension if needed
@@ -281,6 +287,10 @@ class VectorchordDocumentStore:
                         # First ensure we have the required extensions
                         cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
                         cur.execute("CREATE EXTENSION IF NOT EXISTS vchord CASCADE;")
+                        
+                        # Add the VectorChord-BM25 extension
+                        cur.execute("CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;")
+                        
                         self._conn.commit()
                 except Error as err:
                     error_msg = f"Failed to create VectorChord extension: {err}"
@@ -416,11 +426,14 @@ class VectorchordDocumentStore:
             
         index_name = Identifier(f"{self.table_name}_{self.keyword_index_name}")
 
+        # Format language as 'english'::regconfig for PostgreSQL
+        language_param = SQL("{}::regconfig").format(SQLLiteral(self.language))
+
         query = SQL(CREATE_KEYWORD_INDEX_STATEMENT).format(
             index_name=index_name,
             schema_name=Identifier(self.schema_name),
             table_name=Identifier(self.table_name),
-            language=SQLLiteral(self.language),
+            language=language_param,
         )
         self._execute_sql(query, error_msg=f"Failed to create keyword index {index_name}")
 
@@ -722,16 +735,18 @@ class VectorchordDocumentStore:
         :param top_k: Maximum number of documents to return.
         :returns: List of `Document`s that match the query.
         """
-        # Normalize the query for PostgreSQL ts_query
         # Replace whitespace with & for AND operator
         normalized_query = " & ".join(query.split())
         params = {"query": normalized_query, "top_k": top_k}
+        
+        # Format language as 'english'::regconfig for PostgreSQL
+        language_param = SQL("{}::regconfig").format(SQLLiteral(self.language))
 
         # Start with the base query
         base_query = SQL(KEYWORD_SELECT_STATEMENT).format(
             schema_name=Identifier(self.schema_name),
             table_name=Identifier(self.table_name),
-            language=SQL(self.language),
+            language=language_param,
         )
         query_parts = [base_query]
 
@@ -743,16 +758,16 @@ class VectorchordDocumentStore:
                 SQL(
                     """
                     SELECT *,
-                        ts_rank_cd(to_tsvector('{language}'::regconfig, content),
-                                to_tsquery('{language}'::regconfig, %(query)s)) AS rank
+                        ts_rank_cd(to_tsvector({language}, content),
+                                to_tsquery({language}, %(query)s)) AS rank
                     FROM {schema_name}.{table_name}
-                    WHERE to_tsvector('{language}'::regconfig, content) @@ to_tsquery('{language}'::regconfig, %(query)s)
+                    WHERE to_tsvector({language}, content) @@ to_tsquery({language}, %(query)s)
                     AND
                     """
                 ).format(
                     schema_name=Identifier(self.schema_name),
                     table_name=Identifier(self.table_name),
-                    language=SQL(self.language),
+                    language=language_param,
                 ),
                 where_clause,
                 SQL(" ORDER BY rank DESC LIMIT %(top_k)s"),
