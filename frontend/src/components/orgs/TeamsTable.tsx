@@ -21,12 +21,14 @@ const TeamsTable: FC<{
   onDelete: (team: TypesTeam) => void,
   onView: (team: TypesTeam) => void,
   loading?: boolean,
+  isOrgAdmin?: boolean
 }> = ({
   data,
   onEdit,
   onDelete,
   onView,
-  loading,
+  loading = false,
+  isOrgAdmin = false
 }) => {
   const theme = useTheme()
   
@@ -91,22 +93,28 @@ const TeamsTable: FC<{
           pr: 2,
         }}
       >
-        <ClickLink
-          sx={{mr:2}}
-          onClick={() => onDelete(team._data)}
-        >
-          <Tooltip title="Delete">
-            <DeleteIcon />
-          </Tooltip>
-        </ClickLink>
-        <ClickLink
-          sx={{mr:2}}
-          onClick={() => onEdit(team._data)}
-        >
-          <Tooltip title="Edit">
-            <EditIcon />
-          </Tooltip>
-        </ClickLink>
+        {
+          isOrgAdmin && (
+            <>
+              <ClickLink
+                sx={{mr:2}}
+                onClick={() => onDelete(team._data)}
+              >
+                <Tooltip title="Delete">
+                  <DeleteIcon />
+                </Tooltip>
+              </ClickLink>
+              <ClickLink
+                sx={{mr:2}}
+                onClick={() => onEdit(team._data)}
+              >
+                <Tooltip title="Edit">
+                  <EditIcon />
+                </Tooltip>
+              </ClickLink>
+            </>
+          )
+        }
         <ClickLink
           onClick={() => onView(team._data)}
         >
@@ -116,7 +124,7 @@ const TeamsTable: FC<{
         </ClickLink>
       </Box>
     )
-  }, [onDelete, onView])
+  }, [onDelete, onView, isOrgAdmin])
 
   return (
     <SimpleTable
