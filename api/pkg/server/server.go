@@ -114,6 +114,9 @@ func NewServer(
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
 	var oidcClient auth.OIDC
 	if cfg.OIDC.Enabled {
+		if cfg.OIDC.Audience == "" {
+			return nil, fmt.Errorf("oidc audience is required")
+		}
 		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
 			ProviderURL:  cfg.OIDC.URL,
 			ClientID:     cfg.OIDC.ClientID,
@@ -121,6 +124,8 @@ func NewServer(
 			RedirectURL:  helixRedirectURL,
 			AdminUserIDs: cfg.WebServer.AdminIDs,
 			AdminUserSrc: cfg.WebServer.AdminSrc,
+			Audience:     cfg.OIDC.Audience,
+			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -141,6 +146,8 @@ func NewServer(
 			RedirectURL:  helixRedirectURL,
 			AdminUserIDs: cfg.WebServer.AdminIDs,
 			AdminUserSrc: cfg.WebServer.AdminSrc,
+			Audience:     "account",
+			Scopes:       []string{"openid", "profile", "email"},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create keycloak client: %w", err)

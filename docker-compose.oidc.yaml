@@ -18,6 +18,8 @@ services:
       - OIDC_CLIENT_ID=client-credentials-mock-client
       - OIDC_CLIENT_SECRET=client-credentials-mock-client-secret
       - OIDC_SECURE_COOKIES=false
+      - OIDC_AUDIENCE=some-app
+      - OIDC_SCOPES=openid,profile,email,some-app-scope-1
       - LOG_LEVEL=${LOG_LEVEL:-debug}
       - APP_URL=http://proxy:8080
       - POSTGRES_HOST=postgres
@@ -119,12 +121,14 @@ services:
         {
           "AutomaticRedirectAfterSignOut": true
         }
+      API_SCOPES_INLINE: |
+        - Name: some-app-scope-1
+        - Name: some-app-scope-2
       API_RESOURCES_INLINE: |
-        - Name: client-credentials-mock-client
+        - Name: some-app
           Scopes:
-            - openid
-            - profile
-            - email
+            - some-app-scope-1
+            - some-app-scope-2
       CLIENTS_CONFIGURATION_INLINE: |
         [
           {
@@ -134,7 +138,7 @@ services:
             "AllowOfflineAccess": true,
             "AllowedGrantTypes": ["authorization_code", "refresh_token"],
             "RedirectUris": ["http://proxy:8080"],
-            "AllowedScopes": ["openid", "profile", "email"],
+            "AllowedScopes": ["openid", "profile", "email", "some-app-scope-1"],
             "AlwaysIncludeUserClaimsInIdToken": true,
             "RequirePkce": false
           }
