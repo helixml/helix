@@ -198,6 +198,76 @@ class HaystackService:
         # Return the concatenated text from all documents
         return "\n\n".join([doc.content for doc in documents.get("documents", [])])
     
+    def _analyze_scores(self, vector_docs, bm25_docs):
+        """
+        Analyze the score distributions from both retrievers to identify potential normalization issues.
+        
+        Args:
+            vector_docs: List of documents from the vector retriever
+            bm25_docs: List of documents from the BM25 retriever
+            
+        Returns:
+            Dictionary with score analysis information
+        """
+        # Initialize score collections
+        vector_scores = [getattr(doc, "score", 0.0) for doc in vector_docs]
+        bm25_scores = [getattr(doc, "score", 0.0) for doc in bm25_docs]
+        
+        # Skip empty score lists
+        if not vector_scores and not bm25_scores:
+            logger.warning("No scores available for analysis")
+            return {}
+            
+        # Compute statistics
+        stats = {
+            "vector": {
+                "count": len(vector_scores),
+                "min": min(vector_scores) if vector_scores else None,
+                "max": max(vector_scores) if vector_scores else None,
+                "mean": sum(vector_scores) / len(vector_scores) if vector_scores else None,
+                "range": max(vector_scores) - min(vector_scores) if vector_scores else None,
+            },
+            "bm25": {
+                "count": len(bm25_scores),
+                "min": min(bm25_scores) if bm25_scores else None,
+                "max": max(bm25_scores) if bm25_scores else None, 
+                "mean": sum(bm25_scores) / len(bm25_scores) if bm25_scores else None,
+                "range": max(bm25_scores) - min(bm25_scores) if bm25_scores else None,
+            }
+        }
+        
+        # Log findings
+        logger.info(f"Score analysis - Vector scores: count={stats['vector']['count']}, "
+                   f"min={stats['vector']['min']}, max={stats['vector']['max']}, "
+                   f"mean={stats['vector']['mean']}, range={stats['vector']['range']}")
+        logger.info(f"Score analysis - BM25 scores: count={stats['bm25']['count']}, "
+                   f"min={stats['bm25']['min']}, max={stats['bm25']['max']}, "
+                   f"mean={stats['bm25']['mean']}, range={stats['bm25']['range']}")
+        
+        # Analyze potential issues
+        if vector_scores and bm25_scores:
+            vector_range = stats['vector']['range']
+            bm25_range = stats['bm25']['range']
+            
+            # Check if one retriever has much larger score range than the other
+            if vector_range and bm25_range and vector_range > 5 * bm25_range:
+                logger.warning("Vector score range is much larger than BM25 score range - "
+                              "this could lead to vector results dominating the ranking")
+            elif bm25_range and vector_range and bm25_range > 5 * vector_range:
+                logger.warning("BM25 score range is much larger than vector score range - "
+                              "this could lead to BM25 results dominating the ranking")
+                
+            # Check if the mean scores are very different
+            if stats['vector']['mean'] and stats['bm25']['mean']:
+                if stats['vector']['mean'] > 5 * stats['bm25']['mean']:
+                    logger.warning("Vector mean score is much higher than BM25 mean score - "
+                                  "this could lead to vector results dominating the ranking")
+                elif stats['bm25']['mean'] > 5 * stats['vector']['mean']:
+                    logger.warning("BM25 mean score is much higher than vector mean score - "
+                                  "this could lead to BM25 results dominating the ranking")
+        
+        return stats
+    
     async def process_and_index(self, file_path: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Process a document file and index it
@@ -252,7 +322,7 @@ class HaystackService:
         Returns:
             List of dictionaries with document data
         """
-        logger.info(f"Querying with: '{query_text}'")
+        logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
         
         # Format filters correctly if they're provided
         formatted_filters = None
@@ -278,7 +348,7 @@ class HaystackService:
                     # Filters are already in the correct format
                     formatted_filters = filters
                     
-                logger.debug(f"Using formatted filters: {formatted_filters}")
+                logger.info(f"Using formatted filters: {formatted_filters}")
             except Exception as e:
                 logger.warning(f"Failed to format filters: {str(e)}. Continuing without filters.")
         
@@ -296,11 +366,159 @@ class HaystackService:
         }
         
         try:
-            # Run the query
+            # Debug individual retriever operation first
+            # Test BM25 retriever directly to see results before joining
+            logger.info("DEBUG: Testing BM25 retriever directly")
+            try:
+                bm25_results = self.bm25_retriever.run(query=query_text, filters=formatted_filters, top_k=top_k)
+                logger.info(f"DEBUG: BM25 retriever returned {len(bm25_results.get('documents', []))} documents")
+                for i, doc in enumerate(bm25_results.get('documents', [])):
+                    logger.info(f"DEBUG: BM25 result {i+1}: id={doc.id}, score={doc.score}, content=\"{doc.content[:100]}...\"")
+            except Exception as e:
+                logger.error(f"DEBUG: BM25 retriever error: {str(e)}")
+            
+            # Test vector retriever directly
+            logger.info("DEBUG: Testing vector retriever directly")
+            try:
+                embedding = self.query_pipeline.get_component("embedder").run(text=query_text)["embedding"]
+                vector_results = self.vector_retriever.run(query_embedding=embedding, filters=formatted_filters, top_k=top_k)
+                logger.info(f"DEBUG: Vector retriever returned {len(vector_results.get('documents', []))} documents")
+                for i, doc in enumerate(vector_results.get('documents', [])):
+                    logger.info(f"DEBUG: Vector result {i+1}: id={doc.id}, score={doc.score}, content=\"{doc.content[:100]}...\"")
+            except Exception as e:
+                logger.error(f"DEBUG: Vector retriever error: {str(e)}")
+
+            # Special debug: analyze score distributions
+            logger.info("DEBUG: Analyzing score distributions from both retrievers")
+            try:
+                bm25_docs = bm25_results.get('documents', [])
+                vector_docs = vector_results.get('documents', [])
+                
+                # Analyze the scores
+                score_analysis = self._analyze_scores(vector_docs, bm25_docs)
+                
+                # Check for potential modifications to improve ranking
+                if score_analysis:
+                    logger.info("DEBUG: Consider these potential improvements based on score analysis:")
+                    
+                    # Check if score normalization might help
+                    if (score_analysis.get('vector', {}).get('range') and 
+                        score_analysis.get('bm25', {}).get('range')):
+                        
+                        logger.info("DEBUG: One potential fix is to normalize scores before joining:")
+                        logger.info("DEBUG: For vector scores: score_norm = (score - min_score) / score_range")
+                        logger.info("DEBUG: For BM25 scores: score_norm = (score - min_score) / score_range")
+                        logger.info("DEBUG: This would make both retrievers contribute more equally to ranking")
+            except Exception as e:
+                logger.error(f"DEBUG: Score analysis failed: {str(e)}")
+                logger.exception("Score analysis error details:")
+
+            # Special debug: manually simulate the reciprocal rank fusion to understand how the DocumentJoiner works
+            logger.info("DEBUG: Manually simulating reciprocal rank fusion to understand document joiner behavior")
+            try:
+                bm25_docs = bm25_results.get('documents', [])
+                vector_docs = vector_results.get('documents', [])
+                
+                # Create document mapping to track ranks and scores
+                doc_info = {}
+                
+                # Track BM25 document ranks
+                for i, doc in enumerate(bm25_docs):
+                    # Ranks are 1-based
+                    rank = i + 1
+                    if doc.id not in doc_info:
+                        doc_info[doc.id] = {
+                            "document": doc,
+                            "bm25_rank": rank,
+                            "bm25_score": doc.score,
+                            "vector_rank": None,
+                            "vector_score": None
+                        }
+                    else:
+                        doc_info[doc.id]["bm25_rank"] = rank
+                        doc_info[doc.id]["bm25_score"] = doc.score
+                
+                # Track vector document ranks
+                for i, doc in enumerate(vector_docs):
+                    rank = i + 1
+                    if doc.id not in doc_info:
+                        doc_info[doc.id] = {
+                            "document": doc,
+                            "bm25_rank": None,
+                            "bm25_score": None,
+                            "vector_rank": rank,
+                            "vector_score": doc.score
+                        }
+                    else:
+                        doc_info[doc.id]["vector_rank"] = rank
+                        doc_info[doc.id]["vector_score"] = doc.score
+                
+                # Calculate RRF scores - typical formula is RRF(d,i) = 1/(k + r_i(d)) where:
+                # - k is a constant (typically 60)
+                # - r_i(d) is the rank of document d in list i
+                k_constant = 60
+                for doc_id, info in doc_info.items():
+                    # Initialize RRF score
+                    rrf_score = 0
+                    
+                    # Add BM25 component if available
+                    if info["bm25_rank"] is not None:
+                        rrf_score += 1 / (k_constant + info["bm25_rank"])
+                    
+                    # Add vector component if available
+                    if info["vector_rank"] is not None:
+                        rrf_score += 1 / (k_constant + info["vector_rank"])
+                    
+                    # Store the RRF score
+                    info["rrf_score"] = rrf_score
+                
+                # Sort by RRF score
+                sorted_docs = sorted(doc_info.values(), key=lambda x: x["rrf_score"], reverse=True)
+                
+                # Debug the RRF calculation
+                for i, doc_info in enumerate(sorted_docs[:top_k]):
+                    doc = doc_info["document"]
+                    logger.info(
+                        f"DEBUG: RRF result {i+1}: id={doc.id}, "
+                        f"bm25_rank={doc_info['bm25_rank']}, bm25_score={doc_info['bm25_score']}, "
+                        f"vector_rank={doc_info['vector_rank']}, vector_score={doc_info['vector_score']}, "
+                        f"rrf_score={doc_info['rrf_score']}, "
+                        f"content=\"{doc.content[:100]}...\""
+                    )
+            except Exception as e:
+                logger.error(f"DEBUG: Manual RRF simulation failed: {str(e)}")
+                logger.exception("RRF simulation error details:")
+
+            # Run the query pipeline
+            logger.info("Running full query pipeline with document joining")
             output = self.query_pipeline.run(params)
             
             # Get the results from the document joiner
             documents = output.get("document_joiner", {}).get("documents", [])
+            logger.info(f"Document joiner returned {len(documents)} documents")
+            
+            # Debug the joined results
+            for i, doc in enumerate(documents):
+                logger.info(f"DEBUG: Joined result {i+1}: id={doc.id}, score={doc.score}, content=\"{doc.content[:100]}...\"")
+            
+            # Compare with our manual RRF calculation
+            try:
+                logger.info("DEBUG: Comparing actual document joiner results with our manual RRF simulation:")
+                for i, doc in enumerate(documents[:min(len(documents), top_k)]):
+                    # Find this document in our sorted docs
+                    matching_docs = [d for d in sorted_docs if d["document"].id == doc.id]
+                    if matching_docs:
+                        manual_rank = sorted_docs.index(matching_docs[0]) + 1
+                        logger.info(
+                            f"DEBUG: Document {doc.id} - actual joiner rank: {i+1}, "
+                            f"manual RRF rank: {manual_rank}, "
+                            f"actual joiner score: {doc.score}, "
+                            f"manual RRF score: {matching_docs[0]['rrf_score']}"
+                        )
+                    else:
+                        logger.warning(f"DEBUG: Document {doc.id} wasn't found in our manual RRF calculation")
+            except Exception as e:
+                logger.error(f"DEBUG: Comparison with manual RRF failed: {str(e)}")
             
             # Convert to dictionaries
             results = []

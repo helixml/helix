@@ -182,8 +182,10 @@ class VectorchordBM25Retriever:
             - `documents`: List of `Document`s that match the query.
         """
         try:
+            logger.info(f"BM25Retriever: Running query '{query}' with filters={filters}, top_k={top_k}")
             filters = apply_filter_policy(self.filter_policy, self.filters, filters)
             top_k = top_k or self.top_k
+            logger.info(f"BM25Retriever: After filter policy applied: filters={filters}, top_k={top_k}")
 
             # Use VectorChord-bm25 for retrieval
             # First, we need to get the index name
@@ -199,12 +201,14 @@ class VectorchordBM25Retriever:
             # Add WHERE clause for filters
             if filters:
                 try:
+                    logger.info(f"BM25Retriever: Applying filters: {filters}")
                     # Import the filter handling function from the filters module
                     from ..document_store.filters import _convert_filters_to_where_clause_and_params
                     from psycopg.sql import SQL, Composed
                     
                     # Convert filters to SQL WHERE clause
                     where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
+                    logger.info(f"BM25Retriever: Generated filter clause: {where_clause}, params: {filter_params}")
                     
                     # Create SQL objects for each part of the query
                     base_sql = SQL(query_base)
@@ -220,29 +224,43 @@ class VectorchordBM25Retriever:
                         # Handle single filter parameter or other types
                         params.append(filter_params)
                     params.append(top_k)
+                    logger.info(f"BM25Retriever: Final query parameters: {params}")
                     
                     # Compose the final query with properly formatted SQL objects
                     final_query = Composed([base_sql, where_clause, order_limit_sql])
+                    logger.info(f"BM25Retriever: Final query: {final_query}")
                     
                     self.document_store.dict_cursor.execute(final_query, params)
                     results = self.document_store.dict_cursor.fetchall()
+                    logger.info(f"BM25Retriever: SQL query returned {len(results)} results")
                 except Exception as e:
-                    logger.warning(f"Failed to apply filters: {str(e)}. Continuing without filters.")
+                    logger.warning(f"BM25Retriever: Failed to apply filters: {str(e)}. Continuing without filters.")
+                    logger.exception("BM25Retriever filter error details")
                     
                     # Fall back to query without filters
                     clean_query_base = query_base + " ORDER BY bm25_score LIMIT %s"
                     clean_params = [query, top_k]
+                    logger.info(f"BM25Retriever: Falling back to query without filters: {clean_query_base} with params {clean_params}")
                     self.document_store.dict_cursor.execute(clean_query_base, clean_params)
                     results = self.document_store.dict_cursor.fetchall()
+                    logger.info(f"BM25Retriever: Fallback query returned {len(results)} results")
             else:
                 # No filters, just execute the query
                 clean_query_base = query_base + " ORDER BY bm25_score LIMIT %s"
                 clean_params = [query, top_k]
+                logger.info(f"BM25Retriever: Executing query without filters: {clean_query_base} with params {clean_params}")
                 self.document_store.dict_cursor.execute(clean_query_base, clean_params)
                 results = self.document_store.dict_cursor.fetchall()
+                logger.info(f"BM25Retriever: Query returned {len(results)} results")
             
             # Convert to Document objects
             docs = self.document_store._from_pg_to_haystack_documents(results)
+            logger.info(f"BM25Retriever: Converted {len(docs)} results to Document objects")
+            
+            # Debug the raw scores from the database
+            for i, result in enumerate(results):
+                bm25_score = result.get("bm25_score", 0.0)
+                logger.info(f"BM25Retriever: Raw result {i+1}: id={result.get('id')}, raw_bm25_score={bm25_score}, content=\"{result.get('content')[:100]}...\"")
             
             # Add the score to each document
             for i, result in enumerate(results):
@@ -256,15 +274,19 @@ class VectorchordBM25Retriever:
                     
                     # Handle None values safely
                     if bm25_score is None:
+                        logger.warning(f"BM25Retriever: Document {i+1} (id: {docs[i].id}) had None score, defaulting to 0.0")
                         bm25_score = 0.0
                     
                     # Simple transformation: just add a constant to make all scores positive
                     # The constant should be large enough to make all typical negative scores positive
                     # Since typical BM25 scores range from around -10 to 0, adding 10 works well
-                    docs[i].score = bm25_score + 10.0
+                    transformed_score = bm25_score + 10.0
+                    docs[i].score = transformed_score
+                    logger.info(f"BM25Retriever: Document {i+1} (id: {docs[i].id}): raw_score={bm25_score}, transformed_score={transformed_score}")
             
             return {"documents": docs}
             
         except Exception as e:
             logger.error(f"BM25 search failed: {str(e)}")
+            logger.exception("BM25 search error details:")
             raise ValueError(f"BM25 search failed: {str(e)}")
