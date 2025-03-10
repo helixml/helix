@@ -11,6 +11,7 @@ from haystack.document_stores.types import FilterPolicy
 from haystack.document_stores.types.filter_policy import apply_filter_policy
 
 from ..document_store import VectorchordDocumentStore
+from ..document_store.filters import _convert_filters_to_where_clause_and_params
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -180,45 +181,65 @@ class VectorchordBM25Retriever:
         :returns: A dictionary with the following keys:
             - `documents`: List of `Document`s that match the query.
         """
-        filters = apply_filter_policy(self.filter_policy, self.filters, filters)
-        top_k = top_k or self.top_k
-
-        # Use VectorChord-bm25 for retrieval
-        # First, we need to get the index name
-        index_name = f"{self.document_store.table_name}_bm25_idx"
-        
-        # Build the query with filters
-        query_base = f"""
-        SELECT id, content, meta, embedding, blob_data, blob_meta, blob_mime_type,
-            content_bm25vector <&> to_bm25query('{index_name}', %s, '{self.tokenizer}') AS bm25_score
-        FROM {self.document_store.schema_name}.{self.document_store.table_name}
-        """
-        
-        # Add filters if present
-        params = [query]
-        where_conditions = []
-        
-        if filters:
-            for key, value in filters.items():
-                if isinstance(value, (list, tuple)):
-                    placeholders = ', '.join(['%s' for _ in value])
-                    where_conditions.append(f"meta->'{key}' ? ANY(ARRAY[{placeholders}])")
-                    params.extend(value)
-                else:
-                    where_conditions.append(f"meta->'{key}' ? %s")
-                    params.append(value)
-        
-        if where_conditions:
-            query_base += " WHERE " + " AND ".join(where_conditions)
-        
-        # Order by BM25 score (higher is better) and limit
-        query_base += " ORDER BY bm25_score LIMIT %s"
-        params.append(top_k)
-        
-        # Execute the query
         try:
-            self.document_store.dict_cursor.execute(query_base, params)
-            results = self.document_store.dict_cursor.fetchall()
+            filters = apply_filter_policy(self.filter_policy, self.filters, filters)
+            top_k = top_k or self.top_k
+
+            # Use VectorChord-bm25 for retrieval
+            # First, we need to get the index name
+            index_name = f"{self.document_store.table_name}_bm25_idx"
+            
+            # Build the query with filters
+            query_base = f"""
+            SELECT id, content, meta, embedding, blob_data, blob_meta, blob_mime_type,
+                content_bm25vector <&> to_bm25query('{index_name}', %s, '{self.tokenizer}') AS bm25_score
+            FROM {self.document_store.schema_name}.{self.document_store.table_name}
+            """
+            
+            # Add WHERE clause for filters
+            if filters:
+                try:
+                    # Import the filter handling function from the filters module
+                    from ..document_store.filters import _convert_filters_to_where_clause_and_params
+                    from psycopg.sql import SQL, Composed
+                    
+                    # Convert filters to SQL WHERE clause
+                    where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
+                    
+                    # Create SQL objects for each part of the query
+                    base_sql = SQL(query_base)
+                    order_limit_sql = SQL(" ORDER BY bm25_score LIMIT %s")
+                    
+                    # Build params properly - first the query text, then filter params, then top_k
+                    params = [query]
+                    if isinstance(filter_params, tuple):
+                        # Handle tuple of filter params - add them one by one to the list
+                        if filter_params:
+                            params.extend(filter_params)
+                    else:
+                        # Handle single filter parameter or other types
+                        params.append(filter_params)
+                    params.append(top_k)
+                    
+                    # Compose the final query with properly formatted SQL objects
+                    final_query = Composed([base_sql, where_clause, order_limit_sql])
+                    
+                    self.document_store.dict_cursor.execute(final_query, params)
+                    results = self.document_store.dict_cursor.fetchall()
+                except Exception as e:
+                    logger.warning(f"Failed to apply filters: {str(e)}. Continuing without filters.")
+                    
+                    # Fall back to query without filters
+                    clean_query_base = query_base + " ORDER BY bm25_score LIMIT %s"
+                    clean_params = [query, top_k]
+                    self.document_store.dict_cursor.execute(clean_query_base, clean_params)
+                    results = self.document_store.dict_cursor.fetchall()
+            else:
+                # No filters, just execute the query
+                clean_query_base = query_base + " ORDER BY bm25_score LIMIT %s"
+                clean_params = [query, top_k]
+                self.document_store.dict_cursor.execute(clean_query_base, clean_params)
+                results = self.document_store.dict_cursor.fetchall()
             
             # Convert to Document objects
             docs = self.document_store._from_pg_to_haystack_documents(results)
@@ -233,12 +254,17 @@ class VectorchordBM25Retriever:
                     #   than the more negative value (-5.0)
                     bm25_score = result.get("bm25_score", 0.0)
                     
+                    # Handle None values safely
+                    if bm25_score is None:
+                        bm25_score = 0.0
+                    
                     # Simple transformation: just add a constant to make all scores positive
                     # The constant should be large enough to make all typical negative scores positive
                     # Since typical BM25 scores range from around -10 to 0, adding 10 works well
                     docs[i].score = bm25_score + 10.0
             
             return {"documents": docs}
+            
         except Exception as e:
             logger.error(f"BM25 search failed: {str(e)}")
             raise ValueError(f"BM25 search failed: {str(e)}")
