@@ -189,25 +189,12 @@ func (c *OIDCClient) GetUserInfo(ctx context.Context, accessToken string) (*User
 		return nil, err
 	}
 
-	var claims struct {
-		Email      string `json:"email"`
-		Name       string `json:"name"`
-		Subject    string `json:"sub"`
-		Username   string `json:"preferred_username"`
-		Admin      bool   `json:"admin"`
-		GivenName  string `json:"given_name"`
-		FamilyName string `json:"family_name"`
-	}
+	var claims UserInfo
 	if err := userInfo.Claims(&claims); err != nil {
 		return nil, err
 	}
 
-	return &UserInfo{
-		Email:    claims.Email,
-		Name:     claims.Name,
-		Subject:  claims.Subject,
-		Username: claims.Subject,
-	}, nil
+	return &claims, nil
 }
 
 // GetLogoutURL returns the URL to log out from the OIDC provider
@@ -251,7 +238,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 
 	return &types.User{
 		ID:        userInfo.Subject,
-		Username:  userInfo.Username,
+		Username:  userInfo.Subject,
 		Email:     userInfo.Email,
 		FullName:  userInfo.Name,
 		Token:     accessToken,
@@ -272,7 +259,6 @@ type UserInfo struct {
 	Email      string `json:"email"`
 	Name       string `json:"name"`
 	Subject    string `json:"sub"`
-	Username   string `json:"preferred_username"`
 	Admin      bool   `json:"admin"`
 	GivenName  string `json:"given_name"`
 	FamilyName string `json:"family_name"`
