@@ -26,6 +26,7 @@ export interface IAccountContext {
   credits: number,
   admin: boolean,
   organizationTools: IOrganizationTools,
+  isOrgAdmin: boolean,
   user?: IKeycloakUser,
   token?: string,
   tokenUrlEscaped?: string,
@@ -51,6 +52,7 @@ export const AccountContext = createContext<IAccountContext>({
   credits: 0,
   admin: false,
   organizationTools: defaultOrganizationTools,
+  isOrgAdmin: false,
   loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
@@ -304,6 +306,7 @@ export const useAccountContext = (): IAccountContext => {
     fetchProviderEndpoints,
     providerEndpoints,
     organizationTools,
+    isOrgAdmin: admin || organizationTools.isOrgAdmin,
   }
 }
 

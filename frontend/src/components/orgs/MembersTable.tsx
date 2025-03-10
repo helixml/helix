@@ -109,8 +109,6 @@ const MembersTable: FC<MembersTableProps> = ({
 
   // Generate action buttons for each member row
   const getActions = useCallback((row: any) => {
-    const isOrgMembership = 'role' in row._data
-    
     return (
       <Box sx={{
         width: '100%',
@@ -122,7 +120,7 @@ const MembersTable: FC<MembersTableProps> = ({
         pr: 2,
         gap: 2
       }}>
-        {showRoles && isOrgMembership && isOrgAdmin && (
+        {showRoles && isOrgAdmin && (
           <ClickLink
             onClick={() => handleEdit(row._data)}
           >

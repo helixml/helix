@@ -117,12 +117,9 @@ const OrgPeople: FC = () => {
     return owners.length === 1 && owners[0].user_id === member.user_id
   }
 
-  // Check if the current user is an organization owner 
-  // to determine if they can add/remove members
-  const isOrgOwner = account.user && account.organizationTools.organization?.memberships?.some(
-    m => m.user_id === account.user?.id && m.role === 'owner'
-  )
- 
+  // Use the isOrgAdmin property from the useOrganizations hook
+  const isOrgOwner = account.isOrgAdmin
+
   if(!account.user) return null
 
   const deleteUserAny = deleteMember?.user as any
