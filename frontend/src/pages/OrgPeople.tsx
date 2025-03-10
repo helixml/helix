@@ -105,7 +105,7 @@ const OrgPeople: FC = () => {
               data={account.organizationTools.organization.memberships}
               onDelete={handleDelete}
               loading={account.organizationTools.loading}
-              currentUserID={account.user?.id}
+              showRoles={true}
             />
           )}
         </Box>

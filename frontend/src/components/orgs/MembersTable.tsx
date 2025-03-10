@@ -19,7 +19,7 @@ interface MembersTableProps {
   data: Membership[]
   onDelete: (member: Membership) => void
   loading?: boolean
-  currentUserID?: string
+  showRoles?: boolean
 }
 
 // Display a table of organization or team members with their roles and actions
@@ -27,7 +27,7 @@ const MembersTable: FC<MembersTableProps> = ({
   data, 
   onDelete, 
   loading = false,
-  currentUserID
+  showRoles = true
 }) => {
   const theme = useTheme()
 
@@ -42,11 +42,6 @@ const MembersTable: FC<MembersTableProps> = ({
       default:
         return { label: 'Member', color: 'primary' }
     }
-  }
-
-  // Check if the current user is viewing themselves (can't delete self)
-  const isSelf = (memberID: string | undefined) => {
-    return memberID === currentUserID
   }
   
   // Transform member data for the table display
@@ -85,8 +80,6 @@ const MembersTable: FC<MembersTableProps> = ({
 
   // Generate action buttons for each member row
   const getActions = useCallback((row: any) => {
-    const isCurrentUser = isSelf(row._data.user_id)
-    
     return (
       <Box sx={{
         width: '100%',
@@ -97,15 +90,13 @@ const MembersTable: FC<MembersTableProps> = ({
         pl: 2,
         pr: 2,
       }}>
-        {!isCurrentUser && (
-          <ClickLink
-            onClick={() => onDelete(row._data)}
-          >
-            <Tooltip title="Delete">
-              <DeleteIcon color="action" />
-            </Tooltip>
-          </ClickLink>
-        )}
+        <ClickLink
+          onClick={() => onDelete(row._data)}
+        >
+          <Tooltip title="Delete">
+            <DeleteIcon color="action" />
+          </Tooltip>
+        </ClickLink>
       </Box>
     )
   }, [onDelete])
@@ -118,10 +109,11 @@ const MembersTable: FC<MembersTableProps> = ({
       }, {
         name: 'email',
         title: 'Email',
-      }, {
+      }, 
+      ...(showRoles ? [{
         name: 'role',
         title: 'Role',
-      }]}
+      }] : [])]}
       data={tableData}
       getActions={getActions}
       loading={loading}

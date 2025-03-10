@@ -134,7 +134,7 @@ const TeamPeople: FC = () => {
               data={currentTeam.memberships}
               onDelete={handleDelete}
               loading={account.organizationTools.loading}
-              currentUserID={account.user?.id}
+              showRoles={false}
             />
           ) : (
             <Typography variant="body1" color="text.secondary" align="center">
