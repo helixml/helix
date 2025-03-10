@@ -41,7 +41,7 @@ export const useApps = () => {
         let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
           snackbar: true,
         })
-        if(result === null) result = []  
+        if(!result) result = []
         if(!mountedRef.current) return
         setData(result)
       } finally {
@@ -67,13 +67,19 @@ export const useApps = () => {
   }, [])
 
   const helixApps = useMemo(() => {
-    return data.filter(app => app.app_source == APP_SOURCE_HELIX)
+    const sourceData: IApp[] = data || []
+    if(!sourceData) return []
+    if(!sourceData.filter) return []
+    return sourceData.filter(app => app.app_source == APP_SOURCE_HELIX)
   }, [
     data,
   ])
 
   const githubApps = useMemo(() => {
-    return data.filter(app => app.app_source == APP_SOURCE_GITHUB)
+    const sourceData: IApp[] = data || []
+    if(!sourceData) return []
+    if(!sourceData.filter) return []
+    return sourceData.filter(app => app.app_source == APP_SOURCE_GITHUB)
   }, [
     data,
   ])
