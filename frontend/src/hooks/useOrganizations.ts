@@ -44,7 +44,7 @@ export interface IOrganizationTools {
   addTeamMember: (organizationId: string, teamId: string, userReference: string) => Promise<boolean>,
   removeTeamMember: (organizationId: string, teamId: string, userId: string) => Promise<boolean>,
   // User search method
-  searchUsers: (query: { email?: string, name?: string, username?: string }) => Promise<SearchUsersResponse>,
+  searchUsers: (query: { email?: string, name?: string, username?: string, organizationId?: string }) => Promise<SearchUsersResponse>,
 }
 
 export const defaultOrganizationTools: IOrganizationTools = {
@@ -457,13 +457,14 @@ export default function useOrganizations(): IOrganizationTools {
   }, [])
 
   // Add the searchUsers function implementation
-  const searchUsers = useCallback(async (query: { email?: string, name?: string, username?: string }) => {
+  const searchUsers = useCallback(async (query: { email?: string, name?: string, username?: string, organizationId?: string }) => {
     try {
       // Build query parameters
       const params = new URLSearchParams();
       if (query.email) params.append('email', query.email);
       if (query.name) params.append('name', query.name);
       if (query.username) params.append('username', query.username);
+      if (query.organizationId) params.append('organization_id', query.organizationId);
       
       // Call the API endpoint
       const response = await api.get(`/api/v1/users/search?${params.toString()}`);
@@ -478,10 +479,10 @@ export default function useOrganizations(): IOrganizationTools {
       console.error('Error searching users:', error);
       const errorMessage = extractErrorMessage(error);
       snackbar.error(errorMessage || 'Error searching users');
-      // Return empty result on error
+      
       return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
     }
-  }, []);
+  }, [api, snackbar]);
 
   // Effect to load organization when orgIdParam changes
   useEffect(() => {

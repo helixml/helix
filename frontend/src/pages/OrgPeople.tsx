@@ -122,6 +122,7 @@ const OrgPeople: FC = () => {
         open={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
         onAddMember={addMemberToOrganisation}
+        title="Add Organization Member"
       />
     </Page>
   )

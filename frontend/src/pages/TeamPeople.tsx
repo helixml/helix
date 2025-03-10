@@ -36,6 +36,8 @@ const TeamPeople: FC = () => {
   // Extract org_id and team_id parameters from router
   const orgId = router.params.org_id
   const teamId = router.params.team_id
+
+  const organization = account.organizationTools.organization
   
   // Find the current team in the organization's teams array
   useEffect(() => {
@@ -52,14 +54,14 @@ const TeamPeople: FC = () => {
 
   // Handler for adding a team member
   const addTeamMember = async (userId: string) => {
-    if (!orgId || !teamId) {
+    if (!organization?.id || !teamId) {
       snackbar.error('Organization or team ID not found')
       return
     }
     
     try {
       const success = await account.organizationTools.addTeamMember(
-        orgId,
+        organization?.id,
         teamId,
         userId
       )
@@ -81,17 +83,17 @@ const TeamPeople: FC = () => {
 
   // Handler for confirming member deletion
   const handleConfirmDelete = async () => {
-    if (deleteMember) {
-      if (!orgId || !teamId) {
+    if (deleteMember && deleteMember.user_id) {
+      if (!organization?.id || !teamId) {
         snackbar.error('Organization or team ID not found')
         return
       }
       
       try {
         await account.organizationTools.removeTeamMember(
-          orgId,
+          organization.id,
           teamId,
-          deleteMember.user_id!
+          deleteMember.user_id,
         )
         setDeleteDialogOpen(false)
       } catch (error) {
@@ -108,10 +110,11 @@ const TeamPeople: FC = () => {
   )
  
   if(!account.user) return null
+  if(!organization) return null
 
   return (
     <Page
-      breadcrumbTitle={ currentTeam ? `Team: ${currentTeam.name}` : 'Team Members' }
+      breadcrumbTitle={ currentTeam ? `${organization.display_name} : Teams : ${currentTeam.name} : Members` : 'Team Members' }
       breadcrumbShowHome={ false }
       topbarContent={isOrgOwner ? (
         <Button
@@ -152,6 +155,9 @@ const TeamPeople: FC = () => {
         open={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
         onAddMember={addTeamMember}
+        title="Add Team Member"
+        messagePrefix="Only showing users in organization."
+        organizationMembersOnly={true}
       />
     </Page>
   )

@@ -83,6 +83,7 @@ type SearchUsersQuery struct {
 	EmailPattern    string `json:"email_pattern"`    // Pattern to match against email (LIKE query)
 	NamePattern     string `json:"name_pattern"`     // Pattern to match against full name (LIKE query)
 	UsernamePattern string `json:"username_pattern"` // Pattern to match against username (LIKE query)
+	OrganizationID  string `json:"organization_id"`  // Organization ID to filter users that are members of the org
 	Limit           int    `json:"limit"`            // Maximum number of results to return
 	Offset          int    `json:"offset"`           // Offset for pagination
 }

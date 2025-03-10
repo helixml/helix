@@ -177,6 +177,12 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 		if query.UsernamePattern != "" {
 			db = db.Where("username ILIKE ?", "%"+query.UsernamePattern+"%")
 		}
+
+		// Filter users by organization membership if organization ID is provided
+		if query.OrganizationID != "" {
+			db = db.Joins("JOIN organization_memberships ON organization_memberships.user_id = users.id").
+				Where("organization_memberships.organization_id = ?", query.OrganizationID)
+		}
 	}
 
 	// Count total matching records before applying pagination

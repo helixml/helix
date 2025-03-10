@@ -622,6 +622,7 @@ func (apiServer *HelixAPIServer) searchUsers(w http.ResponseWriter, r *http.Requ
 		EmailPattern:    r.URL.Query().Get("email"),
 		NamePattern:     r.URL.Query().Get("name"),
 		UsernamePattern: r.URL.Query().Get("username"),
+		OrganizationID:  r.URL.Query().Get("organization_id"),
 	}
 
 	// Parse pagination parameters
