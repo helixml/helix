@@ -100,10 +100,18 @@ const TeamsTable: FC<{
           </Tooltip>
         </ClickLink>
         <ClickLink
+          sx={{mr:2}}
+          onClick={() => onEdit(team._data)}
+        >
+          <Tooltip title="Edit">
+            <EditIcon />
+          </Tooltip>
+        </ClickLink>
+        <ClickLink
           onClick={() => onView(team._data)}
         >
           <Tooltip title="View">
-            <VisibilityIcon />
+            <GroupsIcon />
           </Tooltip>
         </ClickLink>
       </Box>

@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useEffect, ReactNode } from 'react'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -18,16 +18,27 @@ import SearchIcon from '@mui/icons-material/Search'
 
 import useDebounce from '../../hooks/useDebounce'
 import useOrganizations, { UserSearchResult } from '../../hooks/useOrganizations'
+import useAccount from '../../hooks/useAccount'
 
 // Interface for component props
 interface UserSearchModalProps {
   open: boolean
   onClose: () => void
   onAddMember: (userId: string) => void
+  title?: string
+  messagePrefix?: string
+  organizationMembersOnly?: boolean
 }
 
-// UserSearchModal component for searching and adding users to an organization
-const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember }) => {
+// UserSearchModal component for searching and adding users to an organization or team
+const UserSearchModal: FC<UserSearchModalProps> = ({ 
+  open, 
+  onClose, 
+  onAddMember, 
+  title = "Add Organization Member",
+  messagePrefix,
+  organizationMembersOnly = false
+}) => {
   // State for the search query
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -38,6 +49,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember 
   
   // Get the searchUsers function from useOrganizations hook
   const { searchUsers } = useOrganizations()
+  const account = useAccount()
   
   // Handle search query change
   const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -64,6 +76,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember 
         const response = await searchUsers({
           email: debouncedSearchQuery,
           name: debouncedSearchQuery,
+          organizationId: organizationMembersOnly ? account.organizationTools.organization?.id : undefined
         })
         
         // Normalize the case of API response fields
@@ -88,11 +101,23 @@ const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember 
     }
     
     performSearch()
-  }, [debouncedSearchQuery, searchUsers])
+  }, [debouncedSearchQuery])
   
+  // Get the results message
+  const getResultsMessage = () => {
+    if (searchResults.length === 0 && !searching && debouncedSearchQuery.length >= 2) {
+      return 'No users found. Try a different search term.';
+    } else if (searchResults.length > 0) {
+      const resultsText = `Found ${searchResults.length} user${searchResults.length === 1 ? '' : 's'}`;
+      return messagePrefix ? `${messagePrefix} ${resultsText}` : resultsText;
+    } else {
+      return 'Enter at least 2 characters to search';
+    }
+  };
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Add Organization Member</DialogTitle>
+      <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         <TextField
           autoFocus
@@ -120,11 +145,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({ open, onClose, onAddMember 
         
         <Box sx={{ mt: 2, mb: 1 }}>
           <Typography variant="subtitle2" color="text.secondary">
-            {searchResults.length === 0 && !searching && debouncedSearchQuery.length >= 2
-              ? 'No users found. Try a different search term.'
-              : searchResults.length > 0
-                ? `Found ${searchResults.length} users`
-                : 'Enter at least 2 characters to search'}
+            {getResultsMessage()}
           </Typography>
         </Box>
         
