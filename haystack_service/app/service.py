@@ -7,10 +7,13 @@ from typing import List, Dict, Any, Optional, Union, BinaryIO
 from haystack import Pipeline, Document
 from haystack.utils import Secret
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
+from haystack.document_stores.in_memory import InMemoryDocumentStore
 from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
+from haystack.components.retrievers.in_memory import InMemoryBM25Retriever
 from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
 from haystack.components.writers import DocumentWriter
+from haystack.components.joiners import DocumentJoiner
 
 from .config import settings
 from .converters import LocalUnstructuredConverter
@@ -50,8 +53,9 @@ class HaystackService:
         """Initialize the Haystack service"""
         logger.info("Initializing HaystackService")
         
-        # Initialize document store
+        # Initialize document stores
         try:
+            # PgVector store for dense embeddings
             self.document_store = PgvectorDocumentStore(
                 connection_string=Secret.from_token(settings.PGVECTOR_DSN),
                 embedding_dimension=settings.EMBEDDING_DIM,
@@ -61,8 +65,13 @@ class HaystackService:
                 recreate_table=True # XXX disable to avoid data loss?
             )
             logger.info(f"Connected to PgvectorDocumentStore: {settings.PGVECTOR_TABLE}")
+            
+            # In-memory store for BM25 retrieval
+            self.bm25_document_store = InMemoryDocumentStore()
+            logger.info("Initialized InMemoryDocumentStore for BM25 retrieval")
+            
         except Exception as e:
-            logger.error(f"Failed to connect to PgvectorDocumentStore: {str(e)}")
+            logger.error(f"Failed to connect to document stores: {str(e)}")
             raise
         
         # Initialize pipelines
@@ -107,20 +116,25 @@ class HaystackService:
         )
         splitter.warm_up()
         
-        writer = DocumentWriter(document_store=self.document_store)
+        # Writers for both document stores
+        vector_writer = DocumentWriter(document_store=self.document_store)
+        bm25_writer = DocumentWriter(document_store=self.bm25_document_store)
         
         # Add components
         self.indexing_pipeline.add_component("converter", converter)
         self.indexing_pipeline.add_component("cleaner", cleaner)
         self.indexing_pipeline.add_component("splitter", splitter)
         self.indexing_pipeline.add_component("embedder", embedder)
-        self.indexing_pipeline.add_component("writer", writer)
+        self.indexing_pipeline.add_component("vector_writer", vector_writer)
+        self.indexing_pipeline.add_component("bm25_writer", bm25_writer)
         
         # Connect components
         self.indexing_pipeline.connect("converter", "cleaner")
         self.indexing_pipeline.connect("cleaner", "splitter")
         self.indexing_pipeline.connect("splitter", "embedder")
-        self.indexing_pipeline.connect("embedder.documents", "writer.documents")
+        self.indexing_pipeline.connect("embedder", "vector_writer")
+        # BM25 doesn't need embeddings, so connect splitter directly to BM25 writer
+        self.indexing_pipeline.connect("splitter", "bm25_writer")
         
         # Save converter instance for text extraction
         self.converter = converter
@@ -147,23 +161,46 @@ class HaystackService:
                 dimensions=settings.EMBEDDING_DIM
             )
         
-        retriever = PgvectorEmbeddingRetriever(
+        # Dense vector retriever
+        vector_retriever = PgvectorEmbeddingRetriever(
             document_store=self.document_store,
             filters=None,
             top_k=5
         )
         
+        # BM25 retriever
+        bm25_retriever = InMemoryBM25Retriever(
+            document_store=self.bm25_document_store,
+            filters=None,
+            top_k=5
+        )
+        
+        # Document joiner to combine results from both retrievers
+        document_joiner = DocumentJoiner(
+            join_mode="reciprocal_rank_fusion",
+            top_k=5
+        )
+        
         # Add components
         self.query_pipeline.add_component("embedder", embedder)
-        self.query_pipeline.add_component("retriever", retriever)
+        self.query_pipeline.add_component("vector_retriever", vector_retriever)
+        self.query_pipeline.add_component("bm25_retriever", bm25_retriever)
+        self.query_pipeline.add_component("document_joiner", document_joiner)
         
-        # Connect components - embedder.embedding output to retriever.query_embedding input
-        self.query_pipeline.connect("embedder.embedding", "retriever.query_embedding")
+        # Connect components
+        # Vector retrieval - need to be explicit about field connections
+        self.query_pipeline.connect("embedder.embedding", "vector_retriever.query_embedding")
         
-        # Save retriever instance for parameter updates
-        self.retriever = retriever
+        # Join documents from both retrievers - these are already correct
+        self.query_pipeline.connect("vector_retriever", "document_joiner")
+        self.query_pipeline.connect("bm25_retriever", "document_joiner")
         
-        logger.info("Initialized query pipeline")
+        # Save retrievers for parameter updates
+        self.vector_retriever = vector_retriever
+        self.bm25_retriever = bm25_retriever
+        self.document_joiner = document_joiner
+        
+        logger.info("Initialized hybrid query pipeline with vector and BM25 retrievers")
 
     async def extract_text(self, file_path: str) -> str:
         """Extract text from a file without indexing it"""
@@ -182,7 +219,7 @@ class HaystackService:
             raise RuntimeError(f"Text extraction error: {str(e)}")
 
     async def process_and_index(self, file_path: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Process a document and index it in the document store"""
+        """Process a document and index it in both document stores"""
         logger.info(f"Processing and indexing file with metadata: {metadata}")
         
         try:
@@ -196,15 +233,17 @@ class HaystackService:
                 }
             )
             
-            # Access the number of documents written
+            # Access the number of documents written (both vector and BM25)
             logger.info(f"Indexing pipeline result: {result}")
-            num_chunks = result.get("writer", {}).get("documents_written", 0)
+            num_vector_chunks = result.get("vector_writer", {}).get("documents_written", 0)
+            num_bm25_chunks = result.get("bm25_writer", {}).get("documents_written", 0)
             
-            logger.info(f"Successfully indexed document with {num_chunks} chunks")
+            logger.info(f"Successfully indexed document with {num_vector_chunks} vector chunks and {num_bm25_chunks} BM25 chunks")
             return {
                 "status": "success",
                 "documents_processed": 1,
-                "chunks_indexed": num_chunks
+                "vector_chunks_indexed": num_vector_chunks,
+                "bm25_chunks_indexed": num_bm25_chunks
             }
             
         except Exception as e:
@@ -224,28 +263,36 @@ class HaystackService:
             }
     
     async def query(self, query_text: str, filters: Dict[str, Any] = None, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Query the document store for relevant documents"""
-        logger.info(f"Querying; filters: {filters}, top_k: {top_k}")
+        """Query both document stores for relevant documents using hybrid retrieval"""
+        logger.info(f"Performing hybrid query; filters: {filters}, top_k: {top_k}")
         
         try:
             # Update retriever parameters if needed
-            self.retriever.top_k = top_k
+            self.vector_retriever.top_k = top_k
+            self.bm25_retriever.top_k = top_k
+            self.document_joiner.top_k = top_k
+            
             if filters:
-                self.retriever.filters = {
+                formatted_filters = {
                     "operator": "AND",
                     "conditions": [
                         {"field": f"meta.{key}", "operator": "==", "value": value}
                         for key, value in filters.items()
                     ]
                 }
+                self.vector_retriever.filters = formatted_filters
+                self.bm25_retriever.filters = formatted_filters
             
             # Run the query pipeline
             result = self.query_pipeline.run(
-                data={"embedder": {"text": query_text}}
+                data={
+                    "embedder": {"text": query_text},
+                    "bm25_retriever": {"query": query_text}
+                }
             )
             
-            documents = result["retriever"]["documents"]
-            logger.info(f"Retrieved {len(documents)} results")
+            documents = result["document_joiner"]["documents"]
+            logger.info(f"Retrieved {len(documents)} results from hybrid search")
             
             # Format results
             return [
@@ -258,11 +305,11 @@ class HaystackService:
             ]
             
         except Exception as e:
-            logger.error(f"Query failed: {str(e)}")
+            logger.error(f"Hybrid query failed: {str(e)}")
             raise
     
     async def delete(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        """Delete documents from the document store based on filters"""
+        """Delete documents from both document stores based on filters"""
         logger.info(f"Deleting documents with filters: {filters}")
         
         # Format filters
@@ -275,19 +322,28 @@ class HaystackService:
         }
         
         try:
-            # Find matching documents
-            matching_docs = self.document_store.filter_documents(filters=formatted_filters)
+            # Find and delete matching documents from vector store
+            matching_vector_docs = self.document_store.filter_documents(filters=formatted_filters)
+            if matching_vector_docs:
+                self.document_store.delete_documents(document_ids=[doc.id for doc in matching_vector_docs])
+                deleted_vector = len(matching_vector_docs)
+            else:
+                deleted_vector = 0
             
-            if not matching_docs:
-                logger.info("No documents found matching filters")
-                return {"status": "success", "documents_deleted": 0}
+            # Find and delete matching documents from BM25 store
+            matching_bm25_docs = self.bm25_document_store.filter_documents(filters=formatted_filters)
+            if matching_bm25_docs:
+                self.bm25_document_store.delete_documents(document_ids=[doc.id for doc in matching_bm25_docs])
+                deleted_bm25 = len(matching_bm25_docs)
+            else:
+                deleted_bm25 = 0
             
-            # Delete the matching documents
-            self.document_store.delete_documents(document_ids=[doc.id for doc in matching_docs])
-            deleted = len(matching_docs)
-            
-            logger.info(f"Deleted {deleted} documents")
-            return {"status": "success", "documents_deleted": deleted}
+            logger.info(f"Deleted {deleted_vector} vector documents and {deleted_bm25} BM25 documents")
+            return {
+                "status": "success", 
+                "vector_documents_deleted": deleted_vector,
+                "bm25_documents_deleted": deleted_bm25
+            }
             
         except Exception as e:
             logger.error(f"Failed to delete documents: {str(e)}")
