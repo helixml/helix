@@ -13,7 +13,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -296,7 +295,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	log.Trace().Interface("userinfo", userInfo).Msg("Userinfo")
 
 	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{
-		Email: userInfo.Email,
+		ID: userInfo.Subject,
 	})
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
@@ -316,8 +315,8 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 
 	if user == nil {
 		user, err = s.Store.CreateUser(ctx, &types.User{
-			ID:        system.GenerateUserID(),
-			Username:  userInfo.Email,
+			ID:        userInfo.Subject,
+			Username:  userInfo.Subject,
 			Email:     userInfo.Email,
 			FullName:  fullName,
 			CreatedAt: time.Now(),

@@ -31,6 +31,8 @@ type OIDCConfig struct {
 	RedirectURL  string
 	AdminUserIDs []string
 	AdminUserSrc config.AdminSrcType
+	Audience     string
+	Scopes       []string
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -106,7 +108,7 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 			ClientID:     c.cfg.ClientID,
 			ClientSecret: c.cfg.ClientSecret,
 			RedirectURL:  c.cfg.RedirectURL,
-			Scopes:       []string{"openid", "profile", "email"},
+			Scopes:       c.cfg.Scopes,
 			Endpoint:     provider.Endpoint(),
 		}
 	}
@@ -151,12 +153,17 @@ func (c *OIDCClient) VerifyIDToken(ctx context.Context, token *oauth2.Token) (*o
 }
 
 func (c *OIDCClient) VerifyAccessToken(ctx context.Context, accessToken string) error {
-	// Try to get user info - this will fail if the token is invalid
-	_, err := c.GetUserInfo(ctx, accessToken)
+	provider, err := c.getProvider()
 	if err != nil {
-		return fmt.Errorf("invalid access token: %w", err)
+		return err
 	}
-
+	verifier := provider.Verifier(&oidc.Config{
+		ClientID: c.cfg.Audience,
+	})
+	_, err = verifier.Verify(ctx, accessToken)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -199,7 +206,7 @@ func (c *OIDCClient) GetUserInfo(ctx context.Context, accessToken string) (*User
 		Email:    claims.Email,
 		Name:     claims.Name,
 		Subject:  claims.Subject,
-		Username: claims.Username,
+		Username: claims.Subject,
 	}, nil
 }
 
@@ -223,6 +230,18 @@ func (c *OIDCClient) GetLogoutURL() (string, error) {
 }
 
 func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
+	provider, err := c.getProvider()
+	if err != nil {
+		return nil, err
+	}
+	verifier := provider.Verifier(&oidc.Config{
+		ClientID: c.cfg.Audience,
+	})
+	_, err = verifier.Verify(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid access token: %w", err)
+	}
+
 	userInfo, err := c.GetUserInfo(ctx, accessToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid access token: %w", err)
