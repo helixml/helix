@@ -282,7 +282,7 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 }
 
 func (s *FileSystemStorage) getSafePath(path string) (string, error) {
-	absPath, err := filepath.Abs(filepath.Join(s.basePath, path))
+	absPath, err := filepath.Abs(path)
 	if err != nil || !strings.HasPrefix(absPath, s.basePath) {
 		return "", fmt.Errorf("invalid path: %s", path)
 	}

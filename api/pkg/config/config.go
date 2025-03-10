@@ -13,6 +13,7 @@ type ServerConfig struct {
 	Providers          Providers
 	Tools              Tools
 	Keycloak           Keycloak
+	OIDC               OIDC
 	Notifications      Notifications
 	Janitor            Janitor
 	Stripe             Stripe
@@ -22,6 +23,7 @@ type ServerConfig struct {
 	Controller         Controller
 	FileStore          FileStore
 	Store              Store
+	PGVectorStore      PGVectorStore
 	PubSub             PubSub
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
@@ -30,8 +32,15 @@ type ServerConfig struct {
 	Apps               Apps
 	GPTScript          GPTScript
 	Triggers           Triggers
+	SSL                SSL
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// License key for deployment identification
+	LicenseKey string `envconfig:"LICENSE_KEY"`
+	// Launchpad URL for version pings
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -44,24 +53,37 @@ func LoadServerConfig() (ServerConfig, error) {
 }
 
 type Inference struct {
-	Provider types.Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 }
 
 // Providers is used to configure the various AI providers that we use
 type Providers struct {
-	OpenAI     OpenAI
-	TogetherAI TogetherAI
-	Helix      Helix
+	OpenAI                    OpenAI
+	TogetherAI                TogetherAI
+	Helix                     Helix
+	VLLM                      VLLM
+	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
 }
 
 type OpenAI struct {
-	APIKey  string `envconfig:"OPENAI_API_KEY"`
-	BaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	BaseURL               string        `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	APIKey                string        `envconfig:"OPENAI_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
+}
+
+type VLLM struct {
+	BaseURL               string        `envconfig:"VLLM_BASE_URL"`
+	APIKey                string        `envconfig:"VLLM_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"VLLM_API_KEY_FILE"` // i.e. /run/secrets/vllm-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"VLLM_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type TogetherAI struct {
-	APIKey  string `envconfig:"TOGETHER_API_KEY"`
-	BaseURL string `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	BaseURL               string        `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
+	APIKey                string        `envconfig:"TOGETHER_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
 }
 
 type Helix struct {
@@ -91,6 +113,7 @@ type Tools struct {
 // Keycloak is used for authentication. You can find keycloak documentation
 // at https://www.keycloak.org/guides
 type Keycloak struct {
+	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"true"`
 	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://localhost:8080/auth"`
 	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8080/auth"`
 	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
@@ -99,8 +122,18 @@ type Keycloak struct {
 	FrontEndClientID    string `envconfig:"KEYCLOAK_FRONTEND_CLIENT_ID" default:"frontend"`
 	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username            string `envconfig:"KEYCLOAK_USER"`
+	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
 	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
+}
+
+type OIDC struct {
+	Enabled       bool   `envconfig:"OIDC_ENABLED" default:"false"`
+	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"true"`
+	URL           string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
+	ClientID      string `envconfig:"OIDC_CLIENT_ID" default:"api"`
+	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
+	Audience      string `envconfig:"OIDC_AUDIENCE"`
+	Scopes        string `envconfig:"OIDC_SCOPES" default:"openid,profile,email"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
@@ -166,11 +199,20 @@ type TextExtractor struct {
 	}
 }
 
+type RAGProvider string
+
+const (
+	RAGProviderTypesense  RAGProvider = "typesense"
+	RAGProviderPGVector   RAGProvider = "pgvector"
+	RAGProviderLlamaindex RAGProvider = "llamaindex"
+	RAGProviderHaystack   RAGProvider = "haystack"
+)
+
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
 	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider string `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
+	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
@@ -178,6 +220,13 @@ type RAG struct {
 	Typesense struct {
 		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://typesense:8108" description:"The URL to the Typesense server."`
 		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
+	}
+
+	PGVector struct {
+		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
+		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
+		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
+		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
 	}
 
 	Llamaindex struct {
@@ -190,6 +239,11 @@ type RAG struct {
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
 	}
 
+	Haystack struct {
+		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
+		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
+	}
+
 	Crawler struct {
 		ChromeURL       string `envconfig:"RAG_CRAWLER_CHROME_URL" default:"http://chrome:9222" description:"The URL to the Chrome instance."`
 		LauncherEnabled bool   `envconfig:"RAG_CRAWLER_LAUNCHER_ENABLED" default:"true" description:"Whether to use the Launcher to start the browser."`
@@ -199,8 +253,7 @@ type RAG struct {
 
 		// Limits
 		MaxFrequency time.Duration `envconfig:"RAG_CRAWLER_MAX_FREQUENCY" default:"60m" description:"The maximum frequency to crawl."`
-		MaxPages     int           `envconfig:"RAG_CRAWLER_MAX_PAGES" default:"50" description:"The maximum number of pages to crawl."`
-		MaxDepth     int           `envconfig:"RAG_CRAWLER_MAX_DEPTH" default:"3" description:"The maximum depth to crawl."`
+		MaxDepth     int           `envconfig:"RAG_CRAWLER_MAX_DEPTH" default:"100" description:"The maximum depth to crawl."`
 	}
 }
 
@@ -233,6 +286,16 @@ type FileStore struct {
 
 type PubSub struct {
 	StoreDir string `envconfig:"NATS_STORE_DIR" default:"/filestore/nats" description:"The directory to store nats data."`
+	Provider string `envconfig:"PUBSUB_PROVIDER" default:"nats" description:"The pubsub provider to use (nats or inmemory)."`
+	Server   struct {
+		EmbeddedNatsServerEnabled bool   `envconfig:"NATS_SERVER_EMBEDDED_ENABLED" default:"true" description:"Whether to enable the embedded NATS server."`
+		Host                      string `envconfig:"NATS_SERVER_HOST" default:"127.0.0.1" description:"The host to bind the NATS server to."`
+		Port                      int    `envconfig:"NATS_SERVER_PORT" default:"4222" description:"The port to bind the NATS server to."`
+		WebsocketPort             int    `envconfig:"NATS_SERVER_WEBSOCKET_PORT" default:"8433" description:"The websocket port used as a proxy to the NATS server."`
+		Token                     string `envconfig:"NATS_SERVER_TOKEN" description:"The authentication token for the NATS server."`
+		MaxPayload                int    `envconfig:"NATS_SERVER_MAX_PAYLOAD" default:"33554432" description:"The maximum payload size in bytes (default 32MB)."`
+		JetStream                 bool   `envconfig:"NATS_SERVER_JETSTREAM" default:"true" description:"Whether to enable JetStream."`
+	}
 }
 
 type Store struct {
@@ -241,12 +304,30 @@ type Store struct {
 	Database string `envconfig:"POSTGRES_DATABASE" default:"helix" description:"The database to connect to the postgres server."`
 	Username string `envconfig:"POSTGRES_USER" description:"The username to connect to the postgres server."`
 	Password string `envconfig:"POSTGRES_PASSWORD" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"POSTGRES_SSL" default:"false"`
+	Schema   string `envconfig:"POSTGRES_SCHEMA"` // Defaults to public
 
 	AutoMigrate     bool          `envconfig:"DATABASE_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
 	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+}
+
+type PGVectorStore struct {
+	Host     string `envconfig:"PGVECTOR_HOST" default:"pgvector" description:"The host to connect to the postgres server."`
+	Port     int    `envconfig:"PGVECTOR_PORT" default:"5432" description:"The port to connect to the postgres server."`
+	Database string `envconfig:"PGVECTOR_DATABASE" default:"postgres" description:"The database to connect to the postgres server."`
+	Username string `envconfig:"PGVECTOR_USER" default:"postgres" description:"The username to connect to the postgres server."`
+	Password string `envconfig:"PGVECTOR_PASSWORD" default:"postgres" description:"The password to connect to the postgres server."`
+	SSL      bool   `envconfig:"PGVECTOR_SSL" default:"false"`
+	Schema   string `envconfig:"PGVECTOR_SCHEMA"` // Defaults to public
+
+	AutoMigrate     bool          `envconfig:"PGVECTOR_AUTO_MIGRATE" default:"true" description:"Should we automatically run the migrations?"`
+	MaxConns        int           `envconfig:"PGVECTOR_MAX_CONNS" default:"50"`
+	IdleConns       int           `envconfig:"PGVECTOR_IDLE_CONNS" default:"25"`
+	MaxConnLifetime time.Duration `envconfig:"PGVECTOR_MAX_CONN_LIFETIME" default:"1h"`
+	MaxConnIdleTime time.Duration `envconfig:"PGVECTOR_MAX_CONN_IDLE_TIME" default:"1m"`
 }
 
 type WebServer struct {
@@ -262,7 +343,7 @@ type WebServer struct {
 	AdminIDs []string `envconfig:"ADMIN_USER_IDS" description:"Keycloak admin IDs."`
 	// Specifies the source of the Admin user IDs.
 	// By default AdminSrc is set to env.
-	AdminSrc AdminSrcType `envconfig:"ADMIN_USER_SOURCE" default:"env" description:"Source of admin IDs"`
+	AdminSrc AdminSrcType `envconfig:"ADMIN_USER_SOURCE" default:"env" description:"Source of admin IDs (env or jwt)"`
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string `envconfig:"EVAL_USER_ID" description:""`
@@ -273,6 +354,9 @@ type WebServer struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+
+	// Path to UNIX socket for serving embeddings without auth
+	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
 }
 
 // AdminSrcType is an enum specifyin the type of Admin ID source.
@@ -286,14 +370,28 @@ const (
 	AdminSrcTypeJWT AdminSrcType = "jwt"
 )
 
+// String implements fmt.Stringer
+func (a AdminSrcType) String() string {
+	return string(a)
+}
+
 // Decode implements envconfig.Decoder for value validation.
 func (a *AdminSrcType) Decode(value string) error {
+	if value == "" {
+		*a = AdminSrcTypeEnv
+		return nil
+	}
 	switch value {
 	case string(AdminSrcTypeEnv), string(AdminSrcTypeJWT):
+		*a = AdminSrcType(value)
 		return nil
 	default:
 		return fmt.Errorf("invalid source of admin IDs: %q", value)
 	}
+}
+
+func (a *AdminSrcType) UnmarshalText(text []byte) error {
+	return a.Decode(string(text))
 }
 
 type SubscriptionQuotas struct {
@@ -361,4 +459,16 @@ type Discord struct {
 
 type Cron struct {
 	Enabled bool `envconfig:"CRON_ENABLED" default:"true"`
+}
+
+type SSL struct {
+	// certFileEnv is the environment variable which identifies where to locate
+	// the SSL certificate file. If set this overrides the system default.
+	SSLCertFile string `envconfig:"SSL_CERT_FILE"`
+
+	// certDirEnv is the environment variable which identifies which directory
+	// to check for SSL certificate files. If set this overrides the system default.
+	// It is a colon separated list of directories.
+	// See https://www.openssl.org/docs/man1.0.2/man1/c_rehash.html.
+	SSLCertDir string `envconfig:"SSL_CERT_DIR"`
 }

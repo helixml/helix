@@ -3,7 +3,6 @@ package helix
 import (
 	"context"
 	"os"
-	"runtime"
 
 	"github.com/spf13/cobra"
 
@@ -11,7 +10,12 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/fs"
 	"github.com/helixml/helix/api/pkg/cli/knowledge"
 	"github.com/helixml/helix/api/pkg/cli/mcp"
+	"github.com/helixml/helix/api/pkg/cli/member"
+	"github.com/helixml/helix/api/pkg/cli/organization"
+	"github.com/helixml/helix/api/pkg/cli/provider"
+	"github.com/helixml/helix/api/pkg/cli/roles"
 	"github.com/helixml/helix/api/pkg/cli/secret"
+	"github.com/helixml/helix/api/pkg/cli/team"
 )
 
 var Fatal = FatalErrorHandler
@@ -35,6 +39,11 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(fs.NewUploadCmd()) // Shortcut for upload
 	RootCmd.AddCommand(secret.New())
 	RootCmd.AddCommand(mcp.New())
+	RootCmd.AddCommand(provider.New())
+	RootCmd.AddCommand(organization.New())
+	RootCmd.AddCommand(roles.New())
+	RootCmd.AddCommand(team.New())
+	RootCmd.AddCommand(member.New())
 
 	// Commands available on all platforms
 	RootCmd.AddCommand(newServeCmd())
@@ -46,11 +55,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(newQapairCommand())
 	RootCmd.AddCommand(newEvalsCommand())
 	RootCmd.AddCommand(NewTestCmd()) // Use the NewTestCmd function from the current package
-
-	// Runner only works on Linux
-	if runtime.GOOS == "linux" {
-		RootCmd.AddCommand(newRunnerCmd())
-	}
+	RootCmd.AddCommand(newRunnerCmd())
 
 	return RootCmd
 }

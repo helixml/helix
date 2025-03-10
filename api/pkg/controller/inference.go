@@ -25,7 +25,7 @@ type ChatCompletionOptions struct {
 	AppID       string
 	AssistantID string
 	RAGSourceID string
-	Provider    types.Provider
+	Provider    string
 
 	QueryParams map[string]string
 }
@@ -38,6 +38,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	if err != nil {
 		log.Info().Msg("no assistant found")
 		return nil, nil, err
+	}
+
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -58,7 +62,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
-		modelName, err := model.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
 		}
@@ -70,16 +74,12 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
-	}
-
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	client, err := c.getClient(ctx, opts.Provider)
+	client, err := c.getClient(ctx, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -104,6 +104,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	if len(assistant.Tools) > 0 {
 		// Check whether the app is configured for the call,
 		// if yes, execute the tools and return the response
@@ -122,7 +126,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
-		modelName, err := model.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
 		}
@@ -144,7 +148,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	client, err := c.getClient(ctx, opts.Provider)
+	client, err := c.getClient(ctx, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -158,13 +162,20 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	return stream, &req, nil
 }
 
-func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oai.Client, error) {
+func (c *Controller) getClient(ctx context.Context, owner, provider string) (oai.Client, error) {
 	if provider == "" {
+		// If not set, use the default provider
 		provider = c.Options.Config.Inference.Provider
 	}
 
+	log.Trace().
+		Str("provider", provider).
+		Str("owner", owner).
+		Msg("getting OpenAI API client")
+
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: provider,
+		Owner:    owner,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client: %v", err)
@@ -196,17 +207,26 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Running action",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit run action step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit run action step info")
 	}
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API)
+	var options []tools.Option
+
+	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get client: %w", err)
+	}
+
+	options = append(options, tools.WithClient(apieClient))
+
+	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API, options...)
 	if err != nil {
 		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
 			Name:    selectedTool.Name,
 			Type:    types.StepInfoTypeToolUse,
 			Message: fmt.Sprintf("Action failed: %s", err),
 		}); emitErr != nil {
-			return nil, false, fmt.Errorf("failed to perform action: %w: additionally emit step failed: %v", emitErr, err)
+			log.Debug().Err(err).Msg("failed to emit run action step info")
 		}
 
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
@@ -217,7 +237,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Action completed",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit action completed step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit run action step info")
 	}
 
 	return &openai.ChatCompletionResponse{
@@ -253,10 +273,19 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Running action",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
-	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API)
+	var options []tools.Option
+
+	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get client: %w", err)
+	}
+
+	options = append(options, tools.WithClient(apieClient))
+
+	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API, options...)
 	if err != nil {
 		log.Warn().
 			Err(err).
@@ -269,7 +298,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 			Type:    types.StepInfoTypeToolUse,
 			Message: fmt.Sprintf("Action failed: %s", err),
 		}); emitErr != nil {
-			return nil, false, fmt.Errorf("failed to perform action: %w: additionally emit step failed: %v", emitErr, err)
+			log.Debug().Err(err).Msg("failed to emit step info")
 		}
 
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
@@ -280,7 +309,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Action completed",
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
 	return stream, true, nil
@@ -313,6 +342,13 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		options = append(options, tools.WithModel(assistant.Model))
 	}
 
+	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("failed to get client: %w", err)
+	}
+
+	options = append(options, tools.WithClient(apieClient))
+
 	history := types.HistoryFromChatCompletionRequest(req)
 
 	vals, ok := oai.GetContextValues(ctx)
@@ -325,7 +361,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		Type:    types.StepInfoTypeToolUse,
 		Message: "Checking if we should use tools",
 	}); err != nil {
-		return nil, nil, false, fmt.Errorf("failed to emit step info: %w", err)
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
@@ -340,7 +376,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 			Type:    types.StepInfoTypeToolUse,
 			Message: "Message is not actionable",
 		}); err != nil {
-			return nil, nil, false, fmt.Errorf("failed to emit step info: %w", err)
+			log.Debug().Err(err).Msg("failed to emit step info")
 		}
 
 		return nil, nil, false, nil
@@ -561,7 +597,7 @@ func (c *Controller) evaluateKnowledge(
 				Type:    types.StepInfoTypeRAG,
 				Message: "Searching for knowledge",
 			}); err != nil {
-				return nil, nil, fmt.Errorf("failed to emit step info: %w", err)
+				log.Debug().Err(err).Msg("failed to emit step info")
 			}
 
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
@@ -580,7 +616,7 @@ func (c *Controller) evaluateKnowledge(
 				Type:    types.StepInfoTypeRAG,
 				Message: fmt.Sprintf("Found %d results", len(ragResults)),
 			}); err != nil {
-				return nil, nil, fmt.Errorf("failed to emit step info: %w", err)
+				log.Debug().Err(err).Msg("failed to emit step info")
 			}
 
 			for _, result := range ragResults {
@@ -689,6 +725,7 @@ func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) ope
 }
 
 func (c *Controller) GetRagClient(_ context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
+	// TODO: remove this
 	if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
 		return rag.NewLlamaindex(&knowledge.RAGSettings), nil
 	}

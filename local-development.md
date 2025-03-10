@@ -43,10 +43,6 @@ helix/
 │   ├── cmd/            # Standard golang project structure within here
 │   ├── pkg/            #
 │   ├── main.go         #
-├── llamaindex/         # llamaindex
-│   └── src/            #
-│   └── ...             # Other app-specific files
-├── unstructured        # Python Unstructured for parsing content
 ├── scripts             # Scripts to get stuff done
 ├── runner              # Runner configurations
 ├── frontend/           # Frontend in React, ts
@@ -88,14 +84,18 @@ postgres:12.13-alpine                       0.0.0.0:5432->5432/tcp, :::5432->543
 quay.io/keycloak/keycloak:23.0              8080/tcp, 8443/tcp                          helix-keycloak-1
 ```
 
-### 2. Attach a runner
+### 2. Attach a GPU runner, or configure external inference provider
+
+You can EITHER attach a GPU runner, or configure an external LLM provider by setting the `INFERENCE_PROVIDER` option to, e.g. `openai` for OpenAI-compatible API, and then set `OPENAI_API_KEY` and `OPENAI_BASE_URL` in your dev `.env` flie.
+
+If you want to attach a GPU runner:
 
 Follow the [instructions on the docs to attach a runner](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 
 If you're local machine isn't able to host a runner, you have a few options:
 
 - use a VSCode remote SSH session to develop within a machine that does have the resources.
-- spin up a remote runner in Luke's bunker (or equivalent) and connect it back to your localhost via an SSH tunnel.
+- spin up a remote runner on available GPU resources (or equivalent) and connect it back to your localhost via an SSH tunnel.
 - spin up a remote runner in runpod (or equivalent) and use webhookrelay to connect that machine back to your localhost.
 
 #### Connecting to a Runner via SSH
@@ -148,6 +148,8 @@ https://9hxxxxxxxxx.webrelay.io`
 6. Watch the runner logs to make sure it's able to connect to your local helix.
 
 ### 3. (Optional) Expose a Github Webhook
+
+Note: GitHub webhook support is being phased out in favour of CI integration ([example GHA](https://github.com/helixml/testing-genai/blob/main/.github/workflows/helix.yml)).
 
 If you're testing, developing or working with Apps then you will need to connect a Github OAuth app to be able to read from user's repositories. The current way of doing this is via https://webhookrelay.com/.
 

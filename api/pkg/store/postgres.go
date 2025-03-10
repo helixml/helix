@@ -3,15 +3,10 @@ package store
 import (
 	"context"
 	"embed"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	reflect "reflect"
 	"strings"
 	"time"
-
-	"database/sql"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres"        // postgres query builder
 	_ "github.com/golang-migrate/migrate/v4/database/postgres" // postgres migrations
@@ -19,20 +14,18 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 
-	"github.com/doug-martin/goqu/v9"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 type PostgresStore struct {
-	cfg              config.Store
-	connectionString string
-	pgDb             *sql.DB
-	db               *goqu.Database
+	cfg config.Store
 
 	gdb *gorm.DB
 }
@@ -42,47 +35,29 @@ func NewPostgresStore(
 ) (*PostgresStore, error) {
 
 	// Waiting for connection
-	gormDB, err := connect(context.Background(), cfg)
+	gormDB, err := connect(context.Background(), connectConfig{
+		host:            cfg.Host,
+		port:            cfg.Port,
+		schemaName:      cfg.Schema,
+		database:        cfg.Database,
+		username:        cfg.Username,
+		password:        cfg.Password,
+		ssl:             cfg.SSL,
+		idleConns:       cfg.IdleConns,
+		maxConns:        cfg.MaxConns,
+		maxConnIdleTime: cfg.MaxConnIdleTime,
+		maxConnLifetime: cfg.MaxConnLifetime,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to Postgres: %w", err)
 	}
-
-	// Read SSL setting from environment
-	sslSettings := "sslmode=disable"
-	if os.Getenv(EnvPostgresSSL) == "true" {
-		sslSettings = "sslmode=require"
-	}
-
-	connectionString := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?%s",
-		cfg.Username,
-		cfg.Password,
-		cfg.Host,
-		cfg.Port,
-		cfg.Database,
-		sslSettings,
-	)
-	pgDb, err := sql.Open("postgres", connectionString)
-	if err != nil {
-		return nil, err
-	}
-	dialect := goqu.Dialect("postgres")
-	db := dialect.DB(pgDb)
 
 	store := &PostgresStore{
-		connectionString: connectionString,
-		cfg:              cfg,
-		pgDb:             pgDb,
-		db:               db,
-		gdb:              gormDB,
+		cfg: cfg,
+		gdb: gormDB,
 	}
 
 	if cfg.AutoMigrate {
-		err = store.MigrateUp()
-		if err != nil {
-			return nil, fmt.Errorf("there was an error doing the migration: %s", err.Error())
-		}
-
 		err = store.autoMigrate()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
@@ -92,34 +67,98 @@ func NewPostgresStore(
 	return store, nil
 }
 
+func (s *PostgresStore) Close() error {
+	sqlDB, err := s.gdb.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 type MigrationScript struct {
 	Name   string `gorm:"primaryKey"`
 	HasRun bool
 }
 
 func (s *PostgresStore) autoMigrate() error {
-	err := s.gdb.WithContext(context.Background()).AutoMigrate(
+	// If schema is specified, check if it exists and if not - create it
+	if s.cfg.Schema != "" {
+		err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error
+		if err != nil {
+			return err
+		}
+	}
+
+	// Running migrations from ./migrations directory,
+	// ref: https://github.com/golang-migrate/migrate
+	err := s.MigrateUp()
+	if err != nil {
+		log.Err(err).Msg("there was an error doing the automigration, some functionality may not work")
+		return fmt.Errorf("failed to run version migrations: %w", err)
+	}
+
+	err = s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.Organization{},
+		&types.User{},
+		&types.Team{},
+		&types.TeamMembership{},
+		&types.Role{},
+		&types.OrganizationMembership{},
+		&types.AccessGrant{},
+		&types.AccessGrantRoleBinding{},
+		&types.UserMeta{},
+		&types.Session{},
 		&types.App{},
-		&types.APIKey{},
+		&types.ApiKey{},
 		&types.Tool{},
 		&types.Knowledge{},
 		&types.KnowledgeVersion{},
-		&types.SessionToolBinding{},
 		&types.DataEntity{},
 		&types.ScriptRun{},
 		&types.LLMCall{},
 		&MigrationScript{},
 		&types.Secret{},
+		&types.LicenseKey{},
+		&types.ProviderEndpoint{},
 	)
 	if err != nil {
 		return err
 	}
 
-	if err := createFK(s.gdb, types.SessionToolBinding{}, types.Tool{}, "tool_id", "id", "CASCADE", "CASCADE"); err != nil {
+	err = s.autoMigrateRoleConfig(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if err := createFK(s.gdb, types.OrganizationMembership{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	if err := createFK(s.gdb, types.APIKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.Team{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Role{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TeamMembership{}, types.Team{}, "team_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TeamMembership{}, types.User{}, "user_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.AccessGrantRoleBinding{}, types.AccessGrant{}, "access_grant_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.AccessGrant{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.ApiKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
@@ -131,30 +170,6 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	return s.runMigrationScripts(MigrationScripts)
-}
-
-// loop over each migration script and run it only if it's not already been run
-func (s *PostgresStore) runMigrationScripts(migrationScripts map[string]func(*gorm.DB) error) error {
-	for name, script := range migrationScripts {
-		var ms MigrationScript
-		result := s.gdb.First(&ms, "name = ?", name)
-		if result.Error == gorm.ErrRecordNotFound {
-			if err := script(s.gdb); err != nil {
-				return err
-			}
-			ms.Name = name
-			ms.HasRun = true
-			if err := s.gdb.Create(&ms).Error; err != nil {
-				return err
-			}
-			log.Printf("Migration script '%s' executed and logged.", name)
-		} else if result.Error != nil {
-			return result.Error
-		} else {
-			log.Printf("Migration script '%s' already executed.", name)
-		}
-	}
 	return nil
 }
 
@@ -213,169 +228,6 @@ type Scanner interface {
 	Scan(dest ...interface{}) error
 }
 
-// given an array of field names - return the indexes as a string
-// e.g. $1, $2, $3, $4
-func getValueIndexes(fields []string) string {
-	parts := []string{}
-	for i := range fields {
-		parts = append(parts, fmt.Sprintf("$%d", i+1))
-	}
-	return strings.Join(parts, ", ")
-}
-
-// given an array of field names - return the indexes as an update
-// start at the given offset
-// e.g. id = $2, name = $3
-func getKeyValueIndexes(fields []string, offset int) string {
-	parts := []string{}
-	for i, field := range fields {
-		parts = append(parts, fmt.Sprintf("%s = $%d", field, i+offset+1))
-	}
-	return strings.Join(parts, ", ")
-}
-
-var (
-	UsermetaFields = []string{
-		"id",
-		"config",
-	}
-
-	UsermetaFieldsString = strings.Join(UsermetaFields, ", ")
-)
-
-func scanUserMetaRow(row Scanner) (*types.UserMeta, error) {
-	user := &types.UserMeta{}
-	var config []byte
-	err := row.Scan(
-		&user.ID,
-		&config,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-
-		return nil, err
-	}
-	err = json.Unmarshal(config, &user.Config)
-	if err != nil {
-		return nil, err
-	}
-	return user, nil
-}
-
-func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
-	config, err := json.Marshal(user.Config)
-	if err != nil {
-		return nil, err
-	}
-	return []interface{}{
-		user.ID,
-		config,
-	}, nil
-}
-
-func (s *PostgresStore) GetUserMeta(
-	ctx context.Context,
-	userID string,
-) (*types.UserMeta, error) {
-	if userID == "" {
-		return nil, fmt.Errorf("userID cannot be empty")
-	}
-	row := s.pgDb.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT %s
-		FROM usermeta WHERE id = $1
-	`, UsermetaFieldsString), userID)
-
-	return scanUserMetaRow(row)
-}
-
-func (s *PostgresStore) CreateUserMeta(
-	ctx context.Context,
-	user types.UserMeta,
-) (*types.UserMeta, error) {
-	values, err := getUserMetaValues(&user)
-	if err != nil {
-		return nil, err
-	}
-	_, err = s.pgDb.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO usermeta (
-			%s
-		) VALUES (
-			%s
-		)
-	`, UsermetaFieldsString, getValueIndexes(UsermetaFields)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
-}
-
-func (s *PostgresStore) UpdateUserMeta(
-	ctx context.Context,
-	user types.UserMeta,
-) (*types.UserMeta, error) {
-	values, err := getUserMetaValues(&user)
-	if err != nil {
-		return nil, err
-	}
-	// prepend the ID to the values
-	values = append([]interface{}{user.ID}, values...)
-
-	_, err = s.pgDb.ExecContext(ctx, fmt.Sprintf(`
-		UPDATE usermeta SET
-			%s
-		WHERE id = $1
-	`, getKeyValueIndexes(UsermetaFields, 1)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-func (s *PostgresStore) EnsureUserMeta(
-	ctx context.Context,
-	user types.UserMeta,
-) (*types.UserMeta, error) {
-	existing, err := s.GetUserMeta(ctx, user.ID)
-	if err != nil || existing == nil {
-		return s.CreateUserMeta(ctx, user)
-	}
-	return s.UpdateUserMeta(ctx, user)
-}
-
-func (s *PostgresStore) UpdateSessionMeta(
-	ctx context.Context,
-	data types.SessionMetaUpdate,
-) (*types.Session, error) {
-	if data.Owner != "" {
-		_, err := s.pgDb.Exec(`
-		UPDATE session SET
-			name = $2,
-			owner = $3,
-			owner_type = $4
-		WHERE id = $1
-	`, data.ID, data.Name, data.Owner, data.OwnerType)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		_, err := s.pgDb.Exec(`
-		UPDATE session SET
-			name = $2
-		WHERE id = $1
-	`, data.ID, data.Name)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return s.GetSession(ctx, data.ID)
-}
-
 // Compile-time interface check:
 var _ Store = (*PostgresStore)(nil)
 
@@ -384,6 +236,7 @@ func (s *PostgresStore) MigrateUp() error {
 	if err != nil {
 		return err
 	}
+
 	err = migrations.Up()
 	if err != migrate.ErrNoChange {
 		return err
@@ -411,10 +264,31 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Read SSL setting from environment
+	sqlSettings := "sslmode=disable"
+	if s.cfg.SSL {
+		sqlSettings = "sslmode=require"
+	}
+
+	if s.cfg.Schema != "" {
+		sqlSettings += fmt.Sprintf("&search_path=%s", s.cfg.Schema)
+	}
+
+	connectionString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?%s",
+		s.cfg.Username,
+		s.cfg.Password,
+		s.cfg.Host,
+		s.cfg.Port,
+		s.cfg.Database,
+		sqlSettings,
+	)
+
 	migrations, err := migrate.NewWithSourceInstance(
 		"iofs",
 		files,
-		fmt.Sprintf("%s&&x-migrations-table=helix_schema_migrations", s.connectionString),
+		fmt.Sprintf("%s&&x-migrations-table=helix_migrations", connectionString),
 	)
 	if err != nil {
 		return nil, err
@@ -425,15 +299,33 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 // Available DB types
 const (
 	DatabaseTypePostgres = "postgres"
-	EnvPostgresSSL       = "HELIX_POSTGRES_SSL"
 )
 
-func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
+type connectConfig struct {
+	host            string
+	port            int
+	schemaName      string
+	database        string
+	username        string
+	password        string
+	ssl             bool
+	idleConns       int
+	maxConns        int
+	maxConnIdleTime time.Duration
+	maxConnLifetime time.Duration
+}
+
+func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("sql store startup deadline exceeded")
 		default:
+			log.Info().
+				Str("host", cfg.host).
+				Int("port", cfg.port).
+				Str("database", cfg.database).
+				Msg("connecting to DB")
 
 			var (
 				err       error
@@ -442,17 +334,24 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 
 			// Read SSL setting from environment
 			sslSettings := "sslmode=disable"
-			if os.Getenv(EnvPostgresSSL) == "true" {
+			if cfg.ssl {
 				sslSettings = "sslmode=require"
 			}
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
-				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
+				cfg.username, cfg.password, cfg.host, cfg.port, cfg.database, sslSettings)
+
 			dialector = postgres.Open(dsn)
 
-			log.Info().Str("dsn", dsn).Msg("sql store connecting to DB")
+			gormConfig := &gorm.Config{}
 
-			db, err := gorm.Open(dialector, &gorm.Config{})
+			if cfg.schemaName != "" {
+				gormConfig.NamingStrategy = schema.NamingStrategy{
+					TablePrefix: cfg.schemaName + ".",
+				}
+			}
+
+			db, err := gorm.Open(dialector, gormConfig)
 			if err != nil {
 				time.Sleep(1 * time.Second)
 
@@ -465,15 +364,24 @@ func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 			if err != nil {
 				return nil, err
 			}
-			sqlDB.SetMaxIdleConns(50)
-			sqlDB.SetMaxOpenConns(25) // TODO: maybe subtract what pool uses
-			sqlDB.SetConnMaxIdleTime(time.Hour)
-			sqlDB.SetConnMaxLifetime(time.Minute)
+			sqlDB.SetMaxIdleConns(cfg.idleConns)
+			sqlDB.SetMaxOpenConns(cfg.maxConns)
+			sqlDB.SetConnMaxIdleTime(cfg.maxConnIdleTime)
+			sqlDB.SetConnMaxLifetime(cfg.maxConnLifetime)
 
-			log.Info().Str("dsn", dsn).Msg("sql store connected")
+			log.Info().Msg("sql store connected")
 
 			// success
 			return db, nil
 		}
 	}
+}
+
+func (s *PostgresStore) GetAppCount() (int, error) {
+	var count int
+	err := s.gdb.Raw("SELECT COUNT(*) FROM apps").Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("error getting app count: %w", err)
+	}
+	return count, nil
 }

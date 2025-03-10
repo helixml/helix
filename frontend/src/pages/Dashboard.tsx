@@ -16,10 +16,9 @@ import React, { FC, useCallback, useEffect, useRef, useState } from 'react'
 import LLMCallsTable from '../components/dashboard/LLMCallsTable'
 import Interaction from '../components/session/Interaction'
 import RunnerSummary from '../components/session/RunnerSummary'
-import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 import SessionBadgeKey from '../components/session/SessionBadgeKey'
-import SessionSummary from '../components/session/SessionSummary'
 import SessionToolbar from '../components/session/SessionToolbar'
+import SessionSummary from '../components/session/SessionSummary'
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import Window from '../components/widgets/Window'
@@ -28,14 +27,11 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
   IDashboardData,
-  IModelInstanceState,
-  IRunnerState,
+  IQueueItem,
   ISession,
-  ISessionSummary,
-  ISlot,
-  ISlotAttributesWorkload,
-  ISlotData
+  ISessionSummary
 } from '../types'
+import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 
 const START_ACTIVE = true
 
@@ -103,10 +99,15 @@ const Dashboard: FC = () => {
   ])
 
   useEffect(() => {
-    if (tab === 'llm_calls') {
-      setActiveTab(1)
-    } else {
-      setActiveTab(0)
+    switch (tab) {
+      case 'llm_calls':
+        setActiveTab(1)
+        break
+      case 'providers':
+        setActiveTab(2)
+        break
+      default:
+        setActiveTab(0)
     }
   }, [tab])
 
@@ -118,10 +119,15 @@ const Dashboard: FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
-    if (newValue === 1) {
-      router.setParams({ tab: 'llm_calls' })
-    } else {
-      router.removeParams(['tab'])
+    switch (newValue) {
+      case 1:
+        router.setParams({ tab: 'llm_calls' })
+        break
+      case 2:
+        router.setParams({ tab: 'providers' })
+        break
+      default:
+        router.removeParams(['tab'])
     }
   }
 
@@ -138,91 +144,6 @@ const Dashboard: FC = () => {
   const clearFilter = () => {
     setSessionFilter('')
     router.removeParams(['filter_sessions'])
-  }
-
-
-  const convertWorkloadToSessionSummary = (workload: ISlotAttributesWorkload): ISessionSummary | null => {
-    if (!workload) return null
-    if (workload.Session) {
-      const lastInteraction = workload.Session.interactions?.[workload.Session.interactions?.length - 1]
-      return {
-        created: workload.Session.created,
-        updated: workload.Session.updated,
-        scheduled: lastInteraction?.created,
-        completed: lastInteraction?.completed,
-        session_id: workload.Session.id,
-        name: workload.Session.name,
-        interaction_id: lastInteraction?.id ?? '',
-        model_name: workload.Session.model_name,
-        mode: workload.Session.mode,
-        type: workload.Session.type,
-        owner: workload.Session.owner,
-        lora_dir: workload.Session.lora_dir,
-        summary: lastInteraction?.state
-          ? [
-            lastInteraction.state,
-            lastInteraction.status,
-            lastInteraction.message
-          ].filter(Boolean).join(" ")
-          : "No summary available",
-        app_id: workload.Session.parent_app,
-      }
-    } else if (workload.LLMInferenceRequest) {
-      return {
-        created: workload.LLMInferenceRequest.CreatedAt,
-        updated: workload.LLMInferenceRequest.CreatedAt,
-        scheduled: workload.LLMInferenceRequest.CreatedAt,
-        completed: workload.LLMInferenceRequest.CreatedAt,
-        session_id: '',
-        name: '',
-        interaction_id: workload.LLMInferenceRequest.InteractionID,
-        model_name: workload.LLMInferenceRequest.Request.model,
-        mode: "inference",
-        type: "text",
-        owner: workload.LLMInferenceRequest.OwnerID,
-        lora_dir: "",
-        app_id: "",
-        summary: workload.LLMInferenceRequest?.Request?.messages?.[
-          (workload.LLMInferenceRequest?.Request?.messages?.length || 1) - 1
-        ]?.content || 'No message content',
-      }
-    }
-    return null
-  };
-
-  const convertSlotDataToModelInstanceState = (slotData: ISlotData) => {
-    return {
-      id: slotData.id,
-      model_name: slotData.attributes.model,
-      mode: slotData.attributes.mode,
-      lora_dir: '',
-      initial_session_id: '',
-      current_session: convertWorkloadToSessionSummary(slotData.attributes.workload),
-      job_history: [],
-      timeout: 0,
-      last_activity: 0,
-      stale: false,
-      memory: 0,
-      status: slotData.id,
-    } as IModelInstanceState
-  }
-
-  const convertSlotDataToRunnerState = (runnerId: string, desiredSlots: ISlot[]) => {
-    const matchingSlot = desiredSlots.find(slot => slot.id === runnerId)
-    if (!matchingSlot) return {} as IRunnerState
-
-    return {
-      id: runnerId,
-      created: '',
-      memory: 0,
-      free_memory: 0,
-      total_memory: 0,
-      labels: {},
-      model_instances: matchingSlot.data
-        .map(convertSlotDataToModelInstanceState)
-        .sort((a, b) => a.model_name.localeCompare(b.model_name)),
-      scheduling_decisions: [],
-    } as IRunnerState
   }
 
   if (!account.user) return null
@@ -254,12 +175,13 @@ const Dashboard: FC = () => {
       >
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="Dashboard" />
             <Tab label="LLM Calls" />
+            <Tab label="Dashboard" />
+            <Tab label="Providers" />
           </Tabs>
         </Box>
 
-        {activeTab === 0 && (
+        {activeTab === 1 && (
           <Box
             sx={{
               width: '100%',
@@ -336,45 +258,31 @@ const Dashboard: FC = () => {
                       Helix Control Plane version: {account.serverConfig.version}
                     </Typography>
                   </Box>
-                )}
-                {data?.runners.map((runner) => {
-                  const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
-                    return modelInstance.current_session ? [...allSessions, modelInstance.current_session] : allSessions
-                  }, [])
-                  return allSessions.length > 0 ? (
-                    <React.Fragment key={runner.id}>
-                      <Typography variant="h6">Running: {runner.id}</Typography>
-                      {allSessions.map(session => (
-                        <SessionSummary
-                          key={session.session_id}
-                          session={session}
-                          onViewSession={onViewSession} />
-                      ))}
-                    </React.Fragment>
-                  ) : null
-                })}
-                {data.session_queue.length > 0 && (
+                )}               
+                {data.queue.length > 0 && (
                   <Typography variant="h6">Queued Jobs</Typography>
                 )}
-                {data.session_queue.map((session) => {
+                {data.queue.map((item: IQueueItem) => {
                   return (
                     <SessionSummary
-                      key={session.session_id}
-                      session={session}
+                      key={item.id}
+                      session={
+                        {
+                          session_id: item.id,
+                          created: item.created,
+                          updated: item.updated,
+                          model_name: item.model_name,
+                          mode: item.mode,
+                          type: item.runtime,
+                          owner: "todo",
+                          lora_dir: item.lora_dir,
+                          summary: item.summary,
+                          app_id: "todo",
+                        } as ISessionSummary
+                      }
                       onViewSession={onViewSession} />
                   )
-                })}
-                {data.global_scheduling_decisions.length > 0 && (
-                  <Typography variant="h6">Global Scheduling</Typography>
-                )}
-                {data.global_scheduling_decisions.map((decision, i) => {
-                  return (
-                    <SchedulingDecisionSummary
-                      key={i}
-                      decision={decision}
-                      onViewSession={onViewSession} />
-                  )
-                })}
+                })}             
               </Box>
               <Box
                 sx={{
@@ -391,24 +299,17 @@ const Dashboard: FC = () => {
                     width: '100%',
                     overflow: "auto",
                   }}
+                  spacing={2} padding={2}
                 >
-                  {data.runners.map((runner) => {
+                  {data.runners?.map((runner) => {
                     return (
-                      <Grid item key={runner.id} spacing={2} padding={2}>
+                      <Grid item key={runner.id}>
                         <Paper>
-                          <Grid container spacing={1} padding={1}>
-                            <Grid item xs={6}>
-                              <Typography variant="h6">Desired State</Typography>
-                              <RunnerSummary
-                                runner={convertSlotDataToRunnerState(runner.id, data.desired_slots)}
-                                onViewSession={onViewSession} />
-                            </Grid>
-                            <Grid item xs={6}>
-                              <Typography variant="h6">Actual State</Typography>
-                              <RunnerSummary
-                                runner={runner}
-                                onViewSession={onViewSession} />
-                            </Grid>
+                          <Grid item>
+                            <Typography variant="h6">Runner State</Typography>
+                            <RunnerSummary
+                              runner={runner}
+                              onViewSession={onViewSession} />
                           </Grid>
                         </Paper>
                       </Grid>
@@ -420,7 +321,7 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 1 && (
+        {activeTab === 0 && (
           <Box
             sx={{
               width: '100%',
@@ -443,6 +344,18 @@ const Dashboard: FC = () => {
               )}
             </Box>
             <LLMCallsTable sessionFilter={sessionFilter} />
+          </Box>
+        )}
+
+        {activeTab === 2 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <ProviderEndpointsTable />
           </Box>
         )}
 

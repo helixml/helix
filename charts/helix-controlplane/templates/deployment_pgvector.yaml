@@ -1,0 +1,104 @@
+{{- if .Values.pgvector.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-pgvector
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/component: pgvector
+    {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-pgvector
+  labels:
+    app.kubernetes.io/component: pgvector
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.pgvector.enabled }}
+  # When using bundled pgvector, we must use 1 replica because pgvector is not stateless
+  replicas: 1
+  {{- else }}
+  replicas: {{ .Values.pgvector.replicas | default 1 }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: pgvector
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: pgvector
+        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: pgvector
+          image: pgvector/pgvector:pg17
+          ports:
+            - name: tcp-pgvector
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.pgvector.auth.database | default "postgres" }}
+            - name: POSTGRES_USER
+              value: {{ .Values.pgvector.auth.username | default "postgres" }}
+            - name: POSTGRES_PASSWORD
+              {{- if .Values.pgvector.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.auth.existingSecret }}
+                  key: {{ .Values.pgvector.auth.passwordKey | default "password" }}
+              {{- else }}
+              value: {{ .Values.pgvector.auth.password | default "pgvector" }}
+              {{- end }}
+          {{- if .Values.pgvector.persistence.enabled }} 
+          volumeMounts:
+            - name: pgvector-storage
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+      {{- if .Values.pgvector.persistence.enabled }} 
+      volumes:
+      - name: pgvector-storage
+        persistentVolumeClaim:
+          claimName: {{ include "helix-controlplane.fullname" . }}-pgvector-pvc
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

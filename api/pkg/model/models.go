@@ -177,6 +177,14 @@ const (
 
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 	return []*DiffusersGenericImage{
+		// SD Turbo is useful for development because it's low RAM, but it doesn't produce very good images
+		// {
+		// 	ID:          ModelDiffusersSdturbo,
+		// 	Name:        "SD Turbo",
+		// 	Memory:      GB * 10,
+		// 	Description: "High quality image model, from Stability AI",
+		// 	Hide:        false,
+		// },
 		{
 			ID:          ModelDiffusersFluxdev,
 			Name:        "FLUX.1-dev",
@@ -202,7 +210,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
 			Name:          "Llama 3.3 70B",
-			Memory:        GB * 48,
+			Memory:        GB * 44,
 			ContextLength: 16384,
 			Description:   "Smarter but slower, from Meta - 4bit quantized, 16K context",
 			Hide:          false,
@@ -221,6 +229,22 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Memory:        GB * 26,
 			ContextLength: 131072,
 			Description:   "Small model, from Meta - 8bit quantized, 128K context",
+			Hide:          false,
+		},
+		{
+			ID:            "deepseek-r1:8b-llama-distill-q8_0",
+			Name:          "Deepseek-R1 8B",
+			Memory:        GB * 26,
+			ContextLength: 131072,
+			Description:   "Small reasoning model (Llama based) - 8bit quantized, 128K context",
+			Hide:          false,
+		},
+		{
+			ID:            "deepseek-r1:32b-qwen-distill-q8_0",
+			Name:          "Deepseek-R1 32B",
+			Memory:        GB * 66,
+			ContextLength: 131072,
+			Description:   "Medium reasoning model (Qwen based) - 8bit quantized, 128K context",
 			Hide:          false,
 		},
 		{

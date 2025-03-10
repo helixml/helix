@@ -81,6 +81,8 @@ export const InteractionLiveStream: FC<{
   onMessageChange?: {
     (message: string): void,
   },
+  onMessageUpdate?: () => void,
+  onStreamingComplete?: () => void,
 }> = ({
   session_id,
   serverConfig,
@@ -88,6 +90,8 @@ export const InteractionLiveStream: FC<{
   interaction,
   hasSubscription = false,
   onMessageChange,
+  onMessageUpdate,
+  onStreamingComplete,
 }) => {
   const account = useAccount()
   const {
@@ -96,6 +100,7 @@ export const InteractionLiveStream: FC<{
     status,
     isStale,
     stepInfos,
+    isComplete,
   } = useLiveInteraction(session_id, interaction)
 
   const showLoading = !message && progress === 0 && !status && stepInfos.length === 0
@@ -106,7 +111,21 @@ export const InteractionLiveStream: FC<{
     onMessageChange(message)
   }, [
     message,
+    onMessageChange,
   ])
+
+  useEffect(() => {
+    if (!message || !onMessageUpdate) return
+    onMessageUpdate()
+  }, [message, onMessageUpdate])
+
+  useEffect(() => {
+    if (!isComplete || !onStreamingComplete) return
+    const timer = setTimeout(() => {
+      onStreamingComplete()
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [isComplete, onStreamingComplete])
 
   const getFileURL = (url: string) => {
     if(!serverConfig) return ''

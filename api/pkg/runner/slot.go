@@ -3,292 +3,183 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
-	"github.com/helixml/helix/api/pkg/model"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
-
-type SlotFactory interface {
-	NewSlot(ctx context.Context,
-		slotID uuid.UUID,
-		work *scheduler.Workload,
-		inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
-		sessionResponseHandler func(res *types.RunnerTaskResponse) error,
-		runnerOptions Options,
-	) (*Slot, error)
-}
 
 // Slot is the crazy mirror equivalent of scheduler.Slot
 // You can think of it as the same thing as a Slot, but it's a bit fatter because it ecapsulates all
 // the horrible logic involved with starting and destroying a ModelInstance.
 // E.g. axolotl expects a session, whereas ollama expects an LLMInferenceRequest.
 type Slot struct {
-	ID                     uuid.UUID           // Same as scheduler.Slot
-	RunnerID               string              // Same as scheduler.Slot
-	originalWork           *scheduler.Workload // The original work that was assigned to this slot
-	modelInstance          ModelInstance
-	llmWorkChan            chan *types.RunnerLLMInferenceRequest
-	sessionWorkChan        chan *types.Session
-	currentWork            *scheduler.Workload
-	sessionResponseHandler func(res *types.RunnerTaskResponse) error
+	ID              uuid.UUID // Same as scheduler.Slot
+	RunnerID        string    // Same as scheduler.Slot
+	Model           string    // The model assigned to this slot
+	IntendedRuntime types.Runtime
+	Active          bool // True if the slot is active
+	Ready           bool // True if the slot is ready to be used
+	runnerOptions   *Options
+	runningRuntime  Runtime
 }
 
-func (r *Slot) Stop() {
-	err := r.modelInstance.Stop()
+type PullProgress struct {
+	Status    string
+	Completed int64
+	Total     int64
+}
+
+type Runtime interface {
+	Start(ctx context.Context) error
+	Stop() error
+	PullModel(ctx context.Context, model string, progress func(PullProgress) error) error
+	Warm(ctx context.Context, model string) error
+	Version() string
+	Status(ctx context.Context) string // To hold general status information like ollama ps output
+	Runtime() types.Runtime
+	URL() string
+}
+
+type CreateSlotParams struct {
+	RunnerOptions *Options
+	ID            uuid.UUID
+	Runtime       types.Runtime
+	Model         string
+}
+
+func NewEmptySlot(params CreateSlotParams) *Slot {
+	return &Slot{
+		ID:              params.ID,
+		RunnerID:        params.RunnerOptions.ID,
+		Model:           params.Model,
+		IntendedRuntime: params.Runtime,
+		Active:          false,
+		Ready:           false,
+		runnerOptions:   params.RunnerOptions,
+		runningRuntime:  nil, // This is set during creation
+	}
+}
+
+// If there is an error at any point during creation, we call Stop to kill the runtime. Otherwise it
+// can just sit there taking up GPU and doing nothing.
+func (s *Slot) Create(ctx context.Context) (err error) {
+	// Need to be very careful to shutdown the runtime if there is an error!
+	// Safest to do this in a defer so that it always checks.
+	defer func() {
+		if err != nil {
+			if s.runningRuntime != nil {
+				log.Warn().Str("model", s.Model).Interface("runtime", s.IntendedRuntime).Msg("error creating slot, stopping runtime")
+				stopErr := s.runningRuntime.Stop()
+				if stopErr != nil {
+					log.Error().Err(stopErr).Str("model", s.Model).Interface("runtime", s.IntendedRuntime).Msg("error stopping runtime, possible memory leak")
+				}
+			}
+		}
+	}()
+
+	switch s.IntendedRuntime {
+	case types.RuntimeOllama:
+		s.runningRuntime, err = NewOllamaRuntime(ctx, OllamaRuntimeParams{
+			CacheDir: &s.runnerOptions.CacheDir,
+		}) // TODO(phil): Add params
+		if err != nil {
+			return
+		}
+	case types.RuntimeDiffusers:
+		s.runningRuntime, err = NewDiffusersRuntime(ctx, DiffusersRuntimeParams{
+			CacheDir: &s.runnerOptions.CacheDir,
+		}) // TODO(phil): Add params
+		if err != nil {
+			return
+		}
+	case types.RuntimeAxolotl:
+		s.runningRuntime, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
+			RunnerOptions: s.runnerOptions,
+		}) // TODO(phil): Add params
+		if err != nil {
+			return
+		}
+	default:
+		err = fmt.Errorf("unknown runtime: %s", s.IntendedRuntime)
+		return
+	}
+
+	// Start the runtime
+	err = s.runningRuntime.Start(ctx)
 	if err != nil {
-		log.Err(err).Msg("error stopping model instance")
+		return
 	}
-	if r.llmWorkChan != nil {
-		close(r.llmWorkChan)
+
+	// Create OpenAI Client
+	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", s.runningRuntime.URL()))
+	if err != nil {
+		return
 	}
-	if r.sessionWorkChan != nil {
-		close(r.sessionWorkChan)
+	// Check that the model is available in this runtime
+	models, err := openAIClient.ListModels(ctx)
+	if err != nil {
+		return
 	}
-}
-
-func (r *Slot) CurrentWorkload() *types.RunnerWorkload {
-	if r.currentWork == nil {
-		return &types.RunnerWorkload{}
-	}
-	return r.currentWork.ToRunnerWorkload()
-}
-
-func (r *Slot) OriginalWorkload() *types.RunnerWorkload {
-	if r.originalWork == nil {
-		return &types.RunnerWorkload{}
-	}
-	return r.originalWork.ToRunnerWorkload()
-}
-
-func (r *Slot) SetLLMInferenceRequest(work *scheduler.Workload) {
-	r.currentWork = work
-	r.llmWorkChan <- work.LLMInferenceRequest()
-}
-
-func (r *Slot) SetSessionRequest(work *scheduler.Workload) {
-	r.currentWork = work
-	r.sessionWorkChan <- work.Session()
-}
-
-func (r *Slot) IsScheduled() bool {
-	return len(r.sessionWorkChan) > 0 || len(r.llmWorkChan) > 0
-}
-
-func (r *Slot) ErrorWorkload(workload *scheduler.Workload, err error) {
-	switch workload.WorkloadType {
-	case scheduler.WorkloadTypeSession:
-		if err := ErrorSession(r.sessionResponseHandler, workload.Session(), err); err != nil {
-			log.Error().
-				Err(err).
-				Str("session_id", workload.Session().ID).
-				Msg("failed writing error session")
+	found := false
+	modelList := make([]string, 0, len(models.Models))
+	for _, m := range models.Models {
+		modelList = append(modelList, m.ID)
+		if m.ID == s.Model {
+			found = true
+			break
 		}
-	default:
-		log.Error().Msgf("unknown workload type: %s", workload.WorkloadType)
 	}
+	if !found {
+		// TODO(phil): I disabled model pulling for now because it's more work. But it is there if
+		// we need it
+		err = fmt.Errorf("model %s not found, available models: %s", s.Model, strings.Join(modelList, ", "))
+		return
+	}
+
+	s.Active = true
+	// Warm up the model
+	err = s.runningRuntime.Warm(ctx, s.Model)
+	if err != nil {
+		return
+	}
+	s.Active = false
+	s.Ready = true
+	return
 }
 
-var _ SlotFactory = &runtimeFactory{}
-
-type runtimeFactory struct{}
-
-func (f *runtimeFactory) NewSlot(ctx context.Context,
-	slotID uuid.UUID,
-	work *scheduler.Workload,
-	// TODO(PHIL): Merge these response handlers
-	// TODO(PHIL): Also the slot doesn't know when the work has finished.
-	inferenceResponseHandler func(res *types.RunnerLLMInferenceResponse) error,
-	sessionResponseHandler func(res *types.RunnerTaskResponse) error,
-	runnerOptions Options,
-) (*Slot, error) {
-	slot := &Slot{
-		ID:                     slotID,
-		RunnerID:               runnerOptions.ID,
-		originalWork:           work,
-		currentWork:            work,
-		sessionResponseHandler: sessionResponseHandler,
+func (s *Slot) Delete() error {
+	if s.runningRuntime != nil {
+		return s.runningRuntime.Stop()
 	}
-	switch work.WorkloadType {
-	case scheduler.WorkloadTypeLLMInferenceRequest:
-		log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama runtime")
-		workCh := make(chan *types.RunnerLLMInferenceRequest, 1)
-		ollama, err := NewOllamaInferenceModelInstance(
-			ctx,
-			&InferenceModelInstanceConfig{
-				ResponseHandler: inferenceResponseHandler,
-				GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
-					return <-workCh, nil
-				},
-				RunnerOptions: runnerOptions,
-			},
-			work.LLMInferenceRequest(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error creating ollama runtime: %s", err.Error())
-		}
-		err = ollama.Start(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("error starting ollama runtime: %s", err.Error())
-		}
-		slot.modelInstance = ollama
-		slot.llmWorkChan = workCh
-		return slot, nil
-	case scheduler.WorkloadTypeSession:
-		log.Debug().Str("workload_id", work.ID()).Msg("starting new session runtime")
-		var (
-			modelInstance ModelInstance
-			err           error
-		)
-		workCh := make(chan *types.Session, 1)
-		initialSession := work.Session()
-		runtimeName := model.Name(initialSession.ModelName).InferenceRuntime()
+	return nil
+}
 
-		// if we are in mock mode - we need the axolotl model instance because
-		// it understands how to do a mock runner
-		if runnerOptions.MockRunner {
-			if initialSession.Type == types.SessionTypeText {
-				runtimeName = types.InferenceRuntimeAxolotl
-				initialSession.ModelName = model.ModelAxolotlMistral7b
-			} else if initialSession.Type == types.SessionTypeImage {
-				// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
-				// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
-				// that does both axolotl and sdxl
-				runtimeName = types.InferenceRuntimeAxolotl
-				initialSession.ModelName = model.ModelCogSdxl
-			}
-		}
-
-		switch runtimeName {
-		case types.InferenceRuntimeOllama:
-			log.Debug().Str("workload_id", work.ID()).Msg("starting new ollama session runtime")
-			modelInstance, err = NewOllamaModelInstance(
-				ctx,
-				&ModelInstanceConfig{
-					InitialSession:  initialSession,
-					ResponseHandler: sessionResponseHandler,
-					GetNextSession: func() (*types.Session, error) {
-						return <-workCh, nil
-					},
-					RunnerOptions: runnerOptions,
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-			err = modelInstance.Start(ctx)
-			if err != nil {
-				return nil, err
-			}
-			slot.modelInstance = modelInstance
-			slot.sessionWorkChan = workCh
-			return slot, nil
-		case types.InferenceRuntimeCog:
-			log.Debug().Str("workload_id", work.ID()).Msg("starting new cog session runtime")
-			modelInstance, err = NewCogModelInstance(
-				ctx,
-				&ModelInstanceConfig{
-					InitialSession:    initialSession,
-					InitialSessionURL: runnerOptions.InitialSessionURL,
-					NextTaskURL:       runnerOptions.TaskURL,
-					// this function will convert any files it sees locally into an upload
-					// to the api server filestore - all files will be written to the filestore
-					// under a session sub path - you can include tar files and they will untarred at the other end
-					// into the filestore
-					// TODO: support the tar feature above
-					ResponseHandler: sessionResponseHandler,
-					RunnerOptions:   runnerOptions,
-					GetNextSession: func() (*types.Session, error) {
-						return <-workCh, nil
-					},
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			go modelInstance.QueueSession(initialSession, true)
-
-			err = modelInstance.Start(ctx)
-			if err != nil {
-				return nil, err
-			}
-			slot.modelInstance = modelInstance
-			slot.sessionWorkChan = workCh
-			return slot, nil
-		case types.InferenceRuntimeDiffusers:
-			log.Debug().Str("workload_id", work.ID()).Msg("starting new diffusers session runtime")
-			modelInstance, err = NewDiffusersModelInstance(
-				ctx,
-				&ModelInstanceConfig{
-					InitialSession:    initialSession,
-					InitialSessionURL: runnerOptions.InitialSessionURL,
-					NextTaskURL:       runnerOptions.TaskURL,
-					// this function will convert any files it sees locally into an upload
-					// to the api server filestore - all files will be written to the filestore
-					// under a session sub path - you can include tar files and they will untarred at the other end
-					// into the filestore
-					// TODO: support the tar feature above
-					ResponseHandler: sessionResponseHandler,
-					RunnerOptions:   runnerOptions,
-					GetNextSession: func() (*types.Session, error) {
-						return <-workCh, nil
-					},
-				},
-			)
-			if err != nil {
-				slot.ErrorWorkload(work, fmt.Errorf("error creating diffusers runtime: %w", err))
-				return nil, err
-			}
-
-			go modelInstance.QueueSession(initialSession, true)
-
-			err = modelInstance.Start(ctx)
-			if err != nil {
-				slot.ErrorWorkload(work, fmt.Errorf("error starting diffusers runtime: %w", err))
-				return nil, err
-			}
-			slot.modelInstance = modelInstance
-			slot.sessionWorkChan = workCh
-			return slot, nil
-		default:
-			// Defaulting to axolotl
-			log.Debug().Str("workload_id", work.ID()).Msg("starting new axolotl session runtime")
-			modelInstance, err = NewAxolotlModelInstance(
-				ctx,
-				&ModelInstanceConfig{
-					InitialSession:    initialSession,
-					InitialSessionURL: runnerOptions.InitialSessionURL,
-					NextTaskURL:       runnerOptions.TaskURL,
-					// this function will convert any files it sees locally into an upload
-					// to the api server filestore - all files will be written to the filestore
-					// under a session sub path - you can include tar files and they will untarred at the other end
-					// into the filestore
-					// TODO: support the tar feature above
-					ResponseHandler: sessionResponseHandler,
-					RunnerOptions:   runnerOptions,
-					GetNextSession: func() (*types.Session, error) {
-						return <-workCh, nil
-					},
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			go modelInstance.QueueSession(initialSession, true)
-
-			err = modelInstance.Start(ctx)
-			if err != nil {
-				return nil, err
-			}
-			slot.modelInstance = modelInstance
-			slot.sessionWorkChan = workCh
-			return slot, nil
-		}
-	default:
-		return nil, fmt.Errorf("unknown workload type: %s", work.WorkloadType)
+func (s *Slot) Version() string {
+	if s.runningRuntime != nil {
+		return s.runningRuntime.Version()
 	}
+	return "unknown"
+}
+
+func (s *Slot) Runtime() types.Runtime {
+	if s.runningRuntime != nil {
+		return s.runningRuntime.Runtime()
+	}
+	return types.Runtime("unknown")
+}
+
+func (s *Slot) Status(ctx context.Context) string {
+	if s.runningRuntime != nil {
+		return s.runningRuntime.Status(ctx)
+	}
+	return "unknown"
+}
+
+func (s *Slot) URL() string {
+	if s.runningRuntime != nil {
+		return s.runningRuntime.URL()
+	}
+	return ""
 }

@@ -17,6 +17,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/llm"
 	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/rs/zerolog/log"
@@ -114,7 +115,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
@@ -264,7 +265,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			AppID:       startReq.AppID,
 			AssistantID: startReq.AssistantID,
 			RAGSourceID: startReq.RAGSourceID,
-			Provider:    startReq.Provider,
+			Provider:    string(startReq.Provider),
 			QueryParams: func() map[string]string {
 				params := make(map[string]string)
 				for key, values := range req.URL.Query() {
@@ -309,7 +310,7 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 		return
 	}
 
-	modelName, err := model.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
@@ -451,7 +452,7 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, model,
 		return "", errors.New("no data in the LLM response")
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return llm.StripThinkingTags(resp.Choices[0].Message.Content), nil
 }
 
 func (s *HelixAPIServer) handleBlockingSession(

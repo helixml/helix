@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
@@ -32,6 +33,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/version"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -169,39 +171,70 @@ func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.File
 }
 
 func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
+	// Validate license key if provided
+	var userLicense *license.License
+	if cfg.LicenseKey != "" {
+		validator := license.NewLicenseValidator()
+		var err error
+		userLicense, err = validator.Validate(cfg.LicenseKey)
+		if err != nil {
+			return fmt.Errorf("invalid license key: %w", err)
+		}
+	}
+
 	system.SetupLogging()
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
 	defer cm.Cleanup(cmd.Context())
-	ctx := cmd.Context()
+
+	// Create a cancellable context for license checks
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	// Create license manager
+	lm := license.NewLicenseManager(userLicense)
+
+	// Run background license checks
+	go func() {
+		err := lm.Run(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("license is not valid anymore")
+			// don't actually shut down the server yet, we'll start enforcing licenses in the next version
+			// cancel() // Cancel context when license becomes invalid
+		}
+	}()
 
 	// Context ensures main goroutine waits until killed with ctrl+c:
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
-	defer cancel()
+	ctx, signalCancel := signal.NotifyContext(ctx, os.Interrupt)
+	defer signalCancel()
 
 	fs, err := getFilestore(ctx, cfg)
 	if err != nil {
 		return err
 	}
 
-	store, err := store.NewPostgresStore(cfg.Store)
+	postgresStore, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return err
 	}
 
-	ps, err := pubsub.New(cfg.PubSub.StoreDir)
+	ps, err := pubsub.New(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create pubsub provider: %w", err)
 	}
 
 	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak)
-	if err != nil {
-		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+	var keycloakAuthenticator auth.Authenticator
+	if cfg.Keycloak.KeycloakEnabled {
+		authenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak, postgresStore)
+		if err != nil {
+			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+		}
+		keycloakAuthenticator = authenticator
 	}
 
 	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)
@@ -232,53 +265,56 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		extractor = extract.NewTikaExtractor(cfg.TextExtractor.Tika.URL)
 	case types.ExtractorUnstructured:
 		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
+	case types.ExtractorHaystack:
+		extractor = extract.NewHaystackExtractor(cfg.RAG.Haystack.URL)
 	default:
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
 	}
 
-	// Must use the same allocator for both new LLM requests and old sessions
-	scheduler := scheduler.NewScheduler(ctx, cfg, func(work *scheduler.Workload, err error) {
-		// This function describes what happens when errors occur in jobs.
-		// Each request type (session vs. LLM requests) has a differeht code path handling results,
-		// hence for now we need to separate cases to handle errors.
-		switch work.WorkloadType {
-		case scheduler.WorkloadTypeLLMInferenceRequest:
-			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work, removing from queue")
-			req := work.LLMInferenceRequest()
-			resp := &types.RunnerLLMInferenceResponse{
-				RequestID:     req.RequestID,
-				OwnerID:       req.OwnerID,
-				SessionID:     req.SessionID,
-				InteractionID: req.InteractionID,
-				Error:         err.Error(),
-				Done:          true,
-			}
-			bts, err := json.Marshal(resp)
-			if err != nil {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error marshalling runner response")
-			}
-
-			err = ps.Publish(context.Background(), pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
-			if err != nil {
-				log.Error().Err(err).Str("id", work.ID()).Msg("error publishing runner response")
-			}
-		case scheduler.WorkloadTypeSession:
-			// If we can't retry, write an error to the request and continue so it takes it off
-			// the queue
-			errSession := work.Session()
-			errSession.Interactions = append(errSession.Interactions, &types.Interaction{
-				Creator: types.CreatorTypeSystem,
-				Error:   err.Error(),
-				Message: "Error scheduling session",
-			})
-			_, err = store.UpdateSession(ctx, *errSession)
-			if err != nil {
-				log.Error().Err(err).Msg("error updating session")
-			}
-		default:
-			log.Error().Str("workload_type", string(work.WorkloadType)).Msg("unknown workload type")
-		}
+	runnerController, err := scheduler.NewRunnerController(ctx, &scheduler.RunnerControllerConfig{
+		PubSub: ps,
+		FS:     fs,
 	})
+	if err != nil {
+		return err
+	}
+
+	var appController *controller.Controller
+
+	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
+		RunnerController: runnerController,
+		QueueSize:        100,
+		OnSchedulingErr: func(work *scheduler.Workload, err error) {
+			if appController != nil {
+				switch work.WorkloadType {
+				case scheduler.WorkloadTypeLLMInferenceRequest:
+					request := work.LLMInferenceRequest()
+					response := types.RunnerNatsReplyResponse{
+						OwnerID:   request.OwnerID,
+						RequestID: request.RequestID,
+						Error:     err.Error(),
+						Response:  []byte{},
+					}
+					bts, err := json.Marshal(response)
+					if err != nil {
+						log.Error().Err(err).Msg("error marshalling runner response")
+					}
+					err = ps.Publish(ctx, pubsub.GetRunnerResponsesQueue(request.OwnerID, request.RequestID), bts)
+					if err != nil {
+						log.Error().Err(err).Msg("error publishing runner response")
+					}
+				case scheduler.WorkloadTypeSession:
+					appController.ErrorSession(ctx, work.Session(), err)
+				}
+			}
+		},
+		OnResponseHandler: func(_ context.Context, _ *types.RunnerLLMInferenceResponse) error {
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
 
@@ -286,12 +322,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	if !cfg.DisableLLMCallLogging {
 		logStores = []logger.LogStore{
-			store,
+			postgresStore,
 			// TODO: bigquery
 		}
 	}
 
-	providerManager := manager.NewProviderManager(cfg, helixInference, logStores...)
+	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)
+
+	// Will run async and watch for changes in the API keys, non-blocking
+	providerManager.StartRefresh(ctx)
 
 	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
 	if err != nil {
@@ -302,7 +341,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var ragClient rag.RAG
 
 	switch cfg.RAG.DefaultRagProvider {
-	case "typesense":
+	case config.RAGProviderTypesense:
 		ragSettings := &types.RAGSettings{}
 		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
 		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
@@ -311,22 +350,31 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			return fmt.Errorf("failed to create typesense RAG client: %v", err)
 		}
 		log.Info().Msgf("Using Typesense for RAG")
-	case "llamaindex":
+	case config.RAGProviderLlamaindex:
 		ragClient = rag.NewLlamaindex(&types.RAGSettings{
 			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
 			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
 			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
 		})
 		log.Info().Msgf("Using Llamaindex for RAG")
+	case config.RAGProviderPGVector:
+		pgVectorStore, err := store.NewPGVectorStore(cfg)
+		if err != nil {
+			return fmt.Errorf("failed to create PGVector store: %v", err)
+		}
+
+		ragClient = rag.NewPGVector(cfg, providerManager, pgVectorStore)
+		log.Info().Msgf("Using PGVector for RAG")
+	case config.RAGProviderHaystack:
+		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
+		log.Info().Msgf("Using Haystack for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
 
-	var appController *controller.Controller
-
 	controllerOptions := controller.Options{
 		Config:               cfg,
-		Store:                store,
+		Store:                postgresStore,
 		PubSub:               ps,
 		RAG:                  ragClient,
 		Extractor:            extractor,
@@ -337,6 +385,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
 		Scheduler:            scheduler,
+		RunnerController:     runnerController,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
@@ -349,15 +398,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	go appController.Start(ctx)
-
 	// Initialize browser pool
 	browserPool, err := browser.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient, browserPool)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)
 	if err != nil {
 		return err
 	}
@@ -368,7 +415,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
-	trigger := trigger.NewTriggerManager(cfg, store, appController)
+	trigger := trigger.NewTriggerManager(cfg, postgresStore, appController)
 	// Start integrations
 	go trigger.Start(ctx)
 
@@ -379,7 +426,29 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
+	// Initialize ping service if not disabled
+	var pingService *version.PingService
+	if !cfg.DisableVersionPing {
+		pingService = version.NewPingService(postgresStore, cfg.LicenseKey, cfg.LaunchpadURL)
+		pingService.Start(ctx)
+		defer pingService.Stop()
+	}
+
+	server, err := server.NewServer(
+		cfg,
+		postgresStore,
+		ps,
+		gse,
+		providerManager,
+		helixInference,
+		keycloakAuthenticator,
+		stripe,
+		appController,
+		janitor,
+		knowledgeReconciler,
+		scheduler,
+		pingService,
+	)
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -44,9 +45,10 @@ type ListSecretsQuery struct {
 }
 
 type ListAppsQuery struct {
-	Owner     string          `json:"owner"`
-	OwnerType types.OwnerType `json:"owner_type"`
-	Global    bool            `json:"global"`
+	Owner          string          `json:"owner"`
+	OwnerType      types.OwnerType `json:"owner_type"`
+	Global         bool            `json:"global"`
+	OrganizationID string          `json:"organization_id"`
 }
 
 type ListDataEntitiesQuery struct {
@@ -54,9 +56,71 @@ type ListDataEntitiesQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
+type ListProviderEndpointsQuery struct {
+	Owner     string
+	OwnerType types.OwnerType
+
+	WithGlobal bool
+}
+
+type GetProviderEndpointsQuery struct {
+	Owner     string
+	OwnerType types.OwnerType
+	ID        string
+	Name      string
+}
+
+type ListUsersQuery struct {
+	TokenType types.TokenType `json:"token_type"`
+	Admin     bool            `json:"admin"`
+	Type      types.OwnerType `json:"type"`
+	Email     string          `json:"email"`
+	Username  string          `json:"username"`
+}
+
+var _ Store = &PostgresStore{}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
+	//  Auth + Authz
+	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
+	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
+	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
+	DeleteOrganization(ctx context.Context, id string) error
+	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
+
+	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
+	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)
+	UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
+	DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error
+	ListOrganizationMemberships(ctx context.Context, query *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error)
+
+	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
+	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
+	UpdateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
+	DeleteTeam(ctx context.Context, id string) error
+	ListTeams(ctx context.Context, query *ListTeamsQuery) ([]*types.Team, error)
+
+	CreateTeamMembership(ctx context.Context, membership *types.TeamMembership) (*types.TeamMembership, error)
+	GetTeamMembership(ctx context.Context, q *GetTeamMembershipQuery) (*types.TeamMembership, error)
+	ListTeamMemberships(ctx context.Context, query *ListTeamMembershipsQuery) ([]*types.TeamMembership, error)
+	DeleteTeamMembership(ctx context.Context, teamID, userID string) error
+
+	CreateRole(ctx context.Context, role *types.Role) (*types.Role, error)
+	GetRole(ctx context.Context, id string) (*types.Role, error)
+	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
+	DeleteRole(ctx context.Context, id string) error
+	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
+
+	CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error)
+	ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error)
+	DeleteAccessGrant(ctx context.Context, id string) error
+
+	CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error)
+	DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error
+	GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error)
+
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
@@ -67,6 +131,14 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 
+	// users
+	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
+	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
+	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
+	DeleteUser(ctx context.Context, id string) error
+	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
+	CountUsers(ctx context.Context) (int64, error)
+
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
 	CreateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
@@ -74,9 +146,9 @@ type Store interface {
 	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 
 	// api keys
-	CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error)
-	GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error)
-	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.APIKey, error)
+	CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error)
+	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 
 	// tools
@@ -86,15 +158,18 @@ type Store interface {
 	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
 	DeleteTool(ctx context.Context, id string) error
 
+	// provider endpoints
+	CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
+	UpdateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
+	GetProviderEndpoint(ctx context.Context, q *GetProviderEndpointsQuery) (*types.ProviderEndpoint, error)
+	ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error)
+	DeleteProviderEndpoint(ctx context.Context, id string) error
+
 	CreateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error)
 	UpdateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error)
 	GetSecret(ctx context.Context, id string) (*types.Secret, error)
 	ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
-
-	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
-	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)
-	DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error
 
 	// apps
 	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
@@ -116,7 +191,7 @@ type Store interface {
 	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
 	LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error)
 	UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error)
-	UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string, percent int) error
+	UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string) error
 	ListKnowledge(ctx context.Context, q *ListKnowledgeQuery) ([]*types.Knowledge, error)
 	DeleteKnowledge(ctx context.Context, id string) error
 
@@ -132,6 +207,17 @@ type Store interface {
 
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
+
+	GetLicenseKey(ctx context.Context) (*types.LicenseKey, error)
+	SetLicenseKey(ctx context.Context, licenseKey string) error
+
+	GetDecodedLicense(ctx context.Context) (*license.License, error)
+}
+
+type EmbeddingsStore interface {
+	CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error
+	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
+	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
 }
 
 var ErrNotFound = errors.New("not found")

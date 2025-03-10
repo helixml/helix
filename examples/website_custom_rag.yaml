@@ -4,6 +4,7 @@ description: |
 assistants:
 - name: Helix
   description: Know
+  model: llama3.1:8b-instruct-q8_0
   knowledge:
   - name: cars
     rag_settings:

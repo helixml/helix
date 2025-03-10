@@ -13,14 +13,30 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
 )
 
 const (
 	// This is the location inside the rod container
-	TestPDFFile = "/integration-test/data/smoke/hr-guide.pdf"
+	TestPDFFilename   = "hr-guide.pdf"
+	testFileDirectory = "integration-test/data/smoke"
 )
+
+func GetTestPDFFile() string {
+	// If the BROWSER_URL environment variable is set, we are running in a container
+	// and we need to use the container path.
+	containerPath := path.Join("/", testFileDirectory, TestPDFFilename)
+	if os.Getenv("BROWSER_URL") != "" {
+		return containerPath
+	}
+
+	// Otherwise, we are running locally, so we need to use the local path.
+	_, filename, _, _ := runtime.Caller(0)
+	rootDir := path.Clean(path.Join(filepath.Dir(filename), "..", "..", ".."))
+	// Build the full local path to the test file
+	localPath := path.Join(rootDir, testFileDirectory, TestPDFFilename)
+	return localPath
+}
 
 func LogStep(t *testing.T, step string) {
 	_, file, line, _ := runtime.Caller(1) // Get caller info, skip 1 frame to get the caller rather than this function
@@ -31,6 +47,10 @@ func LogStep(t *testing.T, step string) {
 func LogAndFail(t *testing.T, message string) {
 	t.Logf("❌ %s", message)
 	t.FailNow()
+}
+
+func LogAndPass(t *testing.T, message string) {
+	t.Logf("✅ %s", message)
 }
 
 func GetServerURL() string {
@@ -66,21 +86,16 @@ func PerformLogin(t *testing.T, page *rod.Page) error {
 
 func loginWithCredentials(t *testing.T, page *rod.Page) error {
 	LogStep(t, "Looking for login button")
-	loginBtn := page.MustElement("button[id='login-button']")
-	err := loginBtn.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		LogStep(t, "Login button not found, must be already logged in")
-		return nil
-	}
+	page.MustElement("button[id='login-button']").MustClick()
 
 	LogStep(t, "Getting credentials from environment")
 	username := GetHelixUser()
 	password := GetHelixPassword()
 
 	LogStep(t, "Filling in username and password")
-	page.MustElement("input[type='text']").MustInput(username)
-	page.MustElement("input[type='password']").MustInput(password)
-	page.MustElement("input[type='submit']").MustClick()
+	page.MustElementX("//input[@type='text']").MustWaitVisible().MustInput(username)
+	page.MustElementX("//input[@type='password']").MustWaitVisible().MustInput(password)
+	page.MustElementX("//input[@type='submit']").MustWaitVisible().MustClick()
 
 	return nil
 }
@@ -96,44 +111,18 @@ func verifyLogin(t *testing.T, page *rod.Page) error {
 	return nil
 }
 
-func StartNewChat(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Looking for New Session button")
-	xpath := fmt.Sprintf(`//span[contains(text(), '%s')]`, "New Session")
-	elements := page.MustElementsX(xpath)
-	if len(elements) != 1 {
-		return fmt.Errorf("new Session button not found")
-	}
-
-	LogStep(t, "Clicking New Session button")
-	elements[0].MustClick()
-
-	return nil
-}
-
-func SendMessage(t *testing.T, page *rod.Page) error {
+func SendMessage(t *testing.T, page *rod.Page, message string) {
 	LogStep(t, "Looking for chat input textarea")
 	textarea := page.MustElement("textarea")
 
-	LogStep(t, "Typing 'hello helix' into chat input")
-	textarea.MustInput("hello helix")
+	LogStep(t, fmt.Sprintf("Typing '%s' into chat input", message))
+	textarea.MustWaitVisible().MustInput(message)
 
 	LogStep(t, "Looking for send button")
-	sendButton := page.MustElement("#sendButton")
-	sendButton.MustClick()
-
-	LogStep(t, "Looking for chat message")
-	chatMessage := page.MustElement("div.interactionMessage")
-	if chatMessage == nil {
-		return fmt.Errorf("chat message not found")
-	}
-
-	return nil
+	page.MustElementX("//div[@aria-label='Send Prompt']").MustWaitInteractable().MustClick()
 }
 
 func StartNewImageSession(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Creating new session")
-	page.MustElementX(`//span[contains(text(), 'New Session')]`).MustClick()
-
 	LogStep(t, "Selecting Image mode")
 	page.MustElementX(`//button[contains(text(), 'TEXT')]`).MustClick()
 

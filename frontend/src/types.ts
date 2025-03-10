@@ -272,6 +272,20 @@ export interface IServerConfig {
   tools_enabled: boolean,
   apps_enabled: boolean,
   version?: string,
+  latest_version?: string,
+  deployment_id?: string,
+  license?: {
+    valid: boolean,
+    organization: string,
+    valid_until: string,
+    features: {
+      users: boolean,
+    },
+    limits: {
+      users: number,
+      machines: number,
+    },
+  },
 }
 
 export interface IConversation {
@@ -304,15 +318,15 @@ export interface IModelInstanceState {
   status?: string,
 }
 
-export interface IRunnerState {
+export interface IRunnerStatus {
   id: string,
   created: string,
+  updated: string,
+  version?: string,
   total_memory: number,
   free_memory: number,
   labels: Record<string, string>,
-  model_instances: IModelInstanceState[],
-  scheduling_decisions: string[],
-  version?: string,
+  slots: ISlot[],
 }
 
 export interface ISessionFilterModel {
@@ -340,27 +354,30 @@ export interface  IGlobalSchedulingDecision {
   model_name: string,
 }
 
+export interface IQueueItem {
+  id: string,
+  created: string,
+  updated: string,
+  model_name: string,
+  mode: string,
+  runtime: string,
+  lora_dir: string,
+  summary: string,
+}
+
 export interface IDashboardData {
-  session_queue: ISessionSummary[],
-  runners: IRunnerState[],
-  global_scheduling_decisions: IGlobalSchedulingDecision[],
-  desired_slots: ISlot[],
+  queue: IQueueItem[],
+  runners: IRunnerStatus[],
 }
 
 export interface ISlot {
   id: string,
-  data: ISlotData[],
-}
-
-export interface ISlotData {
-  id: string,
-  attributes: ISlotAttributes,
-}
-
-export interface ISlotAttributes {
+  runtime: string,
   model: string,
-  mode: ISessionMode,
-  workload: ISlotAttributesWorkload,
+  version: string,
+  active: boolean,
+  ready: boolean,
+  status: string,
 }
 
 export interface LLMInferenceRequest {
@@ -573,6 +590,7 @@ export interface IAssistantConfig {
   description?: string;
   avatar?: string;
   image?: string;
+  provider?: string;
   model?: string;
   type?: ISessionType;
   system_prompt?: string;
@@ -584,6 +602,14 @@ export interface IAssistantConfig {
   zapier?: IAssistantZapier[];
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
+}
+
+export interface IKnowledgeProgress {
+  step: string;
+  progress: number;
+  elapsed_seconds: number;
+  message?: string;
+  started_at?: Date;
 }
 
 export interface IKnowledgeSource {
@@ -598,7 +624,7 @@ export interface IKnowledgeSource {
   };
   state: string;
   message?: string;
-  progress_percent?: number;
+  progress?: IKnowledgeProgress;
   crawled_sources?: ICrawledSources;
   source: {
     helix_drive?: {
@@ -751,6 +777,7 @@ export interface ICreateSessionConfig {
   ragResultsCount: number,
   ragChunkSize: number,
   ragChunkOverflow: number,
+  ragDisableChunking: boolean,
 }
 
 export interface IHelixModel {
@@ -786,6 +813,7 @@ export interface ISessionLearnRequestRAGSettings {
   results_count: number,
   chunk_size: number,
   chunk_overflow: number,
+  disable_chunking: boolean,
 }
 
 export interface ISessionLearnRequest {
@@ -877,4 +905,22 @@ export interface ISecret {
   name: string,
   created: string,
   updated: string,
+}
+
+export type IProviderEndpointType = 'global' | 'user'
+
+export interface IProviderEndpoint {
+  id: string
+  created: string
+  updated: string
+  name: string
+  description: string
+  models?: string[]
+  endpoint_type: IProviderEndpointType
+  owner: string
+  owner_type: IOwnerType
+  base_url: string
+  api_key: string
+  api_key_file?: string
+  default: boolean
 }

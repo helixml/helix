@@ -5,6 +5,7 @@ description: |
 assistants:
 - name: Helix
   description: Responds to messages in a Discord channel
+  model: llama3.1:8b-instruct-q8_0
   apis:
   - name: Demo Hiring Pipeline API
     description: List all job vacancies, optionally filter by job title and/or candidate name

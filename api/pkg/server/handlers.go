@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
+func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
@@ -195,7 +195,43 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
 
-	return types.ServerConfigForFrontend{
+	currentVersion := data.GetHelixVersion()
+	latestVersion := ""
+	deploymentID := "unknown"
+	if apiServer.pingService != nil {
+		latestVersion = apiServer.pingService.GetLatestVersion()
+		deploymentID = apiServer.pingService.GetDeploymentID()
+	}
+
+	// Add license information
+	var licenseInfo *types.FrontendLicenseInfo
+	if apiServer.pingService != nil {
+		decodedLicense, err := apiServer.pingService.GetLicenseInfo(ctx)
+		if err == nil && decodedLicense != nil {
+			licenseInfo = &types.FrontendLicenseInfo{
+				Valid:        decodedLicense.Valid && !decodedLicense.Expired(),
+				Organization: decodedLicense.Organization,
+				ValidUntil:   decodedLicense.ValidUntil,
+				Features: struct {
+					Users bool `json:"users"`
+				}{
+					Users: decodedLicense.Features.Users,
+				},
+				Limits: struct {
+					Users    int64 `json:"users"`
+					Machines int64 `json:"machines"`
+				}{
+					Users:    decodedLicense.Limits.Users,
+					Machines: decodedLicense.Limits.Machines,
+				},
+			}
+		} else {
+			// if license is not valid, allow user to upload a new one
+			deploymentID = "unknown"
+		}
+	}
+
+	config := types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
 		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
@@ -206,18 +242,23 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
 		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
 		DisableLLMCallLogging:   apiServer.Cfg.DisableLLMCallLogging,
-		Version:                 data.GetHelixVersion(),
-	}, nil
+		Version:                 currentVersion,
+		LatestVersion:           latestVersion,
+		DeploymentID:            deploymentID,
+		License:                 licenseInfo,
+	}
+
+	return config, nil
 }
 
-func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, _ *http.Request) (types.ServerConfigForFrontend, error) {
-	return apiServer.getConfig()
+func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
+	return apiServer.getConfig(req.Context())
 }
 
 // prints the config values as JavaScript values so we can block the rest of the frontend on
 // initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
-func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, _ *http.Request) {
-	config, err := apiServer.getConfig()
+func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Request) {
+	config, err := apiServer.getConfig(req.Context())
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
@@ -229,12 +270,16 @@ window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
 window.RUDDERSTACK_WRITE_KEY = "%s"
 window.RUDDERSTACK_DATA_PLANE_URL = "%s"
+window.HELIX_VERSION = "%s"
+window.HELIX_LATEST_VERSION = "%s"
 `,
 		config.DisableLLMCallLogging,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
 		config.RudderStackWriteKey,
 		config.RudderStackDataPlaneURL,
+		config.Version,
+		config.LatestVersion,
 	)
 	if _, err := res.Write([]byte(content)); err != nil {
 		log.Error().Msgf("Failed to write response: %v", err)
@@ -665,11 +710,11 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 		if token == "" {
 			return false
 		}
-		jwtToken, err := auth.authenticator.ValidateUserToken(context.Background(), token)
+		user, err := auth.authenticator.ValidateUserToken(context.Background(), token)
 		if err != nil {
 			return false
 		}
-		return auth.isTokenAdmin(jwtToken)
+		return user.Admin
 	}
 	return false
 }
@@ -689,7 +734,7 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 }
 
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
-	newAPIKey := &types.APIKey{}
+	newAPIKey := &types.ApiKey{}
 	name := req.URL.Query().Get("name")
 
 	user := getRequestUser(req)
@@ -751,7 +796,7 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
-func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
+func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
@@ -768,7 +813,7 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		includeAllTypes = true
 	}
 
-	filteredAPIKeys := []*types.APIKey{}
+	filteredAPIKeys := []*types.ApiKey{}
 	for _, key := range apiKeys {
 		if !includeAllTypes && !containsType(string(key.Type), typesParam) {
 			continue
@@ -795,7 +840,7 @@ func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.R
 }
 
 // TODO: verify if this is actually used
-func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
+func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
 	ctx := req.Context()
 
 	apiKey := req.URL.Query().Get("key")

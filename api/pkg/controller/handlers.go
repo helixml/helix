@@ -3,11 +3,11 @@ package controller
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.UserStatus, error) {
@@ -27,7 +27,7 @@ func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.Use
 	}, nil
 }
 
-func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey *types.APIKey) (*types.APIKey, error) {
+func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey *types.ApiKey) (*types.ApiKey, error) {
 	key, err := system.GenerateAPIKey()
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey 
 	return c.Options.Store.CreateAPIKey(ctx, apiKey)
 }
 
-func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types.APIKey, error) {
+func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types.ApiKey, error) {
 	apiKeys, err := c.Options.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
@@ -52,7 +52,7 @@ func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types
 		return nil, err
 	}
 	if len(apiKeys) == 0 {
-		_, err := c.CreateAPIKey(ctx, user, &types.APIKey{
+		_, err := c.CreateAPIKey(ctx, user, &types.ApiKey{
 			Name: "default",
 			Type: types.APIkeytypeAPI,
 		})
@@ -91,7 +91,7 @@ func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey 
 	return nil
 }
 
-func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
+func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
 	key, err := c.Options.Store.GetAPIKey(ctx, apiKey)
 	if err != nil {
 		return nil, err
@@ -99,45 +99,37 @@ func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.API
 	return key, nil
 }
 
-func (c *Controller) cleanOldRunnerMetrics(_ context.Context) error {
-	deleteIDs := []string{}
-	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
-		// any runner that has not reported within the last minute
-		// should be removed
-		if time.Since(metrics.Created) > (time.Minute * 1) {
-			deleteIDs = append(deleteIDs, i)
-		}
-		return true
-	})
-
-	// Perform the deletion logic using the deleteIDs slice
-	for _, id := range deleteIDs {
-		c.activeRunners.Delete(id)
-	}
-
-	return nil
-}
-
-func (c *Controller) AddRunnerMetrics(_ context.Context, metrics *types.RunnerState) (*types.RunnerState, error) {
-	c.activeRunners.Store(metrics.ID, metrics)
-	return metrics, nil
-}
-
 func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, error) {
-	runners := []*types.RunnerState{}
-	c.activeRunners.Range(func(_ string, metrics *types.RunnerState) bool {
-		runners = append(runners, metrics)
-		return true
-	})
-	summaryData, err := c.scheduler.DashboardData()
+	runnerStatuses, err := c.scheduler.RunnerStatus()
+	if err != nil {
+		return nil, err
+	}
+	runners := make([]*types.DashboardRunner, 0, len(runnerStatuses))
+	for _, runnerStatus := range runnerStatuses {
+		var runnerSlots []*types.RunnerSlot
+		runnerSlots, err = c.scheduler.RunnerSlots(runnerStatus.ID)
+		if err != nil {
+			log.Warn().Err(err).Str("runner_id", runnerStatus.ID).Msg("error getting runner slots, this shouldn't happen, please investigate this runner")
+			runnerSlots = []*types.RunnerSlot{}
+		}
+		runners = append(runners, &types.DashboardRunner{
+			ID:          runnerStatus.ID,
+			Created:     runnerStatus.Created,
+			Updated:     runnerStatus.Updated,
+			Version:     runnerStatus.Version,
+			TotalMemory: runnerStatus.TotalMemory,
+			FreeMemory:  runnerStatus.FreeMemory,
+			Labels:      runnerStatus.Labels,
+			Slots:       runnerSlots,
+		})
+	}
+	queue, err := c.scheduler.Queue()
 	if err != nil {
 		return nil, err
 	}
 	return &types.DashboardData{
-		DesiredSlots:              c.scheduler.DashboardSlotsData(),
-		SessionQueue:              summaryData,
-		Runners:                   runners,
-		GlobalSchedulingDecisions: c.schedulingDecisions,
+		Runners: runners,
+		Queue:   queue,
 	}, nil
 }
 

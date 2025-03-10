@@ -234,7 +234,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       <>
         {sourceType === 'filestore' ? (
           <TextField
-            fullWidth
+            fullWidth            
             label="Filestore Path"
             value={source.source.filestore?.path || ''}
             onChange={(e) => {
@@ -244,7 +244,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 } 
               });
             }}
-            disabled={disabled}
+            disabled={true}
             sx={{ mb: 2 }}
           />
         ) : (
@@ -320,13 +320,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             fullWidth
             label="Chunk Size (optional)"
             type="number"              
-            value={source.rag_settings.chunk_size}
+            value={source.rag_settings.chunk_size || ''}
             onChange={(e) => {
-              const value = parseInt(e.target.value);
+              const value = e.target.value ? parseInt(e.target.value) : undefined;
               handleSourceUpdate(index, {
                 rag_settings: {
                   ...source.rag_settings,
-                  chunk_size: value
+                  chunk_size: value ?? 0
                 }
               });
             }}
@@ -355,7 +355,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               <TextField
                 fullWidth
-                label="Max Depth"
+                label="Max crawling depth (pages to visit, max 100)"
                 type="number"
                 value={source.source.web?.crawler?.max_depth || default_max_depth}
                 onChange={(e) => {
@@ -374,56 +374,34 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   });
                 }}
                 disabled={disabled}
-              />
-              <TextField
-                fullWidth
-                label="Max Pages"
-                type="number"
-                value={source.source.web?.crawler?.max_pages || default_max_pages}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value) || default_max_pages;
-                  handleSourceUpdate(index, {
-                    source: {
-                      web: {
-                        ...source.source.web,
-                        crawler: {
-                          enabled: true,
-                          ...source.source.web?.crawler,
-                          max_pages: value
-                        }
-                      }
-                    }
-                  });
-                }}
-                disabled={disabled}
-              />
-            </Box>
-            <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={source.source.web?.crawler?.readability ?? true}
-                    onChange={(e) => {
-                      handleSourceUpdate(index, {
-                        source: {
-                          web: {
-                            ...source.source.web,
-                            crawler: {
-                              enabled: true,
-                              ...source.source.web?.crawler,
-                              readability: e.target.checked
+              /> 
+              <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={source.source.web?.crawler?.readability ?? true}
+                      onChange={(e) => {
+                        handleSourceUpdate(index, {
+                          source: {
+                            web: {
+                              ...source.source.web,
+                              crawler: {
+                                enabled: true,
+                                ...source.source.web?.crawler,
+                                readability: e.target.checked
+                              }
                             }
                           }
-                        }
-                      });
-                    }}
-                    disabled={disabled}
-                  />
-                }
-                label="Filter out headers, footers, etc."
-                sx={{ mb: 2 }}
-              />
-            </Tooltip>
+                        });
+                      }}
+                      disabled={disabled}
+                    />
+                  }
+                  label="Filter out headers, footers, etc."
+                  sx={{ mb: 2 }}
+                />
+              </Tooltip>               
+            </Box>            
           </>
         )}
 
@@ -603,13 +581,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 </Typography>
                 {knowledge?.state === 'indexing' && (
                   <>
-                    {knowledge?.progress_percent && knowledge.progress_percent > 0 ? (
+                    {knowledge?.progress?.step && knowledge?.progress?.step !== '' ? (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        Progress: {knowledge.progress_percent}% {knowledge.message ? `(${knowledge.message})` : ''}
+                        {knowledge.progress.step} {knowledge.progress.progress ? `| ${knowledge.progress.progress}%` : ''} {knowledge.progress.message ? `| ${knowledge.progress.message}` : ''} {knowledge.progress.started_at ? `| elapsed: ${Math.round((Date.now() - new Date(knowledge.progress.started_at).getTime()) / 1000)}s` : ''}
                       </Typography>
                     ) : (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        Fetching data...
+                        Pending...
                       </Typography>
                     )}
                   </>

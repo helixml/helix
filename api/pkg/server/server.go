@@ -2,14 +2,18 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/auth"
@@ -26,7 +30,11 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/version"
 
+	"crypto/tls"
+	"crypto/x509"
+	"net"
 	_ "net/http/pprof" // enable profiling
 )
 
@@ -64,10 +72,12 @@ type HelixAPIServer struct {
 	pubsub            pubsub.PubSub
 	providerManager   manager.ProviderManager
 	gptScriptExecutor gptscript.Executor
-	inferenceServer   openai.HelixServer // Helix OpenAI server
+	inferenceServer   *openai.InternalHelixServer
 	knowledgeManager  knowledge.Manager
 	router            *mux.Router
-	scheduler         scheduler.Scheduler
+	scheduler         *scheduler.Scheduler
+	pingService       *version.PingService
+	oidcClient        auth.OIDC
 }
 
 func NewServer(
@@ -76,13 +86,14 @@ func NewServer(
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
 	providerManager manager.ProviderManager,
-	inferenceServer openai.HelixServer,
+	inferenceServer *openai.InternalHelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
-	scheduler scheduler.Scheduler,
+	scheduler *scheduler.Scheduler,
+	pingService *version.PingService,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -100,6 +111,53 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
+	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
+	var oidcClient auth.OIDC
+	if cfg.OIDC.Enabled {
+		if cfg.OIDC.Audience == "" {
+			return nil, fmt.Errorf("oidc audience is required")
+		}
+		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+			ProviderURL:  cfg.OIDC.URL,
+			ClientID:     cfg.OIDC.ClientID,
+			ClientSecret: cfg.OIDC.ClientSecret,
+			RedirectURL:  helixRedirectURL,
+			AdminUserIDs: cfg.WebServer.AdminIDs,
+			AdminUserSrc: cfg.WebServer.AdminSrc,
+			Audience:     cfg.OIDC.Audience,
+			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create oidc client: %w", err)
+		}
+		oidcClient = client
+	} else if cfg.Keycloak.KeycloakEnabled {
+		keycloakURL, err := url.Parse(cfg.Keycloak.KeycloakFrontEndURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse keycloak front end url: %w", err)
+		}
+		// Strip any trailing slashes from the path
+		keycloakURL.Path = strings.TrimRight(keycloakURL.Path, "/")
+		keycloakURL.Path = fmt.Sprintf("%s/realms/%s", keycloakURL.Path, cfg.Keycloak.Realm)
+		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+			ProviderURL:  keycloakURL.String(),
+			ClientID:     cfg.Keycloak.APIClientID,
+			ClientSecret: cfg.Keycloak.ClientSecret,
+			RedirectURL:  helixRedirectURL,
+			AdminUserIDs: cfg.WebServer.AdminIDs,
+			AdminUserSrc: cfg.WebServer.AdminSrc,
+			Audience:     "account",
+			Scopes:       []string{"openid", "profile", "email"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create keycloak client: %w", err)
+		}
+		oidcClient = client
+	}
+	if oidcClient == nil {
+		return nil, fmt.Errorf("no oidc client found")
+	}
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -109,6 +167,7 @@ func NewServer(
 		gptScriptExecutor: gptScriptExecutor,
 		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
+			oidcClient,
 			authenticator,
 			store,
 			authMiddlewareConfig{
@@ -121,6 +180,8 @@ func NewServer(
 		pubsub:           ps,
 		knowledgeManager: knowledgeManager,
 		scheduler:        scheduler,
+		pingService:      pingService,
+		oidcClient:       oidcClient,
 	}, nil
 }
 
@@ -147,6 +208,15 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		"/ws/gptscript-runner",
 	)
 
+	// Start UNIX socket server for embeddings if configured
+	if apiServer.Cfg.WebServer.EmbeddingsSocket != "" {
+		go func() {
+			if err := apiServer.startEmbeddingsSocketServer(ctx); err != nil {
+				log.Error().Err(err).Msg("failed to start embeddings socket server")
+			}
+		}()
+	}
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		WriteTimeout:      time.Minute * 15,
@@ -171,7 +241,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
-	router.Use(errorLoggingMiddleware)
+	router.Use(ErrorLoggingMiddleware)
+
+	// insecure router is under /api/v1 but not protected by auth
+	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
 
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
@@ -275,11 +348,17 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
+
+	authRouter.HandleFunc("/provider-endpoints", apiServer.listProviderEndpoints).Methods(http.MethodGet)
+	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
+	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
+	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
 
 	// Helix inference route
 	authRouter.HandleFunc("/sessions/chat", apiServer.startChatSessionHandler).Methods(http.MethodPost)
@@ -318,7 +397,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/apps/{id}/llm-calls", system.Wrapper(apiServer.listAppLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/api-actions", system.Wrapper(apiServer.appRunAPIAction)).Methods(http.MethodPost)
-
+	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.listAppAccessGrants).Methods(http.MethodGet)
+	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.createAppAccessGrant).Methods(http.MethodPost)
+	authRouter.HandleFunc("/apps/{id}/access-grants/{grant_id}", apiServer.deleteAppAccessGrant).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods(http.MethodGet)
@@ -326,6 +407,36 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.deleteKnowledge)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/knowledge/{id}/refresh", system.Wrapper(apiServer.refreshKnowledge)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
+
+	// User auth, BFF
+	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/authenticated", apiServer.authenticated).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)
+
+	// Orgs, authz
+	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations", apiServer.createOrganization).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}", apiServer.getOrganization).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}", apiServer.updateOrganization).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}", apiServer.deleteOrganization).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/members", apiServer.listOrganizationMembers).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/members", apiServer.addOrganizationMember).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.removeOrganizationMember).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.updateOrganizationMember).Methods(http.MethodPut)
+
+	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
+
+	// Teams
+	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.createTeam).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}", apiServer.updateTeam).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}", apiServer.deleteTeam).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members", apiServer.listTeamMembers).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members", apiServer.addTeamMember).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members/{user_id}", apiServer.removeTeamMember).Methods(http.MethodDelete)
 
 	// we know which app this is by the token that is used (which is linked to the app)
 	// this is so frontend devs don't need anything other than their access token
@@ -336,17 +447,81 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
 	// all these routes are secured via runner tokens
-	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods(http.MethodGet)
-	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.DefaultWrapper(apiServer.handleRunnerResponse)).Methods(http.MethodPost)
-	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.DefaultWrapper(apiServer.handleRunnerMetrics)).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		runnerID := vars["runner_id"]
+		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
+		log.Debug().Interface("request", r).Msg("nats request")
+		fmt.Printf("proxying runner websocket request to nats for runner %s", runnerID)
+
+		// Upgrade the incoming HTTP connection to a WebSocket connection.
+		upgrader := websocket.Upgrader{
+			// TODO(Phil): check origin
+			CheckOrigin: func(r *http.Request) bool {
+				log.Debug().Interface("headers", r.Header).Interface("vars", r.RemoteAddr).Msg("nats check origin")
+				return true
+			},
+		}
+		clientConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Failed to upgrade client connection: %v", err)
+			return
+		}
+		// Ensure the client connection is closed on function exit.
+		defer clientConn.Close()
+
+		// Connect to the backend WebSocket server.
+		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
+		if err != nil {
+			log.Printf("Failed to connect to backend WebSocket server: %v", err)
+			return
+		}
+		// Ensure the backend connection is closed on function exit.
+		defer backendConn.Close()
+		defer resp.Body.Close()
+
+		// Start two goroutines to copy data between the client and the backend.
+		errCh := make(chan error, 2)
+
+		// Copy messages from the client to the backend.
+		go func() {
+			for {
+				messageType, message, err := clientConn.ReadMessage()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if err := backendConn.WriteMessage(messageType, message); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+
+		// Copy messages from the backend to the client.
+		go func() {
+			for {
+				messageType, message, err := backendConn.ReadMessage()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if err := clientConn.WriteMessage(messageType, message); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+
+		// Wait until one side returns an error (or closes the connection).
+		if err := <-errCh; err != nil {
+			log.Printf("WebSocket proxy error: %v", err)
+		}
+	})
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
-
-	runnerRouter.HandleFunc("/runner/{runnerid}/llm-inference-request", system.DefaultWrapper(apiServer.runnerLLMInferenceRequestHandler)).Methods(http.MethodGet)
-
-	runnerRouter.HandleFunc("/runner/{runnerid}/slots", system.DefaultWrapper(apiServer.getDesiredRunnerSlots)).Methods(http.MethodGet)
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
@@ -356,6 +531,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// proxy other routes to frontend
 	apiServer.registerDefaultHandler(router)
+
+	// only admins can manage licenses
+	adminRouter.HandleFunc("/license", apiServer.handleGetLicenseKey).Methods("GET")
+	adminRouter.HandleFunc("/license", apiServer.handleSetLicenseKey).Methods("POST")
 
 	apiServer.router = router
 
@@ -368,6 +547,10 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
+	if !apiServer.Cfg.Keycloak.KeycloakEnabled {
+		log.Info().Msg("Keycloak is disabled, skipping proxy")
+		return
+	}
 	u, err := url.Parse(apiServer.Cfg.Keycloak.KeycloakURL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
@@ -377,7 +560,71 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 	// Strip path prefix, otherwise we would have to use /auth/auth/realms/helix/protocol/openid-connect/token
 	u.Path = ""
 
-	router.PathPrefix("/auth").Handler(httputil.NewSingleHostReverseProxy(u))
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	// Create transport with custom CA support
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// Load system cert pool
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		rootCAs = x509.NewCertPool()
+	}
+
+	// Check for custom CA cert file
+	if apiServer.Cfg.SSL.SSLCertFile != "" {
+		cert, err := os.ReadFile(apiServer.Cfg.SSL.SSLCertFile)
+		if err != nil {
+			log.Error().Err(err).Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Error reading custom CA cert file")
+		} else if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
+			log.Error().Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Failed to append custom CA cert to pool")
+		} else {
+			log.Info().Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Added custom CA cert")
+		}
+	}
+
+	// Check for custom CA cert directory
+	if apiServer.Cfg.SSL.SSLCertDir != "" {
+		files, err := os.ReadDir(apiServer.Cfg.SSL.SSLCertDir)
+		if err != nil {
+			log.Error().Err(err).Str("dir", apiServer.Cfg.SSL.SSLCertDir).Msg("Error reading cert directory")
+		} else {
+			for _, file := range files {
+				if !file.IsDir() {
+					certPath := filepath.Join(apiServer.Cfg.SSL.SSLCertDir, file.Name())
+					cert, err := os.ReadFile(certPath)
+					if err != nil {
+						log.Error().Err(err).Str("file", certPath).Msg("Error reading cert file")
+						continue
+					}
+					if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
+						log.Error().Str("file", certPath).Msg("Failed to append cert to pool")
+					} else {
+						log.Info().Str("file", certPath).Msg("Added cert")
+					}
+				}
+			}
+		}
+	}
+
+	transport.TLSClientConfig = &tls.Config{
+		RootCAs: rootCAs,
+	}
+
+	proxy.Transport = transport
+
+	router.PathPrefix("/auth").Handler(proxy)
 }
 
 // Static files router
@@ -398,4 +645,88 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}
+}
+
+func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
+	rw.Header().Set("Content-Type", "application/json")
+
+	rw.WriteHeader(statusCode)
+
+	if data == nil {
+		return
+	}
+
+	err := json.NewEncoder(rw).Encode(data)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
+	rw.Header().Set("Content-Type", "application/json")
+
+	rw.WriteHeader(statusCode)
+
+	_ = json.NewEncoder(rw).Encode(&system.HTTPError{
+		StatusCode: statusCode,
+		Message:    err.Error(),
+	})
+}
+
+// startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
+func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
+	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
+
+	// Remove socket file if it already exists
+	if _, err := os.Stat(socketPath); err == nil {
+		if err := os.Remove(socketPath); err != nil {
+			return fmt.Errorf("failed to remove existing socket file: %w", err)
+		}
+	}
+
+	// Create socket listener
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("failed to listen on unix socket: %w", err)
+	}
+
+	// Set socket permissions
+	if err := os.Chmod(socketPath, 0666); err != nil {
+		return fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+
+	// Create a new router for the socket server
+	router := mux.NewRouter()
+
+	// Register only the embeddings endpoint with no auth
+	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)
+
+	// Create HTTP server
+	srv := &http.Server{
+		Handler:      router,
+		ReadTimeout:  time.Minute * 15,
+		WriteTimeout: time.Minute * 15,
+	}
+
+	log.Info().Str("socket", socketPath).Msg("starting embeddings socket server")
+
+	// Ensure the server is shut down when the context is canceled
+	go func() {
+		<-ctx.Done()
+		log.Info().Msg("shutting down embeddings socket server")
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Error().Err(err).Msg("error shutting down embeddings socket server")
+		}
+		if err := listener.Close(); err != nil {
+			log.Error().Err(err).Msg("error closing embeddings socket listener")
+		}
+	}()
+
+	// Start the server
+	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("embeddings socket server error: %w", err)
+	}
+
+	return nil
 }

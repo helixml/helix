@@ -30,6 +30,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -184,6 +192,90 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for an app (organization owners and members can list access grants)",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "List app access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Grant access to an app to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and role",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/api-actions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with API action name and parameters.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/gptscript": {
             "post": {
                 "security": [
@@ -212,6 +304,222 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/authenticated": {
+            "get": {
+                "description": "Check if the user is authenticated",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Authenticated",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AuthenticatedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/callback": {
+            "get": {
+                "description": "The callback receiver from the OIDC provider",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Callback from OIDC provider",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The code from the OIDC provider",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The state from the OIDC provider",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/login": {
+            "post": {
+                "description": "Login to the application",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Login",
+                "parameters": [
+                    {
+                        "description": "Request body with redirect URI.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.LoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/logout": {
+            "post": {
+                "description": "Logout the user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Logout",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/refresh": {
+            "post": {
+                "description": "Refresh the access token",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Refresh the access token",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/user": {
+            "get": {
+                "description": "Get the current user's information",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "User information",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Knowledge"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete knowledge",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Delete knowledge",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}/refresh": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Refresh knowledge",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Refresh knowledge",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List knowledge versions",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "List knowledge versions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.KnowledgeVersion"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/llm_calls": {
             "get": {
                 "security": [
@@ -219,7 +527,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List LLM calls with pagination and optional session filtering",
+                "description": "List user's LLM calls with pagination and optional session filtering for a specific app",
                 "produces": [
                     "application/json"
                 ],
@@ -253,6 +561,510 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.PaginatedLLMCalls"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Organization"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create a new organization",
+                "parameters": [
+                    {
+                        "description": "Request body with organization configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an organization, must be an owner of the organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization",
+                "parameters": [
+                    {
+                        "description": "Request body with organization configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Organization"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List members of an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization members",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrganizationMembership"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Add a member to an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Add an organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with user email to add.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddOrganizationMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationMembership"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/members/{user_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a member's role in an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with role to update to.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateOrganizationMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationMembership"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a member from an organization",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Remove an organization member",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/roles": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all roles in an organization. Organization members can list roles.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List roles in an organization",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Role"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/teams": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all teams in an organization. Organization members can list teams.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List teams in an organization",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Team"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new team in an organization. Only organization owners can create teams.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create a new team",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateTeamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.Team"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/teams/{team_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a team's details. Only organization owners can update teams.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update a team",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateTeamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Team"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a team from an organization. Only organization owners can delete teams.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Delete a team",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/teams/{team_id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all members of a team.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List members of a team",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TeamMembership"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Add a new member to a team. Only organization owners can add members to teams.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Add a new member to a team",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddTeamMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.TeamMembership"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/providers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Provider"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/providers-endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ProviderEndpoint"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProviderEndpoint"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/providers-endpoints/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateProviderEndpoint"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
@@ -470,9 +1282,53 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/embeddings": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an embedding vector representing the input text",
+                "tags": [
+                    "embeddings"
+                ],
+                "summary": "Creates an embedding vector representing the input text",
+                "parameters": [
+                    {
+                        "description": "Request body with options for embeddings.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/openai.EmbeddingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/openai.EmbeddingResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "github_com_helixml_helix_api_pkg_types.Config": {
+            "type": "object",
+            "properties": {
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Rule"
+                    }
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Tool": {
             "type": "object",
             "properties": {
@@ -973,6 +1829,18 @@ const docTemplate = `{
                 }
             }
         },
+        "gorm.DeletedAt": {
+            "type": "object",
+            "properties": {
+                "time": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if Time is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
         "openai.ChatCompletionResponseFormatJSONSchema": {
             "type": "object",
             "properties": {
@@ -996,6 +1864,213 @@ const docTemplate = `{
                 }
             }
         },
+        "openai.Embedding": {
+            "type": "object",
+            "properties": {
+                "embedding": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "object": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.EmbeddingEncodingFormat": {
+            "type": "string",
+            "enum": [
+                "float",
+                "base64"
+            ],
+            "x-enum-varnames": [
+                "EmbeddingEncodingFormatFloat",
+                "EmbeddingEncodingFormatBase64"
+            ]
+        },
+        "openai.EmbeddingModel": {
+            "type": "string",
+            "enum": [
+                "text-similarity-ada-001",
+                "text-similarity-babbage-001",
+                "text-similarity-curie-001",
+                "text-similarity-davinci-001",
+                "text-search-ada-doc-001",
+                "text-search-ada-query-001",
+                "text-search-babbage-doc-001",
+                "text-search-babbage-query-001",
+                "text-search-curie-doc-001",
+                "text-search-curie-query-001",
+                "text-search-davinci-doc-001",
+                "text-search-davinci-query-001",
+                "code-search-ada-code-001",
+                "code-search-ada-text-001",
+                "code-search-babbage-code-001",
+                "code-search-babbage-text-001",
+                "text-embedding-ada-002",
+                "text-embedding-3-small",
+                "text-embedding-3-large"
+            ],
+            "x-enum-varnames": [
+                "AdaSimilarity",
+                "BabbageSimilarity",
+                "CurieSimilarity",
+                "DavinciSimilarity",
+                "AdaSearchDocument",
+                "AdaSearchQuery",
+                "BabbageSearchDocument",
+                "BabbageSearchQuery",
+                "CurieSearchDocument",
+                "CurieSearchQuery",
+                "DavinciSearchDocument",
+                "DavinciSearchQuery",
+                "AdaCodeSearchCode",
+                "AdaCodeSearchText",
+                "BabbageCodeSearchCode",
+                "BabbageCodeSearchText",
+                "AdaEmbeddingV2",
+                "SmallEmbedding3",
+                "LargeEmbedding3"
+            ]
+        },
+        "openai.EmbeddingRequest": {
+            "type": "object",
+            "properties": {
+                "dimensions": {
+                    "description": "Dimensions The number of dimensions the resulting output embeddings should have.\nOnly supported in text-embedding-3 and later models.",
+                    "type": "integer"
+                },
+                "encoding_format": {
+                    "$ref": "#/definitions/openai.EmbeddingEncodingFormat"
+                },
+                "input": {},
+                "model": {
+                    "$ref": "#/definitions/openai.EmbeddingModel"
+                },
+                "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.EmbeddingResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.Embedding"
+                    }
+                },
+                "model": {
+                    "$ref": "#/definitions/openai.EmbeddingModel"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
+                }
+            }
+        },
+        "types.AccessGrant": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "If granted to an organization",
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "App ID, Knowledge ID, etc",
+                    "type": "string"
+                },
+                "resource_type": {
+                    "description": "Kind of resource (app, knowledge, provider endpoint, etc)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.Resource"
+                        }
+                    ]
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "team_id": {
+                    "description": "If granted to a team",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "If granted to a user",
+                    "type": "string"
+                }
+            }
+        },
+        "types.Action": {
+            "type": "string",
+            "enum": [
+                "Get",
+                "List",
+                "Delete",
+                "Update",
+                "Create",
+                "UseAction"
+            ],
+            "x-enum-comments": {
+                "ActionUseAction": "For example \"use app\""
+            },
+            "x-enum-varnames": [
+                "ActionGet",
+                "ActionList",
+                "ActionDelete",
+                "ActionUpdate",
+                "ActionCreate",
+                "ActionUseAction"
+            ]
+        },
+        "types.AddOrganizationMemberRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
+                },
+                "user_reference": {
+                    "description": "Either user ID or user email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.AddTeamMemberRequest": {
+            "type": "object",
+            "properties": {
+                "user_reference": {
+                    "description": "Either user ID or user email",
+                    "type": "string"
+                }
+            }
+        },
         "types.App": {
             "type": "object",
             "properties": {
@@ -1012,6 +2087,9 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "owner": {
@@ -1031,6 +2109,14 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                },
+                "user": {
+                    "description": "Owner user struct, populated by the server for organization views",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
                 }
             }
         },
@@ -1156,15 +2242,12 @@ const docTemplate = `{
                     }
                 },
                 "request_prep_template": {
-                    "description": "Template for request preparation, leave empty for default",
                     "type": "string"
                 },
                 "response_error_template": {
-                    "description": "Template for error response, leave empty for default",
                     "type": "string"
                 },
                 "response_success_template": {
-                    "description": "Template for successful response, leave empty for default",
                     "type": "string"
                 },
                 "schema": {
@@ -1179,7 +2262,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "apis": {
-                    "description": "the list of api tools this assistant will use",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.AssistantAPI"
@@ -1192,7 +2274,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "gptscripts": {
-                    "description": "the list of gpt scripts this assistant will use",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.AssistantGPTScript"
@@ -1205,18 +2286,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "is_actionable_template": {
-                    "description": "Template for determining if the request is actionable or informative",
                     "type": "string"
                 },
                 "knowledge": {
-                    "description": "Knowledge available to the assistant",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.AssistantKnowledge"
                     }
                 },
                 "lora_id": {
-                    "description": "the data entity ID that we have created for the lora fine tune",
                     "type": "string"
                 },
                 "model": {
@@ -1226,34 +2304,39 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider": {
-                    "description": "openai, togetherai, helix, etc.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.Provider"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "rag_source_id": {
-                    "description": "the data entity ID that we have created as the RAG source",
                     "type": "string"
                 },
                 "system_prompt": {
                     "type": "string"
                 },
+                "tests": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "steps": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/types.TestStep"
+                                }
+                            }
+                        }
+                    }
+                },
                 "tools": {
-                    "description": "these are populated from the APIs and GPTScripts on create and update\nwe include tools in the JSON that we send to the browser\nbut we don't include it in the yaml which feeds this struct because\nwe populate the tools array from the APIs and GPTScripts arrays\nso - Tools is readonly - hence only JSON for the frontend to see",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                     }
                 },
                 "type": {
-                    "description": "so we can have fine tuned image assistants or system prompt augmentedimage inference\ndefaults to text",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SessionType"
-                        }
-                    ]
+                    "$ref": "#/definitions/types.SessionType"
                 },
                 "zapier": {
                     "type": "array",
@@ -1338,6 +2421,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AuthenticatedResponse": {
+            "type": "object",
+            "properties": {
+                "authenticated": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.Choice": {
             "type": "object",
             "properties": {
@@ -1354,6 +2445,65 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.OpenAIMessage"
                 },
                 "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CrawledSources": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CrawledURL"
+                    }
+                }
+            }
+        },
+        "types.CrawledURL": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "status_code": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateAccessGrantRequest": {
+            "type": "object",
+            "properties": {
+                "roles": {
+                    "description": "Role names",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "team_id": {
+                    "description": "Team ID",
+                    "type": "string"
+                },
+                "user_reference": {
+                    "description": "User ID or email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateTeamRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 }
             }
@@ -1408,6 +2558,17 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.Effect": {
+            "type": "string",
+            "enum": [
+                "allow",
+                "deny"
+            ],
+            "x-enum-varnames": [
+                "EffectAllow",
+                "EffectDeny"
+            ]
         },
         "types.Firecrawl": {
             "type": "object",
@@ -1644,6 +2805,123 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Knowledge": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "AppID through which the knowledge was created",
+                    "type": "string"
+                },
+                "crawled_sources": {
+                    "description": "URLs crawled in the last run (should match last knowledge version)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CrawledSources"
+                        }
+                    ]
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Description of the knowledge, will be used in the prompt\nto explain the knowledge to the assistant",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Set if something wrong happens",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next_run": {
+                    "description": "Populated by the cron job controller",
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "User ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "progress": {
+                    "description": "Ephemeral state from knowledge controller",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.KnowledgeProgress"
+                        }
+                    ]
+                },
+                "rag_settings": {
+                    "$ref": "#/definitions/types.RAGSettings"
+                },
+                "refresh_enabled": {
+                    "description": "RefreshEnabled defines if the knowledge should be refreshed periodically\nor on events. For example a Google Drive knowledge can be refreshed\nevery 24 hours.",
+                    "type": "boolean"
+                },
+                "refresh_schedule": {
+                    "description": "RefreshSchedule defines the schedule for refreshing the knowledge.\nIt can be specified in cron format or as a duration for example '@every 2h'\nor 'every 5m' or '0 0 * * *' for daily at midnight.",
+                    "type": "string"
+                },
+                "size": {
+                    "description": "Size of the knowledge in bytes",
+                    "type": "integer"
+                },
+                "source": {
+                    "description": "Source defines where the raw data is fetched from. It can be\ndirectly uploaded files, S3, GCS, Google Drive, Gmail, etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.KnowledgeSource"
+                        }
+                    ]
+                },
+                "state": {
+                    "$ref": "#/definitions/types.KnowledgeState"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Version of the knowledge, will be used to separate different versions\nof the same knowledge when updating it. Format is\nYYYY-MM-DD-HH-MM-SS.",
+                    "type": "string"
+                },
+                "versions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.KnowledgeVersion"
+                    }
+                }
+            }
+        },
+        "types.KnowledgeProgress": {
+            "type": "object",
+            "properties": {
+                "elapsed_seconds": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "step": {
+                    "type": "string"
+                }
+            }
+        },
         "types.KnowledgeSource": {
             "type": "object",
             "properties": {
@@ -1733,9 +3011,67 @@ const docTemplate = `{
                 }
             }
         },
+        "types.KnowledgeState": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "indexing",
+                "ready",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "KnowledgeStatePending",
+                "KnowledgeStateIndexing",
+                "KnowledgeStateReady",
+                "KnowledgeStateError"
+            ]
+        },
+        "types.KnowledgeVersion": {
+            "type": "object",
+            "properties": {
+                "crawled_sources": {
+                    "$ref": "#/definitions/types.CrawledSources"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "embeddings_model": {
+                    "description": "Model used to embed the knowledge",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "knowledge_id": {
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Set if something wrong happens",
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.KnowledgeState"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "types.LLMCall": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "type": "string"
+                },
                 "completionTokens": {
                     "type": "integer"
                 },
@@ -1811,6 +3147,14 @@ const docTemplate = `{
                 "LLMCallStepInterpretResponse",
                 "LLMCallStepGenerateTitle"
             ]
+        },
+        "types.LoginRequest": {
+            "type": "object",
+            "properties": {
+                "redirect_uri": {
+                    "type": "string"
+                }
+            }
         },
         "types.Message": {
             "type": "object",
@@ -1933,15 +3277,111 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Organization": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "memberships": {
+                    "description": "Memberships in the organization",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OrganizationMembership"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "Who created the org",
+                    "type": "string"
+                },
+                "roles": {
+                    "description": "Roles in the organization",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "teams": {
+                    "description": "Teams in the organization",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Team"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationMembership": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role - the role of the user in the organization (owner or member)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OrganizationRole"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
+                },
+                "user_id": {
+                    "description": "composite key",
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationRole": {
+            "type": "string",
+            "enum": [
+                "owner",
+                "member"
+            ],
+            "x-enum-comments": {
+                "OrganizationRoleMember": "Can see every member and team in the organization and can create new apps",
+                "OrganizationRoleOwner": "Has full administrative access to the entire organization."
+            },
+            "x-enum-varnames": [
+                "OrganizationRoleOwner",
+                "OrganizationRoleMember"
+            ]
+        },
         "types.OwnerType": {
             "type": "string",
             "enum": [
                 "user",
-                "system"
+                "runner",
+                "system",
+                "socket"
             ],
             "x-enum-varnames": [
                 "OwnerTypeUser",
-                "OwnerTypeSystem"
+                "OwnerTypeRunner",
+                "OwnerTypeSystem",
+                "OwnerTypeSocket"
             ]
         },
         "types.PaginatedLLMCalls": {
@@ -1972,12 +3412,85 @@ const docTemplate = `{
             "enum": [
                 "openai",
                 "togetherai",
-                "helix"
+                "helix",
+                "vllm"
             ],
             "x-enum-varnames": [
                 "ProviderOpenAI",
                 "ProviderTogetherAI",
-                "ProviderHelix"
+                "ProviderHelix",
+                "ProviderVLLM"
+            ]
+        },
+        "types.ProviderEndpoint": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "api_key_file": {
+                    "description": "Must be mounted to the container",
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "default": {
+                    "description": "Set from environment variable",
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "endpoint_type": {
+                    "description": "global, user (TODO: orgs, teams)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderEndpointType"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "models": {
+                    "description": "Optional",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProviderEndpointType": {
+            "type": "string",
+            "enum": [
+                "global",
+                "user"
+            ],
+            "x-enum-varnames": [
+                "ProviderEndpointTypeGlobal",
+                "ProviderEndpointTypeUser"
             ]
         },
         "types.RAGSettings": {
@@ -2051,6 +3564,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Resource": {
+            "type": "string",
+            "enum": [
+                "Team",
+                "Organization",
+                "Role",
+                "Membership",
+                "MembershipRoleBinding",
+                "Application",
+                "AccessGrants",
+                "Knowledge",
+                "User",
+                "*",
+                "Dataset"
+            ],
+            "x-enum-varnames": [
+                "ResourceTeam",
+                "ResourceOrganization",
+                "ResourceRole",
+                "ResourceMembership",
+                "ResourceMembershipRoleBinding",
+                "ResourceApplication",
+                "ResourceAccessGrants",
+                "ResourceKnowledge",
+                "ResourceUser",
+                "ResourceAny",
+                "ResourceTypeDataset"
+            ]
+        },
         "types.ResponseFormat": {
             "type": "object",
             "properties": {
@@ -2072,6 +3614,78 @@ const docTemplate = `{
                 "ResponseFormatTypeJSONObject",
                 "ResponseFormatTypeText"
             ]
+        },
+        "types.Role": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Config"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Rule": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Action"
+                    }
+                },
+                "effect": {
+                    "$ref": "#/definitions/types.Effect"
+                },
+                "resource": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Resource"
+                    }
+                }
+            }
+        },
+        "types.RunAPIActionRequest": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.RunAPIActionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Raw response from the API",
+                    "type": "string"
+                }
+            }
         },
         "types.Secret": {
             "type": "object",
@@ -2490,6 +4104,79 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
+        "types.Team": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "memberships": {
+                    "description": "Memberships in the team",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.TeamMembership"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.TeamMembership": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "team": {
+                    "$ref": "#/definitions/types.Team"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "extra data fields (optional)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "composite key",
+                    "type": "string"
+                }
+            }
+        },
+        "types.TestStep": {
+            "type": "object",
+            "properties": {
+                "expected_output": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                }
+            }
+        },
         "types.TextDataPrepStage": {
             "type": "string",
             "enum": [
@@ -2524,7 +4211,24 @@ const docTemplate = `{
                 "TextSplitterTypeText"
             ]
         },
-        "types.ToolApiAction": {
+        "types.TokenType": {
+            "type": "string",
+            "enum": [
+                "",
+                "runner",
+                "keycloak",
+                "api_key",
+                "socket"
+            ],
+            "x-enum-varnames": [
+                "TokenTypeNone",
+                "TokenTypeRunner",
+                "TokenTypeKeycloak",
+                "TokenTypeAPIKey",
+                "TokenTypeSocket"
+            ]
+        },
+        "types.ToolAPIAction": {
             "type": "object",
             "properties": {
                 "description": {
@@ -2541,14 +4245,14 @@ const docTemplate = `{
                 }
             }
         },
-        "types.ToolApiConfig": {
+        "types.ToolAPIConfig": {
             "type": "object",
             "properties": {
                 "actions": {
                     "description": "Read-only, parsed from schema on creation",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.ToolApiAction"
+                        "$ref": "#/definitions/types.ToolAPIAction"
                     }
                 },
                 "headers": {
@@ -2593,7 +4297,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "api": {
-                    "$ref": "#/definitions/types.ToolApiConfig"
+                    "$ref": "#/definitions/types.ToolAPIConfig"
                 },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
@@ -2641,6 +4345,125 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UpdateOrganizationMemberRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
+                }
+            }
+        },
+        "types.UpdateProviderEndpoint": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string"
+                },
+                "api_key_file": {
+                    "description": "Must be mounted to the container",
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "endpoint_type": {
+                    "description": "global, user (TODO: orgs, teams)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderEndpointType"
+                        }
+                    ]
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.UpdateTeamRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.User": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "description": "if the ID of the user is contained in the env setting",
+                    "type": "boolean"
+                },
+                "appID": {
+                    "description": "if the token is associated with an app",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "fullName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "token": {
+                    "description": "the actual token used and its type",
+                    "type": "string"
+                },
+                "tokenType": {
+                    "description": "none, runner. keycloak, api_key",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TokenType"
+                        }
+                    ]
+                },
+                "type": {
+                    "description": "these are set by the keycloak user based on the token\nif it's an app token - the keycloak user is loaded from the owner of the app\nif it's a runner token - these values will be empty",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UserResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.WebsiteCrawler": {
             "type": "object",
             "properties": {
@@ -2650,12 +4473,11 @@ const docTemplate = `{
                 "firecrawl": {
                     "$ref": "#/definitions/types.Firecrawl"
                 },
+                "ignore_robots_txt": {
+                    "type": "boolean"
+                },
                 "max_depth": {
                     "description": "Limit crawl depth to avoid infinite crawling",
-                    "type": "integer"
-                },
-                "max_pages": {
-                    "description": "Limit number of pages to crawl to avoid infinite crawling (max 500 by default)",
                     "type": "integer"
                 },
                 "readability": {

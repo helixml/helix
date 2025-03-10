@@ -52,6 +52,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 func (c *ChainStrategy) getDefaultOptions() Options {
 	return Options{
 		isActionableTemplate: c.isActionableTemplate,
+		client:               c.apiClient,
 	}
 }
 
@@ -70,13 +71,6 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		return &IsActionableResponse{
 			NeedsTool:     "no",
 			Justification: "No tools available to check if the user input is actionable or not",
-		}, nil
-	}
-
-	if c.apiClient == nil {
-		return &IsActionableResponse{
-			NeedsTool:     "no",
-			Justification: "No tools api client has been configured",
 		}, nil
 	}
 
@@ -115,12 +109,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		})
 	}
 
-	messages = append(messages,
-		openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "Return the corresponding json for the last user input",
-		},
-	)
+	if len(messages) > 0 {
+		messages[len(messages)-1].Content += "\nReturn the corresponding json for the last user input"
+	}
 
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
@@ -144,7 +135,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Step: types.LLMCallStepIsActionable,
 	})
 
-	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
+	resp, err := opts.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}

@@ -2,16 +2,19 @@ import ConstructionIcon from '@mui/icons-material/Construction'
 import LoginIcon from '@mui/icons-material/Login'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
-import { FC } from 'react'
+import { FC, useEffect } from 'react'
 
 import Cell from '../widgets/Cell'
 import Row from '../widgets/Row'
 import ModelPicker from './ModelPicker'
+import AppPicker from './AppPicker'
 import SessionModeDropdown from './SessionModeDropdown'
 import SessionModeSwitch from './SessionModeSwitch'
 
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useApps from '../../hooks/useApps'
+import useRouter from '../../hooks/useRouter'
 
 import {
   IApp,
@@ -25,6 +28,7 @@ const CreateToolbar: FC<{
   type: ISessionType,
   model?: string,
   app?: IApp,
+  provider?: string,
   onOpenConfig: () => void,
   onSetMode: (mode: ISessionMode) => void,
   onSetModel: (model: string) => void,
@@ -33,26 +37,43 @@ const CreateToolbar: FC<{
   type,
   model,
   app,
+  provider,
   onOpenConfig,
   onSetMode,
   onSetModel,
 }) => {
   const bigScreen = useIsBigScreen()
   const account = useAccount()
+  const {
+    navigate,
+  } = useRouter()
+  const {
+    data: apps,
+    loadData,
+  } = useApps()
   const appRequested = new URLSearchParams(window.location.search).get('app_id') || '';
+
+  useEffect(() => {
+    if (!account.user) return
+    loadData()
+  }, [account.user])
+
   return (
     <Row>
-      <Cell>
-        {
-          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && (
-            <ModelPicker
-              type={type}
-              model={model || ''}
-              onSetModel={onSetModel}
-            />
-          )
-        }
-      </Cell>
+      {!appRequested && apps.length > 0 && mode == SESSION_MODE_INFERENCE && (
+        <Cell>
+          <AppPicker
+            apps={apps}
+            selectedApp={app}
+            onSelectApp={(app) => {
+              if(!app) return
+              navigate('new', {
+                app_id: app.id,
+              })
+            }}
+          />
+        </Cell>
+      )}
       <Cell grow>
         
       </Cell>
@@ -70,7 +91,19 @@ const CreateToolbar: FC<{
           </Cell>
         )
       }
-      {
+      <Cell>
+        {
+          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && (
+            <ModelPicker
+              type={type}
+              model={model || ''}
+              provider={provider}
+              onSetModel={onSetModel}
+            />
+          )
+        }
+      </Cell>
+      {/* {
         !app && (
           <Cell>
             {
@@ -88,7 +121,7 @@ const CreateToolbar: FC<{
             }
           </Cell>
         )
-      }
+      } */}
       <Cell>
         {
           !account.user && (bigScreen ? (

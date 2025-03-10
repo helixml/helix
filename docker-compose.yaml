@@ -11,12 +11,13 @@ services:
     # for SERVER_URL and KEYCLOAK_FRONTEND_URL to match how you
     # connect to Helix
     ports:
-      - ${API_PORT:-8080}:80
+      - ${API_PORT:-8080}:8080
     restart: always
     env_file:
       - .env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SERVER_PORT=8080
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
@@ -120,10 +121,12 @@ services:
       - api
   tika:
     image: apache/tika:2.9.2.1
+    restart: always
     ports:
       - 9998:9998
   typesense:
     image: registry.helix.ml/helix/typesense:latest
+    restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     ports:
       - 8108:8108

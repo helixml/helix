@@ -98,7 +98,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getAPISystemPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -127,12 +127,10 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 	}
 
 	// copy what works for the is_actionable prompt
-	messages = append(messages,
-		openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "Return the corresponding json for the last user input",
-		},
-	)
+	if len(messages) > 0 {
+		messages[len(messages)-1].Content += "\nReturn the corresponding json for the last user input"
+	}
+
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
 		Model:    c.cfg.Tools.Model,
@@ -154,7 +152,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		Step: types.LLMCallStepPrepareAPIRequest,
 	})
 
-	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}

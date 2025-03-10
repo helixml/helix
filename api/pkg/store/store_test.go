@@ -30,5 +30,9 @@ func (suite *PostgresStoreTestSuite) SetupTest() {
 	store, err := NewPostgresStore(storeCfg)
 	suite.NoError(err)
 
+	suite.T().Cleanup(func() {
+		_ = store.Close()
+	})
+
 	suite.db = store
 }

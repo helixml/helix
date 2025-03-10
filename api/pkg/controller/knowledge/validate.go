@@ -2,6 +2,8 @@ package knowledge
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -30,9 +32,25 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 		}
 	}
 
+	// At least one knowledge source must be specified
+	if k.Source.Web == nil && k.Source.Filestore == nil && k.Source.Content == nil {
+		return fmt.Errorf("at least one knowledge source must be specified")
+	}
+
 	if k.Source.Web != nil {
 		if len(k.Source.Web.URLs) == 0 {
 			return fmt.Errorf("at least one url is required")
+		}
+
+		// Validate the URLs
+		for _, u := range k.Source.Web.URLs {
+			if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+				return fmt.Errorf("url must start with http:// or https://")
+			}
+			// Should be a valid URL
+			if _, err := url.Parse(u); err != nil {
+				return fmt.Errorf("invalid url '%s': %w", u, err)
+			}
 		}
 
 		if k.Source.Web.Crawler != nil && k.Source.Web.Crawler.Firecrawl != nil {
@@ -47,11 +65,6 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 			if cfg.RAG.Crawler.MaxDepth > 0 && k.Source.Web.Crawler.MaxDepth > cfg.RAG.Crawler.MaxDepth {
 				k.Source.Web.Crawler.MaxDepth = cfg.RAG.Crawler.MaxDepth
 				log.Warn().Msgf("max depth set to %d", k.Source.Web.Crawler.MaxDepth)
-			}
-
-			if cfg.RAG.Crawler.MaxPages > 0 && k.Source.Web.Crawler.MaxPages > cfg.RAG.Crawler.MaxPages {
-				k.Source.Web.Crawler.MaxPages = cfg.RAG.Crawler.MaxPages
-				log.Warn().Msgf("max pages set to %d", k.Source.Web.Crawler.MaxPages)
 			}
 		}
 	}

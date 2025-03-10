@@ -41,7 +41,7 @@ func (lrw *LoggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) 
 	return hijacker.Hijack()
 }
 
-func errorLoggingMiddleware(next http.Handler) http.Handler {
+func ErrorLoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Wrap the ResponseWriter
 		lrw := NewLoggingResponseWriter(w)
@@ -50,14 +50,16 @@ func errorLoggingMiddleware(next http.Handler) http.Handler {
 		flushWriter := &flushResponseWriter{lrw}
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
+		start := time.Now()
 		next.ServeHTTP(flushWriter, r)
+		log.Trace().Str("method", r.Method).Str("path", r.URL.Path).Dur("duration_ms", time.Since(start)).Msg("request")
 
 		switch lrw.statusCode {
 		case http.StatusForbidden:
 			log.Warn().Msgf("unauthorized - method: %s, path: %s, status: %d\n", r.Method, r.URL.Path, lrw.statusCode)
 		default:
 			if lrw.statusCode >= 400 {
-				log.Error().Msgf("method: %s, path: %s, status: %d\n", r.Method, r.URL.Path, lrw.statusCode)
+				log.Warn().Str("method", r.Method).Str("path", r.URL.Path).Int("status", lrw.statusCode).Msg("response")
 			}
 		}
 	})

@@ -4,7 +4,7 @@ import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 import { SxProps } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
-import { FC, useEffect, useState, useMemo } from 'react'
+import { FC, useEffect, useState, useMemo, useContext, useRef } from 'react'
 import AssistantPicker from '../components/appstore/AssistantPicker'
 import AppCreateHeader from '../components/appstore/CreateHeader'
 import CenterMessage from '../components/create/CenterMessage'
@@ -18,6 +18,7 @@ import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
 import LabelImagesForm from '../components/finetune/LabelImagesForm'
+import { AccountContext } from '../contexts/account'
 import Page from '../components/system/Page'
 import Cell from '../components/widgets/Cell'
 import Disclaimer from '../components/widgets/Disclaimer'
@@ -79,12 +80,14 @@ const Create: FC = () => {
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
   const { NewInference } = useStreaming()
+  const { models } = useContext(AccountContext)
 
   const [showConfigWindow, setShowConfigWindow] = useState(false)
   const [showFileDrawer, setShowFileDrawer] = useState(false)
   const [showImageLabelsEmptyError, setShowImageLabelsEmptyError] = useState(false)
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
+  const initialModelSetRef = useRef(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
@@ -96,6 +99,20 @@ const Create: FC = () => {
 
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
+
+  const filteredModels = useMemo(() => {
+    return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
+  }, [models, type])
+
+  useEffect(() => {
+    // Set the first model as default if current model is not set or not in the list
+    if (!initialModelSetRef.current && filteredModels.length > 0 && !model) {
+      initialModelSetRef.current = true
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.set('model', filteredModels[0].id)
+      window.history.replaceState({}, '', newUrl.toString())
+    }
+  }, [filteredModels, model])
 
   // Then, in the Create component, we'll add a check to see if the current user owns the app
   // This should be added near the top of the component, after the existing useEffect hooks
@@ -135,10 +152,15 @@ const Create: FC = () => {
     const appID = urlParams.get('app_id') || ''
     let assistantID = urlParams.get('assistant_id') || ''
     const ragSourceID = urlParams.get('rag_source_id') || ''
+    let useModel = urlParams.get('model') || ''
 
     // if we have an app but no assistant ID let's default to the first one
     if(appID && !assistantID) {
       assistantID = '0'
+    }
+
+    if (!useModel) {
+      useModel = filteredModels[0].id
     }
 
     try {
@@ -148,7 +170,7 @@ const Create: FC = () => {
         appId: appID,
         assistantId: assistantID,
         ragSourceId: ragSourceID,
-        modelName: model,
+        modelName: useModel,
         loraDir: '',
       });
 
@@ -610,7 +632,7 @@ const Create: FC = () => {
       px={PADDING_X}
       sx={pageSX}
     >
-      {
+      {/* {
         mode == SESSION_MODE_FINETUNE && (
           <Box
             sx={{
@@ -624,7 +646,7 @@ const Create: FC = () => {
             />
           </Box>
         )
-      }
+      } */}
 
       {
         mode == SESSION_MODE_INFERENCE && inferenceHeader

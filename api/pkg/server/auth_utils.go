@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"strings"
 
@@ -88,6 +89,14 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 }
 
 func getRequestUser(req *http.Request) *types.User {
+	// Check if this is a socket request by looking at the underlying connection type
+	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil && req.URL.Path == "/v1/embeddings" {
+		return &types.User{
+			ID:        "socket",
+			Type:      types.OwnerTypeSocket,
+			TokenType: types.TokenTypeSocket,
+		}
+	}
 	user := req.Context().Value(userKey).(types.User)
 	return &user
 }
@@ -117,16 +126,6 @@ func addCorsHeaders(w http.ResponseWriter) {
 Access Control
 -
 */
-// if any of the admin users IDs is "all" then we are in dev mode and every user is an admin
-// nolint:unused
-func isDevelopmentMode(adminUserIDs []string) bool {
-	for _, id := range adminUserIDs {
-		if id == types.AdminAllUsers {
-			return true
-		}
-	}
-	return false
-}
 
 func hasUser(user *types.User) bool {
 	return user.ID != ""

@@ -113,6 +113,25 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	return s.GetSession(ctx, session.ID)
 }
 
+func (s *PostgresStore) UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error) {
+	if data.ID == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
+	err := s.gdb.WithContext(ctx).Where(&types.Session{
+		ID: data.ID,
+	}).Updates(&types.Session{
+		Name:      data.Name,
+		Owner:     data.Owner,
+		OwnerType: data.OwnerType,
+	}).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetSession(ctx, data.ID)
+}
+
 func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name string) error {
 	if sessionID == "" {
 		return fmt.Errorf("id not specified")

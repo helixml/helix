@@ -140,7 +140,7 @@ func (RAGSettings) GormDataType() string {
 	return "json"
 }
 
-// the data we send off to llamaindex to be indexed in the db
+// the data we send off to rag implementations to be indexed
 type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
 	Source          string `json:"source"`
@@ -386,10 +386,6 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
-func (s Session) TableName() string {
-	return "session"
-}
-
 type Interactions []*Interaction
 
 func (m Interactions) Value() (driver.Value, error) {
@@ -506,7 +502,7 @@ type InferenceRequestFilter struct {
 	Older     time.Duration `json:"older"`
 }
 
-type APIKey struct {
+type ApiKey struct { //nolint:revive
 	Created   time.Time       `json:"created"`
 	Owner     string          `json:"owner"`
 	OwnerType OwnerType       `json:"owner_type"`
@@ -514,10 +510,6 @@ type APIKey struct {
 	Name      string          `json:"name"`
 	Type      APIKeyType      `json:"type" gorm:"default:api"`
 	AppID     *sql.NullString `json:"app_id"`
-}
-
-func (APIKey) TableName() string {
-	return "api_key"
 }
 
 type OwnerContext struct {
@@ -533,44 +525,11 @@ type StripeUser struct {
 	SubscriptionURL string
 }
 
-type UserConfig struct {
-	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
-	StripeCustomerID         string `json:"stripe_customer_id"`
-	StripeSubscriptionID     string `json:"stripe_subscription_id"`
-}
-
-// this lives in the database
-// the ID is the keycloak user ID
-// there might not be a record for every user
-type UserMeta struct {
-	ID     string     `json:"id"`
-	Config UserConfig `json:"config"`
-}
-
 // this is given to the frontend as user context
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
 	Config UserConfig `json:"config"`
-}
-
-type User struct {
-	// the actual token used and its type
-	Token string
-	// none, runner. keycloak, api_key
-	TokenType TokenType
-	// if the ID of the user is contained in the env setting
-	Admin bool
-	// if the token is associated with an app
-	AppID string
-	// these are set by the keycloak user based on the token
-	// if it's an app token - the keycloak user is loaded from the owner of the app
-	// if it's a runner token - these values will be empty
-	ID       string
-	Type     OwnerType
-	Email    string
-	Username string
-	FullName string
 }
 
 // a single envelope that is broadcast to users
@@ -677,17 +636,20 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
-	FilestorePrefix         string `json:"filestore_prefix"`
-	StripeEnabled           bool   `json:"stripe_enabled"`
-	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
-	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
-	EvalUserID              string `json:"eval_user_id"`
-	ToolsEnabled            bool   `json:"tools_enabled"`
-	AppsEnabled             bool   `json:"apps_enabled"`
-	RudderStackWriteKey     string `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
-	DisableLLMCallLogging   bool   `json:"disable_llm_call_logging"`
-	Version                 string `json:"version"`
+	FilestorePrefix         string               `json:"filestore_prefix"`
+	StripeEnabled           bool                 `json:"stripe_enabled"`
+	SentryDSNFrontend       string               `json:"sentry_dsn_frontend"`
+	GoogleAnalyticsFrontend string               `json:"google_analytics_frontend"`
+	EvalUserID              string               `json:"eval_user_id"`
+	ToolsEnabled            bool                 `json:"tools_enabled"`
+	AppsEnabled             bool                 `json:"apps_enabled"`
+	RudderStackWriteKey     string               `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL string               `json:"rudderstack_data_plane_url"`
+	DisableLLMCallLogging   bool                 `json:"disable_llm_call_logging"`
+	Version                 string               `json:"version"`
+	LatestVersion           string               `json:"latest_version"`
+	DeploymentID            string               `json:"deployment_id"`
+	License                 *FrontendLicenseInfo `json:"license,omitempty"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -711,48 +673,48 @@ type SessionSummary struct {
 	AppID    string `json:"app_id,omitempty"`
 }
 
-type ModelInstanceState struct {
-	ID               string      `json:"id"`
-	ModelName        string      `json:"model_name"`
-	Mode             SessionMode `json:"mode"`
-	LoraDir          string      `json:"lora_dir"`
-	InitialSessionID string      `json:"initial_session_id"`
-	// this is either the currently running session
-	// or the queued session that will be run next but is currently downloading
-	CurrentSession *SessionSummary   `json:"current_session"`
-	JobHistory     []*SessionSummary `json:"job_history"`
-	// how many seconds to wait before calling ourselves stale
-	Timeout int `json:"timeout"`
-	// when was the last activity seen on this instance
-	LastActivity int `json:"last_activity"`
-	// we let the server tell us if it thinks this
-	// (even though we could work it out)
-	Stale       bool   `json:"stale"`
-	MemoryUsage uint64 `json:"memory"`
-	Status      string `json:"status"`
-}
+type WorkloadSummary struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created"`
+	UpdatedAt time.Time `json:"updated"`
+	ModelName string    `json:"model_name"`
+	Mode      string    `json:"mode"`
+	Runtime   string    `json:"runtime"`
+	LoraDir   string    `json:"lora_dir"`
+	Summary   string    `json:"summary"`
 
-// the basic struct reported by a runner when it connects
-// and keeps reporting it's status to the api server
-// we expire these records after a certain amount of time
-type RunnerState struct {
-	ID      string    `json:"id"`
-	Created time.Time `json:"created"`
-	// the URL that the runner will POST to to get a task
-	TotalMemory         uint64                `json:"total_memory"`
-	FreeMemory          int64                 `json:"free_memory"`
-	Labels              map[string]string     `json:"labels"`
-	ModelInstances      []*ModelInstanceState `json:"model_instances"`
-	SchedulingDecisions []string              `json:"scheduling_decisions"`
-	Version             string                `json:"version"`
-	Slots               []RunnerActualSlot    `json:"slots"`
+	// Created       time.Time   `json:"created"`
+	// Updated       time.Time   `json:"updated"`
+	// Scheduled     time.Time   `json:"scheduled"`
+	// Completed     time.Time   `json:"completed"`
+	// SessionID     string      `json:"session_id"`
+	// Name          string      `json:"name"`
+	// InteractionID string      `json:"interaction_id"`
+	// ModelName     string      `json:"model_name"`
+	// Mode          SessionMode `json:"mode"`
+	// Type          SessionType `json:"type"`
+	// Owner         string      `json:"owner"`
+	// LoraDir       string      `json:"lora_dir,omitempty"`
+	// // this is either the prompt or the summary of the training data
+	// Summary  string `json:"summary"`
+	// Priority bool   `json:"priority"`
+	// AppID    string `json:"app_id,omitempty"`
 }
 
 type DashboardData struct {
-	DesiredSlots              []DesiredSlots              `json:"desired_slots"`
-	SessionQueue              []*SessionSummary           `json:"session_queue"`
-	Runners                   []*RunnerState              `json:"runners"`
-	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
+	Runners []*DashboardRunner `json:"runners"`
+	Queue   []*WorkloadSummary `json:"queue"`
+}
+
+type DashboardRunner struct {
+	ID          string            `json:"id"`
+	Created     time.Time         `json:"created"`
+	Updated     time.Time         `json:"updated"`
+	Version     string            `json:"version"`
+	TotalMemory uint64            `json:"total_memory"`
+	FreeMemory  uint64            `json:"free_memory"`
+	Labels      map[string]string `json:"labels"`
+	Slots       []*RunnerSlot     `json:"slots"`
 }
 
 type GlobalSchedulingDecision struct {
@@ -948,14 +910,6 @@ type ToolZapierConfig struct {
 	MaxIterations int    `json:"max_iterations"`
 }
 
-// SessionToolBinding used to add tools to sessions
-type SessionToolBinding struct {
-	SessionID string `gorm:"primaryKey;index"`
-	ToolID    string `gorm:"primaryKey"`
-	Created   time.Time
-	Updated   time.Time
-}
-
 type AppSource string
 
 const (
@@ -1001,7 +955,7 @@ type AssistantConfig struct {
 	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
 	Avatar      string      `json:"avatar,omitempty" yaml:"avatar,omitempty"`
 	Image       string      `json:"image,omitempty" yaml:"image,omitempty"`
-	Provider    Provider    `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Provider    string      `json:"provider,omitempty" yaml:"provider,omitempty"`
 	Model       string      `json:"model,omitempty" yaml:"model,omitempty"`
 	Type        SessionType `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -1156,9 +1110,10 @@ func (Triggers) GormDataType() string {
 }
 
 type App struct {
-	ID      string    `json:"id" gorm:"primaryKey"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	ID             string    `json:"id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+	OrganizationID string    `json:"organization_id" gorm:"index"`
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
@@ -1167,6 +1122,8 @@ type App struct {
 	Global    bool      `json:"global"`
 	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
+
+	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
 }
 
 type KeyPair struct {
@@ -1458,6 +1415,14 @@ type Secret struct {
 	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
 }
 
+// LicenseKey represents a license key in the database
+type LicenseKey struct {
+	ID         uint      `gorm:"primarykey" json:"id"`
+	LicenseKey string    `json:"license_key"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type GetDesiredRunnerSlotsResponse struct {
 	Data []DesiredRunnerSlot `json:"data"`
 }
@@ -1498,6 +1463,7 @@ type RunnerActualSlot struct {
 type RunnerActualSlotAttributes struct {
 	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
 	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
+	RunnerSlot       *RunnerSlot     `json:"runner_slot,omitempty"`
 }
 
 type RunAPIActionRequest struct {
@@ -1510,4 +1476,53 @@ type RunAPIActionRequest struct {
 type RunAPIActionResponse struct {
 	Response string `json:"response"` // Raw response from the API
 	Error    string `json:"error"`
+}
+
+type RunnerAttributes struct {
+	TotalMemory uint64       `json:"total_memory"`
+	FreeMemory  uint64       `json:"free_memory"`
+	Version     string       `json:"version"`
+	Slots       []RunnerSlot `json:"slots"`
+}
+
+type Runner struct {
+	ID         string           `json:"id"`
+	Attributes RunnerAttributes `json:"attributes"`
+}
+
+type GetRunnersResponse struct {
+	Runners []Runner `json:"runners"`
+}
+
+// Add this struct to represent the license info we want to send to the frontend
+type FrontendLicenseInfo struct {
+	Valid        bool      `json:"valid"`
+	Organization string    `json:"organization"`
+	ValidUntil   time.Time `json:"valid_until"`
+	Features     struct {
+		Users bool `json:"users"`
+	} `json:"features"`
+	Limits struct {
+		Users    int64 `json:"users"`
+		Machines int64 `json:"machines"`
+	} `json:"limits"`
+}
+
+type LoginRequest struct {
+	RedirectURI string `json:"redirect_uri"`
+}
+
+type UserResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Token string `json:"token"`
+	Name  string `json:"name"`
+}
+
+type AuthenticatedResponse struct {
+	Authenticated bool `json:"authenticated"`
+}
+
+type TokenResponse struct {
+	Token string `json:"token"`
 }

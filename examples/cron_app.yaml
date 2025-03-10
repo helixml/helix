@@ -2,6 +2,7 @@ name: cron-app
 description: App that demonstrates a GPTScript that can be triggered by a cron job
 assistants:
 - name: URL Pinger  
+  model: llama3.1:8b-instruct-q8_0
   gptscripts:      
     - file: gptscripts/ping_url.gpt
       description: use this tool to ping a URL

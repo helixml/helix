@@ -37,6 +37,15 @@ type Firecrawl struct {
 	knowledge *types.Knowledge
 }
 
+func (f *Firecrawl) GetStatus() types.KnowledgeProgress {
+	// TODO
+	return types.KnowledgeProgress{
+		Step:           "Crawling",
+		Progress:       0,
+		ElapsedSeconds: 0,
+	}
+}
+
 func (f *Firecrawl) Crawl(_ context.Context) ([]*types.CrawledDocument, error) {
 	crawlParams := map[string]any{
 		"crawlerOptions": map[string]any{

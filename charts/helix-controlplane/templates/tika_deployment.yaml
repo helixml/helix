@@ -38,7 +38,7 @@ spec:
         - name: tika
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.tika.image.repository }}:{{ .Values.tika.image.tag }}"
+          image: "{{ .Values.tika.image.repository | default "apache/tika" }}:{{ .Values.tika.image.tag | default "2.9.2.1" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

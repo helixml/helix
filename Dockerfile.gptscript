@@ -17,11 +17,11 @@ WORKDIR /app/api
 # Build the Go app
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 # RUN apk --update add ca-certificates
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt_gptscript apt-get update -qq && apt-get install -qqy \
-    wget git unzip wget sqlite curl && \
+    wget git unzip wget sqlite3 curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-build-env /helix /helix

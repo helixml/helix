@@ -1,0 +1,49 @@
+{
+    auto_https off
+}
+
+:8080 {
+    # OIDC discovery endpoints
+    handle /.well-known/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /connect/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /home/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /lib/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /account/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /grants/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /redirect/* {
+        reverse_proxy oidc:8080
+    }
+
+    handle /css/* {
+        reverse_proxy oidc:8080
+    }
+
+    # All other API traffic goes to api service
+    handle /* {
+        reverse_proxy api:80
+    }
+
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+}

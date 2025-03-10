@@ -6,7 +6,6 @@ package smoke
 import (
 	"testing"
 
-	"github.com/go-rod/rod/lib/devices"
 	"github.com/helixml/helix/integration-test/smoke/helper"
 	"github.com/stretchr/testify/require"
 )
@@ -17,10 +16,7 @@ func TestCreateIntegrationApp(t *testing.T) {
 	browser := createBrowser(ctx)
 	defer browser.MustClose()
 
-	page := browser.
-		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
-		MustPage(helper.GetServerURL())
-	defer page.MustClose()
+	page := createPage(browser)
 
 	err := helper.PerformLogin(t, page)
 	require.NoError(t, err, "login should succeed")
@@ -29,29 +25,24 @@ func TestCreateIntegrationApp(t *testing.T) {
 	helper.CreateNewApp(t, page)
 
 	helper.LogStep(t, "Clicking on the Integrations tab")
-	page.MustElementX(`//button[text() = 'Integrations']`).MustClick()
-	page.MustWaitStable()
+	page.MustElementX(`//button[text() = 'Integrations']`).MustWaitVisible().MustClick()
 
 	helper.LogStep(t, "Adding API Tool")
-	page.MustElementX(`//button[text() = 'Add API Tool']`).MustClick()
+	page.MustElementX(`//button[text() = 'Add API Tool']`).MustWaitVisible().MustClick()
 	page.MustWaitStable()
 
 	helper.LogStep(t, "Selecting example Schema")
-	page.MustElementX(`//label[text() = 'Example Schemas']/..`).MustClick()
+	page.MustElementX(`//label[text() = 'Example Schemas']/..`).MustWaitVisible().MustClick()
 	page.MustWaitStable()
 
 	helper.LogStep(t, "Selecting Exchange Rates Schema")
-	page.MustElementX(`//li[text() = 'Exchange Rates']`).MustClick()
+	page.MustElementX(`//li[text() = 'Exchange Rates']`).MustWaitVisible().MustClick()
 	page.MustWaitStable()
 
 	helper.LogStep(t, "Clicking on Save button")
-	page.MustElementX(`//button[@id = 'submitButton' and text() = 'Save']`).MustClick()
+	page.MustElementX(`//button[@id = 'submitButton' and text() = 'Save']`).MustWaitVisible().MustClick()
 
 	helper.SaveApp(t, page)
 
-	helper.LogStep(t, "Testing the app")
-	page.MustElement("#textEntry").MustInput("what is the USD GBP rate")
-	page.MustElement("#sendButton").MustClick()
-
-	helper.WaitForHelixResponse(ctx, t, page)
+	helper.TestApp(ctx, t, page, "what is the USD GBP rate")
 }

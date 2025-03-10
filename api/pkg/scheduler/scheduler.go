@@ -3,488 +3,802 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"sync"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/exp/rand"
 )
 
-// Scheduler is is the main entrypoint to the scheduler package.
-// It provides methods to schedule, release, and assign workloads to runners.
-// The underlying workload management is handled by the WorkloadAllocator interface.
-type Scheduler interface {
-	Schedule(request *Workload) error
-	Release(id string) error
-	WorkForRunner(id string, workType WorkloadType, newWorkOnly bool, model string) (*Workload, error)
-	UpdateRunner(props *types.RunnerState)
+const (
+	pendingSlotsBufferSize    = 1 // The number of slot creation requests to buffer
+	runnerReconcileInterval   = 5 * time.Second
+	activityReconcileInterval = 100 * time.Millisecond
+	queueReconcileInterval    = 100 * time.Millisecond
+)
 
-	// New queueing scheduler methods
-	Begin(requestID string) error
-	SlotsForRunner(runnerID string) []types.DesiredRunnerSlot
-	Enqueue(work *Workload) error
-	DashboardData() ([]*types.SessionSummary, error)
-	DashboardSlotsData() []types.DesiredSlots
+// TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
+type TimeoutFunc func(runnerID string, lastActivityTime time.Time) bool
+
+func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
+	return func(_ string, lastActivityTime time.Time) bool {
+		return lastActivityTime.Add(ttl).Before(time.Now())
+	}
 }
 
-// scheduler is a struct implementing the Scheduler interface.
-// It includes a workload allocator (allocator) and a thread-safe map (workStore) to store scheduled workloads.
-type scheduler struct {
-	allocator         WorkloadAllocator                  // Interface to allocate workload to different slots/models.
-	workStore         *xsync.MapOf[uuid.UUID, *Workload] // Map to store the work associated with a slot.
-	cluster           Cluster                            // Cluster to manage runner state.
-	placementStrategy SchedulingStrategyFunc
-	queue             []*Workload
-	queueMtx          *sync.Mutex
-	queueSize         int
-	onSchedulingErr   func(work *Workload, err error)
+type Scheduler struct {
+	ctx             context.Context
+	controller      *RunnerController
+	queue           *WorkQueue
+	onSchedulingErr func(work *Workload, err error)
+	slots           *xsync.MapOf[uuid.UUID, *Slot]
+	modelStaleFunc  TimeoutFunc // Function to check if models are stale
+	slotTimeoutFunc TimeoutFunc // Function to check if slots have timed out due to error
 }
 
-var _ Scheduler = &scheduler{}
-
-// NewScheduler creates a new scheduler with a workload allocator.
-// This also starts a goroutine to process the queue in the background.
-//
-// NOTE(milosgajdos): we really should make sure we return exported types.
-// If we want the type fields to be inaccessible we should make them unexported.
-// nolint:revive
-func NewScheduler(ctx context.Context, cfg *config.ServerConfig, onSchedulingErr func(work *Workload, err error)) *scheduler {
-	scheduler := newSchedulerWithoutGoroutines(cfg, onSchedulingErr)
-
-	// Start a goroutine to process the buffered queue
-	go func() {
-		scheduler.processQueue(ctx)
-	}()
-
-	// Start a goroutine that will periodically check for dead runners and reschedule their work
-	go func() {
-		scheduler.checkForDeadRunners(ctx)
-	}()
-
-	return scheduler
+type Params struct {
+	RunnerController  *RunnerController
+	QueueSize         int
+	OnSchedulingErr   func(work *Workload, err error)
+	OnResponseHandler func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
 }
 
-func newSchedulerWithoutGoroutines(cfg *config.ServerConfig, onSchedulingErr func(work *Workload, err error)) *scheduler {
-	modelTTL := cfg.Providers.Helix.ModelTTL
+func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *Params) (*Scheduler, error) {
+	if params == nil {
+		params = &Params{}
+	}
+	if params.RunnerController == nil {
+		return nil, fmt.Errorf("runner controller is required")
+	}
+	modelTTL := serverConfig.Providers.Helix.ModelTTL
 	if modelTTL == 0 {
 		modelTTL = 10 * time.Second
 	}
-	slotTTL := cfg.Providers.Helix.SlotTTL
+	slotTTL := serverConfig.Providers.Helix.SlotTTL
 	if slotTTL == 0 {
 		slotTTL = 300 * time.Second
 	}
+	queueSize := 50
+	if params.QueueSize > 0 {
+		queueSize = params.QueueSize
+	}
+
 	log.Info().Dur("model_stale_time", modelTTL).Dur("slot_timeout", slotTTL).Msg("slot timeouts")
-	allocator := NewWorkloadAllocator(
-		NewTimeoutFunc(modelTTL),
-		NewTimeoutFunc(slotTTL),
-	)
-	cluster := NewCluster(
-		NewTimeoutFunc(cfg.Providers.Helix.RunnerTTL),
-	)
 
-	queueSize := 100
-	if cfg.Providers.Helix.QueueSize > 0 {
-		queueSize = cfg.Providers.Helix.QueueSize
-	}
-	if onSchedulingErr == nil {
-		onSchedulingErr = func(work *Workload, err error) {
-			log.Warn().Err(err).Str("id", work.ID()).Msg("error scheduling work")
-		}
+	s := &Scheduler{
+		ctx:             ctx,
+		controller:      params.RunnerController,
+		queue:           NewWorkQueue(queueSize),
+		onSchedulingErr: params.OnSchedulingErr,
+		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
+		modelStaleFunc:  NewTimeoutFunc(modelTTL),
+		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
 	}
 
-	schedStratFunc := MaxSpreadStrategy
-	switch SchedulingStrategy(cfg.Providers.Helix.SchedulingStrategy) {
-	case SchedulingstrategyMaxutilization:
-		log.Info().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("scheduling strategy with spread work across all runners")
-		schedStratFunc = MaxUtilizationStrategy
-	case SchedulingstrategyMaxspread:
-		log.Info().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("scheduling strategy will maximize utilization on individual runners")
-		schedStratFunc = MaxSpreadStrategy
-	default:
-		log.Warn().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("unknown scheduling strategy, defaulting to max utilization")
-	}
-	scheduler := &scheduler{
-		allocator:         allocator,
-		cluster:           cluster,
-		workStore:         xsync.NewMapOf[uuid.UUID, *Workload](),
-		placementStrategy: schedStratFunc,
-		queue:             make([]*Workload, 0, queueSize),
-		queueMtx:          &sync.Mutex{},
-		queueSize:         queueSize,
-		onSchedulingErr:   onSchedulingErr,
-	}
+	// Start the queue processor
+	go s.processQueue(ctx)
 
-	return scheduler
+	// Start the slot reconciler
+	go s.reconcileSlots(ctx)
+
+	// Start the activity reconciler
+	go s.reconcileActivity(ctx)
+
+	// Start the runner reconciler
+	go s.reconcileRunners(ctx)
+
+	return s, nil
 }
 
-// NewTimeoutFunc returns a function to check if a runner has been idle for a specified timeout duration.
-func NewTimeoutFunc(timeout time.Duration) TimeoutFunc {
-	return func(_ string, lastActivity time.Time) bool {
-		// Check if the model has been unused for more than the specified timeout duration.
-		return time.Since(lastActivity) > timeout
-	}
+func (s *Scheduler) Enqueue(work *Workload) error {
+	return s.queue.Add(work)
 }
 
-// Schedule assigns work based on the current workload and available slots.
-// It attempts to allocate the workload to a warm slot or creates a new slot if none are available.
-func (s *scheduler) Schedule(work *Workload) (err error) {
-	if work == nil {
-		return fmt.Errorf("workload is nil")
-	}
-	// Validate model.
-	if _, err := model.GetModel(work.ModelName().String()); err != nil {
-		return fmt.Errorf("unable to get model (%s): %v", work.ModelName(), err)
-	}
-
-	// Validate session mode.
-	if work.Mode() == types.SessionModeNone {
-		return fmt.Errorf("session mode isn't set")
-	}
-
-	var slot *Slot // Holds the slot where the work will be scheduled.
-
-	// Try to find warm slots, which are ready to take new work.
-	slots := s.allocator.WarmSlots(work)
-
-	// If warm slots are available, select a random one.
-	if len(slots) > 0 {
-		// TODO(PHIL): This doesn't use the scheduling strategy. That is only used for new models.
-		// I should probably refactor this to use the strategy for all scheduling.
-		// Randomly select one warm slot from the available warm slots.
-		slot = slots[rand.Intn(len(slots))]
-
-		// Allocate work to the selected warm slot.
-		err = s.allocator.AllocateSlot(slot.ID, work)
-		if err != nil {
-			// Return error if unable to allocate work to the warm model.
-			return fmt.Errorf("unable to allocate work to a warm model slot (ID: %s, slot runner: %s): %w", slot.ID, slot.RunnerID, err)
-		}
-	} else {
-		// If no warm slots are available, pick a runner to allocate a slot to.
-		bestRunnerID, err := s.placementStrategy(s.cluster, s.allocator, work)
-		if err != nil {
-			return fmt.Errorf("unable to place work on any runner: %w", err)
-		}
-
-		// Figure out if we have to kill a slot to make room for the new one.
-		err = DeleteMostStaleStrategy(s.allocator, bestRunnerID, s.cluster.TotalMemory(bestRunnerID), work.Model().GetMemoryRequirements(work.Mode()))
-		if err != nil {
-			return fmt.Errorf("unable to delete stale slots: %w", err)
-		}
-
-		// Create an allocate slot
-		slot, err = s.allocator.AllocateNewSlot(bestRunnerID, work)
-		if err != nil {
-			// Return error if unable to allocate a new slot.
-			return fmt.Errorf("unable to allocate new work on runner (ID: %s): %w", bestRunnerID, err)
-		}
-	}
-
-	// Store the work associated with the slot for future deallocation.
-	if slot == nil {
-		// If the slot is nil, return an error.
-		return fmt.Errorf("slot is nil")
-	}
-
-	s.workStore.Store(slot.ID, work)
-
-	return nil
-}
-
-// Release frees the resources associated with a specific scheduled request.
-// It finds the request by its ID, releases the allocated slot, and removes the associated work from the store.
-func (s *scheduler) Release(id string) error {
-	// Find the slot ID associated with the request.
-	slotID, ok := s.find(id)
-	if !ok {
-		// If the request is not found, return an error.
-		return fmt.Errorf("request not found: %s", id)
-	}
-
-	// Release the resources allocated to the slot.
-	err := s.allocator.ReleaseSlot(slotID)
-	if err != nil {
-		// If there is an error during deallocation, return it.
-		return fmt.Errorf("problem deallocating: %w", err)
-	}
-
-	// Remove the work associated with the slot from the store.
-	s.workStore.Delete(slotID)
-
-	return nil
-}
-
-// WorkForRunner retrieves work for a specific runner by its ID.
-// It checks the runner's slots and assigns the work if any slot is ready.
-// If newWorkOnly is set, it will only return work from new slots
-func (s *scheduler) WorkForRunner(id string, workType WorkloadType, newWorkOnly bool, model string) (*Workload, error) {
-	// Iterate through the slots assigned to the runner.
-	for _, slot := range s.allocator.RunnerSlots(id) {
-		// If the slot is ready for scheduling, retrieve the associated work.
-		if slot.IsScheduled() {
-			work, ok := s.workStore.Load(slot.ID)
-			if !ok {
-				continue // Work not owned by this scheduler, ignore it.
-			}
-			// Check if request model type matches the model type of the slot.
-			if !newWorkOnly && model != "" && work.ModelName().String() != model {
-				continue // Work is not of the requested model type, ignore it.
-			}
-			if work.WorkloadType != workType {
-				continue // Work is not of the requested type, ignore it.
-			}
-			if newWorkOnly && !slot.IsNew() {
-				continue // Work is not new, ignore it.
-			}
-			slot.Start() // Mark the work in the slot as started.
-			return work, nil
-		}
-	}
-	// If no work is found for the runner, return nil.
-	return nil, nil
-}
-
-// UpdateRunner updates the state of a runner and reconciles its slots with the allocator's records.
-func (s *scheduler) UpdateRunner(props *types.RunnerState) {
-	// Update the runner's state in the cluster.
-	s.cluster.UpdateRunner(props)
-	// TODO: Reconcile the runner's slots with the allocator's records.
-	// s.allocator.ReconcileSlots(props)
-}
-
-// find searches for the slot ID associated with a given workload ID.
-func (s *scheduler) find(id string) (uuid.UUID, bool) {
-	var result uuid.UUID
-	// Iterate through the workStore to find the matching workload ID.
-	s.workStore.Range(func(slotID uuid.UUID, w *Workload) bool {
-		if w.ID() == id {
-			result = slotID
-			return false
-		}
-		return true
-	})
-	return result, result != uuid.Nil
-}
-
-// Enqueue adds a workload to the scheduler's queue.
-// TODO(Phil): Previous implementations saved the session queue in the database to requeue on
-// restarts. I don't think this is a particularly useful feature ATM. But may be in the future.
-func (s *scheduler) Enqueue(work *Workload) error {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
-
-	// Check if the work is already in the queue.
-	for _, w := range s.queue {
-		if w.ID() == work.ID() {
-			return fmt.Errorf("work already in queue")
-		}
-	}
-
-	if len(s.queue) >= s.queueSize {
-		return fmt.Errorf("queue is full")
-	}
-
-	// Check if the work is a session and has priority
-	if work.WorkloadType == WorkloadTypeSession {
-		if work.Session().Metadata.Priority {
-			// Add the work to the front of the queue.
-			// Ignoring the order of other priority sessions here to avoid complexity
-			s.queue = append([]*Workload{work}, s.queue...)
-			return nil
-		}
-	}
-
-	// Queue the work
-	s.queue = append(s.queue, work)
-
-	return nil
-}
-
-// TODO(PHIL): Deprecate in preference of a new dashboard API
-// DashboardData returns the queue of work for the scheduler in old SessionSummary format
-func (s *scheduler) DashboardData() ([]*types.SessionSummary, error) {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
-
-	// Convert the queue of work to a list of SessionSummary objects.
-	sessionSummaries := make([]*types.SessionSummary, 0, len(s.queue))
-	for _, w := range s.queue {
+func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
+	currentQueue := s.queue.Queue()
+	queue := make([]*types.WorkloadSummary, 0, len(currentQueue))
+	for _, w := range currentQueue {
+		summary := ""
 		switch w.WorkloadType {
-		case WorkloadTypeSession:
-			summary, err := data.GetSessionSummary(w.Session())
-			if err != nil {
-				return nil, err
-			}
-			sessionSummaries = append(sessionSummaries, summary)
 		case WorkloadTypeLLMInferenceRequest:
-			sessionSummaries = append(sessionSummaries, &types.SessionSummary{
-				SessionID:     w.ID(),
-				Name:          w.LLMInferenceRequest().Request.Model,
-				InteractionID: w.LLMInferenceRequest().InteractionID,
-				Mode:          types.SessionModeInference,
-				Type:          types.SessionTypeText,
-				ModelName:     w.LLMInferenceRequest().Request.Model,
-				Owner:         w.LLMInferenceRequest().OwnerID,
-				Created:       w.LLMInferenceRequest().CreatedAt,
-				Updated:       w.LLMInferenceRequest().CreatedAt,
-				Scheduled:     w.LLMInferenceRequest().CreatedAt,
-				Completed:     w.LLMInferenceRequest().CreatedAt,
-				Summary:       "LLM Inference Request",
-				Priority:      w.LLMInferenceRequest().Priority,
-			})
+			req := w.LLMInferenceRequest()
+			summary = req.Request.Messages[len(req.Request.Messages)-1].Content
+		case WorkloadTypeSession:
+			s := w.Session()
+			interaction, _ := data.GetLastUserInteraction(s.Interactions)
+			if interaction != nil {
+				summary = interaction.Message
+			}
 		}
-	}
-
-	return sessionSummaries, nil
-}
-
-// DashboardSlotsData returns the queue of work for the scheduler in new DesiredSlots format
-// TODO(PHIL): We shouldn't pass implementation details about types of work to the dashboard.
-func (s *scheduler) DashboardSlotsData() []types.DesiredSlots {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
-
-	// Convert the queue of work to a list of SessionSummary objects.
-	runnerIDs := s.cluster.RunnerIDs()
-	desiredSlots := make([]types.DesiredSlots, 0, len(runnerIDs))
-	for _, runnerID := range runnerIDs {
-		desiredSlots = append(desiredSlots, types.DesiredSlots{
-			ID:   runnerID,
-			Data: s.SlotsForRunner(runnerID),
+		queue = append(queue, &types.WorkloadSummary{
+			ID:        w.ID(),
+			CreatedAt: w.Created(),
+			UpdatedAt: w.Updated(),
+			ModelName: string(w.ModelName()),
+			Mode:      string(w.Mode()),
+			Runtime:   string(w.Runtime()),
+			LoraDir:   w.LoraDir(),
+			Summary:   summary,
 		})
 	}
-
-	return desiredSlots
+	return queue, nil
 }
 
-func (s *scheduler) Begin(requestID string) error {
-	// Find the slot ID associated with the request.
-	slotID, ok := s.find(requestID)
-	if !ok {
-		// If the request is not found, it has probably already been released
-		return nil
+func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
+	var err error
+	// Get a current list of runners
+	runners := s.controller.RunnerIDs()
+
+	// Get the current state of each runner
+	runnerStates := make([]*types.RunnerStatus, 0, len(runners))
+	for _, runnerID := range runners {
+		var runnerStatus *types.RunnerStatus
+		runnerStatus, err = s.controller.GetStatus(runnerID)
+		if err != nil {
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("error getting runner status, this shouldn't happen, please investigate this runner")
+			runnerStatus = &types.RunnerStatus{
+				ID: runnerID,
+			}
+		}
+		runnerStates = append(runnerStates, runnerStatus)
 	}
 
-	// Set the slot as started
-	err := s.allocator.StartSlot(slotID)
-	if err != nil {
-		return fmt.Errorf("problem starting slot: %w", err)
-	}
-
-	return nil
+	return runnerStates, nil
 }
 
-func (s *scheduler) SlotsForRunner(runnerID string) []types.DesiredRunnerSlot {
-	slots := s.allocator.RunnerSlots(runnerID)
-	desiredRunnerSlots := make([]types.DesiredRunnerSlot, 0, len(slots))
-	for _, slot := range slots {
-		attr := types.DesiredRunnerSlotAttributes{
-			Mode:  string(slot.Mode()),
-			Model: string(slot.ModelName()),
-		}
-		slotWork, ok := s.workStore.Load(slot.ID)
-		if ok {
-			attr.Workload = slotWork.ToRunnerWorkload()
-		}
-		desiredRunnerSlot := types.DesiredRunnerSlot{
-			ID:         slot.ID,
-			Attributes: attr,
-		}
-		desiredRunnerSlots = append(desiredRunnerSlots, desiredRunnerSlot)
-	}
-
-	return desiredRunnerSlots
+func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
+	return s.controller.GetSlots(runnerID)
 }
 
 // processQueue runs in a goroutine to processes the queue of requests.
-func (s *scheduler) processQueue(ctx context.Context) {
+func (s *Scheduler) processQueue(ctx context.Context) {
+	log.Debug().Msg("starting queue processor")
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(queueReconcileInterval):
 			s.processQueueOnce()
-			// Sleep for a while to allow others to access the queue
-			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }
 
-func (s *scheduler) processQueueOnce() {
-	s.queueMtx.Lock()
-	defer s.queueMtx.Unlock()
+// reconcileSlots runs in a goroutine to reconcile slots.
+// The reason why we do this async is because we don't want to have to check the runner on the hot
+// path. When a user makes a request we want to forward it to a warm runner as quickly as possible.
+func (s *Scheduler) reconcileSlots(ctx context.Context) {
+	log.Debug().Msg("starting slot reconciler")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(runnerReconcileInterval):
+			s.reconcileSlotsOnce(ctx)
+		}
+	}
+}
 
-	// Store jobs that weren't able to be scheduled to re-add to the queue later
-	// This is important because there many be workloads that persistently fail to schedule
-	// and we don't want to block workloads that can be scheduled from further down the queue
-	unscheduledQueue := make([]*Workload, 0)
+// reconcileActivity runs in a goroutine to reconcile activity.
+func (s *Scheduler) reconcileActivity(ctx context.Context) {
+	log.Debug().Msg("starting activity reconciler")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(activityReconcileInterval):
+			s.reconcileActivityOnce()
+		}
+	}
+}
 
-	// Schedule any requests that are currently in the queue.
-	for _, work := range s.queue {
-		err := s.Schedule(work)
+func (s *Scheduler) reconcileActivityOnce() {
+	if s.slots == nil {
+		return
+	}
+	// Check the status of all remaining slots to see if they have finished their work
+	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		if slot == nil {
+			withSlotContext(&log.Logger, slot).Debug().Msg("slot is nil, releasing")
+			slot.Release()
+			return true
+		}
+		if slot.IsActive() {
+			// Get the live slot from the runner, don't use the cached copy
+			remoteSlot, err := s.controller.fetchSlot(slot.RunnerID, slotID)
+			if err != nil {
+				withSlotContext(&log.Logger, slot).Error().Err(err).Msg("failed to get slot, assuming it's finished")
+				slot.Release()
+			} else if !remoteSlot.Active {
+				withSlotContext(&log.Logger, slot).Debug().Msg("slot is not active, releasing")
+				slot.Release()
+			}
+		}
+		return true
+	})
+}
+
+// reconcileRunners runs in a goroutine to reconcile runners.
+func (s *Scheduler) reconcileRunners(ctx context.Context) {
+	log.Debug().Msg("starting runner reconciler")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(runnerReconcileInterval):
+			s.reconcileRunnersOnce()
+		}
+	}
+}
+
+func (s *Scheduler) reconcileRunnersOnce() {
+	// Get all runners
+	runnerIDs := s.controller.RunnerIDs()
+
+	// Get the health of each runner
+	for _, runnerID := range runnerIDs {
+		err := s.controller.GetHealthz(runnerID)
 		if err != nil {
-			retry, err := ErrorHandlingStrategy(err, work)
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("runner is not healthy, deleting...")
+			s.controller.deleteRunner(runnerID)
 
-			// If we can retry, break out of the loop and try again later
-			if retry {
-				unscheduledQueue = append(unscheduledQueue, work)
+			// Delete all slots belonging to this runner
+			s.deleteRunnerSlots(runnerID)
+		}
+	}
+}
+
+func (s *Scheduler) deleteRunnerSlots(runnerID string) {
+	// First collect the slots to delete
+	var slotsToDelete []uuid.UUID
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runnerID {
+			slotsToDelete = append(slotsToDelete, slot.ID)
+		}
+		return true
+	})
+
+	// Then delete them after the range is complete
+	for _, slotID := range slotsToDelete {
+		s.slots.Delete(slotID)
+	}
+}
+
+// reconcileSlotsOnce reconciles slots once.
+func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
+	// Get all runners
+	runnerIDs := s.controller.RunnerIDs()
+
+	// Ensure new slots are created and ready to take work
+	requiredSlots := s.queue.GetRequiredSlots()
+	log.Debug().Interface("required_slots", requiredSlots).Msg("required slots")
+	// For each requirement, ensure we have enough slots for that work right now
+	for _, req := range requiredSlots {
+		// Check if we have enough slots for this work right now
+		existingCount := 0
+		// TODO(Phil): be careful about this, it's detached from the concept of a warm slot. Ideally
+		// refactor so that warm and this are using the same logic.
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.InitialWork().ModelName() == req.Model &&
+				slot.InitialWork().Runtime() == req.Runtime &&
+				slot.InitialWork().LoraDir() == req.LoraDir &&
+				!slot.IsActive() {
+				existingCount++
+			}
+			return true
+		})
+
+		// If we need more slots, start creating them
+		slotsNeeded := req.Count - existingCount
+		if slotsNeeded > 0 {
+			s.ensureSlots(req, slotsNeeded)
+		}
+	}
+
+	// Build a complete map of all actual slots across all runners
+	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
+	for _, runnerID := range runnerIDs {
+		// We need a live view of the slots here, otherwise we might get stale data
+		actualSlots, err := s.controller.fetchSlots(runnerID)
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get slots from runner")
+			continue
+		}
+
+		for _, slot := range actualSlots.Slots {
+			// If we find the same slot ID on multiple runners, delete from the duplicate runner
+			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
+				log.Warn().
+					Str("slot_id", slot.ID.String()).
+					Str("existing_runner", existingRunnerID).
+					Str("duplicate_runner", runnerID).
+					Msg("found duplicate slot ID on multiple runners, cleaning up duplicate")
+				err = s.controller.DeleteSlot(runnerID, slot.ID)
+				if err != nil {
+					log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slot.ID.String()).Msg("failed to delete duplicate slot")
+				}
 				continue
 			}
+			allActualSlots[slot.ID] = runnerID
+		}
+	}
 
-			// If we can't retry, write an error to the request and continue so it takes it off
-			// the queue
+	// Clean up scheduler slots that don't exist on any runner
+	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		if runnerID, exists := allActualSlots[slotID]; !exists {
+			log.Info().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slotID.String()).
+				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
+
+			err := s.createNewSlot(ctx, slot)
+			if err != nil {
+				// Then see if we can retry
+				retry, err := ErrorHandlingStrategy(err, slot.InitialWork())
+				if retry {
+					withWorkContext(&log.Logger, slot.InitialWork()).Debug().Err(err).Msg("failed to create slot, but retrying later...")
+				} else {
+					withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
+
+					// First remove that slot, since it was never created
+					s.slots.Delete(slot.ID)
+
+					// Then remove the work from the queue if it exists
+					s.queue.Remove(slot.InitialWork())
+
+					// Then notify the error handler
+					s.onSchedulingErr(slot.InitialWork(), err)
+				}
+			}
+		} else if runnerID != slot.RunnerID {
+			// The slot exists but on a different runner than we thought
+			log.Warn().
+				Str("scheduler_runner", slot.RunnerID).
+				Str("actual_runner", runnerID).
+				Str("slot_id", slotID.String()).
+				Msg("slot exists on different runner than expected, updating runner ID")
+			slot.RunnerID = runnerID
+		}
+		return true
+	})
+
+	// Clean up runner slots that don't exist in scheduler
+	for slotID, runnerID := range allActualSlots {
+		if _, exists := s.slots.Load(slotID); !exists {
+			log.Warn().
+				Str("runner_id", runnerID).
+				Str("slot_id", slotID.String()).
+				Msg("found slot on runner that doesn't exist in scheduler, deleting...")
+			err := s.controller.DeleteSlot(runnerID, slotID)
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slotID.String()).Msg("failed to delete slot")
+			}
+		}
+	}
+}
+
+func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
+	for i := 0; i < count; i++ {
+		// Find best runner for this slot
+		runnerID, err := s.pickBestRunner(req.ExampleWorkload)
+		if err != nil {
+			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
+			if retry {
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
+				return
+			}
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+			s.onSchedulingErr(req.ExampleWorkload, err)
+			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slot requirement, not the entire queue full of them. It should clean up on the next time around.
+			return
+		}
+
+		// Delete any stale slots on this runner if required
+		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
+		if err != nil {
+			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
+			if retry {
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, retrying...")
+				return
+			}
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, skipping...")
+			s.onSchedulingErr(req.ExampleWorkload, err)
+			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+			return
+		}
+
+		// Create the control plane view of the slot
+		slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+
+		// Store the slot
+		s.slots.Store(slot.ID, slot)
+	}
+}
+
+func (s *Scheduler) processQueueOnce() {
+	// Try to take next work item that has a warm slot available
+	work := s.queue.TakeNext(func(w *Workload) bool {
+		warmSlots := s.warmSlots(w)
+		return len(warmSlots) > 0
+	})
+
+	if work == nil {
+		return // Nothing can be scheduled right now
+	}
+
+	// We know we have a warm slot, so schedule the work
+	warmSlots := s.warmSlots(work)
+	slot := s.pickBestWarmSlot(warmSlots)
+
+	err := s.allocateSlot(slot.ID, work)
+	if err != nil {
+		// If allocation fails, put work back in queue
+		err = s.queue.Add(work)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to add work back to queue")
 			s.onSchedulingErr(work, err)
 		}
 	}
-	// Clear processed queue
-	s.queue = unscheduledQueue
 }
 
-func (s *scheduler) checkForDeadRunners(ctx context.Context) {
+// Add new helper method to find the best runner
+func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
+	// First get a list of all runners
+	allRunners := s.controller.RunnerIDs()
+
+	// Reach out to each runner and get their total memory
+	runnerMemory := make(map[string]uint64)
+	for _, runnerID := range allRunners {
+		runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
+	}
+	withWorkContext(&log.Logger, work).Debug().Interface("runner_memory", runnerMemory).Msg("runner memory")
+
+	// Filter out runners that don't have enough memory to allocate the new workload
+	numRunnersWithNotEnoughTotalMemory := 0
+	largestRunnerMemory := uint64(0)
+	requiredMemory := work.Model().GetMemoryRequirements(work.Mode())
+	filteredRunners := make([]string, 0)
+	for runnerID, memory := range runnerMemory {
+		if memory >= requiredMemory {
+			filteredRunners = append(filteredRunners, runnerID)
+		} else {
+			numRunnersWithNotEnoughTotalMemory++
+		}
+		if memory > largestRunnerMemory {
+			largestRunnerMemory = memory
+		}
+	}
+	withWorkContext(&log.Logger, work).Debug().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
+
+	// Error if no runners have enough memory
+	if numRunnersWithNotEnoughTotalMemory == len(allRunners) {
+		return "", fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
+	}
+
+	// Error if there are no runners left
+	if len(filteredRunners) == 0 {
+		return "", ErrNoRunnersAvailable
+	}
+
+	// Calculate the scheduled load on each runner according to their slots
+	// Note: We discussed using real free memory by pinging the runner, but decided to use the
+	// control-plane's view of free memory to avoid the overhead of pinging the runner. This also
+	// has the added benefit of being able to over-commit memory slightly.
+	runnerLoad := make(map[string]uint64)
+	for _, runnerID := range filteredRunners {
+		// Sum up all scheduled slots on the runner
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.RunnerID == runnerID {
+				runnerLoad[runnerID] += slot.Memory()
+			}
+			return true
+		})
+	}
+	withWorkContext(&log.Logger, work).Debug().Interface("runner_load", runnerLoad).Msg("runner load")
+
+	// Sort the runners by load, increasing, with a random shuffle for ties
+	slices.SortFunc(filteredRunners, func(a, b string) int {
+		if runnerLoad[a] != runnerLoad[b] {
+			return int(runnerLoad[a] - runnerLoad[b])
+		}
+		return rand.Intn(3) - 1 // Introduces random shuffle for true ties
+	})
+	withWorkContext(&log.Logger, work).Debug().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
+
+	// Pick the first runner
+	bestRunnerID := filteredRunners[0]
+	withWorkContext(&log.Logger, work).Debug().Str("runner_id", bestRunnerID).Msg("chosen best runner")
+
+	// Return the bestRunnerID and any error
+	return bestRunnerID, nil
+}
+
+// DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
+// memory to allocate the new workload.
+func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) error {
+	totalMem := s.controller.TotalMemory(runnerID)
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			s.checkForDeadRunnersOnce()
+		var allSlots []*Slot
+		allocatedMem := uint64(0)
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.RunnerID == runnerID {
+				allSlots = append(allSlots, slot)
+				allocatedMem += slot.Memory()
+			}
+			return true
+		})
 
-			// Sleep for a while to allow others to access the scheduler
-			time.Sleep(10 * time.Millisecond)
+		requiredMem := work.Model().GetMemoryRequirements(work.Mode())
+		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
+		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
+		// If there is enough free space on the runner, break out of the loop.
+		if freeMem > 0 {
+			break
 		}
+
+		// Only keep slots that are not the same as the required workload
+		// Since there's no point deleting slots that are already the same as the required workload
+		notSameWorkload := Filter(allSlots, func(slot *Slot) bool {
+			return slot.InitialWork().ModelName() != work.ModelName() ||
+				slot.InitialWork().Runtime() != work.Runtime() ||
+				slot.InitialWork().LoraDir() != work.LoraDir()
+		})
+
+		// Only keep the stale slots
+		staleSlots := Filter(notSameWorkload, func(slot *Slot) bool {
+			return slot.IsStale()
+		})
+
+		// Sort the slots by last activity time
+		slices.SortFunc(staleSlots, func(i, j *Slot) int {
+			return int(i.LastActivityTime.Sub(j.LastActivityTime))
+		})
+		log.Trace().Interface("stale_slots", staleSlots).Msg("stale slots")
+		if len(staleSlots) == 0 {
+			return ErrRunnersAreFull
+		}
+		// Then delete the most stale slot, allow the reconciler to mop up
+		withSlotContext(&log.Logger, staleSlots[0]).Info().Msg("deleting stale slot")
+		s.slots.Delete(staleSlots[0].ID)
 	}
+	return nil
 }
 
-func (s *scheduler) checkForDeadRunnersOnce() {
-	deadRunnerIDs := s.cluster.DeadRunnerIDs()
-	for _, id := range deadRunnerIDs {
-		deadSlots := s.allocator.DeadSlots([]string{id})
-		for _, dead := range deadSlots {
-			// Load and delete that work from the store
-			work, ok := s.workStore.LoadAndDelete(dead.ID)
-			if !ok {
-				continue // No work to reschedule
-			}
+func (s *Scheduler) warmSlots(req *Workload) []*Slot {
+	cosyWarm := make([]*Slot, 0, s.slots.Size())
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		// If the slot isn't running yet, skip
+		if !slot.IsRunning() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
+			return true
+		}
 
-			// Attempt to reschedule the work.
-			log.Trace().
-				Str("runner_id", id).
-				Str("slot_id", dead.ID.String()).
-				Msg("rescheduling work for dead slot")
-			err := s.Enqueue(work)
+		// If it's not the same model name, skip
+		if slot.InitialWork().ModelName() != req.ModelName() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, model name mismatch")
+			return true
+		}
+
+		// If it's not the same runtime, skip
+		if slot.InitialWork().Runtime() != req.Runtime() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, inference runtime mismatch")
+			return true
+		}
+
+		// If the slot is already running another job, skip
+		if slot.IsActive() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, already active")
+			return true
+		}
+
+		// If it doesn't have the right LoraDir then skip
+		if slot.InitialWork().LoraDir() != req.LoraDir() {
+			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.InitialWork().LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
+			return true
+		}
+
+		// Add available slots to the list.
+		cosyWarm = append(cosyWarm, slot)
+		return true
+	})
+	return cosyWarm
+}
+
+func (s *Scheduler) pickBestWarmSlot(warmSlots []*Slot) *Slot {
+	// If we only have one slot, return it
+	if len(warmSlots) == 1 {
+		return warmSlots[0]
+	}
+
+	// Group slots by runner
+	runnerSlots := make(map[string][]*Slot)
+	for _, slot := range warmSlots {
+		runnerSlots[slot.RunnerID] = append(runnerSlots[slot.RunnerID], slot)
+	}
+
+	// Count active slots per runner
+	activeSlots := make(map[string]int)
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.IsActive() {
+			activeSlots[slot.RunnerID]++
+		}
+		return true
+	})
+
+	// Sort slots considering:
+	// 1. Runner load (prefer less loaded runners)
+	// 2. Last activity time (prefer more recently used slots)
+	// 3. Random factor for tie-breaking
+	slices.SortFunc(warmSlots, func(i, j *Slot) int {
+		// First compare runner load
+		if activeSlots[i.RunnerID] != activeSlots[j.RunnerID] {
+			return activeSlots[i.RunnerID] - activeSlots[j.RunnerID]
+		}
+
+		// Then prefer more recently used slots (reverse of current order)
+		if !i.LastActivityTime.Equal(j.LastActivityTime) {
+			return int(j.LastActivityTime.Sub(i.LastActivityTime))
+		}
+
+		// Random tie-breaker
+		return rand.Intn(3) - 1
+	})
+
+	return warmSlots[0]
+}
+
+// AllocateSlot assigns a workload to a specific slot, validating the model and slot before scheduling.
+func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
+	// Validate slot
+	slot, ok := s.slots.Load(slotID)
+	if !ok {
+		return fmt.Errorf("slot not found: %s", slot.ID.String())
+	}
+
+	// Ensure the slot is not already scheduled or active.
+	if slot.IsActive() {
+		return fmt.Errorf("slot already active: %s", slot.ID.String())
+	}
+
+	// Marks the slot as locally active. This is reset in the reconciliation process.
+	withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("starting slot")
+	slot.Start()
+
+	// Can do the rest in a goroutine, no need to wait for it to submit
+	go func() {
+		// Submit the work to the slot
+		switch req.WorkloadType {
+		case WorkloadTypeLLMInferenceRequest:
+			withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
+			err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
 			if err != nil {
-				log.Error().
-					Err(err).
-					Str("runner_id", id).
-					Str("slot_id", dead.ID.String()).
-					Msg("failed to reschedule work for dead slot")
-				continue
+				s.onSchedulingErr(req, err)
+				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
+			}
+		case WorkloadTypeSession:
+			switch req.Session().Mode {
+			case types.SessionModeInference:
+				switch req.Session().Type {
+				case types.SessionTypeImage:
+					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting text2image request")
+					err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
+					if err != nil {
+						s.onSchedulingErr(req, err)
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting text2image request")
+					}
+				case types.SessionTypeText:
+					if req.Session().LoraDir != "" {
+						withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting LORA text inference request")
+						// Overwrite the request model name with the helix lora model details
+						convertedRequest := req.ToLLMInferenceRequest()
+						convertedRequest.Request.Model = req.Session().LoraDir
+
+						// Forward the request to the chat completion handler
+						err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
+						if err != nil {
+							s.onSchedulingErr(req, err)
+							withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting LORA inference request")
+						}
+					} else {
+						s.onSchedulingErr(req, fmt.Errorf("not implemented: %s and no lora dir", req.Session().Type))
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: no lora dir")
+					}
+				default:
+					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
+				}
+			case types.SessionModeFinetune:
+				switch req.Session().Type {
+				case types.SessionTypeText:
+					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting finetuning request")
+					err := s.controller.SubmitFinetuningRequest(slot, req.Session())
+					if err != nil {
+						s.onSchedulingErr(req, err)
+						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting finetuning request")
+					}
+				default:
+					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
+				}
+			default:
+				s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Mode))
+				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session mode")
 			}
 		}
+
+		withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("finished submitting request")
+	}()
+
+	return nil
+}
+
+// createNewSlot creates a new slot for the given runner and workload.
+func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
+	withSlotContext(&log.Logger, slot).Info().Msg("creating new slot on runner")
+
+	err := s.controller.CreateSlot(slot)
+	if err != nil {
+		return err
 	}
+
+	// Wait for the slot to be ready
+	slotReady := make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+				if s, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
+					if s.Ready {
+						slotReady <- true
+					}
+				}
+			}
+		}
+	}()
+	select {
+	case <-slotReady:
+	case <-time.After(120 * time.Second):
+		return fmt.Errorf("slot not ready after 120 seconds")
+	}
+
+	// Mark the slot as running
+	slot.SetRunning()
+	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
+
+	return nil
+}
+
+// AddWorkFields adds standard work-related fields to a log event
+func withWorkContext(l *zerolog.Logger, w *Workload) *zerolog.Logger {
+	nextLogger := l.With().
+		Str("work_id", w.ID()).
+		Str("model_name", w.ModelName().String()).
+		Str("mode", string(w.Mode())).
+		Str("runtime", string(w.Runtime())).
+		Str("lora_dir", w.LoraDir()).
+		Dur("duration_ms", time.Since(w.Created())).
+		Logger()
+	return &nextLogger
+}
+
+// AddSlotFields adds standard slot-related fields to a log event
+func withSlotContext(l *zerolog.Logger, s *Slot) *zerolog.Logger {
+	nextLogger := l.With().
+		Str("runner_id", s.RunnerID).
+		Str("slot_id", s.ID.String()).
+		Str("model_name", s.InitialWork().ModelName().String()).
+		Uint64("memory", s.Memory()).
+		Logger()
+	return &nextLogger
+}
+
+func withSlotAndWorkContext(l *zerolog.Logger, s *Slot, w *Workload) *zerolog.Logger {
+	return withSlotContext(withWorkContext(l, w), s)
 }

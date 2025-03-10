@@ -147,7 +147,7 @@ func (suite *IndexerSuite) TestIndex() {
 		},
 	)
 
-	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
@@ -172,9 +172,114 @@ func (suite *IndexerSuite) TestIndex() {
 	suite.reconciler.wg.Wait()
 }
 
+func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
+	knowledge := &types.Knowledge{
+		ID: "knowledge_id",
+		RAGSettings: types.RAGSettings{
+			TextSplitter: types.TextSplitterTypeText,
+			ChunkSize:    2048,
+		},
+		Source: types.KnowledgeSource{
+			Filestore: &types.KnowledgeSourceHelixFilestore{
+				Path: "/test",
+			},
+		},
+	}
+
+	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State)
+			suite.Equal("", k.Message)
+			suite.Equal("", k.Version, "version should be empty when we start indexing")
+
+			return knowledge, nil
+		},
+	)
+
+	// Check filestore
+	suite.filestore.EXPECT().List(gomock.Any(), gomock.Any()).Return([]filestore.Item{}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateError, k.State)
+			suite.Equal("failed to get indexing data, error: no files found in filestore", k.Message)
+			return knowledge, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
+			// suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
+			suite.Equal(types.KnowledgeStateError, k.State, "knowledge should be error")
+			suite.Equal("failed to get indexing data, error: no files found in filestore", k.Message)
+			suite.Equal(knowledge.ID, k.KnowledgeID, "knowledge id should be set")
+
+			return k, nil
+		},
+	)
+
+	// Start indexing
+	err := suite.reconciler.index(suite.ctx)
+	suite.NoError(err)
+
+	// Wait for the goroutines to finish
+	suite.reconciler.wg.Wait()
+}
+
+func (suite *IndexerSuite) TestIndex_RetryRecent_ErrorNoFiles() {
+	knowledge := &types.Knowledge{
+		ID:      "knowledge_id",
+		Created: time.Now().Add(-1 * time.Minute),
+		RAGSettings: types.RAGSettings{
+			TextSplitter: types.TextSplitterTypeText,
+			ChunkSize:    2048,
+		},
+		Source: types.KnowledgeSource{
+			Filestore: &types.KnowledgeSourceHelixFilestore{
+				Path: "/test",
+			},
+		},
+	}
+
+	suite.store.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{knowledge}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStateIndexing, k.State)
+			suite.Equal("", k.Message)
+			suite.Equal("", k.Version, "version should be empty when we start indexing")
+
+			return knowledge, nil
+		},
+	)
+
+	// Check filestore
+	suite.filestore.EXPECT().List(gomock.Any(), gomock.Any()).Return([]filestore.Item{}, nil)
+
+	suite.store.EXPECT().UpdateKnowledge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
+			suite.Equal(types.KnowledgeStatePending, k.State)
+			suite.Equal("waiting for files to be uploaded", k.Message)
+			return knowledge, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Start indexing
+	err := suite.reconciler.index(suite.ctx)
+	suite.NoError(err)
+
+	// Wait for the goroutines to finish
+	suite.reconciler.wg.Wait()
+}
+
 func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
-	suite.cfg.RAG.Crawler.MaxPages = 50
-	suite.cfg.RAG.Crawler.MaxDepth = 3
+	suite.cfg.RAG.Crawler.MaxDepth = 30
 
 	knowledge := &types.Knowledge{
 		ID: "knowledge_id",
@@ -188,7 +293,6 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 				Crawler: &types.WebsiteCrawler{
 					Enabled:  true,
 					MaxDepth: 99999,
-					MaxPages: 99999,
 				},
 			},
 		},
@@ -202,8 +306,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 			suite.Equal("", k.Message)
 			suite.Equal("", k.Version, "version should be empty when we start indexing")
 
-			suite.Equal(50, k.Source.Web.Crawler.MaxPages, "max pages should be updated")
-			suite.Equal(3, k.Source.Web.Crawler.MaxDepth, "max depth should be updated")
+			suite.Equal(30, k.Source.Web.Crawler.MaxDepth, "max depth should be updated")
 
 			return knowledge, nil
 		},
@@ -258,7 +361,7 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 		},
 	)
 
-	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {

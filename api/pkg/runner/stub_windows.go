@@ -5,8 +5,8 @@ package runner
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -14,106 +14,135 @@ import (
 // It ensures that the package can be imported on Windows
 // without including any of the Unix-specific code.
 
-// ModelInstanceConfig stub
-type ModelInstanceConfig struct {
-	InitialSession    *types.Session
-	NextTaskURL       string
-	InitialSessionURL string
-	ResponseHandler   func(res *types.RunnerTaskResponse) error
-	GetNextSession    func() (*types.Session, error)
-	RunnerOptions     Options
+type AxolotlRuntime struct{}
+
+var _ Runtime = &AxolotlRuntime{}
+
+type AxolotlRuntimeParams struct {
+	RunnerOptions *Options
 }
 
-// RunnerOptions is already defined in controller.go, so we'll remove it from here
-
-// Stub implementation of AxolotlModelInstance
-var _ ModelInstance = &AxolotlModelInstance{}
-
-type AxolotlModelInstance struct{}
-
-func (a *AxolotlModelInstance) ID() string                                   { return "" }
-func (a *AxolotlModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
-func (a *AxolotlModelInstance) Stale() bool                                  { return false }
-func (a *AxolotlModelInstance) Model() model.Model                           { return nil }
-func (a *AxolotlModelInstance) NextSession() *types.Session                  { return nil }
-func (a *AxolotlModelInstance) SetNextSession(*types.Session)                {}
-func (a *AxolotlModelInstance) GetQueuedSession() *types.Session             { return nil }
-func (a *AxolotlModelInstance) Done() <-chan bool                            { return nil }
-func (a *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
-func (a *AxolotlModelInstance) QueueSession(*types.Session, bool)            {}
-func (a *AxolotlModelInstance) Start(context.Context) error                  { return nil }
-func (a *AxolotlModelInstance) Stop() error                                  { return nil }
-func (a *AxolotlModelInstance) IsActive() bool                               { return false }
-func (a *AxolotlModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
-	return nil, nil
+func NewAxolotlRuntime(_ context.Context, _ AxolotlRuntimeParams) (*AxolotlRuntime, error) {
+	return nil, fmt.Errorf("axolotl runtime is not supported on windows")
 }
 
-// Stub implementation of NewAxolotlModelInstance
-func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*AxolotlModelInstance, error) {
-	return nil, nil
+func (a *AxolotlRuntime) PullModel(_ context.Context, _ string, _ func(PullProgress) error) error {
+	panic("unimplemented")
 }
 
-// Stub implementation of killProcessTree
-func killProcessTree(pid int) error {
-	return nil
+func (a *AxolotlRuntime) Runtime() types.Runtime {
+	panic("unimplemented")
 }
 
-// FreePortFinder interface stub
-type FreePortFinder interface {
-	GetFreePort() (int, error)
+func (a *AxolotlRuntime) Start(_ context.Context) error {
+	panic("unimplemented")
 }
 
-// Stub implementation of FreePortFinder
-type stubFreePortFinder struct{}
-
-func (s *stubFreePortFinder) GetFreePort() (int, error) {
-	return 0, nil
+func (a *AxolotlRuntime) Stop() error {
+	panic("unimplemented")
 }
 
-var freePortFinder FreePortFinder = &stubFreePortFinder{}
-
-type CogModelInstance struct{}
-
-func (a *CogModelInstance) ID() string                                   { return "" }
-func (a *CogModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
-func (a *CogModelInstance) Stale() bool                                  { return false }
-func (a *CogModelInstance) Model() model.Model                           { return nil }
-func (a *CogModelInstance) NextSession() *types.Session                  { return nil }
-func (a *CogModelInstance) SetNextSession(*types.Session)                {}
-func (a *CogModelInstance) GetQueuedSession() *types.Session             { return nil }
-func (a *CogModelInstance) Done() <-chan bool                            { return nil }
-func (a *CogModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
-func (a *CogModelInstance) QueueSession(*types.Session, bool)            {}
-func (a *CogModelInstance) Start(context.Context) error                  { return nil }
-func (a *CogModelInstance) Stop() error                                  { return nil }
-func (a *CogModelInstance) IsActive() bool                               { return false }
-func (a *CogModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
-	return nil, nil
-}
-func NewCogModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*CogModelInstance, error) {
-	return nil, nil
+func (a *AxolotlRuntime) URL() string {
+	panic("unimplemented")
 }
 
-var _ ModelInstance = &DiffusersModelInstance{}
-
-type DiffusersModelInstance struct{}
-
-func (a *DiffusersModelInstance) ID() string                                   { return "" }
-func (a *DiffusersModelInstance) Filter() types.SessionFilter                  { return types.SessionFilter{} }
-func (a *DiffusersModelInstance) Stale() bool                                  { return false }
-func (a *DiffusersModelInstance) Model() model.Model                           { return nil }
-func (a *DiffusersModelInstance) NextSession() *types.Session                  { return nil }
-func (a *DiffusersModelInstance) SetNextSession(*types.Session)                {}
-func (a *DiffusersModelInstance) GetQueuedSession() *types.Session             { return nil }
-func (a *DiffusersModelInstance) Done() <-chan bool                            { return nil }
-func (a *DiffusersModelInstance) GetState() (*types.ModelInstanceState, error) { return nil, nil }
-func (a *DiffusersModelInstance) QueueSession(*types.Session, bool)            {}
-func (a *DiffusersModelInstance) Start(context.Context) error                  { return nil }
-func (a *DiffusersModelInstance) Stop() error                                  { return nil }
-func (a *DiffusersModelInstance) IsActive() bool                               { return false }
-func (a *DiffusersModelInstance) AssignSessionTask(context.Context, *types.Session) (*types.RunnerTask, error) {
-	return nil, nil
+func (a *AxolotlRuntime) Version() string {
+	panic("unimplemented")
 }
-func NewDiffusersModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*DiffusersModelInstance, error) {
-	return nil, nil
+
+func (a *AxolotlRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (a *AxolotlRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
+}
+
+var _ Runtime = &DiffusersRuntime{}
+
+type DiffusersRuntime struct {
+}
+
+type DiffusersRuntimeParams struct {
+	CacheDir *string
+}
+
+func NewDiffusersRuntime(_ context.Context, _ DiffusersRuntimeParams) (*DiffusersRuntime, error) {
+	return nil, fmt.Errorf("diffusers runtime is not supported on windows")
+}
+
+func (d *DiffusersRuntime) PullModel(_ context.Context, _ string, _ func(PullProgress) error) error {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) Runtime() types.Runtime {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) Start(_ context.Context) error {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) Stop() error {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) URL() string {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) Version() string {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
+}
+
+type OllamaRuntime struct{}
+
+type OllamaRuntimeParams struct {
+	CacheDir *string
+}
+
+var _ Runtime = &OllamaRuntime{}
+
+func NewOllamaRuntime(_ context.Context, _ OllamaRuntimeParams) (*OllamaRuntime, error) {
+	return nil, fmt.Errorf("ollama runtime is not supported on windows")
+}
+
+func (o *OllamaRuntime) PullModel(_ context.Context, _ string, _ func(PullProgress) error) error {
+	panic("unimplemented")
+}
+
+func (o *OllamaRuntime) Runtime() types.Runtime {
+	panic("unimplemented")
+}
+
+func (o *OllamaRuntime) Start(_ context.Context) error {
+	panic("unimplemented")
+}
+
+func (o *OllamaRuntime) Stop() error {
+	panic("unimplemented")
+}
+
+func (o *OllamaRuntime) URL() string {
+	panic("unimplemented")
+}
+
+func (o *OllamaRuntime) Version() string {
+	panic("unimplemented")
+}
+
+func (o *OllamaRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (a *OllamaRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
 }

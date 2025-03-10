@@ -36,26 +36,34 @@ type authMiddlewareConfig struct {
 }
 
 type authMiddleware struct {
-	authenticator auth.Authenticator
-	store         store.Store
-	cfg           authMiddlewareConfig
+	authenticator         auth.AuthenticatorOIDC
+	keycloakAuthenticator auth.Authenticator
+	store                 store.Store
+	cfg                   authMiddlewareConfig
 }
 
 func newAuthMiddleware(
-	authenticator auth.Authenticator,
+	authenticator auth.AuthenticatorOIDC,
+	keycloakAuthenticator auth.Authenticator,
 	store store.Store,
 	cfg authMiddlewareConfig,
 ) *authMiddleware {
 	return &authMiddleware{
-		authenticator: authenticator,
-		store:         store,
-		cfg:           cfg,
+		authenticator:         authenticator,
+		keycloakAuthenticator: keycloakAuthenticator,
+		store:                 store,
+		cfg:                   cfg,
 	}
+}
+
+type tokenAcct struct {
+	jwt    *jwt.Token
+	userID string
 }
 
 type account struct {
 	userID string
-	token  *jwt.Token
+	token  *tokenAcct
 }
 
 type accountType string
@@ -83,15 +91,15 @@ func (auth *authMiddleware) isAdmin(acct account) bool {
 
 	switch auth.cfg.adminUserSrc {
 	case config.AdminSrcTypeEnv:
-		if acct.Type() != accountTypeUser {
-			return false
+		if acct.Type() == accountTypeUser {
+			return auth.isUserAdmin(acct.userID)
 		}
-		return auth.isUserAdmin(acct.userID)
+		return auth.isUserAdmin(acct.token.userID)
 	case config.AdminSrcTypeJWT:
 		if acct.Type() != accountTypeToken {
 			return false
 		}
-		return auth.isTokenAdmin(acct.token)
+		return auth.isTokenAdmin(acct.token.jwt)
 	}
 	return false
 }
@@ -136,6 +144,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
+		if auth.keycloakAuthenticator == nil {
+			return nil, fmt.Errorf("keycloak is required for Helix API key authentication")
+		}
 		// we have an API key - we should load it from the database and construct our user that way
 		apiKey, err := auth.store.GetAPIKey(ctx, token)
 		if err != nil {
@@ -145,7 +156,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			return nil, fmt.Errorf("error getting API key: %w", ErrNoAPIKeyFound)
 		}
 
-		user, err := auth.authenticator.GetUserByID(ctx, apiKey.Owner)
+		user, err := auth.keycloakAuthenticator.GetUserByID(ctx, apiKey.Owner)
 		if err != nil {
 			return user, fmt.Errorf("error loading user from keycloak: %s", err.Error())
 		}
@@ -163,29 +174,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	// otherwise we try to decode the token with keycloak
-	keycloakJWT, err := auth.authenticator.ValidateUserToken(ctx, token)
-	if err != nil {
-		return nil, fmt.Errorf("error validating keycloak token: %s", err.Error())
-	}
-	mc := keycloakJWT.Claims.(jwt.MapClaims)
-	keycloakUserID := mc["sub"].(string)
-
-	if keycloakUserID == "" {
-		return nil, fmt.Errorf("error getting keycloak user ID: %w", ErrNoUserIDFound)
-	}
-
-	user, err := auth.authenticator.GetUserByID(ctx, keycloakUserID)
-	if err != nil {
-		return user, fmt.Errorf("error loading user from keycloak: %s", err.Error())
-	}
-
-	user.Token = token
-	user.TokenType = types.TokenTypeKeycloak
-	user.ID = keycloakUserID
-	user.Type = types.OwnerTypeUser
-	user.Admin = auth.isAdmin(account{token: keycloakJWT})
-
-	return user, nil
+	return auth.authenticator.ValidateUserToken(ctx, token)
 }
 
 // this will extract the token from the request and then load the correct

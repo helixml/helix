@@ -42,6 +42,20 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 	return m.recorder
 }
 
+// APIKey mocks base method.
+func (m *MockClient) APIKey() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "APIKey")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// APIKey indicates an expected call of APIKey.
+func (mr *MockClientMockRecorder) APIKey() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "APIKey", reflect.TypeOf((*MockClient)(nil).APIKey))
+}
+
 // CreateChatCompletion mocks base method.
 func (m *MockClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	m.ctrl.T.Helper()
@@ -70,6 +84,21 @@ func (m *MockClient) CreateChatCompletionStream(ctx context.Context, request ope
 func (mr *MockClientMockRecorder) CreateChatCompletionStream(ctx, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChatCompletionStream", reflect.TypeOf((*MockClient)(nil).CreateChatCompletionStream), ctx, request)
+}
+
+// CreateEmbeddings mocks base method.
+func (m *MockClient) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEmbeddings", ctx, request)
+	ret0, _ := ret[0].(openai.EmbeddingResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEmbeddings indicates an expected call of CreateEmbeddings.
+func (mr *MockClientMockRecorder) CreateEmbeddings(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEmbeddings", reflect.TypeOf((*MockClient)(nil).CreateEmbeddings), ctx, request)
 }
 
 // ListModels mocks base method.

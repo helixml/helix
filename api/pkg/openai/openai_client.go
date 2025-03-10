@@ -19,6 +19,9 @@ import (
 const (
 	retries             = 3
 	delayBetweenRetries = time.Second
+
+	embeddingRetries = 5
+	embeddingDelay   = 3 * time.Second
 )
 
 //go:generate mockgen -source $GOFILE -destination openai_client_mocks.go -package $GOPACKAGE
@@ -28,6 +31,10 @@ type Client interface {
 	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 
 	ListModels(ctx context.Context) ([]model.OpenAIModel, error)
+
+	CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error)
+
+	APIKey() string
 }
 
 func New(apiKey string, baseURL string) *RetryableClient {
@@ -52,12 +59,17 @@ type RetryableClient struct {
 	apiKey     string
 }
 
+// APIKey - returns the API key used by the client, used for testing
+func (c *RetryableClient) APIKey() string {
+	return c.apiKey
+}
+
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			if strings.Contains(err.Error(), "401 Unauthorized") {
+			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") {
 				return retry.Unrecoverable(err)
 			}
 
@@ -180,4 +192,24 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 	}
 
 	return models, nil
+}
+
+func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+	// Perform request with retries
+	err = retry.Do(func() error {
+		resp, err = c.apiClient.CreateEmbeddings(ctx, request)
+		if err != nil {
+			if strings.Contains(err.Error(), "401 Unauthorized") {
+				return retry.Unrecoverable(err)
+			}
+			return err
+		}
+		return nil
+	},
+		retry.Attempts(embeddingRetries),
+		retry.Delay(embeddingDelay),
+		retry.Context(ctx),
+	)
+
+	return
 }

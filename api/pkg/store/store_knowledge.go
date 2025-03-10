@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -55,6 +56,11 @@ func setDefaultKnowledgeRAGSettings(knowledge *types.Knowledge) {
 	}
 	if knowledge.RAGSettings.Threshold == 0 {
 		knowledge.RAGSettings.Threshold = DefaultKnowledgeThreshold
+	}
+	// Only disable chunking if Haystack is the RAG provider
+	// XXX factor this properly into the config (or set it from somewhere else)
+	if os.Getenv("RAG_DEFAULT_PROVIDER") == "haystack" {
+		knowledge.RAGSettings.DisableChunking = true
 	}
 }
 
@@ -118,15 +124,14 @@ func (s *PostgresStore) UpdateKnowledge(ctx context.Context, knowledge *types.Kn
 	return s.GetKnowledge(ctx, knowledge.ID)
 }
 
-func (s *PostgresStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string, percent int) error {
+func (s *PostgresStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")
 	}
 
 	return s.gdb.WithContext(ctx).Model(&types.Knowledge{}).Where("id = ?", id).Updates(&types.Knowledge{
-		State:           state,
-		ProgressPercent: percent,
-		Message:         message,
+		State:   state,
+		Message: message,
 	}).Error
 }
 

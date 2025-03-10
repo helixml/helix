@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -27,9 +29,11 @@ type KeycloakAuthenticator struct {
 	adminTokenMu      *sync.Mutex
 	adminToken        *gocloak.JWT
 	adminTokenExpires time.Time
+
+	store store.Store
 }
 
-func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, error) {
+func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*KeycloakAuthenticator, error) {
 	gck := gocloak.NewClient(cfg.KeycloakURL)
 
 	log.Info().Str("keycloak_url", cfg.KeycloakURL).Msg("connecting to keycloak...")
@@ -66,6 +70,7 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 		cfg:          cfg,
 		gocloak:      gck,
 		adminTokenMu: &sync.Mutex{},
+		store:        store,
 	}, nil
 }
 
@@ -79,7 +84,14 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 
 	if idOfClient == "" {
 		log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
-		idOfClient, err = gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.APIClientID})
+		idOfClient, err = gck.CreateClient(context.Background(),
+			token, cfg.Realm,
+			gocloak.Client{
+				ClientID:     &cfg.APIClientID,
+				RedirectURIs: &[]string{"*"},
+				WebOrigins:   &[]string{"*"},
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
 		}
@@ -160,6 +172,11 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 			return fmt.Errorf("setRealmConfiguration: error decoding realm.json: %s", err.Error())
 		}
 
+		// Initialize attributes if not set
+		if keycloakRealmConfig.Attributes == nil {
+			keycloakRealmConfig.Attributes = &map[string]string{}
+		}
+
 		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
 		if err != nil {
 			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
@@ -169,6 +186,11 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 		if err != nil {
 			return fmt.Errorf("setRealmConfiguration: failed to get Keycloak realm, attempt to update realm config failed with: %s", err.Error())
 		}
+	}
+
+	// Initialize attributes if not set
+	if realm.Attributes == nil {
+		realm.Attributes = &map[string]string{}
 	}
 
 	attributes := *realm.Attributes
@@ -243,12 +265,64 @@ func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) 
 		return nil, err
 	}
 
-	return &types.User{
+	storeUser := &types.User{
 		ID:       gocloak.PString(user.ID),
 		Username: gocloak.PString(user.Username),
 		Email:    gocloak.PString(user.Email),
 		FullName: fmt.Sprintf("%s %s", gocloak.PString(user.FirstName), gocloak.PString(user.LastName)),
-	}, nil
+	}
+
+	err = k.ensureStoreUser(storeUser)
+	if err != nil {
+		return nil, err
+	}
+
+	return storeUser, nil
+}
+
+// ensureStoreUser syncs user with the database record
+func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	existing, err := k.store.GetUser(ctx, &store.GetUserQuery{
+		ID: user.ID,
+	})
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("ensureStoreUser: error getting user: %w", err)
+		}
+	}
+
+	if existing == nil {
+		_, err = k.store.CreateUser(ctx, user)
+		if err != nil {
+			if strings.Contains(err.Error(), "duplicate key") {
+				return nil
+			}
+			return fmt.Errorf("ensureStoreUser: error creating user: %w", err)
+		}
+
+		// OK
+		return nil
+	}
+
+	// If email or name hasn't changed, don't update
+	if existing.Email == user.Email && existing.FullName == user.FullName && existing.Username == user.Username {
+		return nil
+	}
+
+	// Update user
+	existing.Email = user.Email
+	existing.FullName = user.FullName
+	existing.Username = user.Username
+
+	_, err = k.store.UpdateUser(ctx, existing)
+	if err != nil {
+		return fmt.Errorf("ensureStoreUser: error updating user: %w", err)
+	}
+
+	return nil
 }
 
 func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {

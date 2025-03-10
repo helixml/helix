@@ -3,6 +3,7 @@ description: |
   A simple app that demonstrates how to provide knowledge to a Helix app
 assistants:
 - name: Helix
+  model: llama3.1:8b-instruct-q8_0
   description: Know
   knowledge:
   - name: cars

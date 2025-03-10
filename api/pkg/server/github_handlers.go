@@ -183,7 +183,7 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(ctx context.Context, use
 			}
 		}
 	}
-	_, err = apiServer.Store.CreateAPIKey(ctx, &types.APIKey{
+	_, err = apiServer.Store.CreateAPIKey(ctx, &types.ApiKey{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 		Name:      "github-oauth",

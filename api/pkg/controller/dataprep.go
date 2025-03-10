@@ -286,14 +286,12 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 		return nil, err
 	}
 
-	log.Debug().Int("beforechunks", len(splitter.Chunks)).Msg("PHIL")
 	// Some qapair generators expand each chunk into N chunks so they can be run
 	// by our outer concurrency manager
 	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
 	if err != nil {
 		return nil, err
 	}
-	log.Debug().Int("afterChunks", len(allChunks)).Msg("PHIL")
 
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
 	for _, chunk := range allChunks {
@@ -306,16 +304,7 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 }
 
 func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
-	log.Debug().Msg("PHIL getRagChunksToProcess")
 	filesToConvert, err := c.getTextFilesToConvert(session)
-	if err != nil {
-		return nil, err
-	}
-
-	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
-		ChunkSize: session.Metadata.RagSettings.ChunkSize,
-		Overflow:  session.Metadata.RagSettings.ChunkOverflow,
-	})
 	if err != nil {
 		return nil, err
 	}
@@ -327,9 +316,43 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 		newMeta.DocumentIDs = map[string]string{}
 	}
 
-	log.Debug().
-		Interface("filesToConvert", filesToConvert).
-		Msg("PHIL Files to convert for RAG processing")
+	// If chunking is disabled, create one chunk per file
+	if session.Metadata.RagSettings.DisableChunking {
+		chunks := []*text.DataPrepTextSplitterChunk{}
+		for _, file := range filesToConvert {
+			fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+			if err != nil {
+				return nil, err
+			}
+			documentID := system.GenerateUUID()
+			newMeta.DocumentIDs[file] = documentID
+
+			chunks = append(chunks, &text.DataPrepTextSplitterChunk{
+				Text:            fileContent,
+				Index:           0,
+				Filename:        file,
+				DocumentID:      documentID,
+				DocumentGroupID: documentGroupID,
+			})
+		}
+
+		_, err = c.UpdateSessionMetadata(context.TODO(), session, &newMeta)
+		if err != nil {
+			return nil, err
+		}
+
+		return chunks, nil
+	}
+
+	// Otherwise use the splitter for normal chunking
+	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+		ChunkSize: session.Metadata.RagSettings.ChunkSize,
+		Overflow:  session.Metadata.RagSettings.ChunkOverflow,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	for _, file := range filesToConvert {
 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
 		if err != nil {
@@ -481,10 +504,6 @@ func (c *Controller) convertChunksToQuestions(ctx context.Context, session *type
 	if err != nil {
 		return nil, 0, err
 	}
-	log.Debug().
-		Int("chunksToProcess", len(chunksToProcess)).
-		Str("sessionID", session.ID).
-		Msg("PHIL Retrieved chunks to process for QA conversion")
 
 	if len(chunksToProcess) == 0 {
 		return session, 0, nil

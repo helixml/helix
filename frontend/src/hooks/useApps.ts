@@ -1,5 +1,7 @@
 import React, { FC, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import useApi from '../hooks/useApi'
+import useAccount from '../hooks/useAccount'
+import { throttle } from 'lodash'
 
 import {
   IApp,
@@ -9,11 +11,14 @@ import {
   IGithubStatus,
   APP_SOURCE_GITHUB,
   APP_SOURCE_HELIX,
+  SESSION_TYPE_TEXT,
 } from '../types'
 
 export const useApps = () => {
   const api = useApi()
+  const account = useAccount()
   const mountedRef = useRef(true)
+  const [isLoading, setIsLoading] = useState(false)
   
   const [ data, setData ] = useState<IApp[]>([])
   const [ app, setApp ] = useState<IApp>()
@@ -23,9 +28,41 @@ export const useApps = () => {
   const [ connectError, setConnectError ] = useState('')
   const [ connectLoading, setConectLoading ] = useState(false)
 
+  // Create a ref for the throttled function
+  const throttledLoadRef = useRef<any>(null)
+  
+  // Initialize the throttled function once
   useEffect(() => {
+    throttledLoadRef.current = throttle(async (force = false) => {
+      if (isLoading) return
+      setIsLoading(true)
+      
+      try {
+        let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
+          snackbar: true,
+        })
+        if(result === null) result = []  
+        if(!mountedRef.current) return
+        setData(result)
+      } finally {
+        if(mountedRef.current) {
+          setIsLoading(false)
+        }
+      }
+    }, 1000, { leading: true, trailing: false })
+
+    // Cleanup
     return () => {
-      mountedRef.current = false
+      if (throttledLoadRef.current?.cancel) {
+        throttledLoadRef.current.cancel()
+      }
+    }
+  }, []) // Empty deps array - only create once
+
+  // Expose loadData as a wrapper around the throttled function
+  const loadData = useCallback(async (force = false) => {
+    if (throttledLoadRef.current) {
+      await throttledLoadRef.current(force)
     }
   }, [])
 
@@ -40,15 +77,6 @@ export const useApps = () => {
   }, [
     data,
   ])
-
-  const loadData = useCallback(async () => {
-    let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
-      snackbar: true,
-    })
-    if(result === null) result = []  
-    if(!result || !mountedRef.current) return
-    setData(result)
-  }, [])
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
     if(!id) return
@@ -147,6 +175,9 @@ export const useApps = () => {
   const createEmptyHelixApp = useCallback(async (): Promise<IApp | undefined> => {
     console.log("useApps: Creating new empty app");
     try {
+      // Get the first available model
+      const defaultModel = account.models && account.models.length > 0 ? account.models[0].id : '';
+
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
         app_source: 'helix',
         config: {
@@ -156,7 +187,21 @@ export const useApps = () => {
             description: '',
             avatar: '',
             image: '',
-            assistants: [],
+            assistants: [{
+              name: 'Default Assistant',
+              description: '',
+              avatar: '',
+              image: '',
+              model: defaultModel,
+              type: SESSION_TYPE_TEXT,
+              system_prompt: '',
+              apis: [],
+              gptscripts: [],
+              tools: [],
+              rag_source_id: '',
+              lora_id: '',
+              is_actionable_template: '',
+            }],
           },
           secrets: {},
           allowed_domains: [],
@@ -179,7 +224,7 @@ export const useApps = () => {
       console.error("useApps: Error creating app:", error);
       throw error; // Re-throw the error so it can be caught in the component
     }
-  }, [api])
+  }, [api, account.models])
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
     try {
@@ -235,6 +280,7 @@ export const useApps = () => {
     githubReposLoading,
     connectError,
     connectLoading,
+    isLoading,
   }
 }
 

@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrRunnersAreFull     = errors.New("runners are full")
+	ErrRunnersAreFull     = errors.New("runner is full and no slots are stale")
 	ErrNoRunnersAvailable = errors.New("no runners available")
 	ErrModelWontFit       = errors.New("model won't fit in any runner")
+	ErrPendingSlotsFull   = errors.New("pending slots are full")
 )
 
 // ErrorHandlingStrategy is a function that handles errors returned by the scheduler.
@@ -25,6 +26,12 @@ func ErrorHandlingStrategy(schedulerError error, work *Workload) (bool, error) {
 
 	// If the runners are just full with work, keep the work in the queue and retry later.
 	if errors.Is(schedulerError, ErrRunnersAreFull) {
+		l.Trace().Err(schedulerError).Msgf("unable to schedule, retrying...")
+		return true, nil
+	}
+
+	// If the pending slots are full, retry the request later.
+	if errors.Is(schedulerError, ErrPendingSlotsFull) {
 		l.Trace().Err(schedulerError).Msgf("unable to schedule, retrying...")
 		return true, nil
 	}

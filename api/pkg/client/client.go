@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -42,6 +40,29 @@ type Client interface {
 	FilestoreList(ctx context.Context, path string) ([]filestore.Item, error)
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
+
+	ListProviderEndpoints(ctx context.Context) ([]*types.ProviderEndpoint, error)
+	GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error)
+	CreateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
+	UpdateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
+	DeleteProviderEndpoint(ctx context.Context, id string) error
+
+	// Organizations
+	ListOrganizations(ctx context.Context) ([]*types.Organization, error)
+	GetOrganization(ctx context.Context, reference string) (*types.Organization, error)
+	CreateOrganization(ctx context.Context, organization *types.Organization) (*types.Organization, error)
+	UpdateOrganization(ctx context.Context, id string, organization *types.Organization) (*types.Organization, error)
+
+	// Organization Members
+	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*types.OrganizationMembership, error)
+	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	UpdateOrganizationMember(ctx context.Context, organizationID, userID string, req *types.UpdateOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
+
+	// App Access Grants
+	ListAppAccessGrants(ctx context.Context, f *AppAccessGrantsFilter) ([]*types.AccessGrant, error)
+	CreateAppAccessGrant(ctx context.Context, appID string, grant *types.CreateAccessGrantRequest) (*types.AccessGrant, error)
+	DeleteAppAccessGrant(ctx context.Context, appID, grantID string) error
 }
 
 // HelixClient is the client for the helix api
@@ -117,19 +138,11 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode >= 300 {
 		bts, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("status code %d", resp.StatusCode)
 		}
-		log.Error().
-			Err(err).
-			Int("status_code", resp.StatusCode).
-			Str("body", string(bts)).
-			Str("url", fullURL).
-			Str("method", method).
-			Str("request_body", string(bodyBytes)).
-			Msg("error")
 		return fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
 	}
 

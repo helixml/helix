@@ -2,6 +2,7 @@ name: gpt-script-recipe-generator
 description: A simple app that demonstrates how to use gptscripts
 assistants:
 - name: Recipe Generator  
+  model: llama3.1:8b-instruct-q8_0
   gptscripts:      
     - file: gptscripts/recipe_generator.gpt
       description: use this tool to generate recipes

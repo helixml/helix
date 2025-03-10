@@ -47,6 +47,10 @@ func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, 
 	}
 }
 
+func (m *LoggingMiddleware) APIKey() string {
+	return m.client.APIKey()
+}
+
 func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
 	return m.client.ListModels(ctx)
 }
@@ -237,4 +241,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 			log.Error().Err(err).Msg("failed to log LLM call")
 		}
 	}
+}
+
+// No-op, not logging embeddings calls
+func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
+	return m.client.CreateEmbeddings(ctx, request)
 }

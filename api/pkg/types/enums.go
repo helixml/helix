@@ -107,6 +107,7 @@ const (
 	OwnerTypeUser   OwnerType = "user"
 	OwnerTypeRunner OwnerType = "runner"
 	OwnerTypeSystem OwnerType = "system"
+	OwnerTypeSocket OwnerType = "socket"
 )
 
 type PaymentType string
@@ -320,7 +321,9 @@ const (
 	TokenTypeNone     TokenType = ""
 	TokenTypeRunner   TokenType = "runner"
 	TokenTypeKeycloak TokenType = "keycloak"
+	TokenTypeOIDC     TokenType = "oidc"
 	TokenTypeAPIKey   TokenType = "api_key"
+	TokenTypeSocket   TokenType = "socket"
 )
 
 type ScriptRunState string
@@ -336,4 +339,5 @@ type Extractor string
 const (
 	ExtractorTika         Extractor = "tika"
 	ExtractorUnstructured Extractor = "unstructured"
+	ExtractorHaystack     Extractor = "haystack"
 )

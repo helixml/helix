@@ -1,7 +1,7 @@
 **HELIXML INC. DATA PROCESSING AGREEMENT**
 Last updated August 27th 2024
 
-This Data Processing Agreement for HelixML Inc. Services (“DPA”) forms a part of the software subscription agreement or other written agreement between HelixML Inc. (“Helix”) and Customer (“Agreement”) regarding Helix’s subscriptions and/or products or services provided by Helix and ordered by Customer (the “Service”) in accordance with the Agreement. All contacts regarding this DPA must be made to: privacy@helix.com.
+This Data Processing Agreement for HelixML Inc. Services (“DPA”) forms a part of the software subscription agreement or other written agreement between HelixML Inc. (“Helix”) and Customer (“Agreement”) regarding Helix’s subscriptions and/or products or services provided by Helix and ordered by Customer (the “Service”) in accordance with the Agreement. All contacts regarding this DPA must be made to: founders@helix.ml.
 
 ### 1. DEFINITIONS
 Capitalized terms shall have the meaning set out below. Any capitalized terms not defined in this DPA shall have the meaning set out in the Agreement or as otherwise defined in the applicable data protection laws and regulations:
@@ -53,13 +53,11 @@ Capitalized terms shall have the meaning set out below. Any capitalized terms no
 ### 4. DATA SECURITY
 4.1. Helix will implement and maintain technical and organizational measures to protect Personal Data against accidental or unlawful destruction, loss, alteration, unauthorized disclosure, or access (“Security Measures”). Those are further described in Appendix 2. Helix may update or modify the Security Measures from time to time at its discretion, provided that such updates and modifications do not result in the degradation of the overall security of the Service.
 
-4.2. Helix will take appropriate steps to ensure compliance with the Security Measures by its employees, contractors, and Sub-processors to the extent applicable to their scope of performance, including ensuring that all persons authorized to process Personal Data have committed themselves to confidentiality or are under an appropriate statutory obligation of confidentiality. Helix maintains a list of Sub-processors available for consultation at https://www.helix.com/trust/privacy/sub-processors/
+4.2. Helix will take appropriate steps to ensure compliance with the Security Measures by its employees, contractors, and Sub-processors to the extent applicable to their scope of performance, including ensuring that all persons authorized to process Personal Data have committed themselves to confidentiality or are under an appropriate statutory obligation of confidentiality. Helix maintains a list of Sub-processors available on request.
 
-4.3. Helix is regularly audited by independent third parties and holds a SOC 2 Type I attestation report.
+4.3. Helix will assist Customer in ensuring compliance with any of its obligations in respect of security of Personal Data and Breach Events.
 
-4.4. Helix will assist Customer in ensuring compliance with any of its obligations in respect of security of Personal Data and Breach Events.
-
-4.5. Helix shall notify Customer without undue delay but in no event later than seventy-two (72) hours after becoming aware of any Breach Event.
+4.4. Helix shall notify Customer without undue delay but in no event later than seventy-two (72) hours after becoming aware of any Breach Event.
 
 ### 5. SUB-PROCESSORS
 5.1. Customer acknowledges and agrees that Helix may engage Sub-Processor(s) in the performance of the Service(s) on Customer’s behalf. All Sub-Processors to whom Helix transfers Personal Data are bound by substantially the same material obligations as Helix undertakes under this DPA and provide adequate guarantees of security and compliance. Helix will be liable for the acts and omissions of its Sub-Processors to the same extent that Helix would be liable if performing the Service directly, under the terms of the Agreement.

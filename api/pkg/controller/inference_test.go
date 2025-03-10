@@ -41,12 +41,16 @@ type ControllerSuite struct {
 	controller *Controller
 }
 
-func (suite *ControllerSuite) SetupTest() {
+func (suite *ControllerSuite) SetupSuite() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New(suite.T().TempDir())
+	ps, err := pubsub.New(&config.ServerConfig{
+		PubSub: config.PubSub{
+			Provider: string(pubsub.ProviderMemory),
+		},
+	})
 	suite.NoError(err)
 
 	suite.pubsub = ps
@@ -68,9 +72,18 @@ func (suite *ControllerSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = types.ProviderTogetherAI
+	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
-	scheduler := scheduler.NewScheduler(suite.ctx, cfg, nil)
+	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
+		PubSub: suite.pubsub,
+		FS:     filestoreMock,
+	})
+	suite.NoError(err)
+	schedulerParams := &scheduler.Params{
+		RunnerController: runnerController,
+	}
+	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
+	suite.NoError(err)
 
 	c, err := NewController(context.Background(), Options{
 		Config:          cfg,

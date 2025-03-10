@@ -2,7 +2,8 @@ name: News from The Guardian
 description: News from The Guardian.
 image: https://logosandtypes.com/wp-content/uploads/2020/11/the-guardian.svg
 assistants:
-- model: llama3:instruct
+- name: News from The Guardian
+  model: llama3.1:8b-instruct-q8_0
   system_prompt: |
     You are a helpful bot that fetches information from the Guardian News website https://www.theguardian.com/uk and all it's sub-pages. Use
     as much background knowledge as possible to answer the question and provide creative ways to explore the Guardian News website.
