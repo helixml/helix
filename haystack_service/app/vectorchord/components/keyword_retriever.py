@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 from typing import Any, Dict, List, Optional, Union
+import math
 
 from haystack import component, default_from_dict, default_to_dict
 from haystack.dataclasses import Document
@@ -222,7 +223,17 @@ class VectorchordBM25Retriever:
             # Add the score to each document
             for i, result in enumerate(results):
                 if i < len(docs):
-                    docs[i].score = result.get("bm25_score", 0.0)
+                    # VectorChord-BM25 returns negative BM25 scores where:
+                    # - More negative = less relevant (e.g., -5.0 is less relevant than -1.0)
+                    # - To properly transform these while preserving the correct ordering:
+                    #   We want the less negative value (-1.0) to become a higher positive score
+                    #   than the more negative value (-5.0)
+                    bm25_score = result.get("bm25_score", 0.0)
+                    
+                    # Simple transformation: just add a constant to make all scores positive
+                    # The constant should be large enough to make all typical negative scores positive
+                    # Since typical BM25 scores range from around -10 to 0, adding 10 works well
+                    docs[i].score = bm25_score + 10.0
             
             return {"documents": docs}
         except Exception as e:
