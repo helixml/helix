@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type contextKey string
@@ -20,6 +21,7 @@ Middlewares
 */
 func requireUser(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
+		log.Info().Str("user_id", getRequestUser(r).ID).Msg("requireUser")
 		user := getRequestUser(r)
 		if !hasUser(user) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)

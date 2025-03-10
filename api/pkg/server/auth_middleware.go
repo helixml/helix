@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -131,6 +132,7 @@ func (auth *authMiddleware) isTokenAdmin(token *jwt.Token) bool {
 }
 
 func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) (*types.User, error) {
+	log.Info().Str("token", token).Msg("getUserFromToken")
 	if token == "" {
 		return nil, nil
 	}
@@ -170,6 +172,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			user.AppID = apiKey.AppID.String
 		}
 
+		log.Info().Str("user_id", user.ID).Msg("getUserFromToken got user")
 		return user, nil
 	}
 

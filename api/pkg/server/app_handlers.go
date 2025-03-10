@@ -31,6 +31,7 @@ import (
 // @Router /api/v1/apps [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
+	log.Info().Str("user_id", getRequestUser(r).ID).Msg("listApps")
 	ctx := r.Context()
 	user := getRequestUser(r)
 	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
