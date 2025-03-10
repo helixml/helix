@@ -1,50 +1,25 @@
-import os
-import tempfile
 import logging
-import traceback
-from typing import List, Dict, Any, Optional, Union, BinaryIO
+import os
+from typing import Any, Dict, List, Optional
 
-from haystack import Pipeline, Document
-from haystack.utils import Secret
-from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
-from haystack.document_stores.in_memory import InMemoryDocumentStore
-from haystack.components.preprocessors import DocumentSplitter, DocumentCleaner
-from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
-from haystack.components.retrievers.in_memory import InMemoryBM25Retriever
-from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
-from haystack.components.writers import DocumentWriter
+from haystack import Pipeline
+from haystack.components.converters import DocumentCleaner
 from haystack.components.joiners import DocumentJoiner
+from haystack.components.preprocessors import DocumentSplitter
+from haystack.components.writers import DocumentWriter
+from haystack.dataclasses import Document
+from haystack.utils.auth import Secret
+
+from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
+from .unix_socket_embedders import UnixSocketOpenAIDocumentEmbedder, UnixSocketOpenAITextEmbedder
+from .converters import LocalUnstructuredConverter
+
+from .vectorchord.document_store import VectorchordDocumentStore
+from .vectorchord.components import VectorchordEmbeddingRetriever, VectorchordBM25Retriever
 
 from .config import settings
-from .converters import LocalUnstructuredConverter
-# Import our custom embedders
-from .unix_socket_embedders import UnixSocketOpenAIDocumentEmbedder, UnixSocketOpenAITextEmbedder
 
-# Configure logging
-logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
 logger = logging.getLogger(__name__)
-
-# TODO: more work needed to get halfvec to work. Last error was
-# Query failed: 'HalfVector' object has no attribute 'tolist' - on querying
-#
-# Monkeypatch pgvector's CREATE_TABLE_STATEMENT to use halfvec type so that we
-# can support up to 4000 dimensions
-# import haystack_integrations.document_stores.pgvector.document_store as pgvector_store
-# pgvector_store.CREATE_TABLE_STATEMENT = """
-# CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
-# id VARCHAR(128) PRIMARY KEY,
-# embedding HALFVEC({embedding_dimension}),
-# content TEXT,
-# blob_data BYTEA,
-# blob_meta JSONB,
-# blob_mime_type VARCHAR(255),
-# meta JSONB)
-# """
-# pgvector_store.VECTOR_FUNCTION_TO_POSTGRESQL_OPS = {
-#     "cosine_similarity": "halfvec_cosine_ops",
-#     "inner_product": "halfvec_ip_ops",
-#     "l2_distance": "halfvec_l2_ops",
-# }
 
 class HaystackService:
     """Main service class for Haystack RAG operations"""
@@ -55,8 +30,8 @@ class HaystackService:
         
         # Initialize document stores
         try:
-            # PgVector store for dense embeddings
-            self.document_store = PgvectorDocumentStore(
+            # VectorChord store for both dense embeddings and BM25
+            self.document_store = VectorchordDocumentStore(
                 connection_string=Secret.from_token(settings.PGVECTOR_DSN),
                 embedding_dimension=settings.EMBEDDING_DIM,
                 table_name=settings.PGVECTOR_TABLE,
@@ -64,11 +39,11 @@ class HaystackService:
                 # search_strategy="hnsw", # see above about halfvec
                 recreate_table=True # XXX disable to avoid data loss?
             )
-            logger.info(f"Connected to PgvectorDocumentStore: {settings.PGVECTOR_TABLE}")
+            logger.info(f"Connected to VectorchordDocumentStore: {settings.PGVECTOR_TABLE}")
             
-            # In-memory store for BM25 retrieval
-            self.bm25_document_store = InMemoryDocumentStore()
-            logger.info("Initialized InMemoryDocumentStore for BM25 retrieval")
+            # We'll use VectorChord for BM25 as well, so no need for a separate in-memory store
+            # Keep a reference for compatibility with existing code
+            self.bm25_document_store = self.document_store
             
         except Exception as e:
             logger.error(f"Failed to connect to document stores: {str(e)}")
@@ -116,9 +91,8 @@ class HaystackService:
         )
         splitter.warm_up()
         
-        # Writers for both document stores
+        # Writer for the vector store (which now handles both embeddings and BM25)
         vector_writer = DocumentWriter(document_store=self.document_store)
-        bm25_writer = DocumentWriter(document_store=self.bm25_document_store)
         
         # Add components
         self.indexing_pipeline.add_component("converter", converter)
@@ -126,15 +100,12 @@ class HaystackService:
         self.indexing_pipeline.add_component("splitter", splitter)
         self.indexing_pipeline.add_component("embedder", embedder)
         self.indexing_pipeline.add_component("vector_writer", vector_writer)
-        self.indexing_pipeline.add_component("bm25_writer", bm25_writer)
         
         # Connect components
         self.indexing_pipeline.connect("converter", "cleaner")
         self.indexing_pipeline.connect("cleaner", "splitter")
         self.indexing_pipeline.connect("splitter", "embedder")
         self.indexing_pipeline.connect("embedder", "vector_writer")
-        # BM25 doesn't need embeddings, so connect splitter directly to BM25 writer
-        self.indexing_pipeline.connect("splitter", "bm25_writer")
         
         # Save converter instance for text extraction
         self.converter = converter
@@ -161,16 +132,16 @@ class HaystackService:
                 dimensions=settings.EMBEDDING_DIM
             )
         
-        # Dense vector retriever
-        vector_retriever = PgvectorEmbeddingRetriever(
+        # Dense vector retriever using VectorChord
+        vector_retriever = VectorchordEmbeddingRetriever(
             document_store=self.document_store,
             filters=None,
             top_k=5
         )
         
-        # BM25 retriever
-        bm25_retriever = InMemoryBM25Retriever(
-            document_store=self.bm25_document_store,
+        # BM25 retriever using VectorChord-bm25
+        bm25_retriever = VectorchordBM25Retriever(
+            document_store=self.document_store,
             filters=None,
             top_k=5
         )
@@ -198,153 +169,155 @@ class HaystackService:
         # Save retrievers for parameter updates
         self.vector_retriever = vector_retriever
         self.bm25_retriever = bm25_retriever
-        self.document_joiner = document_joiner
         
-        logger.info("Initialized hybrid query pipeline with vector and BM25 retrievers")
+        logger.info("Initialized query pipeline")
 
     async def extract_text(self, file_path: str) -> str:
-        """Extract text from a file without indexing it"""
-        logger.info(f"Extracting text from file: {file_path}")
+        """
+        Extract text from a file using the converter
         
-        try:
-            # Extract text using the converter
-            result = self.converter.run(paths=[file_path])
-            documents = result["documents"]
-            if not documents:
-                logger.warning("No text extracted from file")
-                return ""
-            return documents[0].content
-        except Exception as e:
-            logger.error(f"Text extraction error: {str(e)}")
-            raise RuntimeError(f"Text extraction error: {str(e)}")
-
-    async def process_and_index(self, file_path: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Process a document and index it in both document stores"""
-        logger.info(f"Processing and indexing file with metadata: {metadata}")
+        Args:
+            file_path: Path to the file to extract text from
+            
+        Returns:
+            Extracted text content
+        """
+        logger.info(f"Extracting text from {os.path.basename(file_path)}")
         
+        # Use the converter to extract text
         try:
-            # Run the indexing pipeline
-            result = self.indexing_pipeline.run(
-                data={
-                    "converter": {
-                        "paths": [file_path],
-                        "meta": metadata or {}  # Ensure meta is always a dict, even if None
-                    }
-                }
-            )
-            
-            # Access the number of documents written (both vector and BM25)
-            logger.info(f"Indexing pipeline result: {result}")
-            num_vector_chunks = result.get("vector_writer", {}).get("documents_written", 0)
-            num_bm25_chunks = result.get("bm25_writer", {}).get("documents_written", 0)
-            
-            logger.info(f"Successfully indexed document with {num_vector_chunks} vector chunks and {num_bm25_chunks} BM25 chunks")
-            return {
-                "status": "success",
-                "documents_processed": 1,
-                "vector_chunks_indexed": num_vector_chunks,
-                "bm25_chunks_indexed": num_bm25_chunks
-            }
-            
+            documents = self.converter.run(paths=[file_path])
         except Exception as e:
-            error_details = {
-                "type": type(e).__name__,
-                "message": str(e),
-                "traceback": traceback.format_exc()
-            }
-            logger.error(f"Failed to process and index document: {error_details}")
-            return {
-                "status": "error",
-                "error_type": error_details["type"],
-                "message": error_details["message"],
-                "traceback": error_details["traceback"],
-                "documents_processed": 0,
-                "chunks_indexed": 0
-            }
-    
-    async def query(self, query_text: str, filters: Dict[str, Any] = None, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Query both document stores for relevant documents using hybrid retrieval"""
-        logger.info(f"Performing hybrid query; filters: {filters}, top_k: {top_k}")
-        
-        try:
-            # Update retriever parameters if needed
-            self.vector_retriever.top_k = top_k
-            self.bm25_retriever.top_k = top_k
-            self.document_joiner.top_k = top_k
-            
-            if filters:
-                formatted_filters = {
-                    "operator": "AND",
-                    "conditions": [
-                        {"field": f"meta.{key}", "operator": "==", "value": value}
-                        for key, value in filters.items()
-                    ]
-                }
-                self.vector_retriever.filters = formatted_filters
-                self.bm25_retriever.filters = formatted_filters
-            
-            # Run the query pipeline
-            result = self.query_pipeline.run(
-                data={
-                    "embedder": {"text": query_text},
-                    "bm25_retriever": {"query": query_text}
-                }
-            )
-            
-            documents = result["document_joiner"]["documents"]
-            logger.info(f"Retrieved {len(documents)} results from hybrid search")
-            
-            # Format results
-            return [
-                {
-                    "content": doc.content,
-                    "metadata": doc.meta,
-                    "score": float(doc.score if doc.score is not None else 0.0)
-                }
-                for doc in documents
-            ]
-            
-        except Exception as e:
-            logger.error(f"Hybrid query failed: {str(e)}")
+            logger.error(f"Error extracting text: {str(e)}")
             raise
-    
-    async def delete(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        """Delete documents from both document stores based on filters"""
-        logger.info(f"Deleting documents with filters: {filters}")
         
-        # Format filters
-        formatted_filters = {
-            "operator": "AND",
-            "conditions": [
-                {"field": f"meta.{key}", "operator": "==", "value": value}
-                for key, value in filters.items()
-            ]
+        # Return the concatenated text from all documents
+        return "\n\n".join([doc.content for doc in documents.get("documents", [])])
+    
+    async def process_and_index(self, file_path: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Process a document file and index it
+        
+        Args:
+            file_path: Path to the file to process
+            metadata: Optional metadata to attach to the document chunks
+            
+        Returns:
+            Dict containing processing stats
+        """
+        if metadata is None:
+            metadata = {}
+            
+        logger.info(f"Processing and indexing {os.path.basename(file_path)} with metadata: {metadata}")
+        
+        # Add the file path to metadata
+        metadata["source"] = os.path.basename(file_path)
+        
+        # Set up the parameters for the indexing pipeline
+        params = {
+            "converter": {"paths": [file_path], "metadata": metadata},
         }
         
         try:
-            # Find and delete matching documents from vector store
-            matching_vector_docs = self.document_store.filter_documents(filters=formatted_filters)
-            if matching_vector_docs:
-                self.document_store.delete_documents(document_ids=[doc.id for doc in matching_vector_docs])
-                deleted_vector = len(matching_vector_docs)
-            else:
-                deleted_vector = 0
+            output = self.indexing_pipeline.run(params)
             
-            # Find and delete matching documents from BM25 store
-            matching_bm25_docs = self.bm25_document_store.filter_documents(filters=formatted_filters)
-            if matching_bm25_docs:
-                self.bm25_document_store.delete_documents(document_ids=[doc.id for doc in matching_bm25_docs])
-                deleted_bm25 = len(matching_bm25_docs)
-            else:
-                deleted_bm25 = 0
+            # Get the number of chunks created by looking at vector_writer output
+            num_chunks = len(output.get("vector_writer", {}).get("written_documents", []))
             
-            logger.info(f"Deleted {deleted_vector} vector documents and {deleted_bm25} BM25 documents")
+            # Return stats
             return {
-                "status": "success", 
-                "vector_documents_deleted": deleted_vector,
-                "bm25_documents_deleted": deleted_bm25
+                "filename": os.path.basename(file_path),
+                "indexed": True,
+                "chunks": num_chunks,
+                "metadata": metadata,
             }
             
         except Exception as e:
-            logger.error(f"Failed to delete documents: {str(e)}")
+            logger.error(f"Error processing document: {str(e)}")
+            raise
+    
+    async def query(self, query_text: str, filters: Dict[str, Any] = None, top_k: int = 5) -> List[Dict[str, Any]]:
+        """
+        Query the document store for relevant passages
+        
+        Args:
+            query_text: The query text to search for
+            filters: Optional filters to apply to the search
+            top_k: Number of results to return
+            
+        Returns:
+            List of dictionaries with document data
+        """
+        logger.info(f"Querying with: '{query_text}'")
+        
+        # Update retriever parameters
+        self.vector_retriever.top_k = top_k
+        self.vector_retriever.filters = filters
+        
+        self.bm25_retriever.top_k = top_k
+        self.bm25_retriever.filters = filters
+        
+        # Set up the parameters for the query pipeline
+        params = {
+            "embedder": {"text": query_text},
+            "bm25_retriever": {"query": query_text},
+        }
+        
+        try:
+            # Run the query
+            output = self.query_pipeline.run(params)
+            
+            # Get the results from the document joiner
+            documents = output.get("document_joiner", {}).get("documents", [])
+            
+            # Convert to dictionaries
+            results = []
+            for i, doc in enumerate(documents):
+                results.append({
+                    "id": doc.id,
+                    "content": doc.content,
+                    "score": float(doc.score) if hasattr(doc, "score") and doc.score is not None else 0.0,
+                    "metadata": doc.meta,
+                    "rank": i + 1
+                })
+                
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error querying document store: {str(e)}")
+            raise
+    
+    async def delete(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Delete documents from the store that match the given filters
+        
+        Args:
+            filters: Filters to identify documents to delete
+            
+        Returns:
+            Dict with deletion status
+        """
+        logger.info(f"Deleting documents with filters: {filters}")
+        
+        try:
+            # Get documents that match filters
+            matching_docs = self.document_store.filter_documents(filters=filters)
+            
+            if not matching_docs:
+                return {"deleted": False, "count": 0, "message": "No matching documents found"}
+            
+            # Get IDs of matching documents
+            doc_ids = [doc.id for doc in matching_docs]
+            
+            # Delete from both document stores
+            self.document_store.delete_documents(doc_ids)
+            
+            return {
+                "deleted": True,
+                "count": len(doc_ids),
+                "message": f"Deleted {len(doc_ids)} documents",
+            }
+            
+        except Exception as e:
+            logger.error(f"Error deleting documents: {str(e)}")
             raise 
