@@ -180,43 +180,9 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 		Str("original_path", k.Source.Filestore.Path).
 		Msgf("Extracting data from Helix filestore")
 
-	// Ensure the knowledge source has a filestore path that is scoped to the app's directory
-	if k.Source.Filestore != nil && k.Source.Filestore.Path != "" {
-		// Check if the path is already properly scoped to the app's directory
-		expectedPrefix := fmt.Sprintf("apps/%s/", k.AppID)
-
-		log.Debug().
-			Str("knowledge_id", k.ID).
-			Str("original_path", k.Source.Filestore.Path).
-			Str("expected_prefix", expectedPrefix).
-			Bool("has_prefix", strings.HasPrefix(k.Source.Filestore.Path, expectedPrefix)).
-			Msgf("Checking if path has app prefix")
-
-		if !strings.HasPrefix(k.Source.Filestore.Path, expectedPrefix) {
-			// If not, construct the appropriate path relative to the app's directory
-			// Extract the knowledge name from the path or use the source name
-			parts := strings.Split(k.Source.Filestore.Path, "/")
-			knowledgeName := parts[len(parts)-1]
-			if knowledgeName == "" {
-				knowledgeName = k.Name
-			}
-
-			// Update the path to be scoped to the app's directory
-			originalPath := k.Source.Filestore.Path
-			k.Source.Filestore.Path = filepath.Join("apps", k.AppID, knowledgeName)
-
-			log.Info().
-				Str("knowledge_id", k.ID).
-				Str("original_path", originalPath).
-				Str("updated_path", k.Source.Filestore.Path).
-				Msgf("Updated knowledge path to include app prefix")
-
-			// Save the updated knowledge
-			_, err := r.store.UpdateKnowledge(ctx, k)
-			if err != nil {
-				log.Warn().Err(err).Msgf("failed to update knowledge path: %s", err)
-			}
-		}
+	// Only support app-scoped knowledge sources
+	if !strings.HasPrefix(k.Source.Filestore.Path, "apps/") || k.AppID == "" {
+		return nil, fmt.Errorf("invalid knowledge path: must use app-scoped path format (apps/%s/...)", k.AppID)
 	}
 
 	data, err := r.getFilestoreFiles(ctx, r.filestore, k)
@@ -285,6 +251,23 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 		Str("knowledge_id", k.ID).
 		Str("path", k.Source.Filestore.Path).
 		Msgf("Getting files from filestore")
+
+	// Extract the relative path within the app
+	appPathPrefix := fmt.Sprintf("apps/%s/", k.AppID)
+	relativePath := strings.TrimPrefix(k.Source.Filestore.Path, appPathPrefix)
+
+	// Use the GetAppPrefix function to get the correct app path
+	appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
+	path := filepath.Join(appPrefix, relativePath)
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Str("original_path", k.Source.Filestore.Path).
+		Str("app_id", k.AppID).
+		Str("app_prefix", appPrefix).
+		Str("relative_path", relativePath).
+		Str("full_path", path).
+		Msgf("Using app-scoped path for file listing")
 
 	var recursiveList func(path string) error
 
@@ -364,17 +347,6 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 		}
 		return nil
 	}
-
-	userPrefix := filestore.GetUserPrefix(r.config.Controller.FilePrefixGlobal, k.Owner)
-
-	path := filepath.Join(userPrefix, k.Source.Filestore.Path)
-
-	log.Info().
-		Str("knowledge_id", k.ID).
-		Str("original_path", k.Source.Filestore.Path).
-		Str("user_prefix", userPrefix).
-		Str("full_path", path).
-		Msgf("Starting recursive file listing")
 
 	err := recursiveList(path)
 	if err != nil {
