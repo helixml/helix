@@ -408,9 +408,9 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 				return fmt.Errorf("failed to generate scoped path for knowledge '%s': %w", k.Name, err)
 			}
 
-			// Remove the user prefix from the path to store only the relative path in the database
-			userPrefix := filestore.GetUserPrefix(s.Cfg.Controller.FilePrefixGlobal, app.Owner)
-			relativePath := strings.TrimPrefix(scopedPath, userPrefix)
+			// Remove the global prefix from the path to store only the relative path in the database
+			appPrefix := filestore.GetAppPrefix(s.Cfg.Controller.FilePrefixGlobal, app.ID)
+			relativePath := strings.TrimPrefix(scopedPath, appPrefix)
 			relativePath = strings.TrimPrefix(relativePath, "/")
 
 			// Update the source path to use the scoped path

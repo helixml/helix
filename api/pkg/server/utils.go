@@ -383,17 +383,15 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 // This enforces the same RBAC controls as for apps themselves
 func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path string, req *http.Request, requiredAction types.Action) (bool, string, error) {
 	// If the path doesn't start with "apps/", it's not app-scoped
-	if !strings.HasPrefix(path, "apps/") {
+	if !controller.IsAppPath(path) {
 		return false, "", nil
 	}
 
 	// Extract the app ID from the path (apps/:app_id/...)
-	parts := strings.SplitN(path, "/", 3)
-	if len(parts) < 2 {
+	appID, err := controller.ExtractAppID(path)
+	if err != nil {
 		return false, "", fmt.Errorf("invalid app filestore path format: %s", path)
 	}
-
-	appID := parts[1]
 
 	// Get the app to check permissions
 	app, err := apiServer.Store.GetApp(ctx, appID)
