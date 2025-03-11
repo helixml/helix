@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole } from '../api/api'
+import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole, TypesAccessGrant, TypesCreateAccessGrantRequest } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useRouter from './useRouter'
@@ -26,6 +26,10 @@ export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
   organization?: TypesOrganization,
+  // Access grants state
+  appAccessGrants: TypesAccessGrant[],
+  loadingAccessGrants: boolean,
+  // Organization methods
   loadOrganizations: () => Promise<void>,
   createOrganization: (org: TypesOrganization) => Promise<boolean>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
@@ -45,30 +49,43 @@ export interface IOrganizationTools {
   removeTeamMember: (organizationId: string, teamId: string, userId: string) => Promise<boolean>,
   // User search method
   searchUsers: (query: { email?: string, name?: string, username?: string, organizationId?: string }) => Promise<SearchUsersResponse>,
+  // App access grants methods
+  listAppAccessGrants: (appId: string) => Promise<TypesAccessGrant[]>,
+  createAppAccessGrant: (appId: string, grant: TypesCreateAccessGrantRequest) => Promise<boolean>,
+  updateAppAccessGrant: (appId: string, grantId: string, grant: TypesCreateAccessGrantRequest) => Promise<boolean>,
+  deleteAppAccessGrant: (appId: string, grantId: string) => Promise<boolean>,
 }
 
+// Default implementation
 export const defaultOrganizationTools: IOrganizationTools = {
   organizations: [],
   loading: false,
-  loadOrganizations: async () => { },
+  appAccessGrants: [],
+  loadingAccessGrants: false,
+  loadOrganizations: async () => {},
   createOrganization: async () => false,
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
-  loadOrganization: async () => { },
-  // Default organization member methods
+  loadOrganization: async () => {},
+  // Organization member management methods
   addMemberToOrganization: async () => false,
   deleteMemberFromOrganization: async () => false,
   updateOrganizationMemberRole: async () => false,
-  // Default team methods
+  // Team management methods
   createTeam: async () => false,
   createTeamWithCreator: async () => false,
   updateTeam: async () => false,
   deleteTeam: async () => false,
-  // Default team member methods
+  // Team member management methods
   addTeamMember: async () => false,
   removeTeamMember: async () => false,
-  // Default user search method
+  // User search method
   searchUsers: async () => ({ users: [], pagination: { total: 0, limit: 0, offset: 0 } }),
+  // Access grants methods
+  listAppAccessGrants: async () => [],
+  createAppAccessGrant: async () => false,
+  updateAppAccessGrant: async () => false,
+  deleteAppAccessGrant: async () => false,
 }
 
 /*
@@ -78,13 +95,18 @@ export const defaultOrganizationTools: IOrganizationTools = {
   
 */
 export default function useOrganizations(): IOrganizationTools {
-  const [organizations, setOrganizations] = useState<TypesOrganization[]>([])
-  const [organization, setOrganization] = useState<TypesOrganization | undefined>(undefined)
-  const [loading, setLoading] = useState(false)
-  const [initialized, setInitialized] = useState(false)
   const api = useApi()
   const snackbar = useSnackbar()
   const router = useRouter()
+  const [loading, setLoading] = useState<boolean>(false)
+  const [organizations, setOrganizations] = useState<TypesOrganization[]>([])
+  const [organization, setOrganization] = useState<TypesOrganization>()
+  const [initialized, setInitialized] = useState(false)
+  
+  // State for app access grants
+  const [appAccessGrants, setAppAccessGrants] = useState<TypesAccessGrant[]>([])
+  const [loadingAccessGrants, setLoadingAccessGrants] = useState<boolean>(false)
+
   // Extract org_id parameter from router
   const orgIdParam = router.params.org_id
 
@@ -232,8 +254,8 @@ export default function useOrganizations(): IOrganizationTools {
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || 'Error loading organizations')
     } finally {
-      setInitialized(true)
       setLoading(false)
+      setInitialized(true)
     }
   }, [])
 
@@ -558,6 +580,74 @@ export default function useOrganizations(): IOrganizationTools {
     }
   }, [api, snackbar, loadOrganization])
 
+  // App access grants methods
+  const listAppAccessGrants = useCallback(async (appId: string): Promise<TypesAccessGrant[]> => {
+    setLoadingAccessGrants(true)
+    try {
+      const response = await api.getApiClient().v1AppsAccessGrantsDetail(appId)
+      setAppAccessGrants(response.data)
+      return response.data
+    } catch (error) {
+      console.error('Error listing app access grants:', error)
+      snackbar.error(`Failed to load app access grants: ${extractErrorMessage(error)}`)
+      return []
+    } finally {
+      setLoadingAccessGrants(false)
+    }
+  }, [api, snackbar])
+
+  const createAppAccessGrant = useCallback(async (appId: string, grant: TypesCreateAccessGrantRequest): Promise<boolean> => {
+    try {
+      await api.getApiClient().v1AppsAccessGrantsCreate(appId, grant)
+      // Refresh the list to get updated data
+      await listAppAccessGrants(appId)
+      snackbar.success('Access grant created successfully')
+      return true
+    } catch (error) {
+      console.error('Error creating app access grant:', error)
+      snackbar.error(`Failed to create access grant: ${extractErrorMessage(error)}`)
+      return false
+    }
+  }, [api, listAppAccessGrants, snackbar])
+
+  const updateAppAccessGrant = useCallback(async (appId: string, grantId: string, grant: TypesCreateAccessGrantRequest): Promise<boolean> => {
+    try {
+      // Since there's no direct update endpoint, we need to delete and recreate
+      // First delete the existing grant
+      const deleteSuccess = await deleteAppAccessGrant(appId, grantId)
+      if (!deleteSuccess) return false
+
+      // Then create a new one with the updated roles
+      const createSuccess = await createAppAccessGrant(appId, grant)
+      if (createSuccess) {
+        snackbar.success('Access grant updated successfully')
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('Error updating app access grant:', error)
+      snackbar.error(`Failed to update access grant: ${extractErrorMessage(error)}`)
+      return false
+    }
+  }, [api, createAppAccessGrant, snackbar])
+
+  const deleteAppAccessGrant = useCallback(async (appId: string, grantId: string): Promise<boolean> => {
+    try {
+      // The API client doesn't have this endpoint defined, so we'll make a direct axios call
+      await api.delete(`/api/v1/apps/${appId}/access-grants/${grantId}`)
+      
+      // Update the local state by filtering out the deleted grant
+      setAppAccessGrants(prev => prev.filter(grant => grant.id !== grantId))
+      
+      snackbar.success('Access grant removed successfully')
+      return true
+    } catch (error) {
+      console.error('Error deleting app access grant:', error)
+      snackbar.error(`Failed to remove access grant: ${extractErrorMessage(error)}`)
+      return false
+    }
+  }, [api, snackbar])
+
   // Effect to load organization when orgIdParam changes
   useEffect(() => {
     if (orgIdParam && initialized) {
@@ -571,24 +661,33 @@ export default function useOrganizations(): IOrganizationTools {
     organizations,
     loading,
     organization,
+    // Access grants state
+    appAccessGrants,
+    loadingAccessGrants,
+    // Organization methods
     loadOrganizations,
     createOrganization,
     updateOrganization,
     deleteOrganization,
     loadOrganization,
-    // Include organization member methods
+    // Org member methods
     addMemberToOrganization,
     deleteMemberFromOrganization,
     updateOrganizationMemberRole,
-    // Include team methods
+    // Team methods
     createTeam,
     createTeamWithCreator,
     updateTeam,
     deleteTeam,
-    // Include team member methods
+    // Team member methods
     addTeamMember,
     removeTeamMember,
-    // Include user search method
+    // User search
     searchUsers,
+    // App access grants methods
+    listAppAccessGrants,
+    createAppAccessGrant,
+    updateAppAccessGrant,
+    deleteAppAccessGrant,
   }
 } 
