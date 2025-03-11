@@ -37,7 +37,7 @@ class HaystackService:
                 embedding_dimension=settings.EMBEDDING_DIM,
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
-                # search_strategy="hnsw", # see above about halfvec
+                # search_strategy="vchordrq", # Enable for faster vector search
                 recreate_table=True # XXX disable to avoid data loss?
             )
             logger.info(f"Connected to VectorchordDocumentStore: {settings.PGVECTOR_TABLE}")
@@ -377,16 +377,31 @@ class HaystackService:
             except Exception as e:
                 logger.error(f"DEBUG: BM25 retriever error: {str(e)}")
             
-            # Test vector retriever directly
+            # Test the vector retriever directly
             logger.info("DEBUG: Testing vector retriever directly")
             try:
-                embedding = self.query_pipeline.get_component("embedder").run(text=query_text)["embedding"]
-                vector_results = self.vector_retriever.run(query_embedding=embedding, filters=formatted_filters, top_k=top_k)
-                logger.info(f"DEBUG: Vector retriever returned {len(vector_results.get('documents', []))} documents")
-                for i, doc in enumerate(vector_results.get('documents', [])):
-                    logger.info(f"DEBUG: Vector result {i+1}: id={doc.id}, score={doc.score}, content=\"{doc.content[:100]}...\"")
+                # Get the query embedding
+                embeddings = self.query_pipeline.get_component("embedder").run(text=query_text)
+                query_embedding = embeddings["embedding"]
+                
+                # Call the retriever directly - use the component interface
+                vector_results = self.vector_retriever.run(
+                    query_embedding=query_embedding, 
+                    filters=formatted_filters, 
+                    top_k=top_k
+                )
+                
+                # Extract documents from the result dictionary
+                vector_docs = vector_results.get("documents", [])
+                logger.info(f"DEBUG: Vector retriever returned {len(vector_docs)} documents")
+                for i, doc in enumerate(vector_docs, 1):
+                    logger.info(f"DEBUG: Vector result {i}: id={getattr(doc, 'id', 'unknown')}, "
+                              f"score={getattr(doc, 'score', 'unknown')}, "
+                              f"content_preview=\"{str(getattr(doc, 'content', ''))[:100]}...\"")
             except Exception as e:
                 logger.error(f"DEBUG: Vector retriever error: {str(e)}")
+                # Initialize with empty results so subsequent code doesn't fail
+                vector_results = {"documents": []}
 
             # Special debug: analyze score distributions
             logger.info("DEBUG: Analyzing score distributions from both retrievers")
@@ -416,110 +431,96 @@ class HaystackService:
             # Special debug: manually simulate the reciprocal rank fusion to understand how the DocumentJoiner works
             logger.info("DEBUG: Manually simulating reciprocal rank fusion to understand document joiner behavior")
             try:
+                # Get documents from both retrievers
                 bm25_docs = bm25_results.get('documents', [])
                 vector_docs = vector_results.get('documents', [])
                 
-                # Create document mapping to track ranks and scores
-                doc_info = {}
+                # Combine all unique document IDs
+                all_doc_ids = set(doc.id for doc in bm25_docs if hasattr(doc, 'id'))
+                all_doc_ids.update(doc.id for doc in vector_docs if hasattr(doc, 'id'))
+                logger.info(f"DEBUG: Found {len(all_doc_ids)} unique document IDs across both retrievers")
                 
-                # Track BM25 document ranks
-                for i, doc in enumerate(bm25_docs):
-                    # Ranks are 1-based
-                    rank = i + 1
-                    if doc.id not in doc_info:
-                        doc_info[doc.id] = {
-                            "document": doc,
-                            "bm25_rank": rank,
-                            "bm25_score": doc.score,
-                            "vector_rank": None,
-                            "vector_score": None
-                        }
-                    else:
-                        doc_info[doc.id]["bm25_rank"] = rank
-                        doc_info[doc.id]["bm25_score"] = doc.score
+                # Track rankings in each result list
+                bm25_ranks = {doc.id: i+1 for i, doc in enumerate(bm25_docs) if hasattr(doc, 'id')}
+                vector_ranks = {doc.id: i+1 for i, doc in enumerate(vector_docs) if hasattr(doc, 'id')}
                 
-                # Track vector document ranks
-                for i, doc in enumerate(vector_docs):
-                    rank = i + 1
-                    if doc.id not in doc_info:
-                        doc_info[doc.id] = {
-                            "document": doc,
-                            "bm25_rank": None,
-                            "bm25_score": None,
-                            "vector_rank": rank,
-                            "vector_score": doc.score
-                        }
-                    else:
-                        doc_info[doc.id]["vector_rank"] = rank
-                        doc_info[doc.id]["vector_score"] = doc.score
+                # Default constant k for RRF formula
+                k = 60  # Standard value used in RRF
                 
-                # Calculate RRF scores - typical formula is RRF(d,i) = 1/(k + r_i(d)) where:
-                # - k is a constant (typically 60)
-                # - r_i(d) is the rank of document d in list i
-                k_constant = 60
-                for doc_id, info in doc_info.items():
-                    # Initialize RRF score
+                # Calculate RRF scores
+                rrf_scores = {}
+                for doc_id in all_doc_ids:
+                    # For documents not in a result set, rank is considered "infinity"
+                    # which effectively means their contribution from that source is 0
+                    bm25_rank = bm25_ranks.get(doc_id, float('inf')) 
+                    vector_rank = vector_ranks.get(doc_id, float('inf'))
+                    
+                    # RRF formula: score = sum of 1/(k + rank) across all sources
                     rrf_score = 0
+                    if bm25_rank != float('inf'):
+                        rrf_score += 1 / (k + bm25_rank)
+                    if vector_rank != float('inf'):
+                        rrf_score += 1 / (k + vector_rank)
                     
-                    # Add BM25 component if available
-                    if info["bm25_rank"] is not None:
-                        rrf_score += 1 / (k_constant + info["bm25_rank"])
-                    
-                    # Add vector component if available
-                    if info["vector_rank"] is not None:
-                        rrf_score += 1 / (k_constant + info["vector_rank"])
-                    
-                    # Store the RRF score
-                    info["rrf_score"] = rrf_score
+                    rrf_scores[doc_id] = rrf_score
                 
-                # Sort by RRF score
-                sorted_docs = sorted(doc_info.values(), key=lambda x: x["rrf_score"], reverse=True)
+                # Sort documents by RRF score (higher is better)
+                sorted_doc_ids = sorted(rrf_scores.keys(), key=lambda doc_id: rrf_scores[doc_id], reverse=True)
                 
-                # Debug the RRF calculation
-                for i, doc_info in enumerate(sorted_docs[:top_k]):
-                    doc = doc_info["document"]
-                    logger.info(
-                        f"DEBUG: RRF result {i+1}: id={doc.id}, "
-                        f"bm25_rank={doc_info['bm25_rank']}, bm25_score={doc_info['bm25_score']}, "
-                        f"vector_rank={doc_info['vector_rank']}, vector_score={doc_info['vector_score']}, "
-                        f"rrf_score={doc_info['rrf_score']}, "
-                        f"content=\"{doc.content[:100]}...\""
-                    )
+                # Log the top results and their source ranks
+                logger.info("DEBUG: Top documents after RRF fusion:")
+                for i, doc_id in enumerate(sorted_doc_ids[:min(10, len(sorted_doc_ids))], 1):
+                    logger.info(f"DEBUG: Rank {i}: doc_id={doc_id}, "
+                              f"RRF score={rrf_scores[doc_id]:.6f}, "
+                              f"BM25 rank={bm25_ranks.get(doc_id, 'not in results')}, "
+                              f"Vector rank={vector_ranks.get(doc_id, 'not in results')}")
             except Exception as e:
                 logger.error(f"DEBUG: Manual RRF simulation failed: {str(e)}")
                 logger.exception("RRF simulation error details:")
 
-            # Run the query pipeline
-            logger.info("Running full query pipeline with document joining")
-            output = self.query_pipeline.run(params)
+            # Log comparison with actual pipeline results
+            result = self.query_pipeline.run({
+                "bm25_retriever": {"query": query_text, "filters": formatted_filters, "top_k": top_k},
+                "embedder": {"text": query_text},
+                "vector_retriever": {"filters": formatted_filters, "top_k": top_k}
+            })
+            documents = result.get("document_joiner", {}).get("documents", [])
+            logger.info(f"DEBUG: Query pipeline returned {len(documents)} documents")
             
-            # Get the results from the document joiner
-            documents = output.get("document_joiner", {}).get("documents", [])
-            logger.info(f"Document joiner returned {len(documents)} documents")
-            
-            # Debug the joined results
-            for i, doc in enumerate(documents):
-                logger.info(f"DEBUG: Joined result {i+1}: id={doc.id}, score={doc.score}, content=\"{doc.content[:100]}...\"")
-            
-            # Compare with our manual RRF calculation
-            try:
-                logger.info("DEBUG: Comparing actual document joiner results with our manual RRF simulation:")
+            # Compare with our manual RRF
+            if documents:
+                logger.info("DEBUG: Comparing pipeline results with manual RRF calculation:")
                 for i, doc in enumerate(documents[:min(len(documents), top_k)]):
-                    # Find this document in our sorted docs
-                    matching_docs = [d for d in sorted_docs if d["document"].id == doc.id]
-                    if matching_docs:
-                        manual_rank = sorted_docs.index(matching_docs[0]) + 1
+                    if hasattr(doc, 'id') and doc.id in rrf_scores:
+                        # Find this document's position in our sorted RRF results
+                        manual_rank = sorted_doc_ids.index(doc.id) + 1 if doc.id in sorted_doc_ids else "not found"
                         logger.info(
                             f"DEBUG: Document {doc.id} - actual joiner rank: {i+1}, "
                             f"manual RRF rank: {manual_rank}, "
-                            f"actual joiner score: {doc.score}, "
-                            f"manual RRF score: {matching_docs[0]['rrf_score']}"
+                            f"actual joiner score: {getattr(doc, 'score', 'unknown')}, "
+                            f"manual RRF score: {rrf_scores.get(doc.id, 'unknown')}"
                         )
                     else:
-                        logger.warning(f"DEBUG: Document {doc.id} wasn't found in our manual RRF calculation")
+                        logger.info(f"DEBUG: Document at position {i+1} has no ID or wasn't in manual results")
+
+            # Run the query pipeline
+            logger.info("Running full query pipeline with document joining")
+            try:
+                # Run the pipeline
+                output = self.query_pipeline.run(params)
+                
+                # Get the results from the document joiner
+                documents = output.get("document_joiner", {}).get("documents", [])
+                logger.info(f"Document joiner returned {len(documents)} documents")
+                
+                # Debug the joined results
+                for i, doc in enumerate(documents):
+                    logger.info(f"DEBUG: Final joined result {i+1}: id={getattr(doc, 'id', 'unknown')}, score={getattr(doc, 'score', 'unknown')}, content_preview=\"{str(getattr(doc, 'content', ''))[:100]}...\"")
             except Exception as e:
-                logger.error(f"DEBUG: Comparison with manual RRF failed: {str(e)}")
-            
+                logger.error(f"Error running query pipeline: {str(e)}")
+                logger.exception("Query pipeline error details:")
+                raise ValueError(f"Error querying document store: {str(e)}")
+
             # Convert to dictionaries
             results = []
             for i, doc in enumerate(documents):

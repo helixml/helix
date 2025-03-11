@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2023-present deepset GmbH <info@deepset.ai> and HelixML, Inc <luke@helix.ml>
 #
 # SPDX-License-Identifier: Apache-2.0
+import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from haystack import component, default_from_dict, default_to_dict
@@ -11,6 +12,8 @@ from haystack.document_stores.types.filter_policy import apply_filter_policy
 from ..document_store import VectorchordDocumentStore
 from ..document_store.document_store import VALID_VECTOR_FUNCTIONS
 
+# Set up logging
+logger = logging.getLogger(__name__)
 
 @component
 class VectorchordEmbeddingRetriever:
@@ -78,7 +81,7 @@ class VectorchordEmbeddingRetriever:
             higher scores indicate greater similarity between the documents.
             `"l2_distance"` returns the straight-line distance between vectors,
             and the most similar documents are the ones with the smallest score.
-            **Important**: if the document store is using the `"hnsw"` search strategy, the vector function
+            **Important**: if the document store is using the `"vchordrq"` search strategy, the vector function
             should match the one utilized during index creation to take advantage of the index.
         :param filter_policy: Policy to determine how filters are applied.
         :raises ValueError: If `document_store` is not an instance of `VectorchordDocumentStore` or if `vector_function`
@@ -140,38 +143,44 @@ class VectorchordEmbeddingRetriever:
         query_embedding: List[float],
         filters: Optional[Dict[str, Any]] = None,
         top_k: Optional[int] = None,
-        vector_function: Optional[Literal["cosine_similarity", "inner_product", "l2_distance"]] = None,
+        vector_function: Optional[str] = None,
+        **kwargs
     ):
         """
-        Retrieve documents from the `VectorchordDocumentStore`, based on the similarity of their embeddings to `query_embedding`.
+        Retrieve documents using dense embeddings.
 
-        :param query_embedding: Embedding of the query.
-        :param filters: The filters to apply to the retrieved Documents. The way runtime filters are applied depends on
-                        the `filter_policy` chosen at retriever initialization.
-        :param top_k: Maximum number of Documents to return.
-        :param vector_function: Vector similarity function to use.
-        :returns: A dictionary with the following keys:
-            - `documents`: List of `Document`s that best match the query.
+        Args:
+            query_embedding: The query embedding.
+            filters: Optional filters to narrow down the search space.
+            top_k: The maximum number of documents to retrieve. If None, use the top_k provided at initialization.
+            vector_function: The similarity function to use. If None, use the vector_function provided at initialization.
+
+        Returns:
+            A dictionary containing the retrieved documents.
         """
-        try:
-            logger.info(f"EmbeddingRetriever: Running query with embedding length={len(query_embedding)}, filters={filters}, top_k={top_k}")
-            filters = apply_filter_policy(self.filter_policy, self.filters, filters)
-            top_k = top_k or self.top_k
-            func = vector_function or self.vector_function
-            logger.info(f"EmbeddingRetriever: After filter policy applied: filters={filters}, top_k={top_k}, vector_function={func}")
+        # Use values from initialization if not provided
+        if top_k is None:
+            top_k = self.top_k
+        if vector_function is None:
+            vector_function = self.vector_function
 
-            documents = self.document_store._embedding_retrieval(
-                query_embedding=query_embedding, filters=filters, top_k=top_k, vector_function=func
-            )
-            logger.info(f"EmbeddingRetriever: Retrieved {len(documents)} documents")
-            
-            # Debug the scores of returned documents
-            for i, doc in enumerate(documents):
-                score = getattr(doc, "score", None)
-                logger.info(f"EmbeddingRetriever: Document {i+1} (id: {doc.id}): score={score}, content=\"{doc.content[:100]}...\"")
-            
-            return {"documents": documents}
-        except Exception as e:
-            logger.error(f"Embedding retrieval failed: {str(e)}")
-            logger.exception("Embedding retrieval error details:")
-            raise ValueError(f"Embedding retrieval failed: {str(e)}")
+        logger.info(f"Vector retriever running with embedding length: {len(query_embedding)}")
+        logger.info(f"Vector retriever filters: {filters}")
+        
+        # Retrieve documents using the embedding - returns a list of Documents directly
+        documents = self.document_store._embedding_retrieval(
+            query_embedding=query_embedding,
+            filters=filters,
+            top_k=top_k,
+            vector_function=vector_function
+        )
+        
+        logger.info(f"Vector retriever returned {len(documents)} documents")
+        
+        # Log scores for debugging
+        for i, doc in enumerate(documents, 1):
+            logger.info(f"Vector result {i}: id={getattr(doc, 'id', 'unknown')}, "
+                     f"score={getattr(doc, 'score', 'unknown')}, "
+                     f"content_preview=\"{str(getattr(doc, 'content', ''))[:100]}...\"")
+        
+        return {"documents": documents}
