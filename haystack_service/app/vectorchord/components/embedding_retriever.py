@@ -164,6 +164,9 @@ class VectorchordEmbeddingRetriever:
         if vector_function is None:
             vector_function = self.vector_function
 
+        # Apply filter policy to combine runtime filters with initialization filters
+        filters = apply_filter_policy(self.filter_policy, self.filters, filters)
+
         logger.info(f"Vector retriever running with embedding length: {len(query_embedding)}")
         logger.info(f"Vector retriever filters: {filters}")
         
@@ -177,10 +180,14 @@ class VectorchordEmbeddingRetriever:
         
         logger.info(f"Vector retriever returned {len(documents)} documents")
         
-        # Log scores for debugging
-        for i, doc in enumerate(documents, 1):
+        # Log scores for debugging and set directly on the Document object
+        for i, doc in enumerate(documents):
+            score = doc.meta.get('score', 'unknown') if hasattr(doc, 'meta') else 'unknown'
+            if doc.meta.get('score') is not None:
+                score = doc.meta.get('score')
+                documents[i].score = score
+
             logger.info(f"Vector result {i}: id={getattr(doc, 'id', 'unknown')}, "
-                     f"score={getattr(doc, 'score', 'unknown')}, "
-                     f"content_preview=\"{str(getattr(doc, 'content', ''))[:100]}...\"")
+                     f"score={score}")
         
         return {"documents": documents}

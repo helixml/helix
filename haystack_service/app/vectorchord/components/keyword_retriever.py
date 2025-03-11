@@ -234,16 +234,10 @@ class VectorchordBM25Retriever:
                     results = self.document_store.dict_cursor.fetchall()
                     logger.info(f"BM25Retriever: SQL query returned {len(results)} results")
                 except Exception as e:
-                    logger.warning(f"BM25Retriever: Failed to apply filters: {str(e)}. Continuing without filters.")
+                    # Make filter errors fatal
+                    logger.error(f"BM25Retriever: Failed to apply filters: {str(e)}")
                     logger.exception("BM25Retriever filter error details")
-                    
-                    # Fall back to query without filters
-                    clean_query_base = query_base + " ORDER BY bm25_score LIMIT %s"
-                    clean_params = [query, top_k]
-                    logger.info(f"BM25Retriever: Falling back to query without filters: {clean_query_base} with params {clean_params}")
-                    self.document_store.dict_cursor.execute(clean_query_base, clean_params)
-                    results = self.document_store.dict_cursor.fetchall()
-                    logger.info(f"BM25Retriever: Fallback query returned {len(results)} results")
+                    raise ValueError(f"BM25Retriever: Failed to apply filters: {str(e)}")
             else:
                 # No filters, just execute the query
                 clean_query_base = query_base + " ORDER BY bm25_score LIMIT %s"
@@ -260,7 +254,7 @@ class VectorchordBM25Retriever:
             # Debug the raw scores from the database
             for i, result in enumerate(results):
                 bm25_score = result.get("bm25_score", 0.0)
-                logger.info(f"BM25Retriever: Raw result {i+1}: id={result.get('id')}, raw_bm25_score={bm25_score}, content=\"{result.get('content')[:500]}...\"")
+                logger.info(f"BM25Retriever: Raw result {i+1}: id={result.get('id')}, raw_bm25_score={bm25_score}")
             
             # Add the score to each document
             for i, result in enumerate(results):
