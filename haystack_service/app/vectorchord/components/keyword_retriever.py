@@ -260,7 +260,7 @@ class VectorchordBM25Retriever:
             # Debug the raw scores from the database
             for i, result in enumerate(results):
                 bm25_score = result.get("bm25_score", 0.0)
-                logger.info(f"BM25Retriever: Raw result {i+1}: id={result.get('id')}, raw_bm25_score={bm25_score}, content=\"{result.get('content')[:100]}...\"")
+                logger.info(f"BM25Retriever: Raw result {i+1}: id={result.get('id')}, raw_bm25_score={bm25_score}, content=\"{result.get('content')[:500]}...\"")
             
             # Add the score to each document
             for i, result in enumerate(results):
@@ -274,13 +274,13 @@ class VectorchordBM25Retriever:
                     
                     # Handle None values safely
                     if bm25_score is None:
-                        logger.warning(f"BM25Retriever: Document {i+1} (id: {docs[i].id}) had None score, defaulting to 0.0")
-                        bm25_score = 0.0
+                        logger.warning(f"BM25Retriever: Document {i+1} (id: {docs[i].id}) had None score, defaulting to -20.0")
+                        bm25_score = -20.0
                     
                     # Simple transformation: just add a constant to make all scores positive
                     # The constant should be large enough to make all typical negative scores positive
-                    # Since typical BM25 scores range from around -10 to 0, adding 10 works well
-                    transformed_score = bm25_score + 10.0
+                    # Since typical BM25 scores range from around -20 to 0, adding 20 works well
+                    transformed_score = bm25_score + 20.0
                     docs[i].score = transformed_score
                     logger.info(f"BM25Retriever: Document {i+1} (id: {docs[i].id}): raw_score={bm25_score}, transformed_score={transformed_score}")
             

@@ -720,7 +720,7 @@ class VectorchordDocumentStore:
                     logger.info(f"Updated BM25 vectors for {len(doc_ids)} documents")
             except Exception as e:
                 logger.warning(f"Failed to update BM25 vectors: {str(e)}. BM25 search may not work correctly.")
-                # Don't raise the error as this is not critical for basic functionality
+                raise e
             
             return len(pg_documents)
 
@@ -804,6 +804,10 @@ class VectorchordDocumentStore:
             meta = doc.get("meta", {})
             if meta and not isinstance(meta, dict):
                 meta = {}
+                
+            # Add score to meta if available
+            if "score" in doc:
+                meta["score"] = doc["score"]
 
             # Create the Document
             document = Document(
@@ -844,75 +848,6 @@ class VectorchordDocumentStore:
             logger.error(error_msg)
             raise DocumentStoreError(error_msg) from err
 
-    def _keyword_retrieval(
-        self,
-        query: str,
-        *,
-        filters: Optional[Dict[str, Any]] = None,
-        top_k: int = 10,
-    ) -> List[Document]:
-        """
-        Retrieve documents using keyword search.
-
-        :param query: Query string.
-        :param filters: Optional filters to narrow down the search space.
-        :param top_k: Maximum number of documents to return.
-        :returns: List of `Document`s that match the query.
-        """
-        # Replace whitespace with & for AND operator
-        normalized_query = " & ".join(query.split())
-        params = {"query": normalized_query, "top_k": top_k}
-        
-        # Format language as 'english'::regconfig for PostgreSQL
-        language_param = SQL("{}::regconfig").format(SQLLiteral(self.language))
-
-        # Start with the base query
-        base_query = SQL(KEYWORD_SELECT_STATEMENT).format(
-            schema_name=Identifier(self.schema_name),
-            table_name=Identifier(self.table_name),
-            language=language_param,
-        )
-        query_parts = [base_query]
-
-        # If filters are provided, add a WHERE clause
-        if filters:
-            where_clause, where_params = _convert_filters_to_where_clause_and_params(filters)
-            # Need to combine the WHERE clauses
-            query_parts = [
-                SQL(
-                    """
-                    SELECT *,
-                        ts_rank_cd(to_tsvector({language}, content),
-                                to_tsquery({language}, %(query)s)) AS rank
-                    FROM {schema_name}.{table_name}
-                    WHERE to_tsvector({language}, content) @@ to_tsquery({language}, %(query)s)
-                    AND
-                    """
-                ).format(
-                    schema_name=Identifier(self.schema_name),
-                    table_name=Identifier(self.table_name),
-                    language=language_param,
-                ),
-                where_clause,
-                SQL(" ORDER BY rank DESC LIMIT %(top_k)s"),
-            ]
-            params.update(where_params)
-
-        # Combine the query parts
-        if len(query_parts) > 1:
-            query = query_parts[0]
-            for i in range(1, len(query_parts)):
-                query = query + query_parts[i]
-        else:
-            query = query_parts[0]
-
-        # Execute the query
-        self.dict_cursor.execute(query, params)
-        results = self.dict_cursor.fetchall()
-
-        # Convert the results to Document objects
-        return self._from_pg_to_haystack_documents(results)
-
     def _embedding_retrieval(
         self,
         query_embedding: List[float],
@@ -947,9 +882,10 @@ class VectorchordDocumentStore:
         # Construct the base query without filters
         if not filters:
             base_query = SQL("""
-                SELECT *
+                SELECT *, 
+                       embedding {operator} %s::vector AS score
                 FROM {schema_name}.{table_name}
-                ORDER BY embedding {operator} %s::vector {direction}
+                ORDER BY score {direction}
                 LIMIT %s
             """).format(
                 schema_name=Identifier(self.schema_name),
@@ -975,10 +911,11 @@ class VectorchordDocumentStore:
                 
                 # Create a query template with the WHERE clause
                 query_template = SQL("""
-                    SELECT *
+                    SELECT *, 
+                           embedding {operator} %s::vector AS score
                     FROM {schema_name}.{table_name}
                     {where_clause}
-                    ORDER BY embedding {operator} %s::vector {direction}
+                    ORDER BY score {direction}
                     LIMIT %s
                 """)
                 
@@ -1001,24 +938,8 @@ class VectorchordDocumentStore:
                 params.append(query_embedding_str)
                 params.append(top_k)
             except Exception as e:
-                logger.warning(f"Failed to apply filters: {str(e)}. Continuing without filters.")
-                
-                # Fall back to query without filters
-                base_query = SQL("""
-                    SELECT *
-                    FROM {schema_name}.{table_name}
-                    ORDER BY embedding {operator} %s::vector {direction}
-                    LIMIT %s
-                """).format(
-                    schema_name=Identifier(self.schema_name),
-                    table_name=Identifier(self.table_name),
-                    operator=SQL(operator),
-                    direction=SQL(direction),
-                )
-                
-                # Add parameters
-                params = [query_embedding_str, top_k]
-                query = base_query
+                # Raise exception instead of logging a warning
+                raise ValueError(f"Failed to apply filters: {str(e)}")
         
         # Execute the query with parameters
         self.dict_cursor.execute(query, params)
