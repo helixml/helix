@@ -4,25 +4,31 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	reflect "reflect"
+	"reflect"
 	"strings"
 	"time"
 
-	_ "github.com/doug-martin/goqu/v9/dialect/postgres"        // postgres query builder
-	_ "github.com/golang-migrate/migrate/v4/database/postgres" // postgres migrations
-	_ "github.com/lib/pq"                                      // enable postgres driver
-
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/schema"
-
+	_ "github.com/doug-martin/goqu/v9/dialect/postgres" // postgres query builder
 	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres" // postgres migrations
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	_ "github.com/lib/pq" // enable postgres driver
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
+
+// zerologAdapter adapts zerolog to GORM's logger.Writer interface
+type zerologAdapter struct{}
+
+func (a *zerologAdapter) Printf(format string, args ...interface{}) {
+	log.Debug().Msgf(format, args...)
+}
 
 type PostgresStore struct {
 	cfg config.Store
@@ -341,9 +347,17 @@ func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
 				cfg.username, cfg.password, cfg.host, cfg.port, cfg.database, sslSettings)
 
-			dialector = postgres.Open(dsn)
+			dialector = gormpostgres.Open(dsn)
 
-			gormConfig := &gorm.Config{}
+			gormConfig := &gorm.Config{
+				Logger: logger.New(
+					&zerologAdapter{},
+					logger.Config{
+						// Set log level to Error to avoid logging "record not found" messages
+						LogLevel: logger.Error,
+					},
+				),
+			}
 
 			if cfg.schemaName != "" {
 				gormConfig.NamingStrategy = schema.NamingStrategy{
