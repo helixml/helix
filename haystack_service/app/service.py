@@ -472,10 +472,12 @@ class HaystackService:
                 # Log the top results and their source ranks
                 logger.info("DEBUG: Top documents after RRF fusion:")
                 for i, doc_id in enumerate(sorted_doc_ids[:min(10, len(sorted_doc_ids))], 1):
+                    buzzwang = any(doc.content and "SmartBuzz" in doc.content for doc in bm25_docs + vector_docs if doc.id == doc_id)
                     logger.info(f"DEBUG: Rank {i}: doc_id={doc_id}, "
                               f"RRF score={rrf_scores[doc_id]:.6f}, "
                               f"BM25 rank={bm25_ranks.get(doc_id, 'not in results')}, "
-                              f"Vector rank={vector_ranks.get(doc_id, 'not in results')}")
+                              f"Vector rank={vector_ranks.get(doc_id, 'not in results')}, "
+                              f"buzzwang={buzzwang}")
             except Exception as e:
                 logger.error(f"DEBUG: Manual RRF simulation failed: {str(e)}")
                 logger.exception("RRF simulation error details:")
