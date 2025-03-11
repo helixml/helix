@@ -437,7 +437,7 @@ class VectorchordDocumentStore:
             language=SQLLiteral(self.language),
         )
         self._execute_sql(query, error_msg=f"Failed to create keyword index for {self.schema_name}.{self.table_name}")
-        logger.info(f"Created keyword index {self.keyword_index_name} for {self.schema_name}.{self.table_name}")
+        # logger.info(f"Created keyword index {self.keyword_index_name} for {self.schema_name}.{self.table_name}")
 
     def _create_bm25_index_if_not_exists(self):
         """Create the BM25 index if it doesn't exist and update content_bm25vector column."""
@@ -478,9 +478,10 @@ class VectorchordDocumentStore:
             
             logger.info(f"Created BM25 index {index_name} for {self.schema_name}.{self.table_name}")
         except Exception as e:
-            logger.error(f"Error creating BM25 index: {str(e)}")
-            # Don't raise the error, as BM25 might not be critical for all use cases
+            logger.error(f"Critical error creating BM25 index: {str(e)}")
             self.connection.rollback()
+            # Raise the error as BM25 is critical for functionality
+            raise DocumentStoreError(f"Failed to create BM25 index: {str(e)}")
 
     def _handle_vchordrq(self):
         """Handle the creation of the VectorChord RaBitQ index."""
@@ -691,39 +692,40 @@ class VectorchordDocumentStore:
                         raise DuplicateDocumentError(error_msg) from err
                     raise
 
-            # Commit the changes
-            self.connection.commit()
+            # Get the IDs of documents we just inserted with content
+            doc_ids = [doc["id"] for doc in pg_documents if doc["content"]]
             
-            # Update BM25 vectors for newly inserted documents
-            # We do this as a separate step to ensure we can use the BM25 extension's tokenize function
-            try:
-                # Get the IDs of documents we just inserted
-                doc_ids = [doc["id"] for doc in pg_documents if doc["content"]]
+            if doc_ids:
+                # Convert list of IDs to a comma-separated string of quoted IDs
+                id_list = ", ".join([f"'{doc_id}'" for doc_id in doc_ids])
                 
-                if doc_ids:
-                    # Convert list of IDs to a comma-separated string of quoted IDs
-                    id_list = ", ".join([f"'{doc_id}'" for doc_id in doc_ids])
-                    
-                    # Use the 'Bert' tokenizer by default
-                    tokenizer = "Bert"
-                    
-                    # Build and execute the query to update BM25 vectors
-                    query = SQL("""
-                        UPDATE {schema_name}.{table_name}
-                        SET content_bm25vector = tokenize(content, %s)
-                        WHERE id IN ({id_list}) AND content IS NOT NULL
-                    """).format(
-                        schema_name=Identifier(self.schema_name),
-                        table_name=Identifier(self.table_name),
-                        id_list=SQL(id_list)
-                    )
-                    
+                # Use the 'Bert' tokenizer by default
+                tokenizer = "Bert"
+                
+                # Build and execute the query to update BM25 vectors as part of the same transaction
+                query = SQL("""
+                    UPDATE {schema_name}.{table_name}
+                    SET content_bm25vector = tokenize(content, %s)
+                    WHERE id IN ({id_list}) AND content IS NOT NULL
+                """).format(
+                    schema_name=Identifier(self.schema_name),
+                    table_name=Identifier(self.table_name),
+                    id_list=SQL(id_list)
+                )
+                
+                try:
                     self._execute_sql(query, params=(tokenizer,), 
                                      error_msg="Failed to update BM25 vectors for newly inserted documents")
                     logger.info(f"Updated BM25 vectors for {len(doc_ids)} documents")
-            except Exception as e:
-                logger.warning(f"Failed to update BM25 vectors: {str(e)}. BM25 search may not work correctly.")
-                raise e
+                except Exception as e:
+                    # Roll back the entire transaction if BM25 vector update fails
+                    self.connection.rollback()
+                    error_msg = f"Failed to update BM25 vectors: {str(e)}. Operation aborted."
+                    logger.error(error_msg)
+                    raise DocumentStoreError(error_msg) from e
+            
+            # Commit the changes
+            self.connection.commit()
             
             return len(pg_documents)
 
@@ -772,7 +774,7 @@ class VectorchordDocumentStore:
                 "id": doc_id,
                 "embedding": embedding,
                 "content": content,
-                "content_bm25vector": None,  # This will be computed by DB triggers or update statements
+                "content_bm25vector": None,  # This will be computed separately
                 "blob_data": blob_data,
                 "blob_meta": json.dumps(blob_meta) if blob_meta else None,
                 "blob_mime_type": blob_mime_type,
@@ -804,12 +806,20 @@ class VectorchordDocumentStore:
                 )
 
             # Convert meta from JSONB to dict
-            meta = doc.get("meta", {})
-            if meta and not isinstance(meta, dict):
+            try:
+                meta_str = doc.get("meta")
+                if meta_str and isinstance(meta_str, str):
+                    meta = json.loads(meta_str)
+                elif isinstance(meta_str, dict):
+                    meta = meta_str
+                else:
+                    meta = {}
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Failed to parse meta for document {doc.get('id')}, using empty dict")
                 meta = {}
                 
             # Add score to meta if available
-            if "score" in doc:
+            if "score" in doc and doc["score"] is not None:
                 meta["score"] = doc["score"]
 
             # Create the Document

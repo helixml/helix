@@ -801,10 +801,13 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 
 		knowledge, err := apiClient.ListKnowledge(cmd.Context(), knowledgeFilter)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to list knowledge sources: %w", err)
 		}
 
-		alreadyQueued := false
+		// Keep track of which knowledge sources need re-triggering
+		needsRetrigger := make(map[string]*types.Knowledge)
+		anyIndexing := false
+
 		for _, k := range knowledge {
 			err = apiClient.RefreshKnowledge(cmd.Context(), k.ID)
 			if err != nil {
@@ -812,25 +815,59 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 				if strings.Contains(err.Error(), "knowledge is queued for indexing") ||
 					strings.Contains(err.Error(), "knowledge is already being indexed") {
 					fmt.Printf("Knowledge %s (%s) is already being processed for indexing\n", k.ID, k.Name)
-					alreadyQueued = true
+					needsRetrigger[k.ID] = k
+					anyIndexing = true
 					continue
 				}
 				return fmt.Errorf("failed to refresh knowledge %s (%s): %w", k.ID, k.Name, err)
 			}
 		}
 
-		if alreadyQueued {
+		if anyIndexing {
 			fmt.Println("Some knowledge sources are already being indexed. Proceeding to wait for indexing to complete...")
 		}
 
 		// Wait for knowledge to be fully indexed before running tests
 		fmt.Println("Waiting for knowledge to be indexed before running tests...")
-		indexingStart := time.Now()
+		indexingStartTime := time.Now()
 		err = cliutil.WaitForKnowledgeReady(cmd.Context(), apiClient, appID, knowledgeTimeout)
 		if err != nil {
-			return err
+			return fmt.Errorf("error waiting for knowledge to be ready: %w", err)
 		}
-		ragMetrics.TotalIndexingTime = time.Since(indexingStart)
+		indexingTime := time.Since(indexingStartTime)
+		ragMetrics.TotalIndexingTime = indexingTime
+
+		// If we detected any knowledge sources that were already indexing, re-trigger just those
+		if len(needsRetrigger) > 0 {
+			fmt.Printf("Previous indexing finished. Re-triggering indexing for %d knowledge source(s) that were already being processed...\n", len(needsRetrigger))
+
+			for id, k := range needsRetrigger {
+				fmt.Printf("Re-triggering indexing for knowledge source %s (%s)\n", id, k.Name)
+				err = apiClient.RefreshKnowledge(cmd.Context(), id)
+				if err != nil {
+					// If knowledge is somehow still indexing, that's odd but we'll continue
+					if strings.Contains(err.Error(), "knowledge is queued for indexing") ||
+						strings.Contains(err.Error(), "knowledge is already being indexed") {
+						fmt.Printf("Knowledge %s (%s) is somehow still being processed for indexing\n", id, k.Name)
+						continue
+					}
+					return fmt.Errorf("failed to re-refresh knowledge %s (%s): %w", id, k.Name, err)
+				}
+			}
+
+			// Wait for the second indexing to complete
+			fmt.Println("Waiting for re-triggered indexing to complete...")
+			reindexingStartTime := time.Now()
+			err = cliutil.WaitForKnowledgeReady(cmd.Context(), apiClient, appID, knowledgeTimeout)
+			if err != nil {
+				return fmt.Errorf("error waiting for re-triggered indexing to complete: %w", err)
+			}
+			reindexingTime := time.Since(reindexingStartTime)
+
+			// Update the total indexing time to include both waits
+			ragMetrics.TotalIndexingTime = indexingTime + reindexingTime
+			fmt.Printf("Re-triggered indexing completed in %s\n", reindexingTime)
+		}
 
 		// Update individual knowledge source indexing times
 		for _, k := range knowledge {
