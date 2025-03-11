@@ -4,11 +4,13 @@ import {
   IAppUpdate,
   IKnowledgeSource,
   IAssistantConfig,
+  IKnowledgeSearchResult,
 } from '../types'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useApps from './useApps'
 import useAccount from './useAccount'
+import useRouter from './useRouter'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import { parse as parseYaml } from 'yaml'
@@ -28,6 +30,7 @@ export const useApp = (appId: string) => {
   const apps = useApps()
   const snackbar = useSnackbar()
   const account = useAccount()
+  const { navigate } = useRouter()
   const { NewInference } = useStreaming()
   
   // Main app state
@@ -47,6 +50,13 @@ export const useApp = (appId: string) => {
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [model, setModel] = useState('')
+  
+  // Search state
+  const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([])
+  const [searchParams, setSearchParams] = useState(() => 
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
+  )
+  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings')
   
   // Initialize app based on appId
   useEffect(() => {
@@ -513,6 +523,117 @@ export const useApp = (appId: string) => {
     }
   }
   
+  /**
+   * Searches knowledge within the app
+   * @param query - Search query to execute
+   */
+  const onSearch = async (query: string) => {
+    if (!app) return
+    
+    try {
+      const newSearchResults = await api.get<IKnowledgeSearchResult[]>('/api/v1/search', {
+        params: {
+          app_id: app.id,
+          knowledge_id: knowledgeSources[0]?.id,
+          prompt: query,
+        }
+      })
+      
+      if (!newSearchResults || !Array.isArray(newSearchResults)) {
+        snackbar.error('No results found or invalid response')
+        setSearchResults([])
+        return
+      }
+      
+      setSearchResults(newSearchResults)
+      return newSearchResults
+    } catch (error) {
+      console.error('Search error:', error)
+      snackbar.error('Failed to search knowledge')
+      setSearchResults([])
+    }
+  }
+  
+  /**
+   * Adds a new API key for the app
+   */
+  const onAddAPIKey = async () => {
+    if (!app) return
+    
+    try {
+      const res = await api.post('/api/v1/api_keys', {
+        name: `api key ${account.apiKeys.length + 1}`,
+        type: 'app',
+        app_id: app.id,
+      }, {}, {
+        snackbar: true,
+      })
+      
+      if (!res) return
+      
+      snackbar.success('API Key added')
+      
+      // Reload API keys
+      account.loadApiKeys({
+        types: 'app',
+        app_id: app.id,
+      })
+      
+      return res
+    } catch (error) {
+      console.error('Error adding API key:', error)
+      snackbar.error('Failed to add API key')
+    }
+  }
+  
+  /**
+   * Handles tab change in the app interface
+   * @param event - React event
+   * @param newValue - New tab value
+   */
+  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
+    setTabValue(newValue)
+    
+    // Update URL search params
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString())
+      newParams.set('tab', newValue)
+      
+      // Update URL without reload
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`)
+      }
+      
+      return newParams
+    })
+  }
+  
+  /**
+   * Launches the app (saves and navigates to new page)
+   */
+  const handleLaunch = async () => {
+    if (!app) return
+    
+    if (app.id === 'new') {
+      snackbar.error('Please save the app before launching')
+      return
+    }
+
+    try {
+      // Save the app before launching
+      const savedApp = await onSave(true)
+      
+      if (savedApp) {
+        navigate('new', { app_id: savedApp.id })
+      } else {
+        snackbar.error('Failed to save app before launching')
+      }
+    } catch (error) {
+      console.error('Error saving app before launch:', error)
+      snackbar.error('Failed to save app before launching')
+    }
+  }
+  
   return {
     // App state
     app,
@@ -552,7 +673,19 @@ export const useApp = (appId: string) => {
     setInputValue,
     setModel,
     onInference,
-    onSave
+    onSave,
+    
+    // Search
+    searchResults,
+    onSearch,
+    
+    // Navigation
+    tabValue,
+    handleTabChange,
+    handleLaunch,
+    
+    // API keys
+    onAddAPIKey,
   }
 }
 
