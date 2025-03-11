@@ -86,47 +86,37 @@ class VectorchordBM25Retriever:
             filter_policy if isinstance(filter_policy, FilterPolicy) else FilterPolicy.from_str(filter_policy)
         )
         
-        # Initialize VectorChord BM25 (ensure index exists)
-        self._initialize_bm25()
+        # Ensure the BM25 index exists in the document store
+        logger.info("Verifying BM25 index exists in document store")
+        self._verify_bm25_index()
 
-    def _initialize_bm25(self):
+    def _verify_bm25_index(self):
         """
-        Initialize the BM25 index for the document store.
-        This method ensures that all documents have been tokenized and the BM25 index is created.
+        Verify that the BM25 index exists in the document store.
+        If not, it might indicate that the document store was not properly initialized.
         """
-        # Ensure the vchord_bm25 extension is loaded and properly initialized
         try:
-            # First, add the bm25vector column if it doesn't exist
-            query = f"""
-            ALTER TABLE {self.document_store.schema_name}.{self.document_store.table_name}
-            ADD COLUMN IF NOT EXISTS content_bm25vector bm25vector;
-            """
-            self.document_store.cursor.execute(query)
-            self.document_store.connection.commit()
-            
-            # Tokenize the content for all documents
-            query = f"""
-            UPDATE {self.document_store.schema_name}.{self.document_store.table_name}
-            SET content_bm25vector = tokenize(content, '{self.tokenizer}')
-            WHERE content IS NOT NULL;
-            """
-            self.document_store.cursor.execute(query)
-            self.document_store.connection.commit()
-            
-            # Create the BM25 index on the content_bm25vector column
+            # Check if the index exists
             index_name = f"{self.document_store.table_name}_bm25_idx"
             query = f"""
-            CREATE INDEX IF NOT EXISTS {index_name} 
-            ON {self.document_store.schema_name}.{self.document_store.table_name} 
-            USING bm25 (content_bm25vector bm25_ops);
+            SELECT EXISTS (
+                SELECT 1 FROM pg_indexes 
+                WHERE schemaname = '{self.document_store.schema_name}' 
+                AND tablename = '{self.document_store.table_name}'
+                AND indexname = '{index_name}'
+            );
             """
             self.document_store.cursor.execute(query)
-            self.document_store.connection.commit()
+            index_exists = self.document_store.cursor.fetchone()[0]
             
+            if not index_exists:
+                logger.warning(f"BM25 index '{index_name}' not found. Asking document store to create it.")
+                # Call the document store method to create the BM25 index
+                self.document_store._create_bm25_index_if_not_exists()
+                
         except Exception as e:
-            self.document_store.connection.rollback()
-            logger.error(f"Failed to initialize BM25 index: {str(e)}")
-            raise ValueError(f"Failed to initialize BM25 index: {str(e)}")
+            logger.error(f"Error verifying BM25 index: {str(e)}")
+            raise ValueError(f"Failed to verify BM25 index: {str(e)}")
 
     def to_dict(self) -> Dict[str, Any]:
         """

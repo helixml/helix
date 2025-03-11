@@ -565,7 +565,7 @@ class HaystackService:
             # Get IDs of matching documents
             doc_ids = [doc.id for doc in matching_docs]
             
-            # Delete from both document stores
+            # Delete from the document store
             self.document_store.delete_documents(doc_ids)
             
             return {
