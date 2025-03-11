@@ -794,7 +794,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 		ragMetrics.FilesUploaded = totalFilesUploaded
 		ragMetrics.TotalUploadTime = time.Since(totalUploadStart)
 
-		// After syncing all files, refresh the knowledge to reindex
+		// After syncing all files, complete preparation and trigger indexing for all knowledge sources
 		knowledgeFilter := &client.KnowledgeFilter{
 			AppID: appID,
 		}
@@ -809,17 +809,33 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 		anyIndexing := false
 
 		for _, k := range knowledge {
-			err = apiClient.RefreshKnowledge(cmd.Context(), k.ID)
-			if err != nil {
-				// If knowledge is already queued for indexing or already being indexed, that's fine, we'll just wait
-				if strings.Contains(err.Error(), "knowledge is queued for indexing") ||
-					strings.Contains(err.Error(), "knowledge is already being indexed") {
-					fmt.Printf("Knowledge %s (%s) is already being processed for indexing\n", k.ID, k.Name)
-					needsRetrigger[k.ID] = k
-					anyIndexing = true
-					continue
+			// If knowledge is in "preparing" state, complete preparation
+			if k.State == types.KnowledgeStatePreparing {
+				fmt.Printf("Completing preparation for knowledge source %s (%s)\n", k.ID, k.Name)
+				err = apiClient.CompleteKnowledgePreparation(cmd.Context(), k.ID)
+				if err != nil {
+					return fmt.Errorf("failed to complete preparation for knowledge %s (%s): %w", k.ID, k.Name, err)
 				}
-				return fmt.Errorf("failed to refresh knowledge %s (%s): %w", k.ID, k.Name, err)
+			} else if k.State == types.KnowledgeStateReady {
+				// If knowledge is already ready, refresh it
+				fmt.Printf("Refreshing knowledge source %s (%s)\n", k.ID, k.Name)
+				err = apiClient.RefreshKnowledge(cmd.Context(), k.ID)
+				if err != nil {
+					// If knowledge is already queued for indexing or already being indexed, that's fine, we'll just wait
+					if strings.Contains(err.Error(), "knowledge is queued for indexing") ||
+						strings.Contains(err.Error(), "knowledge is already being indexed") {
+						fmt.Printf("Knowledge %s (%s) is already being processed for indexing\n", k.ID, k.Name)
+						needsRetrigger[k.ID] = k
+						anyIndexing = true
+						continue
+					}
+					return fmt.Errorf("failed to refresh knowledge %s (%s): %w", k.ID, k.Name, err)
+				}
+			} else if k.State == types.KnowledgeStateIndexing {
+				// If knowledge is already indexing, add it to the re-trigger list
+				fmt.Printf("Knowledge %s (%s) is already being processed for indexing\n", k.ID, k.Name)
+				needsRetrigger[k.ID] = k
+				anyIndexing = true
 			}
 		}
 

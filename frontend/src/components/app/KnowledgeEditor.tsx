@@ -30,6 +30,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import debounce from 'lodash/debounce';
 import useAccount from '../../hooks/useAccount';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import useSnackbar from '../../hooks/useSnackbar';
@@ -44,6 +45,7 @@ interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;  
   onRefresh: (id: string) => void;
+  onCompletePreparation: (id: string) => void;
   onUpload: (path: string, files: File[]) => Promise<void>;
   loadFiles: (path: string) => Promise<IFileStoreItem[]>;
   uploadProgress?: IFilestoreUploadProgress;
@@ -53,7 +55,7 @@ interface KnowledgeEditorProps {
   onRequestSave?: () => Promise<any>;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId, onRequestSave }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onCompletePreparation, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId, onRequestSave }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const { error: snackbarError, info: snackbarInfo, success: snackbarSuccess } = useSnackbar();
@@ -184,6 +186,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
   };
 
+  const completePreparation = (index: number) => {
+    const knowledge = knowledgeList.find(k => k.name === knowledgeSources[index].name);
+    if (knowledge) {
+      onCompletePreparation(knowledge.id);
+      snackbarSuccess('Knowledge preparation completed. Indexing started.');
+    }
+  };
+
   const validateSources = () => {
     const newErrors: Record<string, string[]> = {};
     knowledgeSources.forEach((source, index) => {      
@@ -243,6 +253,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     switch (knowledge.state.toLowerCase()) {
       case 'ready':
         color = 'success';
+        break;
+      case 'preparing':
+        color = 'warning';
         break;
       case 'pending':
       case 'indexing':
@@ -560,6 +573,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
     const sourceType = source.source.filestore ? 'filestore' : 'web';
+    const knowledge = getKnowledge(source);
 
     return (
       <>
@@ -1006,6 +1020,25 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             )}
           </Box>
         )}
+
+        {knowledge && knowledge.state === 'preparing' && (
+          <Alert 
+            severity="warning" 
+            sx={{ mt: 2, mb: 2 }}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => completePreparation(index)}
+                disabled={disabled}
+              >
+                Complete & Start Indexing
+              </Button>
+            }
+          >
+            This knowledge source is in preparation mode. Upload all your files, then click "Complete & Start Indexing" when you're ready.
+          </Alert>
+        )}
       </>
     );
   };
@@ -1103,6 +1136,21 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   <RefreshIcon />
                 </IconButton>
               </Tooltip>
+              {knowledge && knowledge.state === 'preparing' && (
+                <Tooltip title="Complete preparation and start indexing">
+                  <IconButton
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      completePreparation(index);
+                    }}
+                    disabled={disabled}
+                    sx={{ mr: 1 }}
+                    color="warning"
+                  >
+                    <PlayArrowIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip title="Delete this knowledge source">
                 <IconButton
                   onClick={(e) => {

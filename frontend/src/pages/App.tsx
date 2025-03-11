@@ -219,7 +219,20 @@ const App: FC = () => {
       console.error('Error refreshing knowledge:', error);
       snackbar.error('Failed to refresh knowledge');
     });
-  }, [api, fetchKnowledge, snackbar]);
+  }, [api, fetchKnowledge]);
+
+  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after completing preparation
+      fetchKnowledge();
+      snackbar.success('Knowledge preparation completed. Indexing started.');
+    }).catch((error) => {
+      console.error('Error completing knowledge preparation:', error);
+      snackbar.error('Failed to complete knowledge preparation');
+    });
+  }, [api, fetchKnowledge]);
 
   useEffect(() => {
     let initialApp: IApp | null = null;
@@ -1018,6 +1031,7 @@ const App: FC = () => {
                         knowledgeSources={knowledgeSources}
                         onUpdate={handleKnowledgeUpdate}
                         onRefresh={handleRefreshKnowledge}
+                        onCompletePreparation={handleCompleteKnowledgePreparation}
                         onUpload={handleFileUpload}
                         loadFiles={handleLoadFiles}
                         uploadProgress={filestore.uploadProgress}
