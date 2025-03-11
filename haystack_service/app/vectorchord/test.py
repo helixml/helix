@@ -99,37 +99,18 @@ def test_connection():
     return True
 
 
-def setup_extensions():
-    """Set up the required PostgreSQL extensions."""
-    import psycopg
-    
-    conn = psycopg.connect(PG_CONN_STR)
-    conn.autocommit = True
-    
-    with conn.cursor() as cur:
-        # Create extensions
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vchord CASCADE;")
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;")
-        
-        # Set up search path
-        cur.execute("ALTER SYSTEM SET search_path TO \"$user\", public, bm25_catalog;")
-        cur.execute("SELECT pg_reload_conf();")
-    
-    conn.close()
-    logger.info("PostgreSQL extensions set up successfully")
-
-
 def initialize_document_store() -> VectorchordDocumentStore:
     """Initialize and return a VectorchordDocumentStore."""
+    # Create a Secret object from the connection string to match how it's done in service.py
+    connection_secret = Secret.from_token(PG_CONN_STR)
+    
     document_store = VectorchordDocumentStore(
-        connection_string=PG_CONN_STR,
+        connection_string=connection_secret,  # Use Secret object like in production
         embedding_dimension=EMBEDDING_DIM,
         table_name=TABLE_NAME,
-        language="english",
         vector_function="cosine_similarity",
-        recreate_table=True,
-        keyword_index_name=None  # Skip creating keyword index since we're using BM25
+        search_strategy="vchordrq",  # Use VectorChord's RaBitQ index like in production
+        recreate_table=True  # Match production
     )
     
     logger.info(f"VectorchordDocumentStore initialized with table {TABLE_NAME}")
@@ -239,15 +220,73 @@ def test_bm25_retriever(document_store: VectorchordDocumentStore):
     logger.info("All BM25 search results have valid scores!")
 
 
+def test_combined_retrieval(document_store: VectorchordDocumentStore):
+    """Test combined retrieval using both embedding and BM25 retrievers, similar to production."""
+    # Create combined pipeline with both retrievers
+    pipeline = Pipeline()
+    
+    # Create components
+    text_embedder = SentenceTransformersTextEmbedder(model="all-MiniLM-L6-v2")
+    
+    # Vector retriever
+    vector_retriever = VectorchordEmbeddingRetriever(
+        document_store=document_store,
+        filters=None,
+        top_k=5
+    )
+    
+    # BM25 retriever
+    bm25_retriever = VectorchordBM25Retriever(
+        document_store=document_store,
+        filters=None,
+        top_k=5
+    )
+    
+    # Document joiner to combine results, just like in production
+    try:
+        # Try to import DocumentJoiner (new versions of Haystack)
+        from haystack.components.joiners import DocumentJoiner
+        
+        document_joiner = DocumentJoiner(
+            join_mode="reciprocal_rank_fusion",
+            top_k=5
+        )
+        
+        # Add components
+        pipeline.add_component("embedder", text_embedder)
+        pipeline.add_component("vector_retriever", vector_retriever)
+        pipeline.add_component("bm25_retriever", bm25_retriever)
+        pipeline.add_component("document_joiner", document_joiner)
+        
+        # Connect components
+        pipeline.connect("embedder.embedding", "vector_retriever.query_embedding")
+        pipeline.connect("vector_retriever", "document_joiner")
+        pipeline.connect("bm25_retriever", "document_joiner")
+        
+        # Run test queries
+        queries = [
+            "vector search postgres",
+            "BM25 ranking algorithm", 
+            "PostgreSQL database"
+        ]
+        
+        logger.info("\nTesting combined vector and BM25 retrieval (production-like):")
+        for query in queries:
+            logger.info(f"\nCombined search query: '{query}'")
+            results = pipeline.run({"embedder": {"text": query}, "bm25_retriever": {"query": query}})
+            for i, doc in enumerate(results["document_joiner"]["documents"], 1):
+                logger.info(f"Result {i}: {doc.content} (Score: {doc.score})")
+    
+    except ImportError:
+        logger.warning("Could not import DocumentJoiner, skipping combined retrieval test")
+
+
 def main():
     """Main function to run all test steps."""
     # Start the Docker container
     if not start_docker_container():
         logger.error("Failed to start Docker container. Exiting.")
         return
-    
-    # Set up PostgreSQL extensions
-    setup_extensions()
     
     # Initialize document store
     document_store = initialize_document_store()
@@ -259,12 +298,16 @@ def main():
     # Index documents
     index_documents(document_store, documents_with_embeddings)
     
-    # Test the retrievers
+    # Test the retrievers individually
     logger.info("\n=== Testing VectorchordEmbeddingRetriever ===")
     test_embedding_retriever(document_store)
     
     logger.info("\n=== Testing VectorchordBM25Retriever ===")
     test_bm25_retriever(document_store)
+    
+    # Test combined retrieval (more similar to production)
+    logger.info("\n=== Testing Combined Retrieval (Production-like) ===")
+    test_combined_retrieval(document_store)
     
     logger.info("\nAll tests completed successfully!")
 
