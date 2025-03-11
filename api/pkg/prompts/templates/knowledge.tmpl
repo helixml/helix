@@ -15,8 +15,13 @@ Please provided references in your answer in the format '[DOC_ID:DocumentID]'. F
 {{- end }}
 
 {{- if .KnowledgeResults }}
-Here is some background knowledge context that you may refer to in your answer:
+We have found the following context you may refer to in your answer:
 {{- range .KnowledgeResults }}
+{{- if .DocumentID }}
+<document_id>
+DocumentID: {{ .DocumentID }}
+</document_id>
+{{- end }}
 <article>
 {{- if .Source }}
 <source>
@@ -34,25 +39,7 @@ Content: {{ .Content }}
 </article>
 {{- end }}
 
-If you have used the background knowledge in your answer, then provide a list of bullet
-points at the end of your answer with the relevant source URLs used such as:
-- [https://example1.com](https://example1.com)
-- [https://example2.com](https://example2.com)
-
-Do not repeat the same source link twice. Only include sources that were actually used in the answer. Only include sources that were in the <source> tags.
-
-For example:
-"
-To setup the Webhook Relay agent locally, download the CLI:
-```
-curl https://my.webhookrelay.com/webhookrelay/downloads/install-cli.sh | bash
-```
-And then run login command to authenticate.
-
-You can find more information about this topic in:
-- [https://example.com/agent/install](https://example.com/agent/install)
-- [https://example.com/agent/login](https://example.com/agent/login)
-"	
+Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."            
 {{- end }}
 
 Here is the question from the user:
