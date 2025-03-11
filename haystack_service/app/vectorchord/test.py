@@ -212,11 +212,31 @@ def test_bm25_retriever(document_store: VectorchordDocumentStore):
         "PostgreSQL database"
     ]
     
+    all_scores_valid = True
+    failed_queries = []
+    
     for query in queries:
         logger.info(f"\nBM25 search query: '{query}'")
         results = retriever.run(query=query)
+        
+        query_has_valid_scores = True
         for i, doc in enumerate(results["documents"], 1):
-            logger.info(f"Result {i}: {doc.content} (Score: {doc.score})")
+            # Check if the score is None
+            if doc.score is None:
+                query_has_valid_scores = False
+                all_scores_valid = False
+                logger.error(f"Result {i} for query '{query}' has None score: {doc.content}")
+            else:
+                logger.info(f"Result {i}: {doc.content} (Score: {doc.score})")
+        
+        if not query_has_valid_scores:
+            failed_queries.append(query)
+    
+    # Assert that all scores are valid (not None)
+    if not all_scores_valid:
+        raise AssertionError(f"BM25 search returned None scores for queries: {failed_queries}")
+    
+    logger.info("All BM25 search results have valid scores!")
 
 
 def main():

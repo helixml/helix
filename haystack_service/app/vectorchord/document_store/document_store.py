@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import logging
 from typing import Any, Dict, List, Literal, Optional
+import uuid
+import json
 
 from haystack import default_from_dict, default_to_dict
 from haystack.dataclasses.document import ByteStream, Document
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
 id VARCHAR(128) PRIMARY KEY,
 embedding VECTOR({embedding_dimension}),
 content TEXT,
+content_bm25vector bm25vector,
 blob_data BYTEA,
 blob_meta JSONB,
 blob_mime_type VARCHAR(255),
@@ -37,14 +40,15 @@ meta JSONB)
 
 INSERT_STATEMENT = """
 INSERT INTO {schema_name}.{table_name}
-(id, embedding, content, blob_data, blob_meta, blob_mime_type, meta)
-VALUES (%(id)s, %(embedding)s, %(content)s, %(blob_data)s, %(blob_meta)s, %(blob_mime_type)s, %(meta)s)
+(id, embedding, content, content_bm25vector, blob_data, blob_meta, blob_mime_type, meta)
+VALUES (%(id)s, %(embedding)s, %(content)s, %(content_bm25vector)s, %(blob_data)s, %(blob_meta)s, %(blob_mime_type)s, %(meta)s)
 """
 
 UPDATE_STATEMENT = """
 ON CONFLICT (id) DO UPDATE SET
 embedding = EXCLUDED.embedding,
 content = EXCLUDED.content,
+content_bm25vector = EXCLUDED.content_bm25vector,
 blob_data = EXCLUDED.blob_data,
 blob_meta = EXCLUDED.blob_meta,
 blob_mime_type = EXCLUDED.blob_mime_type,
@@ -109,20 +113,11 @@ ORDER BY embedding {operator} %(query_embedding)s {direction}
 LIMIT %(top_k)s
 """
 
-CREATE_HNSW_INDEX_STATEMENT = """
+# Create a constant for VectorChord's RaBitQ index
+CREATE_VCHORDRQ_INDEX_STATEMENT = """
 CREATE INDEX IF NOT EXISTS {index_name}
 ON {schema_name}.{table_name}
-USING hnsw(embedding {operator})
-{with_clause}
-"""
-
-HNSW_WITH_CLAUSE_TEMPLATE = """WITH (
-    ef_construction = {ef_construction}, 
-    m = {m}
-)"""
-
-HNSW_SET_EF_SEARCH_STATEMENT = """
-SET vchord.ef_search = {ef_search}
+USING vchordrq (embedding {operator_type}) WITH (options = %s)
 """
 
 class VectorchordDocumentStore:
@@ -170,11 +165,10 @@ class VectorchordDocumentStore:
         embedding_dimension: int = 768,
         vector_function: Literal["cosine_similarity", "inner_product", "l2_distance"] = "cosine_similarity",
         recreate_table: bool = False,
-        search_strategy: Literal["exact_nearest_neighbor", "hnsw"] = "exact_nearest_neighbor",
-        hnsw_recreate_index_if_exists: bool = False,
-        hnsw_index_creation_kwargs: Optional[Dict[str, int]] = None,
-        hnsw_index_name: str = "haystack_hnsw_index",
-        hnsw_ef_search: Optional[int] = None,
+        search_strategy: Literal["exact_nearest_neighbor", "vchordrq"] = "exact_nearest_neighbor",
+        vchordrq_recreate_index_if_exists: bool = False,
+        vchordrq_index_name: str = "haystack_vchordrq_index",
+        vchordrq_lists: int = 1000,
         keyword_index_name: str = "haystack_keyword_index",
     ):
         """
@@ -188,52 +182,35 @@ class VectorchordDocumentStore:
         :param language: Language used for full-text search using PostgreSQL's ts_vector.
         :param embedding_dimension: Dimensionality of the embeddings.
         :param vector_function: Similarity function to use for vector search.
-            `"cosine_similarity"` and `"inner_product"` are similarity functions - higher scores
-            indicate greater similarity between the documents.
-            `"l2_distance"` returns the straight-line distance between vectors, and the most similar
-            documents are the ones with the smallest score.
-        :param recreate_table: Whether to recreate the table if it already exists. If set to `True`, the table
-                             will be dropped and recreated. Warning: this will delete all data in the table.
-        :param search_strategy: The strategy to use for vector search. If set to "exact_nearest_neighbor", the search
-                            will use the exact nearest neighbor algorithm. If set to "hnsw", the search will use the
-                            Hierarchical Navigable Small World algorithm, which is faster but may be less accurate.
-        :param hnsw_recreate_index_if_exists: Whether to recreate the HNSW index if it already exists. Ignored if
-                                            `search_strategy` is not `"hnsw"`.
-        :param hnsw_index_creation_kwargs: Dictionary of parameters for creating the HNSW index. The keys are
-                                        `"ef_construction"` and `"m"`. See the VectorChord documentation for details.
-        :param hnsw_index_name: Name of the HNSW index. Ignored if `search_strategy` is not `"hnsw"`.
-        :param hnsw_ef_search: The size of the dynamic list for the nearest neighbors. Ignored if `search_strategy`
-                             is not `"hnsw"`. Higher values give more accurate but slower results.
-        :param keyword_index_name: Name of the keyword index.
+        :param recreate_table: Whether to drop and recreate the document table.
+        :param search_strategy: Strategy to use for vector search, either "exact_nearest_neighbor" or "vchordrq".
+        :param vchordrq_recreate_index_if_exists: Whether to recreate the VectorChord RaBitQ index if it already exists.
+        :param vchordrq_index_name: Name of the VectorChord RaBitQ index.
+        :param vchordrq_lists: Number of lists to use for VectorChord RaBitQ index. Recommended to be rows/1000 for up to 1M rows.
+        :param keyword_index_name: Name of the keyword index for full-text search. Set to None to skip creation.
         """
-        self.language = language
         self.connection_string = connection_string
         self.create_extension = create_extension
         self.schema_name = schema_name
         self.table_name = table_name
+        self.language = language
         self.embedding_dimension = embedding_dimension
         self.vector_function = vector_function
         self.recreate_table = recreate_table
         self.search_strategy = search_strategy
-        self.hnsw_recreate_index_if_exists = hnsw_recreate_index_if_exists
-        self.hnsw_index_creation_kwargs = hnsw_index_creation_kwargs or {}
-        self.hnsw_index_name = hnsw_index_name
-        self.hnsw_ef_search = hnsw_ef_search
+        self.vchordrq_recreate_index_if_exists = vchordrq_recreate_index_if_exists
+        self.vchordrq_index_name = vchordrq_index_name
+        self.vchordrq_lists = vchordrq_lists
         self.keyword_index_name = keyword_index_name
 
-        # Initialize the connection and set up the database
+        # Initialize connections
         self._conn = None
         self._cursor = None
         self._dict_cursor = None
 
-        try:
-            self._create_connection()
-            self._initialize_table()
-        except Error as err:
-            self._conn = None
-            error_msg = f"Failed to initialize VectorchordDocumentStore: {err}"
-            logger.error(error_msg)
-            raise DocumentStoreError(error_msg) from err
+        # Initialize the database
+        self._create_connection()
+        self._initialize_table()
 
     @property
     def cursor(self):
@@ -323,10 +300,13 @@ class VectorchordDocumentStore:
 
             # Create keyword index
             self._create_keyword_index_if_not_exists()
+            
+            # Create BM25 index
+            self._create_bm25_index_if_not_exists()
 
             # Handle HNSW index creation if needed
-            if self.search_strategy == "hnsw":
-                self._handle_hnsw()
+            if self.search_strategy == "vchordrq":
+                self._handle_vchordrq()
 
         except Error as err:
             error_msg = f"Failed to initialize table: {err}"
@@ -363,10 +343,9 @@ class VectorchordDocumentStore:
             vector_function=self.vector_function,
             recreate_table=self.recreate_table,
             search_strategy=self.search_strategy,
-            hnsw_recreate_index_if_exists=self.hnsw_recreate_index_if_exists,
-            hnsw_index_creation_kwargs=self.hnsw_index_creation_kwargs,
-            hnsw_index_name=self.hnsw_index_name,
-            hnsw_ef_search=self.hnsw_ef_search,
+            vchordrq_recreate_index_if_exists=self.vchordrq_recreate_index_if_exists,
+            vchordrq_index_name=self.vchordrq_index_name,
+            vchordrq_lists=self.vchordrq_lists,
             keyword_index_name=self.keyword_index_name,
         )
         return data
@@ -381,8 +360,29 @@ class VectorchordDocumentStore:
         :returns:
             Deserialized document store.
         """
-        init_params = data.get("init_parameters", {})
-        deserialize_secrets_inplace(init_params, "connection_string")
+        init_params = data["init_parameters"]
+        
+        # Handle migration from old parameter names (HNSW) to new ones (VectorChord RaBitQ)
+        if "hnsw_recreate_index_if_exists" in init_params and "vchordrq_recreate_index_if_exists" not in init_params:
+            init_params["vchordrq_recreate_index_if_exists"] = init_params.pop("hnsw_recreate_index_if_exists")
+        
+        if "hnsw_index_name" in init_params and "vchordrq_index_name" not in init_params:
+            init_params["vchordrq_index_name"] = init_params.pop("hnsw_index_name")
+            
+        if "hnsw_index_creation_kwargs" in init_params:
+            # Extract m and convert to lists parameter if possible
+            hnsw_kwargs = init_params.pop("hnsw_index_creation_kwargs")
+            if isinstance(hnsw_kwargs, dict) and "m" in hnsw_kwargs:
+                # Use m * 100 as a reasonable conversion from HNSW m to vchordrq lists
+                init_params["vchordrq_lists"] = hnsw_kwargs["m"] * 100
+            else:
+                # Default to 1000 if we can't get a reasonable value
+                init_params["vchordrq_lists"] = 1000
+                
+        # Handle removal of ef_search parameter which doesn't have a direct equivalent
+        if "hnsw_ef_search" in init_params:
+            init_params.pop("hnsw_ef_search")
+            
         return default_from_dict(cls, data)
 
     def _execute_sql(
@@ -424,25 +424,64 @@ class VectorchordDocumentStore:
 
     def _create_keyword_index_if_not_exists(self):
         """Create the keyword index if it doesn't exist."""
-        # Skip index creation if keyword_index_name is None
-        if self.keyword_index_name is None:
+        if not self.keyword_index_name:
+            logger.info(f"Skipping keyword index creation for {self.schema_name}.{self.table_name}")
             return
-            
-        index_name = Identifier(f"{self.table_name}_{self.keyword_index_name}")
-
-        # Format language as 'english'::regconfig for PostgreSQL
-        language_param = SQL("{}::regconfig").format(SQLLiteral(self.language))
 
         query = SQL(CREATE_KEYWORD_INDEX_STATEMENT).format(
-            index_name=index_name,
             schema_name=Identifier(self.schema_name),
             table_name=Identifier(self.table_name),
-            language=language_param,
+            index_name=Identifier(self.keyword_index_name),
+            language=SQLLiteral(self.language),
         )
-        self._execute_sql(query, error_msg=f"Failed to create keyword index {index_name}")
+        self._execute_sql(query, error_msg=f"Failed to create keyword index for {self.schema_name}.{self.table_name}")
+        logger.info(f"Created keyword index {self.keyword_index_name} for {self.schema_name}.{self.table_name}")
 
-    def _handle_hnsw(self):
-        """Handle the creation of the HNSW index."""
+    def _create_bm25_index_if_not_exists(self):
+        """Create the BM25 index if it doesn't exist and update content_bm25vector column."""
+        try:
+            # First, update all existing documents to have their content tokenized
+            # Use 'Bert' as the default tokenizer
+            tokenizer = "Bert"
+            query = SQL("""
+                UPDATE {schema_name}.{table_name}
+                SET content_bm25vector = tokenize(content, %s)
+                WHERE content IS NOT NULL AND content_bm25vector IS NULL
+            """).format(
+                schema_name=Identifier(self.schema_name),
+                table_name=Identifier(self.table_name),
+            )
+            self._execute_sql(query, params=(tokenizer,), 
+                             error_msg=f"Failed to update content_bm25vector for {self.schema_name}.{self.table_name}")
+            
+            # Then create the index
+            index_name = SQL("{table_name}_bm25_idx").format(
+                table_name=Identifier(self.table_name)
+            ).as_string(self.cursor)
+            
+            # Remove quotes that psycopg might add
+            index_name = index_name.replace('"', '')
+            
+            query = SQL("""
+                CREATE INDEX IF NOT EXISTS {index_name}
+                ON {schema_name}.{table_name}
+                USING bm25 (content_bm25vector bm25_ops)
+            """).format(
+                schema_name=Identifier(self.schema_name),
+                table_name=Identifier(self.table_name),
+                index_name=Identifier(index_name),
+            )
+            self._execute_sql(query, 
+                             error_msg=f"Failed to create BM25 index for {self.schema_name}.{self.table_name}")
+            
+            logger.info(f"Created BM25 index {index_name} for {self.schema_name}.{self.table_name}")
+        except Exception as e:
+            logger.error(f"Error creating BM25 index: {str(e)}")
+            # Don't raise the error, as BM25 might not be critical for all use cases
+            self.connection.rollback()
+
+    def _handle_vchordrq(self):
+        """Handle the creation of the VectorChord RaBitQ index."""
         # Get the list of existing indexes for the table
         query = SQL(
             """
@@ -455,59 +494,78 @@ class VectorchordDocumentStore:
         self.dict_cursor.execute(query, params)
         existing_indexes = [row["indexname"] for row in self.dict_cursor.fetchall()]
 
-        # Check if the HNSW index already exists
-        full_index_name = f"{self.table_name}_{self.hnsw_index_name}"
+        # Check if the VectorChord RaBitQ index already exists
+        full_index_name = f"{self.table_name}_{self.vchordrq_index_name}"
         if full_index_name in existing_indexes:
-            if self.hnsw_recreate_index_if_exists:
+            if self.vchordrq_recreate_index_if_exists:
                 # If it exists and we want to recreate it, drop the index first
                 drop_query = SQL("DROP INDEX IF EXISTS {schema_name}.{index_name}").format(
                     schema_name=Identifier(self.schema_name),
                     index_name=Identifier(full_index_name),
                 )
-                self._execute_sql(drop_query, error_msg=f"Failed to drop HNSW index {full_index_name}")
+                self._execute_sql(drop_query, error_msg=f"Failed to drop VectorChord RaBitQ index {full_index_name}")
                 # Create a new index
-                self._create_hnsw_index()
-            # If the index exists and we don't want to recreate it, set the ef_search if provided
-            elif self.hnsw_ef_search is not None:
-                self._set_hnsw_ef_search()
+                self._create_vchordrq_index()
         else:
             # If the index doesn't exist, create it
-            self._create_hnsw_index()
+            self._create_vchordrq_index()
 
-    def _create_hnsw_index(self):
-        """Create the HNSW index."""
-        # Use default values if not provided
-        ef_construction = self.hnsw_index_creation_kwargs.get("ef_construction", 128)
-        m = self.hnsw_index_creation_kwargs.get("m", 16)
-
-        # Set ef_search if provided
-        if self.hnsw_ef_search is not None:
-            self._set_hnsw_ef_search()
-
-        # Create the with clause
-        with_clause = SQL(HNSW_WITH_CLAUSE_TEMPLATE).format(
-            ef_construction=SQLLiteral(ef_construction),
-            m=SQLLiteral(m),
-        )
-
-        # Get the operator for the vector function
-        operator = VECTOR_FUNCTION_TO_OPERATOR.get(self.vector_function, VECTOR_FUNCTION_TO_OPERATOR["cosine_similarity"])
-
-        # Create the HNSW index
-        query = SQL(CREATE_HNSW_INDEX_STATEMENT).format(
-            index_name=Identifier(f"{self.table_name}_{self.hnsw_index_name}"),
+    def _create_vchordrq_index(self):
+        """Create the VectorChord RaBitQ index."""
+        # Set the appropriate options based on the vector function
+        if self.vector_function == "l2_distance":
+            # For L2 distance, use residual_quantization=true and spherical_centroids=false
+            options = f"""
+            residual_quantization = true
+            [build.internal]
+            lists = [{self.vchordrq_lists}]
+            spherical_centroids = false
+            """
+            operator_type = "vector_l2_ops"
+        elif self.vector_function == "inner_product":
+            # For inner product, use residual_quantization=false and spherical_centroids=true
+            options = f"""
+            residual_quantization = false
+            [build.internal]
+            lists = [{self.vchordrq_lists}]
+            spherical_centroids = true
+            """
+            operator_type = "vector_ip_ops"
+        else:  # cosine_similarity or default
+            # For cosine similarity, use residual_quantization=false and spherical_centroids=true
+            options = f"""
+            residual_quantization = false
+            [build.internal]
+            lists = [{self.vchordrq_lists}]
+            spherical_centroids = true
+            """
+            operator_type = "vector_cosine_ops"
+            
+        # Create the VectorChord RaBitQ index
+        query = SQL(CREATE_VCHORDRQ_INDEX_STATEMENT).format(
+            index_name=Identifier(f"{self.table_name}_{self.vchordrq_index_name}"),
             schema_name=Identifier(self.schema_name),
             table_name=Identifier(self.table_name),
-            operator=SQL(operator),
-            with_clause=with_clause,
+            operator_type=SQL(operator_type),
         )
-        self._execute_sql(query, error_msg="Failed to create HNSW index")
+        self._execute_sql(query, params=(options,), error_msg="Failed to create VectorChord RaBitQ index")
+        logger.info(f"Created VectorChord RaBitQ index {self.table_name}_{self.vchordrq_index_name} for {self.schema_name}.{self.table_name}")
 
-    def _set_hnsw_ef_search(self):
-        """Set the ef_search parameter for HNSW index."""
-        if self.hnsw_ef_search is not None:
-            query = SQL(HNSW_SET_EF_SEARCH_STATEMENT).format(ef_search=SQLLiteral(self.hnsw_ef_search))
-            self._execute_sql(query, error_msg="Failed to set ef_search for HNSW index")
+        # Set probes and epsilon for better performance
+        try:
+            # Set probes to 10% of lists for better recall
+            probes = max(int(self.vchordrq_lists * 0.1), 10)
+            self._execute_sql(SQL("SET vchordrq.probes = %s"), params=(probes,), 
+                             error_msg="Failed to set vchordrq.probes")
+            
+            # Set epsilon to 1.5 for a balance of precision and speed
+            self._execute_sql(SQL("SET vchordrq.epsilon = 1.5"), 
+                             error_msg="Failed to set vchordrq.epsilon")
+            
+            logger.info(f"Configured VectorChord RaBitQ with probes={probes} and epsilon=1.5")
+        except Exception as e:
+            # Don't fail if we can't set the parameters
+            logger.warning(f"Could not set VectorChord RaBitQ parameters: {str(e)}")
 
     def count_documents(self) -> int:
         """
@@ -624,6 +682,38 @@ class VectorchordDocumentStore:
 
             # Commit the changes
             self.connection.commit()
+            
+            # Update BM25 vectors for newly inserted documents
+            # We do this as a separate step to ensure we can use the BM25 extension's tokenize function
+            try:
+                # Get the IDs of documents we just inserted
+                doc_ids = [doc["id"] for doc in pg_documents if doc["content"]]
+                
+                if doc_ids:
+                    # Convert list of IDs to a comma-separated string of quoted IDs
+                    id_list = ", ".join([f"'{doc_id}'" for doc_id in doc_ids])
+                    
+                    # Use the 'Bert' tokenizer by default
+                    tokenizer = "Bert"
+                    
+                    # Build and execute the query to update BM25 vectors
+                    query = SQL("""
+                        UPDATE {schema_name}.{table_name}
+                        SET content_bm25vector = tokenize(content, %s)
+                        WHERE id IN ({id_list}) AND content IS NOT NULL
+                    """).format(
+                        schema_name=Identifier(self.schema_name),
+                        table_name=Identifier(self.table_name),
+                        id_list=SQL(id_list)
+                    )
+                    
+                    self._execute_sql(query, params=(tokenizer,), 
+                                     error_msg="Failed to update BM25 vectors for newly inserted documents")
+                    logger.info(f"Updated BM25 vectors for {len(doc_ids)} documents")
+            except Exception as e:
+                logger.warning(f"Failed to update BM25 vectors: {str(e)}. BM25 search may not work correctly.")
+                # Don't raise the error as this is not critical for basic functionality
+            
             return len(pg_documents)
 
         except Error as err:
@@ -635,50 +725,49 @@ class VectorchordDocumentStore:
     @staticmethod
     def _from_haystack_to_pg_documents(documents: List[Document]) -> List[Dict[str, Any]]:
         """
-        Convert Haystack Document objects to PostgreSQL compatible dictionary format.
+        Convert Haystack Document objects to PostgreSQL compatible format.
 
         :param documents: List of `Document`s to convert.
-        :returns: List of dictionaries with PostgreSQL compatible data.
+        :returns: List of dictionaries with PostgreSQL compatible format.
         """
         pg_documents = []
 
-        for doc in documents:
-            # Handle binary data if present
+        for document in documents:
+            # Generate ID if not provided
+            doc_id = document.id or f"{uuid.uuid4().hex}"
+
+            # Extract metadata or use empty object
+            metadata = document.meta or {}
+
+            # Get embedding if available
+            embedding = document.embedding
+
+            # Get content if available
+            content = document.content
+
+            # Get blob information if available
             blob_data = None
             blob_meta = None
             blob_mime_type = None
-            
-            # Handle meta - could be a dict already or an object with to_dict method
-            if doc.meta:
-                if hasattr(doc.meta, 'to_dict'):
-                    meta_dict = doc.meta.to_dict()
-                else:
-                    # Already a dictionary
-                    meta_dict = doc.meta
-            else:
-                meta_dict = {}
 
-            if doc.blob:
-                if isinstance(doc.blob, ByteStream):
-                    blob_data = doc.blob.data
-                    blob_meta = Jsonb(doc.blob.meta) if doc.blob.meta else None
-                    blob_mime_type = doc.blob.mime_type
-                else:
-                    logger.warning(
-                        f"Document {doc.id} has a blob of type {type(doc.blob)} which is not supported. "
-                        "Only ByteStream is supported. The blob will be ignored."
-                    )
+            if hasattr(document, "blob") and document.blob:
+                blob_dict = document.blob
+                blob_data = blob_dict.get("data")
+                blob_meta = blob_dict.get("meta", {})
+                blob_mime_type = blob_dict.get("mime_type")
 
-            # Create a dictionary with PostgreSQL compatible data
+            # Return a dict with PostgreSQL compatible keys and values
             pg_document = {
-                "id": doc.id,
-                "embedding": doc.embedding,
-                "content": doc.content,
+                "id": doc_id,
+                "embedding": embedding,
+                "content": content,
+                "content_bm25vector": None,  # This will be computed by DB triggers or update statements
                 "blob_data": blob_data,
-                "blob_meta": blob_meta,
+                "blob_meta": json.dumps(blob_meta) if blob_meta else None,
                 "blob_mime_type": blob_mime_type,
-                "meta": Jsonb(meta_dict),
+                "meta": json.dumps(metadata) if metadata else None,
             }
+
             pg_documents.append(pg_document)
 
         return pg_documents
