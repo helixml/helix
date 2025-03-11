@@ -82,6 +82,12 @@ func WaitForKnowledgeReady(ctx context.Context, apiClient client.Client, appID s
 					return fmt.Errorf("knowledge '%s' failed with error: %s", k.Name, k.Message)
 				case types.KnowledgeStateReady:
 					continue
+				case types.KnowledgeStatePreparing:
+					// Knowledge in "Preparing" state is waiting for explicit user action
+					// We should warn about this but not consider it an error
+					fmt.Printf("Warning: Knowledge '%s' is in 'preparing' state and waiting for explicit completion.\n", k.Name)
+					fmt.Printf("To complete preparation, call: apiClient.CompleteKnowledgePreparation(ctx, \"%s\")\n", k.ID)
+					allReady = false
 				default:
 					allReady = false
 				}

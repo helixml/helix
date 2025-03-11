@@ -430,7 +430,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
-					State:           types.KnowledgeStatePending,
+					State:           types.KnowledgeStatePreparing,
 					RAGSettings:     k.RAGSettings,
 					Source:          k.Source,
 					RefreshEnabled:  k.RefreshEnabled,

@@ -119,10 +119,11 @@ func GetDataEntityID(knowledgeID, version string) string {
 type KnowledgeState string
 
 const (
-	KnowledgeStatePending  KnowledgeState = "pending"
-	KnowledgeStateIndexing KnowledgeState = "indexing"
-	KnowledgeStateReady    KnowledgeState = "ready"
-	KnowledgeStateError    KnowledgeState = "error"
+	KnowledgeStatePreparing KnowledgeState = "preparing"
+	KnowledgeStatePending   KnowledgeState = "pending"
+	KnowledgeStateIndexing  KnowledgeState = "indexing"
+	KnowledgeStateReady     KnowledgeState = "ready"
+	KnowledgeStateError     KnowledgeState = "error"
 )
 
 type KnowledgeSource struct {

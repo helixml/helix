@@ -31,6 +31,9 @@ func (r *Reconciler) index(ctx context.Context) error {
 		return fmt.Errorf("failed to get knowledge entries, error: %w", err)
 	}
 
+	// Note: We only process knowledge sources in "Pending" state
+	// Knowledge sources in "Preparing" state are ignored by the reconciler
+	// and will only be processed when explicitly moved to "Pending" state
 	for _, k := range data {
 		r.wg.Add(1)
 
