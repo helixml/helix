@@ -627,18 +627,21 @@ class VectorchordDocumentStore:
                 else:
                     params.append(filter_params)
             except Exception as e:
-                logger.warning(f"Failed to apply filters: {str(e)}. Continuing without filters.")
-                query = base_query
+                # Raise exception instead of logging a warning
+                raise ValueError(f"Failed to apply filters: {str(e)}")
         else:
             # No filters, just use the base query
             query = base_query
 
-        # Execute the query
-        self.dict_cursor.execute(query, params)
-        results = self.dict_cursor.fetchall()
+        try:
+            # Execute the query
+            self.dict_cursor.execute(query, params)
+            results = self.dict_cursor.fetchall()
 
-        # Convert the results to Document objects
-        return self._from_pg_to_haystack_documents(results)
+            # Convert the results to Document objects
+            return self._from_pg_to_haystack_documents(results)
+        except Exception as e:
+            raise DocumentStoreError(f"Error retrieving documents with filters: {str(e)}") from e
 
     def write_documents(self, documents: List[Document], policy: DuplicatePolicy = DuplicatePolicy.NONE) -> int:
         """
@@ -865,6 +868,16 @@ class VectorchordDocumentStore:
         :param vector_function: Vector similarity function to use.
         :returns: List of `Document`s that match the query.
         """
+        # Enhanced validation for query_embedding
+        if not isinstance(query_embedding, list):
+            raise ValueError(f"query_embedding must be a list of floats, got {type(query_embedding)}: {query_embedding}")
+        
+        if not query_embedding:
+            raise ValueError("query_embedding cannot be empty")
+            
+        if not all(isinstance(val, (int, float)) for val in query_embedding):
+            raise ValueError(f"query_embedding must contain only numeric values")
+            
         # Use the provided vector_function or fall back to the default
         vector_function = vector_function or self.vector_function
         # Get the operator and order direction for the vector function
@@ -874,7 +887,13 @@ class VectorchordDocumentStore:
         )
         
         # Convert query_embedding to proper PostgreSQL vector format
-        query_embedding_str = f"[{','.join(str(val) for val in query_embedding)}]"
+        try:
+            query_embedding_str = f"[{','.join(str(val) for val in query_embedding)}]"
+            # Verify the vector format starts with "[" and ends with "]"
+            if not (query_embedding_str.startswith("[") and query_embedding_str.endswith("]")):
+                raise ValueError(f"Failed to create valid vector string, got: {query_embedding_str}")
+        except Exception as e:
+            raise ValueError(f"Error formatting query_embedding as vector: {str(e)}")
 
         # Prepare parameters
         params = []
@@ -882,9 +901,11 @@ class VectorchordDocumentStore:
         # Construct the base query without filters
         if not filters:
             base_query = SQL("""
-                SELECT *, 
-                       embedding {operator} %s::vector AS score
+                SELECT 
+                    *,
+                    embedding {operator} (%s)::vector AS score
                 FROM {schema_name}.{table_name}
+                WHERE embedding IS NOT NULL
                 ORDER BY score {direction}
                 LIMIT %s
             """).format(
@@ -894,7 +915,7 @@ class VectorchordDocumentStore:
                 direction=SQL(direction),
             )
             
-            # Add parameters
+            # Add parameters in correct order: first vector, then top_k
             params.append(query_embedding_str)
             params.append(top_k)
             
@@ -911,10 +932,11 @@ class VectorchordDocumentStore:
                 
                 # Create a query template with the WHERE clause
                 query_template = SQL("""
-                    SELECT *, 
-                           embedding {operator} %s::vector AS score
+                    SELECT 
+                        *,
+                        embedding {operator} (%s)::vector AS score
                     FROM {schema_name}.{table_name}
-                    {where_clause}
+                    {where_clause} AND embedding IS NOT NULL
                     ORDER BY score {direction}
                     LIMIT %s
                 """)
@@ -928,22 +950,29 @@ class VectorchordDocumentStore:
                     direction=SQL(direction),
                 )
                 
-                # Add filter parameters
+                # IMPORTANT: Parameter order matters!
+                # 1. First add the vector parameter
+                params.append(query_embedding_str)
+                
+                # 2. Then add filter parameters
                 if isinstance(filter_params, tuple):
                     params.extend(filter_params)
                 else:
                     params.append(filter_params)
                 
-                # Add vector parameters
-                params.append(query_embedding_str)
+                # 3. Finally add the top_k parameter
                 params.append(top_k)
             except Exception as e:
                 # Raise exception instead of logging a warning
                 raise ValueError(f"Failed to apply filters: {str(e)}")
         
-        # Execute the query with parameters
-        self.dict_cursor.execute(query, params)
-        results = self.dict_cursor.fetchall()
-
-        # Convert the results to Document objects
-        return self._from_pg_to_haystack_documents(results)
+        try:
+            # Execute the query with parameters
+            self.dict_cursor.execute(query, params)
+            results = self.dict_cursor.fetchall()
+            
+            # Convert the results to Document objects
+            documents = self._from_pg_to_haystack_documents(results)
+            return documents
+        except Exception as e:
+            raise DocumentStoreError(f"Error during embedding retrieval: {str(e)}") from e

@@ -209,13 +209,16 @@ class HaystackService:
         Returns:
             Dictionary with score analysis information
         """
-        # Initialize score collections
+        # Initialize score collections - filter out None values
         vector_scores = [getattr(doc, "score", 0.0) for doc in vector_docs]
+        vector_scores = [score for score in vector_scores if score is not None]
+        
         bm25_scores = [getattr(doc, "score", 0.0) for doc in bm25_docs]
+        bm25_scores = [score for score in bm25_scores if score is not None]
         
         # Skip empty score lists
         if not vector_scores and not bm25_scores:
-            logger.warning("No scores available for analysis")
+            logger.warning("No valid scores available for analysis")
             return {}
             
         # Compute statistics
@@ -373,7 +376,7 @@ class HaystackService:
                 bm25_results = self.bm25_retriever.run(query=query_text, filters=formatted_filters, top_k=top_k)
                 logger.info(f"DEBUG: BM25 retriever returned {len(bm25_results.get('documents', []))} documents")
                 for i, doc in enumerate(bm25_results.get('documents', [])):
-                    logger.info(f"DEBUG: BM25 result {i+1}: id={doc.id}, score={doc.score}, content=\"{doc.content[:100]}...\"")
+                    logger.info(f"DEBUG: BM25 result {i+1}: id={doc.id}, score={doc.score}")
             except Exception as e:
                 logger.error(f"DEBUG: BM25 retriever error: {str(e)}")
             
@@ -394,10 +397,9 @@ class HaystackService:
                 # Extract documents from the result dictionary
                 vector_docs = vector_results.get("documents", [])
                 logger.info(f"DEBUG: Vector retriever returned {len(vector_docs)} documents")
-                for i, doc in enumerate(vector_docs, 1):
-                    logger.info(f"DEBUG: Vector result {i}: id={getattr(doc, 'id', 'unknown')}, "
-                              f"score={getattr(doc, 'score', 'unknown')}, "
-                              f"content_preview=\"{str(getattr(doc, 'content', ''))[:100]}...\"")
+                for vector_doc in vector_docs:
+                    logger.info(f"DEBUG: Vector result: id={getattr(vector_doc, 'id', 'unknown')}, "
+                             f"score={getattr(vector_doc, 'score', 'unknown')}")
             except Exception as e:
                 logger.error(f"DEBUG: Vector retriever error: {str(e)}")
                 # Initialize with empty results so subsequent code doesn't fail
@@ -515,7 +517,8 @@ class HaystackService:
                 
                 # Debug the joined results
                 for i, doc in enumerate(documents):
-                    logger.info(f"DEBUG: Final joined result {i+1}: id={getattr(doc, 'id', 'unknown')}, score={getattr(doc, 'score', 'unknown')}, content_preview=\"{str(getattr(doc, 'content', ''))[:100]}...\"")
+                    logger.info(f"DEBUG: Final joined result {i+1}: id={getattr(doc, 'id', 'unknown')}, "
+                             f"score={getattr(doc, 'score', 'unknown')}")
             except Exception as e:
                 logger.error(f"Error running query pipeline: {str(e)}")
                 logger.exception("Query pipeline error details:")
@@ -555,7 +558,7 @@ class HaystackService:
             matching_docs = self.document_store.filter_documents(filters=filters)
             
             if not matching_docs:
-                return {"deleted": False, "count": 0, "message": "No matching documents found"}
+                return {"status": "success", "documents_deleted": 0}
             
             # Get IDs of matching documents
             doc_ids = [doc.id for doc in matching_docs]
@@ -564,9 +567,8 @@ class HaystackService:
             self.document_store.delete_documents(doc_ids)
             
             return {
-                "deleted": True,
-                "count": len(doc_ids),
-                "message": f"Deleted {len(doc_ids)} documents",
+                "status": "success",
+                "documents_deleted": len(doc_ids)
             }
             
         except Exception as e:
