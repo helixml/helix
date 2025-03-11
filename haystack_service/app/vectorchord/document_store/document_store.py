@@ -117,7 +117,7 @@ LIMIT %(top_k)s
 CREATE_VCHORDRQ_INDEX_STATEMENT = """
 CREATE INDEX IF NOT EXISTS {index_name}
 ON {schema_name}.{table_name}
-USING vchordrq (embedding {operator_type}) WITH (options = %s)
+USING vchordrq (embedding {operator_type}) WITH (options = '{options}')
 """
 
 class VectorchordDocumentStore:
@@ -255,9 +255,8 @@ class VectorchordDocumentStore:
                 conn_str = str(self.connection_string)
                 
             self._conn = connect(conn_str)
-            register_vector(self._conn)
-
-            # Create the VectorChord extension if needed
+            
+            # Create the VectorChord extension if needed - MUST BE DONE BEFORE register_vector
             if self.create_extension:
                 try:
                     with self._conn.cursor() as cur:
@@ -277,6 +276,9 @@ class VectorchordDocumentStore:
                     error_msg = f"Failed to create VectorChord extension: {err}"
                     logger.error(error_msg)
                     raise DocumentStoreError(error_msg) from err
+                    
+            # Register vector AFTER creating the extension
+            register_vector(self._conn)
 
             # Reset cursors
             self._cursor = None
@@ -515,7 +517,7 @@ class VectorchordDocumentStore:
         # Set the appropriate options based on the vector function
         if self.vector_function == "l2_distance":
             # For L2 distance, use residual_quantization=true and spherical_centroids=false
-            options = f"""
+            options_content = f"""
             residual_quantization = true
             [build.internal]
             lists = [{self.vchordrq_lists}]
@@ -524,7 +526,7 @@ class VectorchordDocumentStore:
             operator_type = "vector_l2_ops"
         elif self.vector_function == "inner_product":
             # For inner product, use residual_quantization=false and spherical_centroids=true
-            options = f"""
+            options_content = f"""
             residual_quantization = false
             [build.internal]
             lists = [{self.vchordrq_lists}]
@@ -533,7 +535,7 @@ class VectorchordDocumentStore:
             operator_type = "vector_ip_ops"
         else:  # cosine_similarity or default
             # For cosine similarity, use residual_quantization=false and spherical_centroids=true
-            options = f"""
+            options_content = f"""
             residual_quantization = false
             [build.internal]
             lists = [{self.vchordrq_lists}]
@@ -541,14 +543,20 @@ class VectorchordDocumentStore:
             """
             operator_type = "vector_cosine_ops"
             
-        # Create the VectorChord RaBitQ index
-        query = SQL(CREATE_VCHORDRQ_INDEX_STATEMENT).format(
-            index_name=Identifier(f"{self.table_name}_{self.vchordrq_index_name}"),
-            schema_name=Identifier(self.schema_name),
-            table_name=Identifier(self.table_name),
-            operator_type=SQL(operator_type),
-        )
-        self._execute_sql(query, params=(options,), error_msg="Failed to create VectorChord RaBitQ index")
+        # Escape single quotes in options for SQL
+        options_escaped = options_content.replace("'", "''")
+            
+        # Create the index using raw SQL to avoid parameterization issues
+        # We're building the SQL directly rather than using parameters for the options
+        # as PostgreSQL doesn't support parameterized values in CREATE INDEX WITH clauses
+        raw_sql = f"""
+        CREATE INDEX IF NOT EXISTS {self.table_name}_{self.vchordrq_index_name}
+        ON {self.schema_name}.{self.table_name}
+        USING vchordrq (embedding {operator_type}) WITH (options = '{options_escaped}')
+        """
+        
+        # Execute the raw SQL
+        self._execute_sql(SQL(raw_sql), error_msg="Failed to create VectorChord RaBitQ index")
         logger.info(f"Created VectorChord RaBitQ index {self.table_name}_{self.vchordrq_index_name} for {self.schema_name}.{self.table_name}")
 
         # Set probes and epsilon for better performance
