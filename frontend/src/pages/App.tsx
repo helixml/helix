@@ -699,6 +699,17 @@ const App: FC = () => {
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
+      console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
+        sessionId: newSession.id,
+        documentIds: newSession.config.document_ids,
+        documentGroupId: newSession.config.document_group_id,
+        parentApp: newSession.parent_app,
+        hasDocumentIds: newSession.config.document_ids !== null && 
+                      Object.keys(newSession.config.document_ids || {}).length > 0,
+        documentIdKeys: Object.keys(newSession.config.document_ids || {}),
+        documentIdValues: Object.values(newSession.config.document_ids || {}),
+        sessionData: JSON.stringify(newSession)
+      })
       session.setData(newSession)
     }
   })

@@ -61,7 +61,15 @@ export const InteractionInference: FC<{
     return `${serverConfig.filestore_prefix}/${url}?access_token=${account.tokenUrlEscaped}&redirect_urls=true`
   }
 
+  // Add detailed logging
+  console.debug(`InteractionInference: Processing message for session ${session.id}`);
+  console.debug(`InteractionInference: Session has parent_app: ${session.parent_app ? 'yes' : 'no'}`);
+  console.debug(`InteractionInference: Message before replacement (${message?.length || 0} chars): "${message?.substring(0, 100) || ''}${(message && message.length > 100) ? '...' : ''}"`);
+  
   const sourceText = replaceMessageText(message || '', session, getFileURL)
+  
+  console.debug(`InteractionInference: Message after replacement (${sourceText.length} chars): "${sourceText.substring(0, 100)}${sourceText.length > 100 ? '...' : ''}"`);
+  console.debug(`InteractionInference: Is app session: ${!!session.parent_app}`);
 
   return (
     <>

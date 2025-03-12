@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -630,6 +633,69 @@ func (c *Controller) evaluateKnowledge(
 
 			if len(ragResults) > 0 {
 				usedKnowledge = knowledge
+				// Add debug logging before updating session with knowledge results
+				sidFromCtx, sidOk := oai.GetContextSessionID(ctx)
+				vals, valsOk := oai.GetContextValues(ctx)
+				appID, appOk := oai.GetContextAppID(ctx)
+
+				ctxValuesSid := ""
+				if valsOk {
+					ctxValuesSid = vals.SessionID
+				}
+
+				log.Debug().
+					Bool("has_direct_sid", sidOk).
+					Bool("has_ctx_values", valsOk).
+					Bool("has_app_id", appOk).
+					Str("direct_sid", sidFromCtx).
+					Str("ctx_values_sid", ctxValuesSid).
+					Str("app_id", appID).
+					Str("knowledge_name", knowledge.Name).
+					Int("rag_results_count", len(ragResults)).
+					Msg("about to update session with knowledge results")
+
+				// Enhance the RAG results with knowledge source path information
+				knowledgePath := ""
+				if knowledge.Source.Filestore != nil && knowledge.Source.Filestore.Path != "" {
+					knowledgePath = knowledge.Source.Filestore.Path
+					log.Debug().
+						Str("knowledge_name", knowledge.Name).
+						Str("knowledge_path", knowledgePath).
+						Msg("found filestore path in knowledge source")
+				}
+
+				// If we have a knowledge path, update the source in all results
+				if knowledgePath != "" {
+					for i := range ragResults {
+						// Only update the source if the original source is just a filename
+						// and not already a full path
+						if !strings.HasPrefix(ragResults[i].Source, "/") &&
+							!strings.HasPrefix(ragResults[i].Source, "apps/") &&
+							!strings.HasPrefix(ragResults[i].Source, c.Options.Config.Controller.FilePrefixGlobal) {
+
+							// Preserve the original filename
+							originalSource := ragResults[i].Source
+
+							// Build the full path by joining the knowledge path with the source filename
+							// Only use the filename part from the source, not any directory
+							filename := filepath.Base(originalSource)
+							fullPath := filepath.Join(knowledgePath, filename)
+
+							log.Debug().
+								Str("original_source", originalSource).
+								Str("knowledge_path", knowledgePath).
+								Str("full_path", fullPath).
+								Msg("enhancing RAG result with knowledge path")
+
+							ragResults[i].Source = fullPath
+						}
+					}
+				}
+
+				// Update the session metadata with the document IDs
+				if err := c.UpdateSessionWithKnowledgeResults(ctx, nil, ragResults); err != nil {
+					log.Error().Err(err).Msg("failed to update session with knowledge results")
+				}
 			}
 		}
 	}
@@ -731,4 +797,96 @@ func (c *Controller) GetRagClient(_ context.Context, knowledge *types.Knowledge)
 	}
 
 	return c.Options.RAG, nil
+}
+
+// UpdateSessionWithKnowledgeResults updates a session's metadata with document IDs from RAG results
+func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, session *types.Session, ragResults []*types.SessionRAGResult) error {
+	// If no session is provided, try to get it from the context
+	var err error
+	if session == nil {
+		sessionID, ok := oai.GetContextSessionID(ctx)
+		if !ok {
+			// this is normal in the openai api call, we don't have a session
+			return nil
+		}
+		session, err = c.Options.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get session: %w", err)
+		}
+	}
+
+	// If the session has no metadata, initialize it
+	if session.Metadata.DocumentIDs == nil {
+		session.Metadata.DocumentIDs = make(map[string]string)
+	}
+
+	// Add or update document IDs
+	for _, result := range ragResults {
+		if result.DocumentID != "" {
+			key := result.Source
+			if key == "" && result.Filename != "" {
+				key = result.Filename
+			}
+			if key != "" {
+				// If this is an app session, ensure we use the full filestore path
+				if session.ParentApp != "" {
+					// For app sessions, we need the full filestore path for the document
+					// Check if we already have a full path
+					if !strings.HasPrefix(key, c.Options.Config.Controller.FilePrefixGlobal) &&
+						!strings.HasPrefix(key, "apps/") {
+						// Construct the full path using app prefix
+						appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, session.ParentApp)
+
+						// First check if the source already has a path structure (could be from a knowledge path)
+						// If it's a simple filename, join it with the app prefix
+						// If it already has path components, preserve them
+						var fullPath string
+						if strings.Contains(key, "/") {
+							// This already has a path structure, so keep it intact under the app prefix
+							fullPath = filepath.Join(appPrefix, key)
+						} else {
+							// Simple filename, put it directly in the app prefix
+							fullPath = filepath.Join(appPrefix, key)
+						}
+
+						log.Debug().
+							Str("session_id", session.ID).
+							Str("app_id", session.ParentApp).
+							Str("original_key", key).
+							Str("full_path", fullPath).
+							Msg("constructing full filestore path for app document ID")
+						key = fullPath
+					}
+				}
+				session.Metadata.DocumentIDs[key] = result.DocumentID
+			}
+		}
+	}
+
+	// Log the updated document IDs
+	log.Debug().
+		Str("session_id", session.ID).
+		Interface("document_ids", session.Metadata.DocumentIDs).
+		Msg("updating session with document IDs")
+
+	// Update the session metadata
+	updatedMeta, err := c.UpdateSessionMetadata(ctx, session, &session.Metadata)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to update session metadata with document IDs")
+		return err
+	}
+
+	// Verify the update by fetching the session again and logging its document IDs
+	verifySession, verifyErr := c.Options.Store.GetSession(ctx, session.ID)
+	if verifyErr != nil {
+		log.Error().Err(verifyErr).Str("session_id", session.ID).Msg("failed to verify session update")
+	} else {
+		log.Debug().
+			Str("session_id", session.ID).
+			Interface("document_ids", verifySession.Metadata.DocumentIDs).
+			Interface("updated_meta", updatedMeta).
+			Msg("verified session document IDs after update")
+	}
+
+	return nil
 }
