@@ -43,6 +43,9 @@ func TestCreateRagApp(t *testing.T) {
 	// Wait for the file to be uploaded
 	page.Race().ElementX(fmt.Sprintf(`//span[contains(text(), "%s")]`, helper.TestPDFFilename)).MustDo()
 
+	// Click on the complete and start indexing button
+	page.MustElementX(`//button[text() = 'Complete & Start Indexing']`).MustWaitVisible().MustClick()
+
 	helper.LogStep(t, "Saving the app")
 	helper.SaveApp(t, page)
 
