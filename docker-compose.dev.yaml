@@ -7,11 +7,12 @@ services:
       dockerfile: Dockerfile
       target: api-dev-env
     ports:
-      - ${API_PORT:-8080}:80
+      - ${API_PORT:-8080}:8080
     restart: always
     env_file:
       - .env
     environment:
+      - SERVER_PORT=8080
       - LOG_LEVEL=${LOG_LEVEL:-debug}
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres

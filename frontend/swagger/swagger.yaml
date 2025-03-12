@@ -802,6 +802,11 @@ definitions:
       name:
         type: string
     type: object
+  types.AuthenticatedResponse:
+    properties:
+      authenticated:
+        type: boolean
+    type: object
   types.Choice:
     properties:
       delta:
@@ -1308,6 +1313,11 @@ definitions:
     - LLMCallStepPrepareAPIRequest
     - LLMCallStepInterpretResponse
     - LLMCallStepGenerateTitle
+  types.LoginRequest:
+    properties:
+      redirect_uri:
+        type: string
+    type: object
   types.Message:
     properties:
       content:
@@ -2223,6 +2233,17 @@ definitions:
       username:
         type: string
     type: object
+  types.UserResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      token:
+        type: string
+    type: object
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -2420,6 +2441,82 @@ paths:
             $ref: '#/definitions/types.App'
       security:
       - BearerAuth: []
+  /api/v1/auth/authenticated:
+    get:
+      description: Check if the user is authenticated
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AuthenticatedResponse'
+      summary: Authenticated
+      tags:
+      - auth
+  /api/v1/auth/callback:
+    get:
+      description: The callback receiver from the OIDC provider
+      parameters:
+      - description: The code from the OIDC provider
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: The state from the OIDC provider
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Callback from OIDC provider
+      tags:
+      - auth
+  /api/v1/auth/login:
+    post:
+      description: Login to the application
+      parameters:
+      - description: Request body with redirect URI.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.LoginRequest'
+      responses:
+        "200":
+          description: OK
+      summary: Login
+      tags:
+      - auth
+  /api/v1/auth/logout:
+    post:
+      description: Logout the user
+      responses:
+        "200":
+          description: OK
+      summary: Logout
+      tags:
+      - auth
+  /api/v1/auth/refresh:
+    post:
+      description: Refresh the access token
+      responses:
+        "204":
+          description: No Content
+      summary: Refresh the access token
+      tags:
+      - auth
+  /api/v1/auth/user:
+    get:
+      description: Get the current user's information
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserResponse'
+      summary: User information
+      tags:
+      - auth
   /api/v1/knowledge:
     get:
       responses:

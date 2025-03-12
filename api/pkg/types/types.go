@@ -1507,3 +1507,22 @@ type FrontendLicenseInfo struct {
 		Machines int64 `json:"machines"`
 	} `json:"limits"`
 }
+
+type LoginRequest struct {
+	RedirectURI string `json:"redirect_uri"`
+}
+
+type UserResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Token string `json:"token"`
+	Name  string `json:"name"`
+}
+
+type AuthenticatedResponse struct {
+	Authenticated bool `json:"authenticated"`
+}
+
+type TokenResponse struct {
+	Token string `json:"token"`
+}

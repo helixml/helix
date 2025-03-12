@@ -1177,7 +1177,7 @@ bare-stream@^2.0.0:
   dependencies:
     streamx "^2.21.0"
 
-base64-js@^1.3.1, base64-js@^1.5.1:
+base64-js@^1.3.1:
   version "1.5.1"
   resolved "https://registry.yarnpkg.com/base64-js/-/base64-js-1.5.1.tgz#1b1b440160a5bf7ad40b650f095963481903930a"
   integrity sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==
@@ -2203,11 +2203,6 @@ js-levenshtein@^1.1.6:
   resolved "https://registry.yarnpkg.com/js-levenshtein/-/js-levenshtein-1.1.6.tgz#c6cee58eb3550372df8deb85fad5ce66ce01d59d"
   integrity sha512-X2BB11YZtrRqY4EnQcLX5Rh373zbK4alC1FW7D7MBhL2gtcC17cTnr6DmfHZeS0s2rTHjUTMMHfG7gO8SSdw+g==
 
-js-sha256@^0.9.0:
-  version "0.9.0"
-  resolved "https://registry.yarnpkg.com/js-sha256/-/js-sha256-0.9.0.tgz#0b89ac166583e91ef9123644bd3c5334ce9d0966"
-  integrity sha512-sga3MHh9sgQN2+pJ9VYZ+1LPwXOxuBJBA5nrR5/ofPfuiJBE2hnjsaN8se8JznOmGLN2p49Pe5U/ttafcs/apA==
-
 "js-tokens@^3.0.0 || ^4.0.0", js-tokens@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/js-tokens/-/js-tokens-4.0.0.tgz#19203fb59991df98e3a287050d4647cdeaf32499"
@@ -2321,14 +2316,6 @@ jss@10.10.0, jss@^10.10.0:
     csstype "^3.0.2"
     is-in-browser "^1.1.3"
     tiny-warning "^1.0.2"
-
-keycloak-js@^22.0.4:
-  version "22.0.5"
-  resolved "https://registry.yarnpkg.com/keycloak-js/-/keycloak-js-22.0.5.tgz#8264cec1ff27015e1e53310e108cef3f796a5809"
-  integrity sha512-a7ZwCZeHl8tpeJBy102tZtAnHslDUOA1Nf/sHNF3HYLchKpwoDuaitwIUiS2GnNUe+tlNKLlCqZS+Mi5K79m1w==
-  dependencies:
-    base64-js "^1.5.1"
-    js-sha256 "^0.9.0"
 
 lie@3.1.1:
   version "3.1.1"

@@ -77,6 +77,7 @@ type HelixAPIServer struct {
 	router            *mux.Router
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
+	oidcClient        auth.OIDC
 }
 
 func NewServer(
@@ -110,6 +111,53 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
+	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
+	var oidcClient auth.OIDC
+	if cfg.OIDC.Enabled {
+		if cfg.OIDC.Audience == "" {
+			return nil, fmt.Errorf("oidc audience is required")
+		}
+		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+			ProviderURL:  cfg.OIDC.URL,
+			ClientID:     cfg.OIDC.ClientID,
+			ClientSecret: cfg.OIDC.ClientSecret,
+			RedirectURL:  helixRedirectURL,
+			AdminUserIDs: cfg.WebServer.AdminIDs,
+			AdminUserSrc: cfg.WebServer.AdminSrc,
+			Audience:     cfg.OIDC.Audience,
+			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create oidc client: %w", err)
+		}
+		oidcClient = client
+	} else if cfg.Keycloak.KeycloakEnabled {
+		keycloakURL, err := url.Parse(cfg.Keycloak.KeycloakFrontEndURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse keycloak front end url: %w", err)
+		}
+		// Strip any trailing slashes from the path
+		keycloakURL.Path = strings.TrimRight(keycloakURL.Path, "/")
+		keycloakURL.Path = fmt.Sprintf("%s/realms/%s", keycloakURL.Path, cfg.Keycloak.Realm)
+		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+			ProviderURL:  keycloakURL.String(),
+			ClientID:     cfg.Keycloak.APIClientID,
+			ClientSecret: cfg.Keycloak.ClientSecret,
+			RedirectURL:  helixRedirectURL,
+			AdminUserIDs: cfg.WebServer.AdminIDs,
+			AdminUserSrc: cfg.WebServer.AdminSrc,
+			Audience:     "account",
+			Scopes:       []string{"openid", "profile", "email"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create keycloak client: %w", err)
+		}
+		oidcClient = client
+	}
+	if oidcClient == nil {
+		return nil, fmt.Errorf("no oidc client found")
+	}
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -119,6 +167,7 @@ func NewServer(
 		gptScriptExecutor: gptScriptExecutor,
 		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
+			oidcClient,
 			authenticator,
 			store,
 			authMiddlewareConfig{
@@ -132,6 +181,7 @@ func NewServer(
 		knowledgeManager: knowledgeManager,
 		scheduler:        scheduler,
 		pingService:      pingService,
+		oidcClient:       oidcClient,
 	}, nil
 }
 
@@ -359,6 +409,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}/complete", system.Wrapper(apiServer.completeKnowledgePreparation)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
 
+	// User auth, BFF
+	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/authenticated", apiServer.authenticated).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)
+
 	// Orgs, authz
 	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations", apiServer.createOrganization).Methods(http.MethodPost)
@@ -490,6 +548,10 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
+	if !apiServer.Cfg.Keycloak.KeycloakEnabled {
+		log.Info().Msg("Keycloak is disabled, skipping proxy")
+		return
+	}
 	u, err := url.Parse(apiServer.Cfg.Keycloak.KeycloakURL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")

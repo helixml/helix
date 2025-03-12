@@ -78,6 +78,12 @@ envVariables:
   # ids that are admins or the word "all" if you want to allow all users to be admins
   ADMIN_USER_IDS: "all"
 
+# Environment variables driven from secrets that will be set in the main pod
+secretEnvVariables:
+  LICENSE_KEY: 
+    secretName: foo
+    secretKey: bar
+    
 tika:
   enabled: false
 
