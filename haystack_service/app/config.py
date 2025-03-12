@@ -14,9 +14,9 @@ class Settings:
     EMBEDDING_DIM: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_DIM", "3584"))
     EMBEDDINGS_MAX_TOKENS: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS", "32768"))
     EMBEDDINGS_MODEL: str = os.getenv("RAG_HAYSTACK_EMBEDDINGS_MODEL", "Alibaba-NLP/gte-Qwen2-7B-instruct")
-    VLLM_BASE_URL: str = os.environ["VLLM_BASE_URL"]
-    VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
     EMBEDDINGS_SOCKET: Optional[str] = os.getenv("HELIX_EMBEDDINGS_SOCKET", None)
+    VLLM_BASE_URL: str = os.getenv("VLLM_BASE_URL", None) # optional, not used if socket is set
+    VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
     
     # Service settings
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

@@ -161,6 +161,12 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			s.startChatSessionLegacyHandler(ctx, user, &sessionBody, r, rw)
 			return
 		}
+
+		// Get any existing session ID from the query parameters to tie the responses to a specific session
+		if sessionID := r.URL.Query().Get("session_id"); sessionID != "" {
+			ctx = oai.SetContextSessionID(ctx, sessionID)
+			log.Debug().Str("session_id", sessionID).Msg("setting session_id in context for document tracking")
+		}
 	}
 
 	ctx = oai.SetContextAppID(ctx, options.AppID)

@@ -10,7 +10,7 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { stringify as stringifyYaml } from 'yaml'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import ApiIntegrations from '../components/app/ApiIntegrations'
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
@@ -23,8 +23,10 @@ import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import Window from '../components/widgets/Window'
+import { useStreaming } from '../contexts/streaming'
 import useAccount from '../hooks/useAccount'
-import useApp from '../hooks/useApp'
+import useApi from '../hooks/useApi'
+import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
@@ -35,96 +37,164 @@ import AppLogsTable from '../components/app/AppLogsTable'
 
 import {
   APP_SOURCE_GITHUB,
+  APP_SOURCE_HELIX,
+  IApp,
+  IAppUpdate,
   IAssistantApi,
   IAssistantGPTScript,
   IAssistantZapier,
   IFileStoreItem,
+  IAssistantConfig,
+  IKnowledgeSearchResult,
+  IKnowledgeSource,
+  ISession,
+  SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
+
+const removeEmptyValues = (obj: any): any => {
+  if (Array.isArray(obj)) {
+    const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null);
+    return filtered.length ? filtered : undefined;
+  } else if (typeof obj === 'object' && obj !== null) {
+    const filtered = Object.fromEntries(
+      Object.entries(obj)
+        .map(([k, v]) => [k, removeEmptyValues(v)])
+        .filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    );
+    return Object.keys(filtered).length ? filtered : undefined;
+  }
+  return obj === '' ? undefined : obj;
+};
+
 const App: FC = () => {
   const account = useAccount()
+  const apps = useApps()
+  const api = useApi()
+  const snackbar = useSnackbar()
   const session = useSession()
   const filestore = useFilestore();
   const {
     params,
+    navigate,
   } = useRouter()
-  const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()
-  
-  // Load the app using the useApp hook
-  const {
-    // App state
-    app,
-    isNewApp,
-    isLoading,
-    hasLoaded,
-    knowledgeList,
-    knowledgeSources,
-    isReadOnly,
-    knowledgeErrors,
-    showErrors,
-    
-    // State setters
-    setShowErrors,
-    
-    // Validation methods
-    validateApiSchemas,
-    validateKnowledge,
-    
-    // App operations
-    handleKnowledgeUpdate,
-    
-    // Inference methods
-    loading,
-    inputValue,
-    model,
-    setInputValue,
-    onInference,
-    onSave,
-    
-    // Search
-    searchResults,
-    onSearch,
-    
-    // Navigation
-    tabValue,
-    handleTabChange,
-    handleLaunch,
-    
-    // API keys
-    onAddAPIKey,
-  } = useApp(params.app_id)
 
-  // UI-specific state that doesn't belong in the hook
-  const [isSearchMode, setIsSearchMode] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('isSearchMode') === 'true'
-  })
-  const [showBigSchema, setShowBigSchema] = useState(false)
-  const [deletingAPIKey, setDeletingAPIKey] = useState('')
-  const [schema, setSchema] = useState('')
+  const [ inputValue, setInputValue ] = useState('')
+  const [ name, setName ] = useState('')
+  const [ hasInitialised, setHasInitialised ] = useState(false)
+  const [ description, setDescription ] = useState('')
+  const [ shared, setShared ] = useState(false)
+  const [ global, setGlobal ] = useState(false)
+  const [ secrets, setSecrets ] = useState<Record<string, string>>({})
+  const [ allowedDomains, setAllowedDomains ] = useState<string[]>([])
+  const [ schema, setSchema ] = useState('')
+  const [ showErrors, setShowErrors ] = useState(false)
+  const [ showBigSchema, setShowBigSchema ] = useState(false)
+  const [ hasLoaded, setHasLoaded ] = useState(false)
+  const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
+
+  const [app, setApp] = useState<IApp | null>(null);
+  const [isNewApp, setIsNewApp] = useState(false);
+
+  const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
+  const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
+  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
+
+  const themeConfig = useThemeConfig()
+
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
+
+  const [avatar, setAvatar] = useState('');
+  const [image, setImage] = useState('');
+
+  const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
+
+  const [model, setModel] = useState(account.models[0]?.id || '');  
+
+  const [providerEndpoint, setProviderEndpoint] = useState('');
+
+  const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
+  const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+
+  const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
+
+  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
+  const [loading, setLoading] = useState(false);
+
   const [editingGptScript, setEditingGptScript] = useState<{
     tool: IAssistantGPTScript;
     index: number;
-  } | null>(null)
-  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true)
+  } | null>(null);
 
-  // Functions for handling file operations
+  // for now, all the STATE related code for the various tabs is still in this file
+  // that's because synchronising state between the components and the app page
+  // is unclear, so it's easier to just pass it down to the components
+
+  const fetchKnowledge = useCallback(async () => {
+    if (!app?.id) return;
+    if (app.id == "new") return;
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
+    
+    lastFetchTimeRef.current = now;
+    try {
+      const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
+      if (knowledge) {
+        setKnowledgeList(knowledge);
+        setHasKnowledgeSources(knowledge.length > 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch knowledge:', error);
+      snackbar.error('Failed to fetch knowledge');
+    }
+  }, [api, snackbar, app?.id]);
+
+  // Fetch knowledge initially when the app is loaded
+  useEffect(() => {
+    if (app?.id) {
+      fetchKnowledge();
+    }
+  }, [app?.id, fetchKnowledge]);
+
+  // Set up periodic fetching
+  useEffect(() => {
+    const scheduleFetch = () => {
+      if (fetchKnowledgeTimeoutRef.current) {
+        clearTimeout(fetchKnowledgeTimeoutRef.current);
+      }
+      fetchKnowledgeTimeoutRef.current = setTimeout(() => {
+        fetchKnowledge();
+        scheduleFetch(); // Schedule the next fetch
+      }, 2000); // 2 seconds
+    };
+
+    if (app?.id) {
+      scheduleFetch();
+    }
+
+    return () => {
+      if (fetchKnowledgeTimeoutRef.current) {
+        clearTimeout(fetchKnowledgeTimeoutRef.current);
+      }
+    };
+  }, [app?.id, fetchKnowledge]);
+
   const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
-      const filesResult = await fetch(`/api/v1/filestore/list?path=${encodeURIComponent(path)}`, {
-        headers: {
-          'Authorization': `Bearer ${account.token}`
+      const filesResult = await api.get('/api/v1/filestore/list', {
+        params: {
+          path,
         }
-      }).then(r => r.json())
-      
+      })
       if(filesResult) {
         return filesResult
       }
     } catch(e) {}
     return []
-  }, [account.token]);
+  }, [api]);
 
   // Upload the files to the filestore
   const handleFileUpload = useCallback(async (path: string, files: File[]) => {
@@ -132,55 +202,437 @@ const App: FC = () => {
     files.forEach((file) => {
       formData.append("files", file)
     })
-    
-    await fetch(`/api/v1/filestore/upload?path=${encodeURIComponent(path)}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${account.token}`
+    await api.post('/api/v1/filestore/upload', formData, {
+      params: {
+        path,
       },
-      body: formData
     })
-  }, [account.token]);
+  }, [api]);
 
   const handleRefreshKnowledge = useCallback((id: string) => {
-    fetch(`/api/v1/knowledge/${id}/refresh`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${account.token}`
+    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after the refresh is initiated
+      fetchKnowledge();
+    }).catch((error) => {
+      console.error('Error refreshing knowledge:', error);
+      snackbar.error('Failed to refresh knowledge');
+    });
+  }, [api, fetchKnowledge]);
+
+  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after completing preparation
+      fetchKnowledge();
+      snackbar.success('Knowledge preparation completed. Indexing started.');
+    }).catch((error) => {
+      console.error('Error completing knowledge preparation:', error);
+      snackbar.error('Failed to complete knowledge preparation');
+    });
+  }, [api, fetchKnowledge]);
+
+  useEffect(() => {
+    let initialApp: IApp | null = null;
+    if (params.app_id === "new") {
+      const now = new Date();
+      initialApp = {
+        id: "new",
+        config: {
+          allowed_domains: [],
+          secrets: {},
+          helix: {
+            name: "",
+            description: "",
+            avatar: "",
+            image: "",
+            external_url: "",
+            assistants: [{
+              id: "",
+              name: "",
+              description: "",
+              avatar: "",
+              image: "",
+              provider: "",
+              model: "",
+              type: SESSION_TYPE_TEXT,
+              system_prompt: "",
+              rag_source_id: "",
+              lora_id: "",
+              is_actionable_template: "",
+              apis: [],
+              gptscripts: [],
+              tools: [],
+              zapier: []
+            }],
+          },
+        },
+        shared: false,
+        global: false,
+        created: now,
+        updated: now,
+        owner: account.user?.id || "",
+        owner_type: "user",
+        app_source: APP_SOURCE_HELIX,
+      };
+      setIsNewApp(true);
+    } else {
+      initialApp = apps.data.find((a) => a.id === params.app_id) || null;
+      setIsNewApp(false);
+    }
+    setApp(initialApp);
+    if (initialApp && initialApp.config.helix.assistants && initialApp.config.helix.assistants.length > 0) {
+      setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
+    }
+  }, [params.app_id, apps.data, account.user]);
+
+  const isReadOnly = useMemo(() => {
+    return app?.app_source === APP_SOURCE_GITHUB && !isNewApp;
+  }, [app, isNewApp]);
+
+  const readOnly = useMemo(() => {
+    if(!app) return true
+    return false
+  }, [
+    app,
+  ])
+
+  const sessionID = useMemo(() => {
+    return session.data?.id || ''
+  }, [
+    session.data,
+  ])
+
+  const onAddAPIKey = async () => {
+    const res = await api.post('/api/v1/api_keys', {
+      name: `api key ${account.apiKeys.length + 1}`,
+      type: 'app',
+      app_id: params.app_id,
+    }, {}, {
+      snackbar: true,
+    })
+    if(!res) return
+    snackbar.success('API Key added')
+    account.loadApiKeys({
+      types: 'app',
+      app_id: params.app_id,
+    })
+  }
+  
+  const validate = useCallback(() => {
+    if (!app) return false;
+    if (!name && (!app.config.helix.name || app.config.helix.name !== app.id)) {
+      setTabValue('settings');
+      return false;
+    }
+    if (app.app_source === APP_SOURCE_HELIX) {
+      const assistants = app.config.helix?.assistants || [];
+      for (const assistant of assistants) {
+        for (const script of assistant.gptscripts || []) {
+          if (!script.description) return false;
+        }
+        for (const tool of assistant.tools || []) {
+          if (!tool.description) return false;
+        }
+      }
+    } else if (app.app_source === APP_SOURCE_GITHUB) {
+      if (!app.config.github?.repo) return false;
+    }
+    return true;
+  }, [app, name]);
+  
+  const validateApiSchemas = (app: IApp): string[] => {
+    const errors: string[] = [];
+    (app.config.helix.assistants || []).forEach((assistant, assistantIndex) => {
+      if (assistant.tools && assistant.tools.length > 0) {
+        assistant.tools.forEach((tool, toolIndex) => {
+          if (tool.tool_type === 'api' && tool.config.api) {
+            try {
+              const parsedSchema = parseYaml(tool.config.api.schema);
+              if (!parsedSchema || typeof parsedSchema !== 'object') {
+                errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+              }
+            } catch (error) {
+              errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
+            }
+          }
+        });
+      }
+    });
+    return errors;
+  };
+
+  const validateKnowledge = () => {
+    const hasErrors = knowledgeSources.some(source => 
+      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
+    );
+    setKnowledgeErrors(hasErrors);
+    return !hasErrors;
+  };
+
+  const getUpdatedAppState = (): IAppUpdate | undefined => {
+    if (!app) return undefined
+
+    var updatedApp: IAppUpdate;
+    if (isGithubApp) {
+      // Allow github apps to only update the shared and global flags
+      updatedApp = {
+        ...app,
+        shared,
+        global,
+      };
+    } else {
+      updatedApp = {
+        id: app.id,
+        config: {
+          ...app.config,
+          helix: {
+            ...app.config.helix,
+            name: name || app.id,
+            description,
+            external_url: app.config.helix.external_url,
+            avatar,
+            image,
+            assistants: (app.config.helix.assistants || []).map(assistant => ({
+              ...assistant,
+              system_prompt: systemPrompt,
+              knowledge: knowledgeSources,
+              provider: providerEndpoint,
+              model: model,              
+            })),
+          },
+          secrets,
+          allowed_domains: allowedDomains,
+        },
+        shared,
+        global,
+        owner: app.owner,
+        owner_type: app.owner_type,
+      };
+    }
+
+    // Only include github config if it exists in the original app
+    if (app.config.github) {
+      updatedApp.config.github = {
+        repo: app.config.github.repo,
+        hash: app.config.github.hash,
+        key_pair: app.config.github.key_pair ? {
+          type: app.config.github.key_pair.type,
+          private_key: app.config.github.key_pair.private_key,
+          public_key: app.config.github.key_pair.public_key,
+        } : undefined,
+        last_update: app.config.github.last_update,
+      };
+    }
+
+    return updatedApp
+  }
+
+  const onSave = async (quiet: boolean = false): Promise<IApp | null> => {
+    if (!app) {
+      snackbar.error('No app data available');
+      return null;
+    }
+
+    if (!validate() || !validateKnowledge()) {
+      setShowErrors(true);
+      return null;
+    }
+
+    const schemaErrors = validateApiSchemas(app);
+    if (schemaErrors.length > 0) {
+      snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
+      return null;
+    }
+
+    setShowErrors(false);
+
+    const updatedApp = getUpdatedAppState()
+    if (!updatedApp) return null
+
+    try {
+      let result;
+      if (isNewApp) {
+        result = await apps.createApp(app.app_source, updatedApp.config);
+        if (result) {
+          // Update the app state with the new app data
+          setApp(result);
+          setIsNewApp(false);
+          // Redirect to the new app's URL
+          navigate('app', { app_id: result.id });
+        }
+      } else {
+        result = await apps.updateApp(app.id, updatedApp);
+        if (result) {
+          setApp(result);
+        }
+      }
+      console.log('finished saving app')
+
+      if (!result) {
+        throw new Error('No result returned from the server');
+      }
+      if (!quiet) {
+        snackbar.success(isNewApp ? 'App created' : 'App updated');
+      }
+      return result;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Full error:', error);
+      } else {
+        console.error('Unknown error:', error);
+      }
+      return null;
+    }
+  }
+
+  const getDefaultAssistant = (): IAssistantConfig => {
+    return {
+      id: uuidv4(),
+      name: "Default Assistant",
+      description: "",
+      type: SESSION_TYPE_TEXT,
+      system_prompt: systemPrompt,
+      model: model,
+      provider: providerEndpoint || '', // If not set, using default provider from the system
+      knowledge: [],
+    }
+  }
+
+  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
+    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
+    
+    // We should update both state variables in a single batch to prevent race conditions
+    // and ensure the UI always shows consistent data
+    setApp(prevApp => {
+      if (!prevApp) {
+        console.log('[App] handleKnowledgeUpdate - No previous app state, skipping update');
+        return prevApp;
+      }
+
+      console.log('[App] handleKnowledgeUpdate - Previous app state:', prevApp);
+
+      // if we don't have any assistants - create a default one
+      const currentAssistants = prevApp.config.helix.assistants || [];
+      let updatedAssistants = currentAssistants;
+      
+      if (currentAssistants.length === 0) {
+        console.log('[App] handleKnowledgeUpdate - No assistants found, creating default assistant');
+        // create a default assistant
+        updatedAssistants = [{
+          ...getDefaultAssistant(),
+          knowledge: updatedKnowledge,
+        }];
+      } else {
+        console.log('[App] handleKnowledgeUpdate - Updating existing assistants with new knowledge');
+        // update existing assistants with new knowledge
+        updatedAssistants = currentAssistants.map(assistant => ({
+          ...assistant,
+          knowledge: updatedKnowledge,
+        }));
+      }
+
+      const newAppState = {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+      
+      console.log('[App] handleKnowledgeUpdate - New app state:', newAppState);
+      
+      // Update local state to keep it in sync with the app state
+      // This ensures both state values are always consistent
+      setKnowledgeSources(updatedKnowledge);
+      
+      return newAppState;
+    });
+  }
+
+  const { NewInference } = useStreaming();
+
+  const onInference = async () => {
+    if(!app) return
+    
+    // Save the app before sending the message
+    const savedApp = await onSave(true);
+
+    if (!savedApp || savedApp.id === "new") {
+      console.error('App not saved or ID not updated');
+      snackbar.error('Failed to save app before inference');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setInputValue('');
+      const newSessionData = await NewInference({
+        message: inputValue,
+        appId: savedApp.id,
+        type: SESSION_TYPE_TEXT,
+        modelName: model,
+      });
+      console.log('about to load session', newSessionData.id);
+      await session.loadSession(newSessionData.id);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error creating new session:', error);
+      snackbar.error('Failed to create new session');
+      setLoading(false);
+    }
+  }
+
+  const onSearch = async (query: string) => {
+    const newSearchResults = await api.get('/api/v1/search', {
+      params: {
+        app_id: app?.id,
+        knowledge_id: knowledgeSources[0]?.id,
+        prompt: query,
       }
     })
-    .then(() => {
-      snackbar.success('Knowledge refresh initiated')
-    })
-    .catch((error) => {
-      console.error('Error refreshing knowledge:', error)
-      snackbar.error('Failed to refresh knowledge')
-    })
-  }, [account.token, snackbar]);
+    if (!newSearchResults || !Array.isArray(newSearchResults)) {
+      snackbar.error('No results found or invalid response');
+      setSearchResults([]);
+      return;
+    }
+    setSearchResults(newSearchResults);
+  }
 
-  // Updating the schema when app changes
+  useEffect(() => {
+    if(!account.user) return
+    if (params.app_id === "new") return; // Don't load data for new app
+    if(!params.app_id) return
+    apps.loadData()
+    account.loadApiKeys({
+      types: 'app',
+      app_id: params.app_id,
+    })
+  }, [
+    params,
+    account.user,
+  ])
+
   const getUpdatedSchema = useCallback(() => {
     if (!app) return '';
-    
-    // Remove empty values and format as YAML
-    const removeEmptyValues = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null);
-        return filtered.length ? filtered : undefined;
-      } else if (typeof obj === 'object' && obj !== null) {
-        const filtered = Object.fromEntries(
-          Object.entries(obj)
-            .map(([k, v]) => [k, removeEmptyValues(v)])
-            .filter(([_, v]) => v !== undefined && v !== null && v !== '')
-        );
-        return Object.keys(filtered).length ? filtered : undefined;
-      }
-      return obj === '' ? undefined : obj;
-    };
-    
     // Create a temporary app state with current form values
     const currentConfig = {
       ...app.config.helix,
+      name: name || app.id,
+      description,
+      avatar,
+      image,
+      assistants: (app.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        system_prompt: systemPrompt,
+        knowledge: knowledgeSources,
+        model: model,
+      })),
     };
 
     // Remove empty values and format as YAML
@@ -196,151 +648,125 @@ const App: FC = () => {
       "spec": cleanedConfig
     };
     return stringifyYaml(cleanedConfig, { indent: 2 });
-  }, [app]);
+  }, [app, name, description, avatar, image, systemPrompt, knowledgeSources, model]);
 
-  // Update schema when app changes
+  // Update schema whenever relevant form fields change
+  useEffect(() => {
+    if (!hasInitialised) return;
+    setSchema(getUpdatedSchema());
+  }, [
+    hasInitialised,
+    getUpdatedSchema,
+    name,
+    description,
+    avatar,
+    image,
+    systemPrompt,
+    knowledgeSources,
+    model,
+  ]);
+
   useEffect(() => {
     if (!app) return;
-    setSchema(getUpdatedSchema());
-  }, [app, getUpdatedSchema]);
+    if (hasInitialised) return;
+    setHasInitialised(true);
+    setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
+    setDescription(app.config.helix.description || '');
+    setSecrets(app.config.secrets || {});
+    setAllowedDomains(app.config.allowed_domains || []);
+    setShared(app.shared ? true : false);
+    setGlobal(app.global ? true : false);
+    setSystemPrompt(app.config.helix.assistants ? app.config.helix.assistants[0]?.system_prompt || '' : '');
+    setAvatar(app.config.helix.avatar || '');
+    setImage(app.config.helix.image || '');
+    setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
+    setProviderEndpoint(app.config.helix.assistants ? app.config.helix.assistants[0]?.provider || '' : '');
+    setHasLoaded(true);
+  }, [app])
 
-  // Check if app has knowledge sources when knowledge list changes
   useEffect(() => {
-    if (knowledgeList) {
-      setHasKnowledgeSources(knowledgeList.length > 0);
-    }
-  }, [knowledgeList]);
+    // When provider changes, check if current model exists in new provider's models
+    const currentProviderModels = account.models;
+    const currentModelExists = currentProviderModels.some(m => m.id === model);
 
-  // Functions for managing GPT scripts
-  const [onSaveGptScript, onDeleteGptScript] = useMemo(() => {
-    // Save GPT script function
-    const saveScript = (script: IAssistantGPTScript, index?: number) => {
-      if (!app) return;
-      
-      const updatedApp = { ...app };
-      const assistants = updatedApp.config.helix.assistants || [];
-      
-      if (assistants.length > 0) {
-        const gptscripts = [...(assistants[0].gptscripts || [])];
+    // If current model doesn't exist in new provider's models, select the first available model
+    if (!currentModelExists && currentProviderModels.length > 0) {
+      setModel(currentProviderModels[0].id);
+    }
+  }, [providerEndpoint, account.models, model]);
+
+  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
+  useWebsocket(sessionID, (parsedData) => {
+    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+      const newSession: ISession = parsedData.session
+      console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
+        sessionId: newSession.id,
+        documentIds: newSession.config.document_ids,
+        documentGroupId: newSession.config.document_group_id,
+        parentApp: newSession.parent_app,
+        hasDocumentIds: newSession.config.document_ids !== null && 
+                      Object.keys(newSession.config.document_ids || {}).length > 0,
+        documentIdKeys: Object.keys(newSession.config.document_ids || {}),
+        documentIdValues: Object.values(newSession.config.document_ids || {}),
+        sessionData: JSON.stringify(newSession)
+      })
+      session.setData(newSession)
+    }
+  })
+
+  const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
+    if (!app) return;
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
+        const gptscripts = [...(assistant.gptscripts || [])];
         const targetIndex = typeof index === 'number' ? index : gptscripts.length;
         gptscripts[targetIndex] = script;
-        
-        assistants[0].gptscripts = gptscripts;
-        updatedApp.config.helix.assistants = assistants;
-      }
-      
-      setEditingGptScript(null);
-    };
-    
-    // Delete GPT script function
-    const deleteScript = (scriptId: string) => {
-      if (!app) return;
-      
-      const updatedApp = { ...app };
-      const assistants = updatedApp.config.helix.assistants || [];
-      
-      if (assistants.length > 0) {
-        assistants[0].gptscripts = (assistants[0].gptscripts || [])
-          .filter((script) => script.file !== scriptId);
-        
-        updatedApp.config.helix.assistants = assistants;
-      }
-    };
-    
-    return [saveScript, deleteScript];
+        return {
+          ...assistant,
+          gptscripts
+        };
+      });
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+    setEditingGptScript(null);
   }, [app]);
 
-  // Functions for managing API tools
-  const [onSaveApiTool, onDeleteApiTool] = useMemo(() => {
-    // Save API tool function
-    const saveTool = (tool: IAssistantApi, index?: number) => {
-      if (!app) return;
-      
-      const updatedApp = { ...app };
-      const assistants = updatedApp.config.helix.assistants || [];
-      
-      if (assistants.length > 0) {
-        const apis = [...(assistants[0].apis || [])];
-        const targetIndex = typeof index === 'number' ? index : apis.length;
-        apis[targetIndex] = tool;
-        
-        assistants[0].apis = apis;
-        updatedApp.config.helix.assistants = assistants;
-      }
-    };
-    
-    // Delete API tool function
-    const deleteTool = (toolId: string) => {
-      if (!app) return;
-      
-      const updatedApp = { ...app };
-      const assistants = updatedApp.config.helix.assistants || [];
-      
-      if (assistants.length > 0) {
-        assistants[0].apis = (assistants[0].apis || [])
-          .filter((api) => api.name !== toolId);
-        
-        updatedApp.config.helix.assistants = assistants;
-      }
-    };
-    
-    return [saveTool, deleteTool];
-  }, [app]);
-
-  // Functions for managing Zapier tools
-  const [onSaveZapierTool, onDeleteZapierTool] = useMemo(() => {
-    // Save Zapier tool function
-    const saveTool = (tool: IAssistantZapier, index?: number) => {
-      if (!app) return;
-      
-      const updatedApp = { ...app };
-      const assistants = updatedApp.config.helix.assistants || [];
-      
-      if (assistants.length > 0) {
-        const zapier = [...(assistants[0].zapier || [])];
-        const targetIndex = typeof index === 'number' ? index : zapier.length;
-        zapier[targetIndex] = tool;
-        
-        assistants[0].zapier = zapier;
-        updatedApp.config.helix.assistants = assistants;
-      }
-    };
-    
-    // Delete Zapier tool function
-    const deleteTool = (toolId: string) => {
-      if (!app) return;
-      
-      const updatedApp = { ...app };
-      const assistants = updatedApp.config.helix.assistants || [];
-      
-      if (assistants.length > 0) {
-        assistants[0].zapier = (assistants[0].zapier || [])
-          .filter((z) => z.name !== toolId);
-        
-        updatedApp.config.helix.assistants = assistants;
-      }
-    };
-    
-    return [saveTool, deleteTool];
-  }, [app]);
-
-  const sessionID = useMemo(() => {
-    return session.data?.id || ''
-  }, [
-    session.data,
-  ])
-
-  const readOnly = useMemo(() => {
-    if(!app) return true
-    return false
-  }, [
-    app,
-  ])
+  const onDeleteGptScript = useCallback((scriptId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
 
   const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]); 
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
+      // TODO: remove model from embed code
       const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
 <script>
   ChatWidget({
@@ -358,26 +784,169 @@ const App: FC = () => {
     } else {
       snackbar.error('No API key available');
     }
-  }, [account.apiKeys, snackbar]);
+  }, [account.apiKeys, snackbar]);  
 
-  // Use websocket for session updates
-  useWebsocket(sessionID, (parsedData) => {
-    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      session.setData(parsedData.session)
-    }
-  })
+  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
+    if (!app) return;
+    console.log('App - saving API tool:', { tool, index });
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      let assistants = prevApp.config.helix.assistants || []
+      let isNew = typeof index !== 'number'
 
-  // Get data for rendered components
+      if(index === undefined) {
+        assistants = [getDefaultAssistant()]
+        index = 0
+      }
+
+      const updatedAssistants = assistants.map(assistant => {
+        const apis = [...(assistant.apis || [])];
+        const targetIndex = typeof index === 'number' ? index : apis.length;
+        console.log('App - API tool update:', {
+          currentApis: apis,
+          targetIndex,
+          isNew,
+        });
+        apis[targetIndex] = tool;
+        return {
+          ...assistant,
+          apis
+        };
+      });
+
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, [app]);
+
+  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
+    if (!app) return;
+    console.log('App - saving Zapier tool:', { tool, index });
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      let assistants = prevApp.config.helix.assistants || []
+      let isNew = typeof index !== 'number'
+
+      if(index === undefined) {
+        assistants = [getDefaultAssistant()]
+        index = 0
+      }
+
+      const updatedAssistants = assistants.map(assistant => {
+        const zapier = [...(assistant.zapier || [])];
+        const targetIndex = typeof index === 'number' ? index : zapier.length;
+        console.log('App - Zapier tool update:', {
+          currentZapier: zapier,
+          targetIndex,
+          isNew: typeof index !== 'number'
+        });
+        zapier[targetIndex] = tool;
+        return {
+          ...assistant,
+          zapier
+        };
+      });
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, [app]);
+
+  const onDeleteApiTool = useCallback((toolId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        apis: (assistant.apis || []).filter((api) => api.name !== toolId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
+
+  const onDeleteZapierTool = useCallback((toolId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
+
   const assistants = app?.config.helix.assistants || []
   const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
   const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
   const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
 
-  // Don't render until we have necessary data
   if(!account.user) return null
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
   
+  const handleLaunch = async () => {
+    if (app.id === 'new') {
+      snackbar.error('Please save the app before launching');
+      return;
+    }
+
+    try {
+      const savedApp = await onSave(true);
+      if (savedApp) {
+        navigate('new', { app_id: savedApp.id });
+      } else {
+        snackbar.error('Failed to save app before launching');
+      }
+    } catch (error) {
+      console.error('Error saving app before launch:', error);
+      snackbar.error('Failed to save app before launching');
+    }
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
+    setTabValue(newValue);
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString());
+      newParams.set('tab', newValue);
+      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
+      return newParams;
+    });
+  };
+
   return (
     <Page
       breadcrumbs={[
@@ -438,30 +1007,24 @@ const App: FC = () => {
                 <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                   {tabValue === 'settings' && (
                     <AppSettings
-                      name={app.config.helix.name || ''}
-                      setName={value => app.config.helix.name = value}
-                      description={app.config.helix.description || ''}
-                      setDescription={value => app.config.helix.description = value}
-                      systemPrompt={assistants[0]?.system_prompt || ''}
-                      setSystemPrompt={value => {
-                        if (assistants[0]) assistants[0].system_prompt = value
-                      }}
-                      avatar={app.config.helix.avatar || ''}
-                      setAvatar={value => app.config.helix.avatar = value}
-                      image={app.config.helix.image || ''}
-                      setImage={value => app.config.helix.image = value}
-                      shared={app.shared}
-                      setShared={value => app.shared = value}
-                      global={app.global}
-                      setGlobal={value => app.global = value}
-                      model={assistants[0]?.model || ''}
-                      setModel={value => {
-                        if (assistants[0]) assistants[0].model = value
-                      }}
-                      providerEndpoint={assistants[0]?.provider || ''}
-                      setProviderEndpoint={value => {
-                        if (assistants[0]) assistants[0].provider = value
-                      }}
+                      name={name}
+                      setName={setName}
+                      description={description}
+                      setDescription={setDescription}
+                      systemPrompt={systemPrompt}
+                      setSystemPrompt={setSystemPrompt}
+                      avatar={avatar}
+                      setAvatar={setAvatar}
+                      image={image}
+                      setImage={setImage}
+                      shared={shared}
+                      setShared={setShared}
+                      global={global}
+                      setGlobal={setGlobal}
+                      model={model}
+                      setModel={setModel}
+                      providerEndpoint={providerEndpoint}
+                      setProviderEndpoint={setProviderEndpoint}
                       providerEndpoints={account.providerEndpoints}
                       readOnly={readOnly}
                       isReadOnly={isReadOnly}
@@ -479,12 +1042,14 @@ const App: FC = () => {
                         knowledgeSources={knowledgeSources}
                         onUpdate={handleKnowledgeUpdate}
                         onRefresh={handleRefreshKnowledge}
+                        onCompletePreparation={handleCompleteKnowledgePreparation}
                         onUpload={handleFileUpload}
                         loadFiles={handleLoadFiles}
                         uploadProgress={filestore.uploadProgress}
                         disabled={isReadOnly}
                         knowledgeList={knowledgeList}
                         appId={app.id}
+                        onRequestSave={() => onSave(true)}
                       />
                       {knowledgeErrors && showErrors && (
                         <Alert severity="error" sx={{ mt: 2 }}>
@@ -538,8 +1103,8 @@ const App: FC = () => {
                       apiKeys={account.apiKeys}
                       onAddAPIKey={onAddAPIKey}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
-                      allowedDomains={app.config.allowed_domains || []}
-                      setAllowedDomains={domains => app.config.allowed_domains = domains}
+                      allowedDomains={allowedDomains}
+                      setAllowedDomains={setAllowedDomains}
                       isReadOnly={isReadOnly}
                       readOnly={readOnly}
                     />
@@ -551,7 +1116,7 @@ const App: FC = () => {
                       setSchema={setSchema}
                       showErrors={showErrors}
                       appId={app.id}
-                      navigate={useRouter().navigate}
+                      navigate={navigate}
                     />
                   )}
 
@@ -568,9 +1133,9 @@ const App: FC = () => {
               ) : (
                 <PreviewPanel
                 loading={loading}
-                name={app.config.helix.name || ''}
-                avatar={app.config.helix.avatar || ''}
-                image={app.config.helix.image || ''}
+                name={name}
+                avatar={avatar}
+                image={image}
                 isSearchMode={isSearchMode}
                 setIsSearchMode={setIsSearchMode}
                 inputValue={inputValue}
@@ -654,24 +1219,20 @@ const App: FC = () => {
           <DeleteConfirmWindow
             title="this API key"
             onSubmit={async () => {
-              try {
-                await fetch(`/api/v1/api_keys?key=${deletingAPIKey}`, {
-                  method: 'DELETE',
-                  headers: {
-                    'Authorization': `Bearer ${account.token}`
-                  }
-                })
-                
-                snackbar.success('API Key deleted')
-                account.loadApiKeys({
-                  types: 'app',
-                  app_id: params.app_id,
-                })
-                setDeletingAPIKey('')
-              } catch (error) {
-                console.error('Error deleting API key:', error)
-                snackbar.error('Failed to delete API key')
-              }
+              const res = await api.delete(`/api/v1/api_keys`, {
+                params: {
+                  key: deletingAPIKey,
+                },
+              }, {
+                snackbar: true,
+              })
+              if(!res) return
+              snackbar.success('API Key deleted')
+              account.loadApiKeys({
+                types: 'app',
+                app_id: params.app_id,
+              })
+              setDeletingAPIKey('')
             }}
             onCancel={() => {
               setDeletingAPIKey('')

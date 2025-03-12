@@ -11,12 +11,13 @@ services:
     # for SERVER_URL and KEYCLOAK_FRONTEND_URL to match how you
     # connect to Helix
     ports:
-      - ${API_PORT:-8080}:80
+      - ${API_PORT:-8080}:8080
     restart: always
     env_file:
       - .env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SERVER_PORT=8080
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres

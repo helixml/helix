@@ -148,6 +148,7 @@ type Store interface {
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
+	CountUsers(ctx context.Context) (int64, error)
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)

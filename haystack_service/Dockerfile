@@ -21,6 +21,20 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create directory for NLTK data
+RUN mkdir -p /usr/share/nltk_data
+
+# Pre-download NLTK resources for document_splitter.py and unstructured PDF processing
+# Specify the download directory and ensure files are accessible
+RUN python -m nltk.downloader -d /usr/share/nltk_data punkt_tab averaged_perceptron_tagger_eng
+
+# Verify the files were downloaded
+RUN ls -la /usr/share/nltk_data/tokenizers/ || echo "Tokenizers directory not found or empty"
+RUN ls -la /usr/share/nltk_data/taggers/ || echo "Taggers directory not found or empty"
+
+# Set environment variable so NLTK knows where to find the data
+ENV NLTK_DATA=/usr/share/nltk_data
+
 # Copy application code
 COPY . .
 

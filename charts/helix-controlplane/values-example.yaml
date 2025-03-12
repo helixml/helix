@@ -20,12 +20,16 @@ controlplane:
   # inference (embeddings) provider.
   haystack:
     enabled: true
+    # Option 1: Direct DSN specification
+    pgvectorDsn: "postgresql://postgres:pgvector@my-helix-controlplane-pgvector:5432/postgres"
+    # Or: Option 2: Reference DSN from existing secret
+    # existingSecret: "helix-pgvector-creds"
+    # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
     embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
     embeddingsDim: "3584"
     chunkSize: "1000"
     chunkOverlap: "50"
-    pgvectorDsn: "postgresql://postgres:postgres@my-helix-controlplane-pgvector:5432/postgres"
-  
+
   # RAG configuration
   rag:
     # The default RAG provider to use. Valid values: haystack, typesense
@@ -35,23 +39,21 @@ controlplane:
     # embeddings, typesense does its own embeddings so leave this unset for
     # typesense)
     embeddingsProvider: "vllm"
-  
+
   # Inference configuration
   inference:
     # Valid values: openai, togetherai, helix
     defaultProvider: "openai"
-  
+
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Dashboard
   providers:
     vllm:
-      baseUrl: "http://url-of-vllm-server/v1"
+      baseUrl: "http://vllm-gte.default.svc.cluster.local/v1"
       apiKey: "EMPTY"
     openai:
-      baseUrl: "http://url-of-openai-compatible-server/v1"
-      apiKey: "apikey"
-    togetherai:
-      apiKey: "apikey-from-togetherai"
+      baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
+      apiKey: "EMPTY"
 
 # Environment variables that will be added to the configmap
 envVariables:
@@ -76,15 +78,20 @@ envVariables:
   # ids that are admins or the word "all" if you want to allow all users to be admins
   ADMIN_USER_IDS: "all"
 
+# Environment variables driven from secrets that will be set in the main pod
+secretEnvVariables:
+  LICENSE_KEY: 
+    secretName: foo
+    secretKey: bar
+    
 tika:
-  enabled: true
+  enabled: false
 
 chrome:
   enabled: true
 
 typesense:
-  enabled: true
-  apiKey: typesense
+  enabled: false
 
 gptscript:
   enabled: true
@@ -92,31 +99,12 @@ gptscript:
   concurrency: 20
   maxTasks: 0
 
-# PGVector configuration (if using with haystack and not pointing to external PGVector)
+# PGVector configuration to PROVISION pgvector (if using with haystack and not pointing to external PGVector)
 pgvector:
   enabled: true
   auth:
     username: postgres
-    password: postgres
-    database: postgres
-  persistence:
-    enabled: true
-    size: 8Gi
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
-
-# PostgreSQL configuration for api (if not pointing to external PostgreSQL)
-postgresql:
-  enabled: true
-  auth:
-    postgresPassword: postgres
-    username: postgres
-    password: postgres
+    password: pgvector
     database: postgres
   persistence:
     enabled: true

@@ -13,6 +13,7 @@ type ServerConfig struct {
 	Providers          Providers
 	Tools              Tools
 	Keycloak           Keycloak
+	OIDC               OIDC
 	Notifications      Notifications
 	Janitor            Janitor
 	Stripe             Stripe
@@ -112,6 +113,7 @@ type Tools struct {
 // Keycloak is used for authentication. You can find keycloak documentation
 // at https://www.keycloak.org/guides
 type Keycloak struct {
+	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"true"`
 	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
 	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8080/auth"`
 	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
@@ -122,6 +124,16 @@ type Keycloak struct {
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
 	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
 	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
+}
+
+type OIDC struct {
+	Enabled       bool   `envconfig:"OIDC_ENABLED" default:"false"`
+	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"true"`
+	URL           string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
+	ClientID      string `envconfig:"OIDC_CLIENT_ID" default:"api"`
+	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
+	Audience      string `envconfig:"OIDC_AUDIENCE"`
+	Scopes        string `envconfig:"OIDC_SCOPES" default:"openid,profile,email"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
@@ -229,7 +241,7 @@ type RAG struct {
 
 	Haystack struct {
 		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
-		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://haystack:8000" description:"The URL to the Haystack service."`
+		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {
