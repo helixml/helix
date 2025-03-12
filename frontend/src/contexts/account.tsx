@@ -354,13 +354,10 @@ export const useAccountContext = (): IAccountContext => {
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
-<<<<<<< HEAD
     organizationTools,
     isOrgAdmin,
     isOrgMember,
-=======
     hasImageModels,
->>>>>>> main
   }
 }
 
