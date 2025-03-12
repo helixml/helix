@@ -39,7 +39,16 @@ Content: {{ .Content }}
 </article>
 {{- end }}
 
-Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."            
+Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+
+Before your answer, provide short sentence-long excerpts from the content that you used to answer the question. If there are multiple documents, provide one excerpt per document.
+<excerpts>
+<excerpt>
+<document_id>[DocumentID]</document_id>
+<snippet>[Excerpt]</snippet>
+</excerpt>
+</excerpts>
+
 {{- end }}
 
 Here is the question from the user:
