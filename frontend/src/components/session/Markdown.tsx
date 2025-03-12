@@ -21,6 +21,12 @@ const rainbowShadow = keyframes`
   100% { filter: drop-shadow(0 0 2px #ffff00) drop-shadow(0 0 4px #ff0000); }
 `
 
+// Create a blinking animation for the cursor
+const blink = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+`
+
 export const InteractionMarkdown: FC<{
   text: string,
 }> = ({
@@ -31,8 +37,67 @@ export const InteractionMarkdown: FC<{
 
   // Fix markdown rendering for code blocks and process think tags
   const processContent = (text: string) => {
+    // First check if the text already contains our citation container HTML
+    // If it does, we need to temporarily replace it to prevent it from being escaped
+    const hasCitationHTML = text.includes('<div class="rag-citations-container">');
+    const hasEscapedCitationHTML = text.includes('&lt;div class="rag-citations-container"&gt;');
+    let citationContainers: Array<string> = [];
+    let processedWithPreservedCitations = text;
+    
+    // Handle proper HTML citations
+    if (hasCitationHTML) {
+      // Extract all citation containers and replace with placeholders
+      let citationIndex = 0;
+      const citationRegex = /<div class="rag-citations-container">[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/g;
+      processedWithPreservedCitations = text.replace(citationRegex, (match) => {
+        const placeholder = `__CITATION_PLACEHOLDER_${citationIndex}__`;
+        citationContainers.push(match);
+        citationIndex++;
+        return placeholder;
+      });
+      
+      console.debug(`Preserved ${citationContainers.length} citation containers for rendering`);
+    }
+    
+    // Handle already escaped HTML
+    if (hasEscapedCitationHTML) {
+      // Unescape the HTML for proper rendering
+      processedWithPreservedCitations = processedWithPreservedCitations.replace(
+        /&lt;div class="rag-citations-container"&gt;[\s\S]*?&lt;\/div&gt;\s*&lt;\/div&gt;\s*&lt;\/div&gt;/g,
+        match => {
+          // Convert &lt; to < and &gt; to >
+          const unescaped = match
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#039;/g, "'")
+            .replace(/&amp;/g, '&');
+            
+          // Add to the containers array
+          const placeholder = `__CITATION_PLACEHOLDER_${citationContainers.length}__`;
+          citationContainers.push(unescaped);
+          return placeholder;
+        }
+      );
+    }
+
+    // First ensure that all non-standard XML tags are escaped
+    // This prevents browser warnings and errors about unrecognized tags
+    let processed = processedWithPreservedCitations.replace(/<(\/?)(?!a>|span>|div>|code>|pre>|br>|strong>|em>|ul>|ol>|li>|p>|h[1-6]>|img>|table>|tr>|td>|th>)([^>]+)>/g, (match) => {
+      // If it's already an HTML entity, leave it alone
+      if (match.startsWith('&lt;')) {
+        return match;
+      }
+      // Special handling for think tag which we process specially
+      if (match.includes('think')) {
+        return match;
+      }
+      // Convert to HTML entities
+      return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    });
+
     // Fix code block indentation
-    let processed = text.replace(/^\s*```/gm, '```');
+    processed = processed.replace(/^\s*```/gm, '```');
 
     // Replace "---" with "</think>" if there's an unclosed think tag
     let openCount = 0;
@@ -70,6 +135,14 @@ ${trimmedContent}
 </div></details></div>`;
       }
     );
+    
+    // Now restore the citation containers
+    if (citationContainers.length > 0) {
+      citationContainers.forEach((citation, index) => {
+        const placeholder = `__CITATION_PLACEHOLDER_${index}__`;
+        processed = processed.replace(placeholder, citation);
+      });
+    }
 
     return processed;
   };
@@ -123,6 +196,84 @@ ${trimmedContent}
         },
         '& .think-content': {
           marginTop: '0.5em',
+        },
+        // RAG Citations styling
+        '& .rag-citations-container': {
+          margin: '20px 0 10px 0',
+          padding: '16px',
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(240, 240, 240, 0.7)' : 'rgba(30, 30, 30, 0.4)',
+          borderRadius: '8px',
+          border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
+        },
+        '& .rag-citations-header': {
+          fontWeight: 'bold',
+          marginBottom: '12px',
+          fontSize: '1.1em',
+          color: theme.palette.mode === 'light' ? '#333' : '#eee',
+        },
+        '& .rag-citations-list': {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+        },
+        '& .rag-citation-item': {
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(50, 50, 50, 0.4)',
+          borderRadius: '6px',
+          padding: '12px',
+          transition: 'background-color 0.2s',
+          border: `1px solid ${theme.palette.mode === 'light' ? '#e0e0e0' : '#555'}`,
+        },
+        '& .rag-citation-item:hover': {
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(250, 250, 250, 0.9)' : 'rgba(60, 60, 60, 0.5)',
+          boxShadow: theme.palette.mode === 'light' 
+            ? '0 2px 5px rgba(0, 0, 0, 0.05)' 
+            : '0 2px 5px rgba(0, 0, 0, 0.15)',
+        },
+        '& .rag-citation-header': {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginBottom: '8px',
+        },
+        '& .rag-citation-icon': {
+          width: '20px',
+          height: '20px',
+          color: theme.palette.mode === 'light' ? '#666' : '#aaa',
+        },
+        '& .rag-citation-link': {
+          color: theme.palette.mode === 'light' ? '#0366d6' : '#58a6ff',
+          textDecoration: 'none',
+          fontWeight: '500',
+        },
+        '& .rag-citation-link:hover': {
+          textDecoration: 'underline',
+        },
+        '& .rag-citation-snippet': {
+          fontSize: '0.9em',
+          lineHeight: '1.5',
+          marginLeft: '28px',
+          paddingLeft: '10px',
+          borderLeft: `2px solid ${theme.palette.mode === 'light' ? '#ddd' : '#555'}`,
+        },
+        '& .rag-citation-quote': {
+          color: theme.palette.mode === 'light' ? '#444' : '#ddd',
+          fontStyle: 'italic',
+        },
+        '& .rag-citation-snippet code': {
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.1)',
+          padding: '2px 4px',
+          borderRadius: '3px',
+          fontFamily: 'monospace',
+          fontSize: '0.85em',
+          color: theme.palette.mode === 'light' ? '#d63200' : '#ff9580',
+        },
+        // Blinker styling
+        '& .blinker-class': {
+          animation: `${blink} 1.2s step-end infinite`,
+          marginLeft: '2px',
+          color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)',
+          fontWeight: 'normal',
+          userSelect: 'none',
         },
       }}
     >

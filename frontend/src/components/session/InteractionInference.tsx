@@ -66,7 +66,12 @@ export const InteractionInference: FC<{
   console.debug(`InteractionInference: Session has parent_app: ${session.parent_app ? 'yes' : 'no'}`);
   console.debug(`InteractionInference: Message before replacement (${message?.length || 0} chars): "${message?.substring(0, 100) || ''}${(message && message.length > 100) ? '...' : ''}"`);
   
+  // Process the message with replaceMessageText
   const sourceText = replaceMessageText(message || '', session, getFileURL)
+  
+  // Check if we have detected and processed RAG citations
+  const hasCitations = sourceText.includes('<div class="rag-citations-container">');
+  console.debug(`InteractionInference: Citations detected: ${hasCitations ? 'yes' : 'no'}`);
   
   console.debug(`InteractionInference: Message after replacement (${sourceText.length} chars): "${sourceText.substring(0, 100)}${sourceText.length > 100 ? '...' : ''}"`);
   console.debug(`InteractionInference: Is app session: ${!!session.parent_app}`);
