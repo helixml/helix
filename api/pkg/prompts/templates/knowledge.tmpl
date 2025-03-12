@@ -11,7 +11,17 @@ Content: {{ .Content }}
 </article>
 {{- end }}
 
-Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."            
+Please provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+
+After your answer, write three dashes like ---, and then provide short sentence-long excerpts from the content that you referenced when answering the question, in the form below. If there are multiple documents referenced, provide one excerpt per document. Provide EXACT QUOTES from the content.
+
+<excerpts>
+<excerpt>
+<document_id>[DocumentID]</document_id>
+<snippet>[Excerpt]</snippet>
+</excerpt>
+</excerpts>
+
 {{- end }}
 
 {{- if .KnowledgeResults }}
@@ -39,9 +49,10 @@ Content: {{ .Content }}
 </article>
 {{- end }}
 
-Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+Please provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
 
-Before your answer, provide short sentence-long excerpts from the content that you used to answer the question. If there are multiple documents, provide one excerpt per document.
+After your answer, write three dashes like ---, and then provide short sentence-long excerpts from the content that you referenced when answering the question, in the form below. If there are multiple documents referenced, provide one excerpt per document. Provide EXACT QUOTES from the content.
+
 <excerpts>
 <excerpt>
 <document_id>[DocumentID]</document_id>
