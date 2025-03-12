@@ -108,7 +108,13 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App
 
 	// Assign the user to the app
 	for _, app := range apps {
-		app.User = *userMap[app.Owner]
+		user, ok := userMap[app.Owner]
+		if !ok {
+			app.User = types.User{}
+			continue
+		}
+
+		app.User = *user
 	}
 
 	return apps

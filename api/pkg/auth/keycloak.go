@@ -84,7 +84,14 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 
 	if idOfClient == "" {
 		log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
-		idOfClient, err = gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.APIClientID})
+		idOfClient, err = gck.CreateClient(context.Background(),
+			token, cfg.Realm,
+			gocloak.Client{
+				ClientID:     &cfg.APIClientID,
+				RedirectURIs: &[]string{"*"},
+				WebOrigins:   &[]string{"*"},
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
 		}
