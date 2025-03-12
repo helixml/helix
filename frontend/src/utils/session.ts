@@ -253,7 +253,7 @@ export const replaceMessageText = (
       // Use the original filename without attempting to find it in interactions
       const displayName = filename.split('/').pop() || filename; // Get just the filename part
       console.debug(`Creating app session link for document: ${displayName}, ID: ${document_id}`);
-      link = `<a target="_blank" style="color: white;" href="${getFileURL(filename)}">[${documentReferenceCounter}: ${displayName}]</a>`;
+      link = `<a target="_blank" style="color: white;" href="${getFileURL(filename)}">[${documentReferenceCounter}]</a>`;
     } else {
       // Regular session - try to find the file in the interactions
       const baseFilename = filename.replace(/\.txt$/i, '')
