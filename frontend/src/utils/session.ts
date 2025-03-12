@@ -1,4 +1,3 @@
-
 import {
   IApp,
   IDataPrepChunkWithFilename,
@@ -193,55 +192,12 @@ export const getTextDataPrepStats = (interaction: IInteraction): IDataPrepStats 
   })
 }
 
-// gives us a chance to replace the raw HTML that is rendered as a "message"
-// the key thing this does right now is render links to files that the AI has been
-// told to reference in it's answer - because the session metadata keeps a map
-// of document_ids to filenames, we can replace the document_id with a link to the
-// document in the filestore
-export const replaceMessageText = (
-  message: string,
-  session: ISession,
-  getFileURL: (filename: string) => string,
-): string => {
-  const document_ids = session.config.document_ids || {}
-  const allNonTextFiles = session.interactions.reduce((acc: string[], interaction) => {
-    if (!interaction.files || interaction.files.length <= 0) return acc
-    return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true))
-  }, [])
-
-  let documentReferenceCounter = 0
-
-  Object.keys(document_ids).forEach(filename => {
-    const document_id = document_ids[filename]
-    let searchPattern: RegExp | null = null;
-    if (message.indexOf(`DOC_ID:`) >= 0) {
-      searchPattern = RegExp(`\\[.*DOC_ID:.*${document_id}.*\\]`, 'g')
-    } else if (message.indexOf(document_id) >= 0) {
-      searchPattern = RegExp(`${document_id}`, 'g')
-    }
-    if (!searchPattern) return
-    documentReferenceCounter++
-    const baseFilename = filename.replace(/\.txt$/i, '')
-    const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) == 0)
-    if (!sourceFilename) return
-    const link = `<a target="_blank" style="color: white;" href="${getFileURL(sourceFilename)}">[${documentReferenceCounter}]</a>`
-    message = message.replace(searchPattern, link)
-  })
-
-  const document_group_id = session.config.document_group_id
-  let groupSearchPattern = ''
-  if (message.indexOf(`[DOC_GROUP:${document_group_id}]`) >= 0) {
-    groupSearchPattern = `[DOC_GROUP:${document_group_id}]`
-  } else if (message.indexOf(document_group_id) >= 0) {
-    groupSearchPattern = document_group_id
-  }
-
-  if (groupSearchPattern) {
-    const link = `<a style="color: white;" href="javascript:_helixHighlightAllFiles()">[group]</a>`
-    message = message.replace(groupSearchPattern, link)
-  }
-
-  return message
+/**
+ * Helper function to escape special characters in a string for use in RegExp
+ * This is exported for use by MessageProcessor in Markdown.tsx
+ */
+export function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
 export const getNewSessionBreadcrumbs = ({

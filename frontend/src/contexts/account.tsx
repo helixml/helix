@@ -16,10 +16,6 @@ import {
   IProviderEndpoint
 } from '../types'
 
-const REALM = 'helix'
-const KEYCLOAK_URL = '/auth/'
-const CLIENT_ID = 'frontend'
-
 export interface IAccountContext {
   initialized: boolean,
   credits: number,
@@ -39,6 +35,7 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   models: IHelixModel[],
+  hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
   providerEndpoints: IProviderEndpoint[],
   fetchProviderEndpoints: () => Promise<void>,
@@ -70,7 +67,8 @@ export const AccountContext = createContext<IAccountContext>({
   models: [],
   fetchModels: async () => { },
   providerEndpoints: [],
-  fetchProviderEndpoints: async () => { },
+  fetchProviderEndpoints: async () => {},
+  hasImageModels: false,
 })
 
 export const useAccount = () => {
@@ -103,7 +101,7 @@ export const useAccountContext = (): IAccountContext => {
   const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
   const [models, setModels] = useState<IHelixModel[]>([])
   const [providerEndpoints, setProviderEndpoints] = useState<IProviderEndpoint[]>([])
-  const [latestVersion, setLatestVersion] = useState<string>()
+  const [hasImageModels, setHasImageModels] = useState(false)
 
   const token = useMemo(() => {
     if (user && user.token) {
@@ -277,6 +275,10 @@ export const useAccountContext = (): IAccountContext => {
       }
 
       setModels(modelData)
+      
+      // Check if there are any image models in the results
+      const hasImage = modelData.some(model => model.type === 'image')
+      setHasImageModels(hasImage)
     } catch (error) {
       console.error('Error fetching models:', error)
       setModels([])
@@ -318,6 +320,7 @@ export const useAccountContext = (): IAccountContext => {
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
+    hasImageModels,
   }
 }
 

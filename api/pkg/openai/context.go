@@ -7,15 +7,17 @@ import (
 )
 
 type (
-	contextValuesKeyType int
-	contextAppIDKeyType  int
-	stepKeyType          int
+	contextValuesKeyType    int
+	contextAppIDKeyType     int
+	contextSessionIDKeyType int
+	stepKeyType             int
 )
 
 var (
-	contextValuesKey contextValuesKeyType
-	contextAppIDKey  contextAppIDKeyType
-	stepKey          stepKeyType
+	contextValuesKey    contextValuesKeyType
+	contextAppIDKey     contextAppIDKeyType
+	contextSessionIDKey contextSessionIDKeyType
+	stepKey             stepKeyType
 )
 
 const (
@@ -44,6 +46,15 @@ func SetContextAppID(ctx context.Context, appID string) context.Context {
 func GetContextAppID(ctx context.Context) (string, bool) {
 	appID, ok := ctx.Value(contextAppIDKey).(string)
 	return appID, ok
+}
+
+func SetContextSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, contextSessionIDKey, sessionID)
+}
+
+func GetContextSessionID(ctx context.Context) (string, bool) {
+	sessionID, ok := ctx.Value(contextSessionIDKey).(string)
+	return sessionID, ok
 }
 
 func SetContextValues(ctx context.Context, vals *ContextValues) context.Context {

@@ -58,6 +58,15 @@ func (c *HelixClient) RefreshKnowledge(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *HelixClient) CompleteKnowledgePreparation(ctx context.Context, id string) error {
+	err := c.makeRequest(ctx, http.MethodPost, "/knowledge/"+id+"/complete", nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to complete knowledge preparation, %w", err)
+	}
+
+	return nil
+}
+
 type KnowledgeVersionsFilter struct {
 	KnowledgeID string
 }

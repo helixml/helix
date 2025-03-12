@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -376,4 +377,112 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 	}
 
 	return f, nil
+}
+
+// checkAppFilestoreAccess checks if the user has access to app-scoped filestore paths
+// This enforces the same RBAC controls as for apps themselves
+func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path string, req *http.Request, requiredAction types.Action) (bool, string, error) {
+	// If the path doesn't start with "apps/", it's not app-scoped
+	if !controller.IsAppPath(path) {
+		return false, "", nil
+	}
+
+	// Extract the app ID from the path (apps/:app_id/...)
+	appID, err := controller.ExtractAppID(path)
+	if err != nil {
+		return false, "", fmt.Errorf("invalid app filestore path format: %s", path)
+	}
+
+	// Get the app to check permissions
+	app, err := apiServer.Store.GetApp(ctx, appID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return false, appID, nil
+		}
+		return false, appID, err
+	}
+
+	// Get the user from the request
+	user := getRequestUser(req)
+
+	// Admin users have access to all apps
+	if isAdmin(user) {
+		return true, appID, nil
+	}
+
+	// If the user is the owner of the app, they have access
+	if user.ID == app.Owner && app.OwnerType == types.OwnerTypeUser {
+		return true, appID, nil
+	}
+
+	// Check if the app is public/global
+	if app.Global {
+		// For global apps, read access is allowed for everyone
+		if requiredAction == types.ActionGet || requiredAction == types.ActionList {
+			return true, appID, nil
+		}
+		// Only admins and owners can modify global apps
+		return false, appID, nil
+	}
+
+	// Check if the app is shared
+	if app.Shared {
+		// For shared apps, read access is allowed for everyone
+		if requiredAction == types.ActionGet || requiredAction == types.ActionList {
+			return true, appID, nil
+		}
+		// Only admins and owners can modify shared apps
+		return false, appID, nil
+	}
+
+	// Now check RBAC permissions through access grants
+	accessGrants, err := apiServer.Store.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
+		ResourceType: types.ResourceApplication,
+		ResourceID:   appID,
+		UserID:       user.ID,
+	})
+	if err != nil {
+		return false, appID, err
+	}
+
+	// If no access grants found, the user doesn't have access
+	if len(accessGrants) == 0 {
+		return false, appID, nil
+	}
+
+	// Check if any of the roles in the access grants allow the required action
+	for _, accessGrant := range accessGrants {
+		for _, role := range accessGrant.Roles {
+			for _, rule := range role.Config.Rules {
+				// Check if the rule applies to application resources
+				resourceMatch := false
+				for _, resource := range rule.Resources {
+					if resource == types.ResourceApplication || resource == "*" {
+						resourceMatch = true
+						break
+					}
+				}
+
+				if !resourceMatch {
+					continue
+				}
+
+				// Check if the action is allowed
+				actionMatch := false
+				for _, action := range rule.Actions {
+					if action == requiredAction || action == "*" {
+						actionMatch = true
+						break
+					}
+				}
+
+				if actionMatch && rule.Effect == types.EffectAllow {
+					return true, appID, nil
+				}
+			}
+		}
+	}
+
+	// No matching rules found, access denied
+	return false, appID, nil
 }
