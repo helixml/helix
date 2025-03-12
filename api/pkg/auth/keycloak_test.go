@@ -254,7 +254,7 @@ func (suite *KeycloakTestSuite) TestConcurrentAccess() {
 
 func (suite *KeycloakTestSuite) TestErrorHandling() {
 	suite.Run("timeout_handling", func() {
-		ctx, cancel := context.WithTimeout(suite.ctx, 1*time.Millisecond)
+		ctx, cancel := context.WithTimeout(suite.ctx, -1*time.Second)
 		defer cancel()
 
 		_, err := suite.auth.GetUserByID(ctx, "test-user")
