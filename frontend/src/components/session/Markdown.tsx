@@ -12,6 +12,7 @@ import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { ISession } from '../../types'
 // Import the escapeRegExp helper from session.ts
 import { escapeRegExp } from '../../utils/session'
+import DOMPurify from 'dompurify'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
@@ -28,6 +29,19 @@ const rainbowShadow = keyframes`
 const blink = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+`
+
+// Create a pulsing animation for partial citations
+const pulseFade = keyframes`
+  0% { opacity: 0.7; }
+  50% { opacity: 0.9; }
+  100% { opacity: 0.7; }
+`
+
+// Create a shimmer animation for loading indicators
+const shimmer = keyframes`
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 `
 
 interface MessageProcessorOptions {
@@ -55,7 +69,7 @@ class MessageProcessor {
   // Elements we want to preserve during processing
   private documentLinks: string[] = [];
   private groupLinks: string[] = [];
-  private citations: string[] = [];
+  private citations: Array<{html: string, placeholder?: string, safeMarker?: string, tempMarker?: string}> = [];
   private blinker: string | null = null;
   
   // Input/output content
@@ -108,69 +122,137 @@ class MessageProcessor {
   
   /**
    * Extract citation blocks from message for special handling
+   * We identify and extract citations, then replace them with placeholders
+   * to ensure they don't get processed by the sanitization steps
    */
   private extractCitations(): void {
-    // Check for XML style citation blocks
+    // Regular complete citation patterns
     const ragCitationRegex = /(?:---\s*)?\s*<excerpts>([\s\S]*?)<\/excerpts>\s*(?:---\s*)?$/;
-    const ragMatch = this.message.match(ragCitationRegex);
-    
-    // Also check if the LLM directly output citation HTML (happens sometimes)
     const directCitationHtmlRegex = /<div\s+class=["']rag-citations-container["'][\s\S]*?<\/div>\s*<\/div>\s*<\/div>/;
+    
+    // For streaming, also look for partial/incomplete citation patterns
+    const partialExcerptsRegex = /<excerpts>([\s\S]*)$/;
+    const partialCitationHtmlRegex = /<div\s+class=["']rag-citations-container["'][\s\S]*$/;
+    
+    // Try complete patterns first
+    const ragMatch = this.message.match(ragCitationRegex);
     const directCitationMatch = this.message.match(directCitationHtmlRegex);
     
-    let citationContent: string | null = null;
+    // Then try partial patterns if streaming
+    const partialRagMatch = this.isStreaming ? this.message.match(partialExcerptsRegex) : null;
+    const partialCitationMatch = this.isStreaming ? this.message.match(partialCitationHtmlRegex) : null;
     
+    let citationContent: string | null = null;
+    let isPartial = false;
+    
+    // Handle complete citation HTML
     if (directCitationMatch) {
-      // If the LLM has directly output citation HTML, extract it
-      console.debug(`Found direct citation HTML in message - extracting for separate processing`);
+      console.debug(`Found complete direct citation HTML`);
       citationContent = directCitationMatch[0];
-      // Remove citation HTML from main content
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
       
-      // Preserve the citation HTML
+      // Create a placeholder for the citation HTML to preserve it during processing
       const placeholder = this.createPlaceholder(citationContent, 'CITATION');
-      this.citations.push(citationContent);
-    } else if (ragMatch) {
-      console.debug(`Found RAG citation block in message - extracting for separate processing`);
+      // Store both the original citation and the placeholder
+      this.citations.push({ html: citationContent, placeholder });
+    } 
+    // Handle complete excerpts XML
+    else if (ragMatch) {
+      console.debug(`Found complete RAG citation block`);
       citationContent = ragMatch[0];
       const citationBody = ragMatch[1];
       
-      // Remove citation block from main content to prevent document ID replacement in citations
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
       
-      // Process the citation content - format into HTML
-      const formattedCitation = this.formatCitation(citationBody);
+      const formattedCitation = this.formatCitation(citationBody, false);
       if (formattedCitation) {
-        this.citations.push(formattedCitation);
+        // Create a placeholder for the formatted citation
+        const placeholder = this.createPlaceholder(formattedCitation, 'CITATION');
+        // Store both the formatted citation and the placeholder
+        this.citations.push({ html: formattedCitation, placeholder });
       } else {
         // If formatting failed, preserve the original citation
-        this.citations.push(citationContent);
+        const placeholder = this.createPlaceholder(citationContent, 'CITATION');
+        this.citations.push({ html: citationContent, placeholder });
+      }
+    }
+    // Handle partial citation HTML during streaming
+    else if (this.isStreaming && partialCitationMatch) {
+      console.debug(`Found partial citation HTML during streaming`);
+      citationContent = partialCitationMatch[0];
+      isPartial = true;
+      
+      this.mainContent = this.message.replace(citationContent, '');
+      this.resultContent = this.mainContent;
+      
+      // Create a temporary container that indicates streaming status
+      let wrappedPartialCitation = '<div class="citation-box">';
+      wrappedPartialCitation += '<div class="citation-header">SOURCES</div>';
+      wrappedPartialCitation += '<div class="citation-item loading">';
+      wrappedPartialCitation += '<p class="citation-quote">Loading citation data...</p>';
+      wrappedPartialCitation += '<p class="citation-source">Retrieving sources</p>';
+      wrappedPartialCitation += '</div></div>';
+      
+      const placeholder = this.createPlaceholder(wrappedPartialCitation, 'CITATION');
+      this.citations.push({ html: wrappedPartialCitation, placeholder });
+    }
+    // Handle partial excerpts XML during streaming
+    else if (this.isStreaming && partialRagMatch) {
+      console.debug(`Found partial RAG citation block during streaming`);
+      citationContent = partialRagMatch[0];
+      const partialCitationBody = partialRagMatch[1];
+      isPartial = true;
+      
+      this.mainContent = this.message.replace(citationContent, '');
+      this.resultContent = this.mainContent;
+      
+      // Format what we have so far, with special handling for partial data
+      const formattedPartialCitation = this.formatCitation(partialCitationBody, true);
+      if (formattedPartialCitation) {
+        const placeholder = this.createPlaceholder(formattedPartialCitation, 'CITATION');
+        this.citations.push({ html: formattedPartialCitation, placeholder });
+      } else {
+        // Create a placeholder citation container if we couldn't parse anything
+        let partialCitation = '<div class="citation-box">';
+        partialCitation += '<div class="citation-header">SOURCES</div>';
+        partialCitation += '<div class="citation-item loading">';
+        partialCitation += '<p class="citation-quote">Loading citation data...</p>';
+        partialCitation += '<p class="citation-source">Retrieving sources</p>';
+        partialCitation += '</div></div>';
+        
+        const placeholder = this.createPlaceholder(partialCitation, 'CITATION');
+        this.citations.push({ html: partialCitation, placeholder });
       }
     }
   }
   
   /**
    * Format citation XML into HTML
+   * @param citationBody The citation content to format
+   * @param isPartial Whether this is a partial (incomplete) citation during streaming
    */
-  private formatCitation(citationBody: string): string | null {
+  private formatCitation(citationBody: string, isPartial: boolean = false): string | null {
     try {
       // First, escape any XML tags to prevent HTML parsing issues
-      // This is especially important for malformed XML like in the example
       const escapedCitationsBody = citationBody.replace(
         /<(\/?)(?!(\/)?excerpt|document_id|snippet|\/document_id|\/snippet|\/excerpt)([^>]*)>/g, 
         (match: string, p1: string, p2: string, p3: string) => `&lt;${p1}${p3}&gt;`
       );
       
-      // Parse the individual excerpts
-      const excerptRegex = /<excerpt>([\s\S]*?)<\/excerpt>/g;
+      // Parse the individual excerpts - handle both complete and partial excerpts
+      const excerptRegex = isPartial 
+        ? /<excerpt>([\s\S]*?)(?:<\/excerpt>|$)/g  // Either find closing tag or accept to end of string
+        : /<excerpt>([\s\S]*?)<\/excerpt>/g;       // Only complete excerpts
+        
       let excerptMatch;
       type Excerpt = {
         docId: string, 
         snippet: string, 
         filename: string, 
-        fileUrl: string
+        fileUrl: string,
+        isPartial: boolean
       };
       
       let excerpts: Excerpt[] = [];
@@ -180,13 +262,18 @@ class MessageProcessor {
       while ((excerptMatch = excerptRegex.exec(escapedCitationsBody)) !== null) {
         try {
           const excerptContent = excerptMatch[1];
+          const excerptIsPartial = isPartial && !excerptContent.includes('</snippet>');
           
           // Use robust patterns to extract document_id and snippet
           let docId = '';
           let snippet = '';
           
           // Extract document_id - handle various possible formats
-          const docIdMatch = excerptContent.match(/<document_id>([\s\S]*?)<\/document_id>/);
+          const docIdRegex = isPartial 
+            ? /<document_id>([\s\S]*?)(?:<\/document_id>|$)/  // Accept partial document_id
+            : /<document_id>([\s\S]*?)<\/document_id>/;       // Complete document_id only
+          
+          const docIdMatch = excerptContent.match(docIdRegex);
           if (docIdMatch) {
             docId = docIdMatch[1].trim();
             
@@ -208,10 +295,19 @@ class MessageProcessor {
             docId = `doc_${excerpts.length + 1}`;
           }
           
-          // Extract snippet
-          const snippetMatch = excerptContent.match(/<snippet>([\s\S]*?)<\/snippet>/);
+          // Extract snippet - handle partial snippets during streaming
+          const snippetRegex = isPartial 
+            ? /<snippet>([\s\S]*?)(?:<\/snippet>|$)/  // Accept partial snippets
+            : /<snippet>([\s\S]*?)<\/snippet>/;       // Complete snippets only
+            
+          const snippetMatch = excerptContent.match(snippetRegex);
           if (snippetMatch) {
             snippet = snippetMatch[1].trim();
+            
+            // For partial snippets in streaming, add an indicator
+            if (isPartial && !excerptContent.includes('</snippet>')) {
+              snippet += ' <span class="loading-text">...</span>';
+            }
             
             // Ensure we properly escape any HTML in the snippet
             snippet = snippet
@@ -224,7 +320,7 @@ class MessageProcessor {
             // Handle inline code with backticks
             snippet = snippet.replace(/`([^`]+)`/g, '<code>$1</code>');
           } else {
-            snippet = "No content available";
+            snippet = isPartial ? "Loading..." : "No content available";
           }
           
           // Find a matching document for this ID or URL
@@ -265,56 +361,69 @@ class MessageProcessor {
           excerpts.push({
             docId,
             snippet,
-            filename: filename || "Unknown document",
-            fileUrl: fileUrl || "#"
+            filename: isPartial && !fileFound ? "Loading..." : (filename || "Unknown document"),
+            fileUrl: fileUrl || "#",
+            isPartial: excerptIsPartial
           });
         } catch (error) {
           console.error("Error processing excerpt:", error);
+          // If we're streaming, add a placeholder for the failed excerpt
+          if (isPartial) {
+            excerpts.push({
+              docId: `partial_${excerpts.length + 1}`,
+              snippet: "Loading citation data...",
+              filename: "Loading...",
+              fileUrl: "#",
+              isPartial: true
+            });
+          }
         }
       }
       
+      // If we have no excerpts but we're processing a partial citation, create a placeholder
+      if (excerpts.length === 0 && isPartial) {
+        excerpts.push({
+          docId: "partial_1",
+          snippet: "Loading citation data...",
+          filename: "Loading...",
+          fileUrl: "#",
+          isPartial: true
+        });
+      }
+      
+      // If we still have no excerpts, return null to indicate failure
       if (excerpts.length === 0) {
         return null;
       }
       
-      // Convert the excerpts into a citation display
-      let citationHtml = `<div class="rag-citations-container">
-        <div class="rag-citations-header">Citations</div>
-        <div class="rag-citations-list">`;
+      // Build a simple citation box with minimal HTML
+      let html = '<div class="citation-box">';
+      html += '<div class="citation-header">SOURCES</div>';
       
-      // Add each excerpt as a citation item
+      // Add each excerpt
       excerpts.forEach(excerpt => {
-        // Determine icon based on file type
-        let iconType = 'document';
-        if (excerpt.filename) {
-          const ext = excerpt.filename.split('.').pop()?.toLowerCase();
-          if (ext === 'pdf') iconType = 'pdf';
-          else if (['doc', 'docx'].includes(ext || '')) iconType = 'word';
-          else if (['xls', 'xlsx'].includes(ext || '')) iconType = 'excel';
-          else if (['ppt', 'pptx'].includes(ext || '')) iconType = 'powerpoint';
-          else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext || '')) iconType = 'image';
-        }
-        
-        citationHtml += `
-          <div class="rag-citation-item">
-            <div class="rag-citation-icon ${iconType}-icon"></div>
-            <div class="rag-citation-content">
-              <div class="rag-citation-title">
-                <a href="${excerpt.fileUrl}" target="_blank">${excerpt.filename}</a>
-              </div>
-              <div class="rag-citation-snippet">${excerpt.snippet}</div>
-            </div>
-          </div>`;
+        html += '<div class="citation-item">';
+        html += '<p class="citation-quote">"' + excerpt.snippet + '"</p>';
+        html += '<p class="citation-source"><a href="' + excerpt.fileUrl + '" target="_blank">' + excerpt.filename + '</a></p>';
+        html += '</div>';
       });
       
-      // Close the container
-      citationHtml += `
-        </div>
-      </div>`;
+      html += '</div>';
       
-      return citationHtml;
+      return html;
     } catch (error) {
       console.error("Error formatting citation:", error);
+      
+      // Simple fallback citation for errors
+      if (isPartial) {
+        let html = '<div class="citation-box">';
+        html += '<div class="citation-header">SOURCES</div>';
+        html += '<div class="citation-item loading">';
+        html += '<p class="citation-quote">Loading citation data...</p>';
+        html += '<p class="citation-source">Retrieving sources</p>';
+        html += '</div></div>';
+        return html;
+      }
       return null;
     }
   }
@@ -405,6 +514,12 @@ class MessageProcessor {
       return;
     }
     
+    // Hide blinker if any citations are present during streaming (complete or partial)
+    if (this.isStreaming && this.citations.length > 0) {
+      console.debug('Hiding blinker because citation content is present during streaming');
+      return;
+    }
+    
     const blinkerHtml = `<span class="blinker-class">┃</span>`;
     
     // Check if content includes citations
@@ -435,55 +550,40 @@ class MessageProcessor {
   }
   
   /**
-   * Sanitize HTML content, escaping non-standard tags
+   * Sanitize HTML content, preserving certain elements
+   * This removes unsafe HTML while keeping our special elements intact
    */
   private sanitizeHTML(): void {
-    // Temporarily replace HTML we want to preserve with placeholders
-    // First preserve all document links
-    const allLinks = [...this.documentLinks, ...this.groupLinks];
-    const linkPlaceholders: string[] = [];
-    
-    let tempContent = this.resultContent;
-    
-    // Preserve document and group links
-    allLinks.forEach(link => {
-      const placeholder = this.createPlaceholder(link, 'LINK');
-      linkPlaceholders.push(placeholder);
-      tempContent = tempContent.replace(link, placeholder);
+    // First, find and temporarily replace citations to preserve them
+    this.citations.forEach(citation => {
+      if (citation.placeholder && this.resultContent.includes(citation.placeholder)) {
+        // Instead of removing citations, mark them with a temporary marker
+        // We'll restore them after sanitization
+        const tempMarker = `PRESERVE_CITATION_${Math.random().toString(36).substring(2, 15)}`;
+        this.resultContent = this.resultContent.replace(citation.placeholder, tempMarker);
+        // Update the placeholder to the new temp marker
+        citation.tempMarker = tempMarker;
+      }
     });
     
-    // Preserve the blinker if present
-    if (this.blinker) {
-      const blinkerPlaceholder = this.createPlaceholder(this.blinker, 'BLINKER');
-      tempContent = tempContent.replace(this.blinker, blinkerPlaceholder);
-    }
+    // Continue with normal sanitization
+    // Use DOMPurify to remove unsafe elements but keep our special ones
+    this.resultContent = DOMPurify.sanitize(this.resultContent, {
+      ALLOWED_TAGS: ['b', 'i', 'u', 'strong', 'em', 'code', 'pre', 'a', 'span', 'div', 'p', 
+                    'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'details', 'summary', 
+                    'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+      ALLOWED_ATTR: ['href', 'class', 'target', 'rel', 'id', 'style'],
+      KEEP_CONTENT: true,
+      RETURN_DOM: false,
+      RETURN_DOM_FRAGMENT: false
+    });
     
-    // Escape non-standard HTML tags
-    this.resultContent = tempContent.replace(
-      /<(\/?)(?!(\/)?a|span|div|code|pre|br|strong|em|ul|ol|li|p|h[1-6]|img|table|tr|td|th)([^>]+)>/g, 
-      (match) => {
-        // If it's already an HTML entity, leave it alone
-        if (match.startsWith('&lt;')) {
-          return match;
-        }
-        
-        // Special handling for think tag which we process specially
-        if (match.includes('think')) {
-          return match;
-        }
-        
-        // Convert to HTML entities
-        return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Re-add our temp markers for citations (they were sanitized out)
+    this.citations.forEach(citation => {
+      if (citation.tempMarker && citation.placeholder) {
+        this.resultContent = this.resultContent.replace(citation.tempMarker, citation.placeholder);
       }
-    );
-    
-    // Restore the placeholders
-    for (const [placeholder, content] of this.preservedContent.entries()) {
-      this.resultContent = this.resultContent.replace(placeholder, content);
-    }
-    
-    // Clear the placeholder map since we've restored everything
-    this.preservedContent.clear();
+    });
   }
   
   /**
@@ -533,12 +633,34 @@ ${trimmedContent}
   
   /**
    * Restore all preserved content with final formatting
+   * This is the final step where we replace citation placeholders with the actual HTML
    */
   private restorePreservedContent(): void {
-    // Append citations at the end
-    if (this.citations.length > 0) {
-      this.resultContent += this.citations.join('\n');
-    }
+    // Replace citation placeholders with the actual formatted HTML
+    this.citations.forEach(citation => {
+      if (citation.html) {
+        console.debug('Citation HTML structure:', citation.html);
+        // Check if there are any double-escaped characters
+        if (citation.html.includes('&amp;lt;') || citation.html.includes('&lt;div')) {
+          console.warn('Double-escaped HTML detected in citation:', citation.html);
+          // Try to fix double-escaped HTML by unescaping once
+          citation.html = citation.html
+            .replace(/&amp;lt;/g, '&lt;')
+            .replace(/&amp;gt;/g, '&gt;');
+        }
+      }
+      
+      if (citation.placeholder && this.resultContent.includes(citation.placeholder)) {
+        // For each citation, replace its placeholder with the HTML content
+        console.debug(`Replacing citation placeholder ${citation.placeholder} with HTML`);
+        this.resultContent = this.resultContent.replace(citation.placeholder, citation.html);
+      } else if (citation.html) {
+        // If the placeholder isn't found for some reason, prepend citation at the beginning
+        console.debug('Citation placeholder not found, prepending to content');
+        // Make sure we place the citation at the beginning for proper formatting
+        this.resultContent = citation.html + this.resultContent;
+      }
+    });
   }
   
   /**
@@ -559,6 +681,68 @@ export interface InteractionMarkdownProps {
   showBlinker?: boolean;
   isStreaming?: boolean;
 }
+
+// CSS for citation styling
+const citationStyles = `
+.citation-box {
+  float: right;
+  width: 35%;
+  max-width: 400px;
+  margin: 0 0 20px 20px;
+  clear: right;
+}
+
+.citation-header {
+  font-weight: bold;
+  margin-bottom: 12px;
+  font-size: 0.9em;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: right;
+}
+
+.citation-item {
+  background-color: rgba(35, 38, 45, 0.6);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  position: relative;
+}
+
+.citation-item.loading {
+  animation: pulseFade 2s infinite ease-in-out;
+}
+
+.citation-quote {
+  font-style: italic;
+  line-height: 1.5;
+  margin: 0 0 8px 0;
+  font-size: 0.95em;
+  color: #ddd;
+}
+
+.citation-source {
+  font-size: 0.8em;
+  margin: 0;
+  text-align: right;
+  opacity: 0.8;
+}
+
+.citation-source a {
+  color: #58a6ff;
+  text-decoration: none;
+  font-weight: 500;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+.citation-source a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+`;
 
 export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   text,
@@ -651,180 +835,129 @@ ${trimmedContent}
   };
 
   return (
-    <Box
-      sx={{
-        '& pre': {
-          backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
-          padding: '1em',
-          borderRadius: '4px',
-          overflowX: 'auto',
-        },
-        '& code': {
-          backgroundColor: 'transparent',
-          fontSize: '0.9rem',
-        },
-        '& :not(pre) > code': {
-          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
-          padding: '0.2em 0.4em',
-          borderRadius: '3px',
-        },
-        '& a': {
-          color: theme.palette.mode === 'light' ? '#333' : '#bbb',
-        },
-        '& .think-container': {
-          margin: '1em 0',
-          padding: '1em',
-          borderRadius: '8px',
-          backgroundColor: theme.palette.mode === 'light' ? '#f5f5f5' : '#2a2a2a',
-          border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
-        },
-        '& .think-container.thinking': {
-          animation: `${rainbowShadow} 10s linear infinite`,
-        },
-        '& .think-header': {
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5em',
-          cursor: 'pointer',
-          '&::-webkit-details-marker': {
-            display: 'none'
+    <>
+      <style>
+        {citationStyles}
+      </style>
+      <Box
+        sx={{
+          '& pre': {
+            backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
+            padding: '1em',
+            borderRadius: '4px',
+            overflowX: 'auto',
           },
-          '&::before': {
-            content: '"▶"',
-            transition: 'transform 0.2s',
-          }
-        },
-        '& details[open] .think-header::before': {
-          content: '"▼"',
-        },
-        '& .think-content': {
-          marginTop: '0.5em',
-        },
-        // RAG Citations styling
-        '& .rag-citations-container': {
-          margin: '20px 0 10px 0',
-          padding: '16px',
-          backgroundColor: theme.palette.mode === 'light' ? 'rgba(240, 240, 240, 0.7)' : 'rgba(30, 30, 30, 0.4)',
-          borderRadius: '8px',
-          border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
-        },
-        '& .rag-citations-header': {
-          fontWeight: 'bold',
-          marginBottom: '12px',
-          fontSize: '1.1em',
-          color: theme.palette.mode === 'light' ? '#333' : '#eee',
-        },
-        '& .rag-citations-list': {
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        },
-        '& .rag-citation-item': {
-          backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(50, 50, 50, 0.4)',
-          borderRadius: '6px',
-          padding: '12px',
-          transition: 'background-color 0.2s',
-          border: `1px solid ${theme.palette.mode === 'light' ? '#e0e0e0' : '#555'}`,
-        },
-        '& .rag-citation-item:hover': {
-          backgroundColor: theme.palette.mode === 'light' ? 'rgba(250, 250, 250, 0.9)' : 'rgba(60, 60, 60, 0.5)',
-          boxShadow: theme.palette.mode === 'light' 
-            ? '0 2px 5px rgba(0, 0, 0, 0.05)' 
-            : '0 2px 5px rgba(0, 0, 0, 0.15)',
-        },
-        '& .rag-citation-header': {
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '8px',
-        },
-        '& .rag-citation-icon': {
-          width: '20px',
-          height: '20px',
-          color: theme.palette.mode === 'light' ? '#666' : '#aaa',
-        },
-        '& .rag-citation-link': {
-          color: theme.palette.mode === 'light' ? '#0366d6' : '#58a6ff',
-          textDecoration: 'none',
-          fontWeight: '500',
-        },
-        '& .rag-citation-link:hover': {
-          textDecoration: 'underline',
-        },
-        '& .rag-citation-snippet': {
-          fontSize: '0.9em',
-          lineHeight: '1.5',
-          marginLeft: '28px',
-          paddingLeft: '10px',
-          borderLeft: `2px solid ${theme.palette.mode === 'light' ? '#ddd' : '#555'}`,
-        },
-        '& .rag-citation-quote': {
-          color: theme.palette.mode === 'light' ? '#444' : '#ddd',
-          fontStyle: 'italic',
-        },
-        '& .rag-citation-snippet code': {
-          backgroundColor: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.1)',
-          padding: '2px 4px',
-          borderRadius: '3px',
-          fontFamily: 'monospace',
-          fontSize: '0.85em',
-          color: theme.palette.mode === 'light' ? '#d63200' : '#ff9580',
-        },
-        // Document link styling
-        '& .doc-link, & .doc-group-link': {
-          color: theme.palette.mode === 'light' ? '#0366d6' : '#58a6ff',
-          textDecoration: 'none',
-          fontWeight: 'bold',
-          padding: '2px 6px',
-          borderRadius: '4px',
-          backgroundColor: theme.palette.mode === 'light' ? 'rgba(0, 102, 204, 0.1)' : 'rgba(88, 166, 255, 0.1)',
-        },
-        // Blinker styling
-        '& .blinker-class': {
-          animation: `${blink} 1.2s step-end infinite`,
-          marginLeft: '2px',
-          color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)',
-          fontWeight: 'normal',
-          userSelect: 'none',
-        },
-      }}
-    >
-      <Markdown
-        children={processContent(text)}
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
-        className="interactionMessage"
-        components={{
-          code(props) {
-            const {children, className, node, ...rest} = props
-            const match = /language-(\w+)/.exec(className || '')
-            return match ? (
-              <SyntaxHighlighter
-                {...rest}
-                PreTag="div"
-                children={String(children).replace(/\n$/, '')}
-                language={match[1]}
-                style={oneDark}
-              />
-            ) : (
-              <code {...rest} className={className}>
-                {children}
-              </code>
-            )
+          '& code': {
+            backgroundColor: 'transparent',
+            fontSize: '0.9rem',
           },
-          p(props) {
-            const { children } = props;
-            return (
-              <Box
-                component="p"
-                sx={{
-                  my: 0.5,
-                  lineHeight: 1.4,
-                }}
-              >
-                {React.Children.map(children, child => {
-                  if (typeof child === 'string') {
-                    return child.split('\n').map((line, i, arr) => (
+          '& :not(pre) > code': {
+            backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+            padding: '0.2em 0.4em',
+            borderRadius: '3px',
+          },
+          '& a': {
+            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+          },
+          '& .think-container': {
+            margin: '1em 0',
+            padding: '1em',
+            borderRadius: '8px',
+            backgroundColor: theme.palette.mode === 'light' ? '#f5f5f5' : '#2a2a2a',
+            border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
+          },
+          '& .think-container.thinking': {
+            animation: `${rainbowShadow} 10s linear infinite`,
+          },
+          '& .think-header': {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5em',
+            cursor: 'pointer',
+            '&::-webkit-details-marker': {
+              display: 'none'
+            },
+            '&::before': {
+              content: '"▶"',
+              transition: 'transform 0.2s',
+            }
+          },
+          '& details[open] .think-header::before': {
+            content: '"▼"',
+          },
+          '& .think-content': {
+            marginTop: '0.5em',
+          },
+          // Blinker styling
+          '& .blinker-class': {
+            animation: `${blink} 1.2s step-end infinite`,
+            marginLeft: '2px',
+            color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)',
+            fontWeight: 'normal',
+            userSelect: 'none',
+          },
+          '& .loading-text': {
+            color: theme.palette.mode === 'light' ? '#777' : '#aaa',
+            fontStyle: 'italic',
+            animation: `${pulseFade} 1.5s infinite ease-in-out`,
+          },
+          // Document link styling
+          '& .doc-link, & .doc-group-link': {
+            color: theme.palette.mode === 'light' ? '#0366d6' : '#58a6ff',
+            textDecoration: 'none',
+            fontWeight: 'bold',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            backgroundColor: theme.palette.mode === 'light' ? 'rgba(0, 102, 204, 0.1)' : 'rgba(88, 166, 255, 0.1)',
+          },
+          // For better content flow
+          '& .interactionMessage': {
+            display: 'block',
+            overflow: 'hidden', // Ensure container properly contains floated elements
+          },
+          '& .interactionMessage::after': {
+            content: '""',
+            display: 'table',
+            clear: 'both',
+          },
+        }}
+      >
+        <Markdown
+          children={processContent(text)}
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw]}
+          className="interactionMessage"
+          components={{
+            code(props) {
+              const {children, className, node, ...rest} = props
+              const match = /language-(\w+)/.exec(className || '')
+              return match ? (
+                <SyntaxHighlighter
+                  {...rest}
+                  PreTag="div"
+                  children={String(children).replace(/\n$/, '')}
+                  language={match[1]}
+                  style={oneDark}
+                />
+              ) : (
+                <code {...rest} className={className}>
+                  {children}
+                </code>
+              )
+            },
+            p(props) {
+              const { children } = props;
+              return (
+                <Box
+                  component="p"
+                  sx={{
+                    my: 0.5,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {React.Children.map(children, child => {
+                    if (typeof child === 'string') {
+                      return child.split('\n').map((line, i, arr) => (
                       <React.Fragment key={i}>
                         {line}
                         {i < arr.length - 1 && <br />}
@@ -833,12 +966,13 @@ ${trimmedContent}
                   }
                   return child;
                 })}
-              </Box>
-            );
-          }
-        }}
-      />
-    </Box>
+                </Box>
+              );
+            }
+          }}
+        />
+      </Box>
+    </>
   )
 }
 
