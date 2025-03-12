@@ -44,6 +44,18 @@ const shimmer = keyframes`
   100% { background-position: -100% 0; }
 `
 
+// Create a subtle bounce animation for loading content
+const subtleBounce = keyframes`
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+`
+
+// Create a fade-in animation for citation boxes
+const fadeIn = keyframes`
+  0% { opacity: 0; transform: translateX(10px); }
+  100% { opacity: 1; transform: translateX(0); }
+`
+
 interface MessageProcessorOptions {
   session: ISession;
   getFileURL: (filename: string) => string;
@@ -188,11 +200,11 @@ class MessageProcessor {
       this.resultContent = this.mainContent;
       
       // Create a temporary container that indicates streaming status
-      let wrappedPartialCitation = '<div class="citation-box">';
+      let wrappedPartialCitation = '<div class="citation-box streaming">';
       wrappedPartialCitation += '<div class="citation-header">SOURCES</div>';
       wrappedPartialCitation += '<div class="citation-item loading">';
-      wrappedPartialCitation += '<p class="citation-quote">Loading citation data...</p>';
-      wrappedPartialCitation += '<p class="citation-source">Retrieving sources</p>';
+      wrappedPartialCitation += '<p class="citation-quote"><span class="start-quote">\u201C</span><span class="loading-text">Retrieving source information...</span><span class="end-quote">\u201D</span></p>';
+      wrappedPartialCitation += '<p class="citation-source"><span class="loading-text">Searching documents</span></p>';
       wrappedPartialCitation += '</div></div>';
       
       const placeholder = this.createPlaceholder(wrappedPartialCitation, 'CITATION');
@@ -215,11 +227,11 @@ class MessageProcessor {
         this.citations.push({ html: formattedPartialCitation, placeholder });
       } else {
         // Create a placeholder citation container if we couldn't parse anything
-        let partialCitation = '<div class="citation-box">';
+        let partialCitation = '<div class="citation-box streaming">';
         partialCitation += '<div class="citation-header">SOURCES</div>';
         partialCitation += '<div class="citation-item loading">';
-        partialCitation += '<p class="citation-quote">Loading citation data...</p>';
-        partialCitation += '<p class="citation-source">Retrieving sources</p>';
+        partialCitation += '<p class="citation-quote"><span class="start-quote">\u201C</span><span class="loading-text">Retrieving source information...</span><span class="end-quote">\u201D</span></p>';
+        partialCitation += '<p class="citation-source"><span class="loading-text">Searching documents</span></p>';
         partialCitation += '</div></div>';
         
         const placeholder = this.createPlaceholder(partialCitation, 'CITATION');
@@ -400,10 +412,11 @@ class MessageProcessor {
       let html = '<div class="citation-box">';
       html += '<div class="citation-header">SOURCES</div>';
       
-      // Add each excerpt
+      // Add each excerpt with explicit quote marks to ensure they're visible
       excerpts.forEach(excerpt => {
         html += '<div class="citation-item">';
-        html += '<p class="citation-quote">"' + excerpt.snippet + '"</p>';
+        // Add explicit curly quote spans for better visibility 
+        html += '<p class="citation-quote"><span class="start-quote">\u201C</span>' + excerpt.snippet + '<span class="end-quote">\u201D</span></p>';
         html += '<p class="citation-source"><a href="' + excerpt.fileUrl + '" target="_blank">' + excerpt.filename + '</a></p>';
         html += '</div>';
       });
@@ -416,11 +429,11 @@ class MessageProcessor {
       
       // Simple fallback citation for errors
       if (isPartial) {
-        let html = '<div class="citation-box">';
+        let html = '<div class="citation-box streaming">';
         html += '<div class="citation-header">SOURCES</div>';
         html += '<div class="citation-item loading">';
-        html += '<p class="citation-quote">Loading citation data...</p>';
-        html += '<p class="citation-source">Retrieving sources</p>';
+        html += '<p class="citation-quote"><span class="start-quote">\u201C</span><span class="loading-text">Retrieving source information...</span><span class="end-quote">\u201D</span></p>';
+        html += '<p class="citation-source"><span class="loading-text">Searching documents</span></p>';
         html += '</div></div>';
         return html;
       }
@@ -637,29 +650,55 @@ ${trimmedContent}
    */
   private restorePreservedContent(): void {
     // Replace citation placeholders with the actual formatted HTML
-    this.citations.forEach(citation => {
-      if (citation.html) {
-        console.debug('Citation HTML structure:', citation.html);
-        // Check if there are any double-escaped characters
-        if (citation.html.includes('&amp;lt;') || citation.html.includes('&lt;div')) {
-          console.warn('Double-escaped HTML detected in citation:', citation.html);
-          // Try to fix double-escaped HTML by unescaping once
-          citation.html = citation.html
-            .replace(/&amp;lt;/g, '&lt;')
-            .replace(/&amp;gt;/g, '&gt;');
-        }
-      }
+    if (this.citations.length > 0) {
+      console.debug(`Processing ${this.citations.length} citations for final display`);
       
-      if (citation.placeholder && this.resultContent.includes(citation.placeholder)) {
-        // For each citation, replace its placeholder with the HTML content
-        console.debug(`Replacing citation placeholder ${citation.placeholder} with HTML`);
-        this.resultContent = this.resultContent.replace(citation.placeholder, citation.html);
-      } else if (citation.html) {
-        // If the placeholder isn't found for some reason, prepend citation at the beginning
-        console.debug('Citation placeholder not found, prepending to content');
-        // Make sure we place the citation at the beginning for proper formatting
-        this.resultContent = citation.html + this.resultContent;
-      }
+      // Create a wrapper for citations to ensure proper layout and spacing
+      let citationsHtml = `<div class="citation-box${this.isStreaming ? ' streaming' : ''}">
+                            <div class="citation-header">SOURCES</div>`;
+      
+      // For each citation, add it to our container
+      this.citations.forEach(citation => {
+        if (citation.html) {
+          // Extract just the citation items from the HTML
+          // This helps avoid nested citation-box containers
+          const itemMatches = citation.html.match(/<div class="citation-item[^>]*>[\s\S]*?<\/div>/g);
+          
+          if (itemMatches && itemMatches.length > 0) {
+            // Add each citation item to our container
+            itemMatches.forEach(item => {
+              citationsHtml += item;
+            });
+          } else {
+            // Fallback - use the entire citation HTML if we couldn't extract items
+            // But remove any outer citation-box wrappers first
+            let cleanedHtml = citation.html
+              .replace(/<div class="citation-box[^>]*>[\s\S]*?<div class="citation-header[^>]*>[\s\S]*?<\/div>/g, '')
+              .replace(/<\/div>$/, '');
+            
+            citationsHtml += cleanedHtml;
+          }
+        }
+        
+        // Remove the citation placeholder from the content
+        if (citation.placeholder && this.resultContent.includes(citation.placeholder)) {
+          this.resultContent = this.resultContent.replace(citation.placeholder, '');
+        }
+      });
+      
+      // Close the citations wrapper
+      citationsHtml += `</div>`;
+      
+      // Add citations at the beginning of the content for proper float positioning
+      this.resultContent = citationsHtml + this.resultContent;
+      
+      console.debug('Citations injected at the beginning of content');
+    }
+    
+    // Now restore any other preserved HTML elements (like doc links, etc.)
+    this.preservedContent.forEach((html, index) => {
+      const placeholder = `__HTML_PLACEHOLDER_${index}__`;
+      this.resultContent = this.resultContent.replace(placeholder, html);
     });
   }
   
@@ -688,39 +727,110 @@ const citationStyles = `
   float: right;
   width: 35%;
   max-width: 400px;
-  margin: 0 0 20px 20px;
+  margin: 0 0 28px 28px; /* Increased margins for better spacing */
   clear: right;
+  transition: opacity 0.3s ease; /* Smooth transitions */
+  animation: ${fadeIn} 0.4s ease-out; /* Animate in when appearing */
+}
+
+.citation-box.streaming::after {
+  content: "";
+  display: block;
+  height: 2px;
+  background: linear-gradient(90deg, 
+    rgba(88, 166, 255, 0.3),
+    rgba(88, 166, 255, 0.8), 
+    rgba(88, 166, 255, 0.3)
+  );
+  background-size: 200% 100%;
+  border-radius: 2px;
+  margin-top: 8px;
+  animation: ${shimmer} 2s infinite linear;
 }
 
 .citation-header {
-  font-weight: bold;
-  margin-bottom: 12px;
-  font-size: 0.9em;
+  font-weight: 600;
+  margin-bottom: 16px; /* More space between header and items */
+  font-size: 0.85em;
   color: #aaa;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   text-align: right;
 }
 
 .citation-item {
-  background-color: rgba(35, 38, 45, 0.6);
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(to bottom, rgba(45, 48, 55, 0.7), rgba(35, 38, 45, 0.7)); /* Subtle gradient */
+  border-radius: 10px; /* Slightly increased radius */
+  padding: 18px 20px; /* Increased padding */
+  margin-bottom: 18px; /* More space between items */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.3); /* Enhanced shadow */
   position: relative;
+  border-left: 3px solid rgba(88, 166, 255, 0.6); /* Accent border */
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); /* Smooth, elegant transition */
+}
+
+.citation-item:hover {
+  transform: translateY(-3px) scale(1.01); /* Subtle lift and scale effect */
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2);
+  border-left-width: 4px; /* Slightly wider accent on hover */
+  border-left-color: rgba(88, 166, 255, 0.8); /* Brighter accent on hover */
 }
 
 .citation-item.loading {
-  animation: pulseFade 2s infinite ease-in-out;
+  animation: ${pulseFade} 2s infinite ease-in-out;
+  border-left-color: rgba(170, 170, 170, 0.4); /* Dimmer accent for loading state */
+  position: relative;
+  overflow: hidden;
+}
+
+.citation-item.loading::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, 
+    transparent, 
+    rgba(255, 255, 255, 0.05), 
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: ${shimmer} 1.5s infinite;
+  pointer-events: none;
 }
 
 .citation-quote {
   font-style: italic;
-  line-height: 1.5;
-  margin: 0 0 8px 0;
+  line-height: 1.6; /* Improved line height for readability */
+  margin: 0 0 12px 0; /* More bottom margin */
   font-size: 0.95em;
-  color: #ddd;
+  color: #e0e0e0; /* Slightly brighter for better contrast */
+  position: relative;
+  padding-left: 1.8em; /* Adjusted space for the quote mark */
+  text-indent: 0; /* Remove hanging indent since it may cause issues */
+}
+
+.citation-quote::before {
+  content: '\u201C'; /* Left curly quote mark */
+  position: absolute;
+  left: 0;
+  top: -0.15em; /* Better positioning */
+  font-size: 2.2em; /* Slightly smaller but still prominent */
+  font-family: Georgia, serif;
+  color: rgba(88, 166, 255, 0.8); /* Much brighter blue for visibility */
+  line-height: 1;
+  opacity: 1; /* Full opacity */
+}
+
+.citation-quote::after {
+  content: '\u201D'; /* Right curly quote mark */
+  display: inline;
+  font-size: 1.2em;
+  font-family: Georgia, serif;
+  color: rgba(88, 166, 255, 0.8); /* Matching color */
+  margin-left: 0.05em;
+  line-height: 0;
 }
 
 .citation-source {
@@ -728,6 +838,11 @@ const citationStyles = `
   margin: 0;
   text-align: right;
   opacity: 0.8;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4em;
+  padding-right: 6px; /* Add some right padding */
 }
 
 .citation-source a {
@@ -735,12 +850,54 @@ const citationStyles = `
   text-decoration: none;
   font-weight: 500;
   opacity: 0.85;
-  transition: opacity 0.2s;
+  transition: all 0.2s ease;
+  padding: 3px 8px; /* Slightly larger padding for the link */
+  border-radius: 4px;
+  background-color: rgba(88, 166, 255, 0.1);
 }
 
 .citation-source a:hover {
   opacity: 1;
+  background-color: rgba(88, 166, 255, 0.2);
   text-decoration: underline;
+}
+
+.citation-source a::before {
+  content: ''; /* Optional space for an icon */
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 768px) {
+  .citation-box {
+    width: 100%;
+    max-width: 100%;
+    float: none;
+    margin: 24px 0 28px 0;
+  }
+  
+  .citation-header {
+    text-align: left;
+  }
+}
+
+/* Explicit quote styling to ensure visibility */
+.start-quote, .end-quote {
+  color: rgba(88, 166, 255, 1.0); /* Full brightness blue */
+  font-family: Georgia, serif;
+  font-size: 1.5em; /* Larger size */
+  font-weight: bold;
+  line-height: 0; /* Help with vertical alignment */
+  position: relative;
+}
+
+.start-quote {
+  margin-right: 0.15em;
+  top: 0.1em; /* Slight vertical adjustment */
+}
+
+.end-quote {
+  margin-left: 0.15em;
+  top: 0.1em; /* Slight vertical adjustment */
 }
 `;
 
@@ -899,7 +1056,7 @@ ${trimmedContent}
           '& .loading-text': {
             color: theme.palette.mode === 'light' ? '#777' : '#aaa',
             fontStyle: 'italic',
-            animation: `${pulseFade} 1.5s infinite ease-in-out`,
+            animation: `${subtleBounce} 1.2s infinite ease-in-out`,
           },
           // Document link styling
           '& .doc-link, & .doc-group-link': {
@@ -914,11 +1071,37 @@ ${trimmedContent}
           '& .interactionMessage': {
             display: 'block',
             overflow: 'hidden', // Ensure container properly contains floated elements
+            fontSize: '1rem',
+            lineHeight: 1.6, // Improved line height for main content
+            color: theme.palette.mode === 'light' ? '#333' : '#e0e0e0', // Better text readability
+          },
+          '& .interactionMessage > p': {
+            marginBottom: '1.2em', // More spacing between paragraphs
+            padding: '0 0.5em 0 0', // Add some right padding to text
+          },
+          '& .interactionMessage > p:first-of-type': {
+            marginTop: '0.5em', // Add top margin to first paragraph
+          },
+          '& .interactionMessage > p:last-of-type': {
+            marginBottom: '0.5em', // Less margin on last paragraph
           },
           '& .interactionMessage::after': {
             content: '""',
             display: 'table',
             clear: 'both',
+          },
+          // Add a bit of space when citations are present
+          '& .interactionMessage .citation-box + p': {
+            marginTop: '1em', // More space after citations
+          },
+          // Ensure proper spacing with code blocks
+          '& .interactionMessage pre': {
+            margin: '1.5em 0', // More space around code blocks
+          },
+          // Better spacing for lists
+          '& .interactionMessage ul, & .interactionMessage ol': {
+            paddingLeft: '2em',
+            marginBottom: '1.2em',
           },
         }}
       >
