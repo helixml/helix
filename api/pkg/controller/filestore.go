@@ -3,11 +3,14 @@ package controller
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 //go:embed filestore_folders.json
@@ -53,6 +56,52 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
 
 	return filepath.Join(userPrefix, path), nil
+}
+
+// GetFilestoreAppPath returns a path scoped to the app's directory
+// This uses the app-scoped structure: {filestorePrefix}/apps/{appID}/{path}
+func (c *Controller) GetFilestoreAppPath(appID, path string) (string, error) {
+	appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, appID)
+
+	return filepath.Join(appPrefix, path), nil
+}
+
+// GetFilestoreAppKnowledgePath returns a path scoped to the app's knowledge directory
+// This ensures that knowledge paths are always within the app's directory
+func (c *Controller) GetFilestoreAppKnowledgePath(_ types.OwnerContext, appID, knowledgePath string) (string, error) {
+	log.Debug().
+		Str("app_id", appID).
+		Str("knowledge_path", knowledgePath).
+		Msgf("Getting filestore app knowledge path")
+
+	// Use the new app prefix structure directly
+	appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, appID)
+
+	// If the path already starts with apps/:app_id, we'll strip it to avoid duplication
+	appPathCheck := filepath.Join("apps", appID)
+	if strings.HasPrefix(knowledgePath, appPathCheck) {
+		originalPath := knowledgePath
+		knowledgePath = knowledgePath[len(appPathCheck):]
+		// Remove any leading slashes
+		knowledgePath = strings.TrimPrefix(knowledgePath, "/")
+
+		log.Debug().
+			Str("app_id", appID).
+			Str("original_path", originalPath).
+			Str("stripped_path", knowledgePath).
+			Msgf("Stripped app prefix from path")
+	}
+
+	finalPath := filepath.Join(appPrefix, knowledgePath)
+
+	log.Debug().
+		Str("app_id", appID).
+		Str("original_path", knowledgePath).
+		Str("app_prefix", appPrefix).
+		Str("final_path", finalPath).
+		Msgf("Constructed final filestore path")
+
+	return finalPath, nil
 }
 
 func (c *Controller) VerifySignature(url string) bool {
@@ -181,4 +230,80 @@ func (c *Controller) FilestoreDelete(ctx types.OwnerContext, path string) error 
 		return err
 	}
 	return c.Options.Filestore.Delete(c.Ctx, filePath)
+}
+
+// ensureFilestoreAppPath ensures the app's base path exists and returns the full path
+func (c *Controller) ensureFilestoreAppPath(appID, path string) (string, error) {
+	appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, appID)
+	_, err := c.Options.Filestore.CreateFolder(c.Ctx, appPrefix)
+	if err != nil {
+		return "", err
+	}
+
+	fullPath := filepath.Join(appPrefix, path)
+	return fullPath, nil
+}
+
+// FilestoreAppList lists files in an app's directory
+func (c *Controller) FilestoreAppList(appID, path string) ([]filestore.Item, error) {
+	filePath, err := c.ensureFilestoreAppPath(appID, path)
+	if err != nil {
+		return nil, err
+	}
+	return c.Options.Filestore.List(c.Ctx, filePath)
+}
+
+// FilestoreAppGet gets a file from an app's directory
+func (c *Controller) FilestoreAppGet(appID, path string) (filestore.Item, error) {
+	filePath, err := c.ensureFilestoreAppPath(appID, path)
+	if err != nil {
+		return filestore.Item{}, err
+	}
+	return c.Options.Filestore.Get(c.Ctx, filePath)
+}
+
+// FilestoreAppCreateFolder creates a folder in an app's directory
+func (c *Controller) FilestoreAppCreateFolder(appID, path string) (filestore.Item, error) {
+	filePath, err := c.ensureFilestoreAppPath(appID, path)
+	if err != nil {
+		return filestore.Item{}, err
+	}
+	return c.Options.Filestore.CreateFolder(c.Ctx, filePath)
+}
+
+// FilestoreAppUploadFile uploads a file to an app's directory
+func (c *Controller) FilestoreAppUploadFile(appID, path string, r io.Reader) (filestore.Item, error) {
+	filePath, err := c.ensureFilestoreAppPath(appID, path)
+	if err != nil {
+		return filestore.Item{}, err
+	}
+	return c.Options.Filestore.WriteFile(c.Ctx, filePath, r)
+}
+
+// FilestoreAppDelete deletes a file in an app's directory
+func (c *Controller) FilestoreAppDelete(appID, path string) error {
+	filePath, err := c.ensureFilestoreAppPath(appID, path)
+	if err != nil {
+		return err
+	}
+	return c.Options.Filestore.Delete(c.Ctx, filePath)
+}
+
+// IsAppPath checks if a path is within an app's filestore
+func IsAppPath(path string) bool {
+	return strings.HasPrefix(path, "apps/")
+}
+
+// ExtractAppID extracts the app ID from a path that starts with 'apps/'
+func ExtractAppID(path string) (string, error) {
+	if !IsAppPath(path) {
+		return "", fmt.Errorf("not an app path: %s", path)
+	}
+
+	parts := strings.SplitN(path, "/", 3)
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid app path format: %s", path)
+	}
+
+	return parts[1], nil
 }

@@ -196,7 +196,6 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 	step, ok := oai.GetStep(ctx)
 	if !ok {
 		// It's normal to not have the step in the context (if it's not a tool)
-		log.Debug().Msg("failed to get step")
 		step = &oai.Step{}
 	}
 

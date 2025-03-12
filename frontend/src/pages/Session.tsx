@@ -984,6 +984,31 @@ const Session: FC = () => {
     router.params.session_id,
   ])
 
+  // Focus the text field when the component mounts regardless of loading state
+  useEffect(() => {
+    // Initial focus attempt
+    textFieldRef.current?.focus()
+    
+    // Make multiple focus attempts with increasing delays
+    // This helps ensure focus works in various conditions and page load timing scenarios
+    const delays = [100, 300, 600, 1000]
+    
+    const focusTimers = delays.map(delay => 
+      setTimeout(() => {
+        const textField = textFieldRef.current
+        if (textField) {
+          textField.focus()
+          
+          // For some browsers/scenarios, we might need to also scroll the element into view
+          textField.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, delay)
+    )
+    
+    // Cleanup all timers on unmount
+    return () => focusTimers.forEach(timer => clearTimeout(timer))
+  }, [])
+
   useEffect(() => {
     // we need this because if a session is not shared
     // we need to wait for the user token to have arrived before
@@ -1273,6 +1298,7 @@ const Session: FC = () => {
                         id="textEntry"
                         fullWidth
                         inputRef={textFieldRef}
+                        autoFocus={true}
                         label={(
                           (
                             session.data?.type == SESSION_TYPE_TEXT ?

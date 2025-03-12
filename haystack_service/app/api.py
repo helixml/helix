@@ -98,7 +98,15 @@ async def process_file(
     try:
         # Process and index
         result = await service.process_and_index(temp_path, meta_dict)
-        return result
+        
+        # Ensure response matches ProcessResponse schema with a status field
+        response = {
+            "status": "success",
+            "documents_processed": 1,
+            "chunks_indexed": result.get("chunks", 0),
+            "message": f"Successfully processed {file.filename}"
+        }
+        return response
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")

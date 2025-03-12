@@ -232,3 +232,42 @@ func (s *HelixAPIServer) refreshKnowledge(_ http.ResponseWriter, r *http.Request
 
 	return updated, nil
 }
+
+// completeKnowledgePreparation godoc
+// @Summary Complete knowledge preparation
+// @Description Complete knowledge preparation and move to pending state for indexing
+// @Tags    knowledge
+// @Success 200 {object} types.Knowledge
+// @Router /api/v1/knowledge/{id}/complete [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) completeKnowledgePreparation(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	existing, err := s.Store.GetKnowledge(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if existing.Owner != user.ID {
+		return nil, system.NewHTTPError403("you do not have permission to complete preparation for this knowledge")
+	}
+
+	if existing.State != types.KnowledgeStatePreparing {
+		return nil, system.NewHTTPError400("knowledge is not in preparing state")
+	}
+
+	// Move from preparing to pending
+	existing.State = types.KnowledgeStatePending
+	existing.Message = ""
+
+	updated, err := s.Store.UpdateKnowledge(r.Context(), existing)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return updated, nil
+}

@@ -127,7 +127,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	if startReq.SystemPrompt == "" {
-		startReq.SystemPrompt = "You are a helpful assistant."
+		startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
+
+EXAMPLE:
+If the query includes "prepare a pitch for [a specific topic]", ask "What topic would you like to prepare a pitch for?" instead of "please specify the [specific topic]"
+
+If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://tryhelix.ai or the docs at https://docs.helix.ml, using markdown links. Only offer the links if the user asks for information about Helix or installing Helix.`
 	}
 
 	message, ok := startReq.Message()
@@ -156,6 +161,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		if session.ParentApp != "" {
 			startReq.AppID = session.ParentApp
 		}
+
+		// Set the session ID in the context to enable document ID tracking
+		ctx = oai.SetContextSessionID(ctx, session.ID)
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("app_id", startReq.AppID).
+			Msg("existing session: set session ID in context for document tracking")
 	} else {
 		// Create session
 		newSession = true
@@ -185,6 +197,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		if startReq.RAGSourceID != "" {
 			session.Metadata.RagEnabled = true
 		}
+
+		// Set the session ID in the context to enable document ID tracking
+		ctx = oai.SetContextSessionID(ctx, session.ID)
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("app_id", startReq.AppID).
+			Msg("new session: set session ID in context for document tracking")
 	}
 
 	session.Interactions = append(session.Interactions,
@@ -465,6 +484,13 @@ func (s *HelixAPIServer) handleBlockingSession(
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
 
+	// Set the session ID in the context to enable document ID tracking
+	ctx = oai.SetContextSessionID(ctx, session.ID)
+	log.Debug().
+		Str("session_id", session.ID).
+		Str("app_id", session.ParentApp).
+		Msg("handleBlockingSession: set session ID in context for document tracking")
+
 	// Call the LLM
 	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
@@ -510,6 +536,13 @@ func (s *HelixAPIServer) handleBlockingSession(
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
+
+	// Set the session ID in the context to enable document ID tracking
+	ctx = oai.SetContextSessionID(ctx, session.ID)
+	log.Debug().
+		Str("session_id", session.ID).
+		Str("app_id", session.ParentApp).
+		Msg("handleStreamingSession: set session ID in context for document tracking")
 
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")

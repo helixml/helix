@@ -9,10 +9,12 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -399,6 +401,28 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	foundKnowledge := make(map[string]bool)
 
 	for _, k := range knowledge {
+		// Scope the filestore path to the app's directory if it exists
+		if k.Source.Filestore != nil && k.Source.Filestore.Path != "" {
+			// Translate simple paths like "pdfs" to "apps/:app_id/pdfs"
+			ownerCtx := types.OwnerContext{
+				Owner:     app.Owner,
+				OwnerType: app.OwnerType,
+			}
+
+			scopedPath, err := s.Controller.GetFilestoreAppKnowledgePath(ownerCtx, app.ID, k.Source.Filestore.Path)
+			if err != nil {
+				return fmt.Errorf("failed to generate scoped path for knowledge '%s': %w", k.Name, err)
+			}
+
+			// Remove the global prefix from the path to store only the relative path in the database
+			appPrefix := filestore.GetAppPrefix(s.Cfg.Controller.FilePrefixGlobal, app.ID)
+			relativePath := strings.TrimPrefix(scopedPath, appPrefix)
+			relativePath = strings.TrimPrefix(relativePath, "/")
+
+			// Update the source path to use the scoped path
+			k.Source.Filestore.Path = relativePath
+		}
+
 		existing, err := s.Store.LookupKnowledge(ctx, &store.LookupKnowledgeQuery{
 			AppID: app.ID,
 			Name:  k.Name,
@@ -412,7 +436,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
-					State:           types.KnowledgeStatePending,
+					State:           types.KnowledgeStatePreparing,
 					RAGSettings:     k.RAGSettings,
 					Source:          k.Source,
 					RefreshEnabled:  k.RefreshEnabled,
