@@ -7,7 +7,6 @@ import useLiveInteraction from '../../hooks/useLiveInteraction'
 import Markdown from './Markdown'
 import useAccount from '../../hooks/useAccount'
 import { IInteraction, ISession, IServerConfig } from '../../types'
-import { replaceMessageText } from '../../utils/session'
 import styled, { keyframes } from 'styled-components'
 
 const pulse = keyframes`
@@ -160,42 +159,11 @@ export const InteractionLiveStream: FC<{
       {message && (
         <div>
           <Markdown
-            text={(() => {
-              console.debug(`InteractionLiveStream: Replacing message text for session ${session.id}`);
-              console.debug(`InteractionLiveStream: Message before replacement: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
-              
-              // First process the message with replaceMessageText
-              let replacedText = replaceMessageText(message, session, getFileURL);
-              
-              // Check if the message contains RAG citation data
-              // Match both escaped and unescaped versions of the container
-              const hasCitation = 
-                /<div class="rag-citations-container">/.test(replacedText) || 
-                /&lt;div class="rag-citations-container"&gt;/.test(replacedText);
-              
-              // Only add the blinker if there's no citation block, or add it before the citation
-              if (hasCitation) {
-                // Insert the blinker before the citation container, handling both escaped and unescaped versions
-                if (replacedText.includes('<div class="rag-citations-container">')) {
-                  replacedText = replacedText.replace(
-                    /<div class="rag-citations-container">/,
-                    `<span class="blinker-class">┃</span><div class="rag-citations-container">`
-                  );
-                } else {
-                  // Try with escaped version
-                  replacedText = replacedText.replace(
-                    /&lt;div class="rag-citations-container"&gt;/,
-                    `<span class="blinker-class">┃</span>&lt;div class="rag-citations-container"&gt;`
-                  );
-                }
-              } else {
-                // No citation block, just append the blinker
-                replacedText += `<span class="blinker-class">┃</span>`;
-              }
-              
-              console.debug(`InteractionLiveStream: Message after replacement: "${replacedText.substring(0, 100)}${replacedText.length > 100 ? '...' : ''}"`);
-              return replacedText;
-            })()}
+            text={message}
+            session={session}
+            getFileURL={getFileURL}
+            showBlinker={true}
+            isStreaming={true}
           />
         </div>
       )}
