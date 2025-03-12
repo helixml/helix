@@ -9,6 +9,9 @@ import { keyframes } from '@mui/material/styles'
 // you can change the theme by picking one from here
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
 import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { ISession } from '../../types'
+// Import the escapeRegExp helper from session.ts
+import { escapeRegExp } from '../../utils/session'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
@@ -27,94 +30,574 @@ const blink = keyframes`
   50% { opacity: 0; }
 `
 
-export const InteractionMarkdown: FC<{
-  text: string,
-}> = ({
+interface MessageProcessorOptions {
+  session: ISession;
+  getFileURL: (filename: string) => string;
+  showBlinker?: boolean;
+  isStreaming?: boolean;
+}
+
+/**
+ * Central message processor that handles all text formatting
+ * Including document links, citations, thinking tags and blinkers
+ */
+class MessageProcessor {
+  private session: ISession;
+  private getFileURL: (filename: string) => string;
+  private showBlinker: boolean;
+  private isStreaming: boolean;
+  private documentReferenceCounter: number = 0;
+  
+  // Placeholders for content we want to preserve
+  private preservedContent: Map<string, string> = new Map();
+  private placeholderCounter: number = 0;
+  
+  // Elements we want to preserve during processing
+  private documentLinks: string[] = [];
+  private groupLinks: string[] = [];
+  private citations: string[] = [];
+  private blinker: string | null = null;
+  
+  // Input/output content
+  private message: string;
+  private mainContent: string;
+  private resultContent: string;
+  
+  constructor(message: string, options: MessageProcessorOptions) {
+    this.message = message;
+    this.session = options.session;
+    this.getFileURL = options.getFileURL;
+    this.showBlinker = options.showBlinker || false;
+    this.isStreaming = options.isStreaming || false;
+    this.mainContent = message;
+    this.resultContent = message;
+  }
+  
+  /**
+   * Main processing function that handles all message formatting
+   */
+  process(): string {
+    // Don't process empty messages
+    if (!this.message || this.message.trim() === '') {
+      return '';
+    }
+    
+    console.debug(`Processing message for session ${this.session.id}`);
+    
+    // Process in specific order:
+    this.extractCitations();
+    this.processDocumentIDLinks();
+    this.processGroupIDLinks();
+    this.addBlinkerIfNeeded();
+    this.sanitizeHTML();
+    this.processThinkingTags();
+    this.restorePreservedContent();
+    
+    return this.resultContent;
+  }
+  
+  /**
+   * Creates a unique placeholder for content we want to preserve
+   */
+  private createPlaceholder(content: string, type: string): string {
+    const id = this.placeholderCounter++;
+    const placeholder = `__${type}_PLACEHOLDER_${id}__`;
+    this.preservedContent.set(placeholder, content);
+    return placeholder;
+  }
+  
+  /**
+   * Extract citation blocks from message for special handling
+   */
+  private extractCitations(): void {
+    // Check for XML style citation blocks
+    const ragCitationRegex = /(?:---\s*)?\s*<excerpts>([\s\S]*?)<\/excerpts>\s*(?:---\s*)?$/;
+    const ragMatch = this.message.match(ragCitationRegex);
+    
+    // Also check if the LLM directly output citation HTML (happens sometimes)
+    const directCitationHtmlRegex = /<div\s+class=["']rag-citations-container["'][\s\S]*?<\/div>\s*<\/div>\s*<\/div>/;
+    const directCitationMatch = this.message.match(directCitationHtmlRegex);
+    
+    let citationContent: string | null = null;
+    
+    if (directCitationMatch) {
+      // If the LLM has directly output citation HTML, extract it
+      console.debug(`Found direct citation HTML in message - extracting for separate processing`);
+      citationContent = directCitationMatch[0];
+      // Remove citation HTML from main content
+      this.mainContent = this.message.replace(citationContent, '');
+      this.resultContent = this.mainContent;
+      
+      // Preserve the citation HTML
+      const placeholder = this.createPlaceholder(citationContent, 'CITATION');
+      this.citations.push(citationContent);
+    } else if (ragMatch) {
+      console.debug(`Found RAG citation block in message - extracting for separate processing`);
+      citationContent = ragMatch[0];
+      const citationBody = ragMatch[1];
+      
+      // Remove citation block from main content to prevent document ID replacement in citations
+      this.mainContent = this.message.replace(citationContent, '');
+      this.resultContent = this.mainContent;
+      
+      // Process the citation content - format into HTML
+      const formattedCitation = this.formatCitation(citationBody);
+      if (formattedCitation) {
+        this.citations.push(formattedCitation);
+      } else {
+        // If formatting failed, preserve the original citation
+        this.citations.push(citationContent);
+      }
+    }
+  }
+  
+  /**
+   * Format citation XML into HTML
+   */
+  private formatCitation(citationBody: string): string | null {
+    try {
+      // First, escape any XML tags to prevent HTML parsing issues
+      // This is especially important for malformed XML like in the example
+      const escapedCitationsBody = citationBody.replace(
+        /<(\/?)(?!(\/)?excerpt|document_id|snippet|\/document_id|\/snippet|\/excerpt)([^>]*)>/g, 
+        (match: string, p1: string, p2: string, p3: string) => `&lt;${p1}${p3}&gt;`
+      );
+      
+      // Parse the individual excerpts
+      const excerptRegex = /<excerpt>([\s\S]*?)<\/excerpt>/g;
+      let excerptMatch;
+      type Excerpt = {
+        docId: string, 
+        snippet: string, 
+        filename: string, 
+        fileUrl: string
+      };
+      
+      let excerpts: Excerpt[] = [];
+      const document_ids = this.session.config.document_ids || {};
+      const allNonTextFiles = this.getAllNonTextFiles();
+      
+      while ((excerptMatch = excerptRegex.exec(escapedCitationsBody)) !== null) {
+        try {
+          const excerptContent = excerptMatch[1];
+          
+          // Use robust patterns to extract document_id and snippet
+          let docId = '';
+          let snippet = '';
+          
+          // Extract document_id - handle various possible formats
+          const docIdMatch = excerptContent.match(/<document_id>([\s\S]*?)<\/document_id>/);
+          if (docIdMatch) {
+            docId = docIdMatch[1].trim();
+            
+            // Special handling for cases where the LLM put an HTML link inside document_id
+            if (docId.includes('<a') || docId.includes('href=')) {
+              const linkDocIdMatch = docId.match(/\/([^\/]+?)\.pdf/) || 
+                                  docId.match(/\/([^\/]+?)\.docx/) || 
+                                  docId.match(/\/(app_[a-zA-Z0-9]+)/);
+              
+              if (linkDocIdMatch) {
+                docId = linkDocIdMatch[1];
+              } else {
+                // If we can't extract a proper doc ID, generate a fallback ID
+                docId = `doc_${excerpts.length + 1}`;
+              }
+            }
+          } else {
+            // If no document_id was found, create a fallback
+            docId = `doc_${excerpts.length + 1}`;
+          }
+          
+          // Extract snippet
+          const snippetMatch = excerptContent.match(/<snippet>([\s\S]*?)<\/snippet>/);
+          if (snippetMatch) {
+            snippet = snippetMatch[1].trim();
+            
+            // Ensure we properly escape any HTML in the snippet
+            snippet = snippet
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+            
+            // Handle inline code with backticks
+            snippet = snippet.replace(/`([^`]+)`/g, '<code>$1</code>');
+          } else {
+            snippet = "No content available";
+          }
+          
+          // Find a matching document for this ID or URL
+          let filename = "";
+          let fileUrl = "";
+          let fileFound = false;
+          
+          // First try direct document_id match
+          for (const [fname, id] of Object.entries(document_ids)) {
+            if (id === docId) {
+              filename = fname.split('/').pop() || fname;
+              
+              // Create the file URL
+              if (this.session.parent_app) {
+                fileUrl = this.getFileURL(fname);
+              } else {
+                const baseFilename = fname.replace(/\.txt$/i, '');
+                const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) === 0);
+                fileUrl = sourceFilename ? this.getFileURL(sourceFilename) : this.getFileURL(fname);
+              }
+              
+              fileFound = true;
+              break;
+            }
+          }
+          
+          // If no direct match was found, try to extract from the document_id if it contains a URL
+          if (!fileFound && docId.includes('http')) {
+            const urlFilenameMatch = docId.match(/\/([^\/]+\.[^\/\.]+)($|\?)/);
+            if (urlFilenameMatch) {
+              filename = urlFilenameMatch[1];
+              fileUrl = docId;
+              fileFound = true;
+            }
+          }
+          
+          // Add this excerpt to our processed array
+          excerpts.push({
+            docId,
+            snippet,
+            filename: filename || "Unknown document",
+            fileUrl: fileUrl || "#"
+          });
+        } catch (error) {
+          console.error("Error processing excerpt:", error);
+        }
+      }
+      
+      if (excerpts.length === 0) {
+        return null;
+      }
+      
+      // Convert the excerpts into a citation display
+      let citationHtml = `<div class="rag-citations-container">
+        <div class="rag-citations-header">Citations</div>
+        <div class="rag-citations-list">`;
+      
+      // Add each excerpt as a citation item
+      excerpts.forEach(excerpt => {
+        // Determine icon based on file type
+        let iconType = 'document';
+        if (excerpt.filename) {
+          const ext = excerpt.filename.split('.').pop()?.toLowerCase();
+          if (ext === 'pdf') iconType = 'pdf';
+          else if (['doc', 'docx'].includes(ext || '')) iconType = 'word';
+          else if (['xls', 'xlsx'].includes(ext || '')) iconType = 'excel';
+          else if (['ppt', 'pptx'].includes(ext || '')) iconType = 'powerpoint';
+          else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext || '')) iconType = 'image';
+        }
+        
+        citationHtml += `
+          <div class="rag-citation-item">
+            <div class="rag-citation-icon ${iconType}-icon"></div>
+            <div class="rag-citation-content">
+              <div class="rag-citation-title">
+                <a href="${excerpt.fileUrl}" target="_blank">${excerpt.filename}</a>
+              </div>
+              <div class="rag-citation-snippet">${excerpt.snippet}</div>
+            </div>
+          </div>`;
+      });
+      
+      // Close the container
+      citationHtml += `
+        </div>
+      </div>`;
+      
+      return citationHtml;
+    } catch (error) {
+      console.error("Error formatting citation:", error);
+      return null;
+    }
+  }
+  
+  /**
+   * Process document ID links in the message
+   */
+  private processDocumentIDLinks(): void {
+    const document_ids = this.session.config.document_ids || {};
+    this.documentReferenceCounter = 0;
+    
+    Object.keys(document_ids).forEach(filename => {
+      const document_id = document_ids[filename];
+      const escapedDocId = escapeRegExp(document_id);
+      let searchPattern: RegExp | null = null;
+      
+      // Look for various document ID formats
+      if (this.resultContent.indexOf(`[DOC_ID:${document_id}]`) >= 0) {
+        searchPattern = new RegExp(`\\[DOC_ID:${escapedDocId}\\]`, 'g');
+      } else if (this.resultContent.indexOf(`DOC_ID:${document_id}`) >= 0) {
+        searchPattern = new RegExp(`\\[.*DOC_ID:${escapedDocId}.*?\\]`, 'g');
+      } else if (this.resultContent.indexOf(document_id) >= 0) {
+        searchPattern = new RegExp(`${escapedDocId}`, 'g');
+      }
+      
+      if (!searchPattern) {
+        return;
+      }
+      
+      this.documentReferenceCounter++;
+      
+      // Create the document link
+      let link: string;
+      const allNonTextFiles = this.getAllNonTextFiles();
+      
+      if (this.session.parent_app) {
+        // For app sessions
+        const displayName = filename.split('/').pop() || filename;
+        link = `<a target="_blank" style="color: white;" href="${this.getFileURL(filename)}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
+      } else {
+        // Regular session - try to find the file in the interactions
+        const baseFilename = filename.replace(/\.txt$/i, '');
+        const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) === 0);
+        if (!sourceFilename) {
+          link = `<a target="_blank" style="color: white;" href="${this.getFileURL(filename)}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
+        } else {
+          link = `<a target="_blank" style="color: white;" href="${this.getFileURL(sourceFilename)}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
+        }
+      }
+      
+      // Add to list of links to preserve and replace in the content
+      this.documentLinks.push(link);
+      this.resultContent = this.resultContent.replace(searchPattern, link);
+    });
+  }
+  
+  /**
+   * Process document group ID links
+   */
+  private processGroupIDLinks(): void {
+    const document_group_id = this.session.config.document_group_id || '';
+    
+    if (!document_group_id) {
+      return;
+    }
+    
+    const escapedGroupId = escapeRegExp(document_group_id);
+    let groupSearchPattern: RegExp | null = null;
+    
+    if (this.resultContent.indexOf(`[DOC_GROUP:${document_group_id}]`) >= 0) {
+      groupSearchPattern = new RegExp(`\\[DOC_GROUP:${escapedGroupId}\\]`, 'g');
+    } else if (this.resultContent.indexOf(document_group_id) >= 0) {
+      groupSearchPattern = new RegExp(`${escapedGroupId}`, 'g');
+    }
+    
+    if (groupSearchPattern) {
+      const link = `<a style="color: white;" href="javascript:_helixHighlightAllFiles()" class="doc-group-link">[group]</a>`;
+      this.groupLinks.push(link);
+      this.resultContent = this.resultContent.replace(groupSearchPattern, link);
+    }
+  }
+  
+  /**
+   * Add the blinker to the message if needed
+   */
+  private addBlinkerIfNeeded(): void {
+    if (!this.showBlinker) {
+      return;
+    }
+    
+    const blinkerHtml = `<span class="blinker-class">┃</span>`;
+    
+    // Check if content includes citations
+    const hasCitation = 
+      /<div class="rag-citations-container">/.test(this.resultContent) || 
+      /&lt;div class="rag-citations-container"&gt;/.test(this.resultContent);
+    
+    if (hasCitation) {
+      // Insert before citation container
+      if (this.resultContent.includes('<div class="rag-citations-container">')) {
+        this.resultContent = this.resultContent.replace(
+          /<div class="rag-citations-container">/,
+          `${blinkerHtml}<div class="rag-citations-container">`
+        );
+      } else {
+        // Try with escaped version
+        this.resultContent = this.resultContent.replace(
+          /&lt;div class="rag-citations-container"&gt;/,
+          `${blinkerHtml}&lt;div class="rag-citations-container"&gt;`
+        );
+      }
+    } else {
+      // No citation, append at the end
+      this.resultContent += blinkerHtml;
+    }
+    
+    this.blinker = blinkerHtml;
+  }
+  
+  /**
+   * Sanitize HTML content, escaping non-standard tags
+   */
+  private sanitizeHTML(): void {
+    // Temporarily replace HTML we want to preserve with placeholders
+    // First preserve all document links
+    const allLinks = [...this.documentLinks, ...this.groupLinks];
+    const linkPlaceholders: string[] = [];
+    
+    let tempContent = this.resultContent;
+    
+    // Preserve document and group links
+    allLinks.forEach(link => {
+      const placeholder = this.createPlaceholder(link, 'LINK');
+      linkPlaceholders.push(placeholder);
+      tempContent = tempContent.replace(link, placeholder);
+    });
+    
+    // Preserve the blinker if present
+    if (this.blinker) {
+      const blinkerPlaceholder = this.createPlaceholder(this.blinker, 'BLINKER');
+      tempContent = tempContent.replace(this.blinker, blinkerPlaceholder);
+    }
+    
+    // Escape non-standard HTML tags
+    this.resultContent = tempContent.replace(
+      /<(\/?)(?!(\/)?a|span|div|code|pre|br|strong|em|ul|ol|li|p|h[1-6]|img|table|tr|td|th)([^>]+)>/g, 
+      (match) => {
+        // If it's already an HTML entity, leave it alone
+        if (match.startsWith('&lt;')) {
+          return match;
+        }
+        
+        // Special handling for think tag which we process specially
+        if (match.includes('think')) {
+          return match;
+        }
+        
+        // Convert to HTML entities
+        return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    );
+    
+    // Restore the placeholders
+    for (const [placeholder, content] of this.preservedContent.entries()) {
+      this.resultContent = this.resultContent.replace(placeholder, content);
+    }
+    
+    // Clear the placeholder map since we've restored everything
+    this.preservedContent.clear();
+  }
+  
+  /**
+   * Process thinking tags in the message
+   */
+  private processThinkingTags(): void {
+    // Fix code block indentation
+    this.resultContent = this.resultContent.replace(/^\s*```/gm, '```');
+    
+    // Replace "---" with "</think>" if there's an unclosed think tag
+    let openCount = 0;
+    this.resultContent = this.resultContent.split('\n').map(line => {
+      if (line.includes('<think>')) openCount++;
+      if (line.includes('</think>')) openCount--;
+      if (line.trim() === '---' && openCount > 0) {
+        openCount--;
+        return '</think>';
+      }
+      return line;
+    }).join('\n');
+    
+    // Check if there's an unclosed think tag
+    const openTagCount = (this.resultContent.match(/<think>/g) || []).length;
+    const closeTagCount = (this.resultContent.match(/<\/think>/g) || []).length;
+    const isThinking = openTagCount > closeTagCount;
+    
+    if (isThinking) {
+      // If there's an unclosed tag, add the closing tag
+      this.resultContent += '\n</think>';
+    }
+    
+    // Convert <think> tags to styled divs, skipping empty ones
+    this.resultContent = this.resultContent.replace(
+      /<think>([\s\S]*?)<\/think>/g,
+      (_, content) => {
+        const trimmedContent = content.trim();
+        if (!trimmedContent) return ''; // Skip empty think tags
+        
+        return `<div class="think-container${isThinking ? ' thinking' : ''}"><details${isThinking ? ' open' : ''}><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
+
+${trimmedContent}
+
+</div></details></div>`;
+      }
+    );
+  }
+  
+  /**
+   * Restore all preserved content with final formatting
+   */
+  private restorePreservedContent(): void {
+    // Append citations at the end
+    if (this.citations.length > 0) {
+      this.resultContent += this.citations.join('\n');
+    }
+  }
+  
+  /**
+   * Get all non-text files from the interactions
+   */
+  private getAllNonTextFiles(): string[] {
+    return this.session.interactions.reduce((acc: string[], interaction) => {
+      if (!interaction.files || interaction.files.length <= 0) return acc;
+      return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true));
+    }, []);
+  }
+}
+
+export interface InteractionMarkdownProps {
+  text: string;
+  session?: ISession;
+  getFileURL?: (filename: string) => string;
+  showBlinker?: boolean;
+  isStreaming?: boolean;
+}
+
+export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   text,
+  session,
+  getFileURL = (filename) => '#',
+  showBlinker = false,
+  isStreaming = false,
 }) => {
   const theme = useTheme()
   if(!text) return null
-
-  // Fix markdown rendering for code blocks and process think tags
-  const processContent = (text: string) => {
-    // First check if the text already contains our citation container HTML
-    // If it does, we need to temporarily replace it to prevent it from being escaped
-    const hasCitationHTML = text.includes('<div class="rag-citations-container">');
-    const hasEscapedCitationHTML = text.includes('&lt;div class="rag-citations-container"&gt;');
-    let citationContainers: Array<string> = [];
-    let processedWithPreservedCitations = text;
-    
-    // Handle proper HTML citations
-    if (hasCitationHTML) {
-      // Extract all citation containers and replace with placeholders
-      let citationIndex = 0;
-      const citationRegex = /<div class="rag-citations-container">[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/g;
-      processedWithPreservedCitations = text.replace(citationRegex, (match) => {
-        const placeholder = `__CITATION_PLACEHOLDER_${citationIndex}__`;
-        citationContainers.push(match);
-        citationIndex++;
-        return placeholder;
+  
+  // Process the message content
+  const processContent = (content: string): string => {
+    // If we have session info, process with full functionality
+    if (session) {
+      console.debug(`Markdown: Processing message for session ${session.id} with MessageProcessor`);
+      const processor = new MessageProcessor(content, {
+        session,
+        getFileURL,
+        showBlinker,
+        isStreaming
       });
-      
-      console.debug(`Preserved ${citationContainers.length} citation containers for rendering`);
+      return processor.process();
     }
     
-    // Handle already escaped HTML
-    if (hasEscapedCitationHTML) {
-      // Unescape the HTML for proper rendering
-      processedWithPreservedCitations = processedWithPreservedCitations.replace(
-        /&lt;div class="rag-citations-container"&gt;[\s\S]*?&lt;\/div&gt;\s*&lt;\/div&gt;\s*&lt;\/div&gt;/g,
-        match => {
-          // Convert &lt; to < and &gt; to >
-          const unescaped = match
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#039;/g, "'")
-            .replace(/&amp;/g, '&');
-            
-          // Add to the containers array
-          const placeholder = `__CITATION_PLACEHOLDER_${citationContainers.length}__`;
-          citationContainers.push(unescaped);
-          return placeholder;
-        }
-      );
-    }
+    console.debug(`Markdown: Processing message without session context (basic processing)`);
+    // Basic processing without session-specific features
+    return processBasicContent(content);
+  };
+  
+  // Process content without session-specific features
+  const processBasicContent = (content: string): string => {
+    // Process think tags, code blocks, and sanitize HTML
+    let processed = content;
     
-    // Also preserve any links added by replaceMessageText
-    let linkIndex = 0;
-    let links: Array<string> = [];
-    const linkRegex = /<a\s+[^>]*?href=["'][^"']*?["'][^>]*?>.*?<\/a>/g;
-    processedWithPreservedCitations = processedWithPreservedCitations.replace(linkRegex, (match) => {
-      const placeholder = `__LINK_PLACEHOLDER_${linkIndex}__`;
-      links.push(match);
-      linkIndex++;
-      return placeholder;
-    });
-    
-    if (linkIndex > 0) {
-      console.debug(`Preserved ${linkIndex} HTML links for rendering`);
-    }
-
-    // First ensure that all non-standard XML tags are escaped
-    // This prevents browser warnings and errors about unrecognized tags
-    let processed = processedWithPreservedCitations.replace(/<(\/?)(?!a>|span>|div>|code>|pre>|br>|strong>|em>|ul>|ol>|li>|p>|h[1-6]>|img>|table>|tr>|td>|th>)([^>]+)>/g, (match) => {
-      // If it's already an HTML entity, leave it alone
-      if (match.startsWith('&lt;')) {
-        return match;
-      }
-      // Special handling for think tag which we process specially
-      if (match.includes('think')) {
-        return match;
-      }
-      // Convert to HTML entities
-      return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    });
-
     // Fix code block indentation
     processed = processed.replace(/^\s*```/gm, '```');
-
-    // Replace "---" with "</think>" if there's an unclosed think tag
+    
+    // Process thinking tags with the same logic as above
     let openCount = 0;
     processed = processed.split('\n').map(line => {
       if (line.includes('<think>')) openCount++;
@@ -125,24 +608,24 @@ export const InteractionMarkdown: FC<{
       }
       return line;
     }).join('\n');
-
+    
     // Check if there's an unclosed think tag
     const openTagCount = (processed.match(/<think>/g) || []).length;
     const closeTagCount = (processed.match(/<\/think>/g) || []).length;
     const isThinking = openTagCount > closeTagCount;
-
+    
     if (isThinking) {
       // If there's an unclosed tag, add the closing tag
       processed += '\n</think>';
     }
-
-    // Convert <think> tags to styled divs, skipping empty ones
+    
+    // Convert <think> tags to styled divs
     processed = processed.replace(
       /<think>([\s\S]*?)<\/think>/g,
       (_, content) => {
         const trimmedContent = content.trim();
         if (!trimmedContent) return ''; // Skip empty think tags
-
+        
         return `<div class="think-container${isThinking ? ' thinking' : ''}"><details${isThinking ? ' open' : ''}><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
 
 ${trimmedContent}
@@ -151,22 +634,19 @@ ${trimmedContent}
       }
     );
     
-    // Restore the links first
-    if (links.length > 0) {
-      links.forEach((link, index) => {
-        const placeholder = `__LINK_PLACEHOLDER_${index}__`;
-        processed = processed.replace(placeholder, link);
-      });
-    }
+    // Sanitize HTML - escape non-standard tags
+    processed = processed.replace(
+      /<(\/?)(?!(\/)?a|span|div|code|pre|br|strong|em|ul|ol|li|p|h[1-6]|img|table|tr|td|th)([^>]+)>/g, 
+      (match) => {
+        // If it's already an HTML entity, leave it alone
+        if (match.startsWith('&lt;')) {
+          return match;
+        }
+        // Convert to HTML entities
+        return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    );
     
-    // Now restore the citation containers
-    if (citationContainers.length > 0) {
-      citationContainers.forEach((citation, index) => {
-        const placeholder = `__CITATION_PLACEHOLDER_${index}__`;
-        processed = processed.replace(placeholder, citation);
-      });
-    }
-
     return processed;
   };
 
@@ -289,6 +769,15 @@ ${trimmedContent}
           fontFamily: 'monospace',
           fontSize: '0.85em',
           color: theme.palette.mode === 'light' ? '#d63200' : '#ff9580',
+        },
+        // Document link styling
+        '& .doc-link, & .doc-group-link': {
+          color: theme.palette.mode === 'light' ? '#0366d6' : '#58a6ff',
+          textDecoration: 'none',
+          fontWeight: 'bold',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(0, 102, 204, 0.1)' : 'rgba(88, 166, 255, 0.1)',
         },
         // Blinker styling
         '& .blinker-class': {
