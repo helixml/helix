@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { parse as parseYaml } from 'yaml'
 import {
   IApp, 
-  IAppUpdate,
   IKnowledgeSource,
   IAssistantConfig,
   IKnowledgeSearchResult,
@@ -10,18 +8,11 @@ import {
 } from '../types'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
-import useApps from './useApps'
 import useAccount from './useAccount'
 import useRouter from './useRouter'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import { validateApp } from '../utils/app'
-
-// Type for organization object
-interface IOrganization {
-  id: string
-  [key: string]: any
-}
 
 /**
  * Hook to manage single app state and operations
@@ -29,7 +20,6 @@ interface IOrganization {
  */
 export const useApp = (appId: string) => {
   const api = useApi()
-  const apps = useApps()
   const snackbar = useSnackbar()
   const account = useAccount()
   const { navigate } = useRouter()
@@ -37,15 +27,13 @@ export const useApp = (appId: string) => {
   
   // Main app state
   const [app, setApp] = useState<IApp | null>(null)
-  const [isNewApp, setIsNewApp] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [hasLoaded, setHasLoaded] = useState(false)
 
   // App validation states
   const [showErrors, setShowErrors] = useState(false)
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false)
-  const [isReadOnly, setIsReadOnly] = useState(false)
-  
+
   // New inference state
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
@@ -146,6 +134,13 @@ export const useApp = (appId: string) => {
       // Create new app object with updated config
       // we do this with JSON.parse because then it copes with deep values not having the same reference
       const updatedApp = JSON.parse(JSON.stringify(currentApp)) as IApp
+
+      // ensure there is at least one assistant
+      if (!updatedApp.config.helix.assistants || updatedApp.config.helix.assistants.length === 0) {
+        updatedApp.config.helix.assistants = [getDefaultAssistant()]
+      }
+
+      const assistants = updatedApp.config.helix.assistants
       
       // Check if this is a GitHub app
       const isGithubApp = currentApp.app_source === APP_SOURCE_GITHUB
@@ -205,13 +200,6 @@ export const useApp = (appId: string) => {
         so we ensure we have at least one assistant before updating
       */
 
-      // ensure there is at least one assistant
-      if (!updatedApp.config.helix.assistants || updatedApp.config.helix.assistants.length === 0) {
-        updatedApp.config.helix.assistants = [getDefaultAssistant()]
-      }
-
-      const assistants = updatedApp.config.helix.assistants
-      
       if (updates.systemPrompt !== undefined) {
         assistants[0].system_prompt = updates.systemPrompt
       }
@@ -312,6 +300,7 @@ export const useApp = (appId: string) => {
     if (!app) return
     
     // Get knowledge ID from the app state
+    // TODO: support multiple knowledge sources
     const knowledgeId = app?.config.helix.assistants?.[0]?.knowledge?.[0]?.id
     
     if (!knowledgeId) {
@@ -401,224 +390,55 @@ export const useApp = (appId: string) => {
    * Launches the app (saves and navigates to new page)
    */
   const handleLaunch = async () => {
-    if (!app) return
-    
-    if (app.id === 'new') {
-      snackbar.error('Please save the app before launching')
+    if (!app) {
+      snackbar.error('We have no app to launch')
       return
     }
-
-    try {
-      // Save the app before launching
-      const savedApp = await onSave(true)
-      
-      if (savedApp) {
-        navigate('new', { app_id: savedApp.id })
-      } else {
-        snackbar.error('Failed to save app before launching')
-      }
-    } catch (error) {
-      console.error('Error saving app before launch:', error)
-      snackbar.error('Failed to save app before launching')
-    }
+    navigate('new', { app_id: app.id })
   }
-  
-  /**
-   * Handles saving the app
-   * @param quiet - Whether to show success/error messages
-   * @returns Promise<IApp | null> - The saved app or null if there was an error
-   */
-  const onSave = useCallback(async (quiet: boolean = false): Promise<IApp | null> => {
-    if (!app) {
-      if (!quiet) {
-        snackbar.error('No app data available')
-      }
-      return null
-    }
-    
-    // Validate before saving
-    const validationErrors = validateApp(app)
-    if (validationErrors.length > 0) {
-      setShowErrors(true)
-      if (!quiet) {
-        snackbar.error(`Please fix the errors before saving: ${validationErrors.join(', ')}`)
-      }
-      return null
-    }
-    
-    try {
-      const savedApp = await saveApp(app, { quiet })
-      return savedApp
-    } catch (error) {
-      console.error('Failed to save app:', error)
-      if (!quiet) {
-        snackbar.error('Failed to save app')
-      }
-      return null
-    }
-  }, [app, saveApp, snackbar, validateApp, setShowErrors])
-  
-  /**
-   * Validates API schemas in assistant tools
-   * @returns Array of error messages
-   */
-  const validateApiSchemas = useCallback(() => {
-    if (!app) return []
-    return validateApp(app)
-  }, [app])
 
   /**
-   * Validates knowledge sources
-   * @returns Boolean indicating if validation passed
+   * The main loading that will trigger when the page loads
    */
-  const validateKnowledge = useCallback(() => {
-    if (!app) return false
-    
-    // Get knowledge from the app state
-    const knowledge = app?.config.helix.assistants?.[0]?.knowledge || []
-    
-    const hasErrors = knowledge.some(source => 
-      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
-    )
-    
-    setKnowledgeErrors(hasErrors)
-    return !hasErrors
-  }, [app, setKnowledgeErrors])
+  useEffect(() => {
+    if (!appId) return
+    if (!account.user) return
 
-  /**
-   * Gets app update object for saving
-   * @returns App update object
-   */
-  const getAppUpdate = useCallback((): IAppUpdate | undefined => {
-    if (!app) return undefined
-
-    // Check if this is a GitHub app
-    const isGithubApp = app.app_source === APP_SOURCE_GITHUB
-    
-    let updatedApp: IAppUpdate
-    
-    if (isGithubApp) {
-      // Allow github apps to only update the shared and global flags
-      updatedApp = {
-        ...app,
-        shared: app.shared,
-        global: app.global,
-      }
-    } else {
-      updatedApp = {
-        id: app.id,
-        config: {
-          ...app.config,
-          helix: {
-            ...app.config.helix,
-          },
-          secrets: app.config.secrets,
-          allowed_domains: app.config.allowed_domains,
-        },
-        shared: app.shared,
-        global: app.global,
-        owner: app.owner,
-        owner_type: app.owner_type,
-      }
-    }
-
-    // Only include github config if it exists in the original app
-    if (app.config.github) {
-      updatedApp.config.github = {
-        repo: app.config.github.repo,
-        hash: app.config.github.hash,
-        key_pair: app.config.github.key_pair ? {
-          type: app.config.github.key_pair.type,
-          private_key: app.config.github.key_pair.private_key,
-          public_key: app.config.github.key_pair.public_key,
-        } : undefined,
-        last_update: app.config.github.last_update,
-      }
-    }
-
-    return updatedApp
-  }, [app])
-
-  /**
-   * Fetches knowledge sources for the app
-   */
-  const fetchKnowledge = useCallback(async () => {
-    if (!app) return
-    
-    try {
-      const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`)
-      
-      if (!knowledge) return
-      
-      updateAppState({
-        knowledge,
+    const handleLoading = async () => {
+      const app = await loadApp(appId, {
+        showErrors: true,
+        showLoading: true,
       })
-    } catch (error) {
-      console.error('Failed to fetch knowledge:', error)
-      snackbar.error('Failed to fetch knowledge sources')
+      if (!app) return
+      setApp(app)
+      account.loadApiKeys({
+        types: 'app',
+        app_id: appId,
+      })
     }
-  }, [app, api, updateAppState, snackbar])
 
-  /**
-   * Updates app configuration
-   * @param updates - Updates to apply
-   */
-  const updateAppConfig = useCallback((updates: {
-    name?: string
-    description?: string
-    avatar?: string
-    image?: string
-    shared?: boolean
-    global?: boolean
-    secrets?: Record<string, string>
-    allowedDomains?: string[]
-    systemPrompt?: string
-    model?: string
-    provider?: string
-  }) => {
-    updateAppState(updates)
-  }, [updateAppState])
-
-  /**
-   * Handles knowledge source updates
-   * @param updatedKnowledge - Updated knowledge sources
-   */
-  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
-    updateAppState({
-      knowledge: updatedKnowledge,
-    })
-  }, [updateAppState])
+    handleLoading()
+  }, [
+    appId,
+    account.user,
+  ])
   
   return {
     // App state
     app,
-    isNewApp,
     isLoading,
     hasLoaded,
-    isReadOnly,
-    
-    // State setters
-    setApp,
-    setIsNewApp,
-    setLoading,
-    
+
     // Validation methods
     validateApp,
-    validateApiSchemas,
-    validateKnowledge,
     setKnowledgeErrors,
     setShowErrors,
     knowledgeErrors,
     showErrors,
     
     // App operations
-    saveApp,
-    getAppUpdate,
-    getDefaultAssistant,
-    fetchKnowledge,
-    updateAppConfig,
-    handleKnowledgeUpdate,
     loadApp,
+    updateAppState,
     
     // Inference methods
     loading,
@@ -627,7 +447,6 @@ export const useApp = (appId: string) => {
     setInputValue,
     setModel,
     onInference,
-    onSave,
     
     // Search
     searchResults,
