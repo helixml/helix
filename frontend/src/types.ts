@@ -748,6 +748,21 @@ export interface IAppUpdate {
   owner_type: IOwnerType;
 }
 
+export interface IAppFlatState {
+  name?: string
+  description?: string
+  avatar?: string
+  image?: string
+  shared?: boolean
+  global?: boolean
+  secrets?: Record<string, string>
+  allowedDomains?: string[]
+  systemPrompt?: string
+  model?: string
+  provider?: string
+  knowledge?: IKnowledgeSource[] // Added knowledge parameter
+}
+
 export interface IGithubStatus {
   has_token: boolean,
   redirect_url: string,
