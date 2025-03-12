@@ -244,9 +244,10 @@ spec:
           volumeMounts:
             - name: helix-embeddings-socket
               mountPath: /socket
-            {{- with .Values.controlplane.haystack.volumeMounts }}
-            {{- toYaml . | nindent 12 }}
-            {{- end}}
+            {{- range $name, $volume := .Values.controlplane.haystack.volumeMounts }}
+            - name: {{ $name }}
+            {{- toYaml $volume | nindent 14 }}
+            {{- end }}
         {{- end }}
       volumes:
       - name: helix-embeddings-socket
