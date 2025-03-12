@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -106,10 +107,34 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 		return nil, fmt.Errorf("id not specified")
 	}
 
-	err := s.gdb.WithContext(ctx).Save(&session).Error
+	// Log session metadata before update
+	log.Debug().
+		Str("session_id", session.ID).
+		Interface("document_ids", session.Metadata.DocumentIDs).
+		Str("parent_app", session.ParentApp).
+		Msg("🔍 Before UpdateSession - session metadata")
+
+	// Create a debug SQL logger to see the actual SQL query
+	debugDB := s.gdb.WithContext(ctx).Debug()
+
+	err := debugDB.Save(&session).Error
 	if err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("❌ Failed to update session")
 		return nil, err
 	}
+
+	// Verify what was saved by retrieving it again
+	updatedSession, getErr := s.GetSession(ctx, session.ID)
+	if getErr != nil {
+		log.Error().Err(getErr).Str("session_id", session.ID).Msg("❌ Failed to retrieve updated session")
+	} else {
+		log.Debug().
+			Str("session_id", session.ID).
+			Interface("document_ids_after", updatedSession.Metadata.DocumentIDs).
+			Str("parent_app", updatedSession.ParentApp).
+			Msg("✅ After UpdateSession - session metadata verified")
+	}
+
 	return s.GetSession(ctx, session.ID)
 }
 

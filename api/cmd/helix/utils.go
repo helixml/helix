@@ -47,35 +47,6 @@ func getDefaultServeOptionInt(envName string, defaultValue int) int {
 	return defaultValue
 }
 
-// nolint:unused
-func getDefaultServeOptionFloat(envName string, defaultValue float32) float32 {
-	envValue := os.Getenv(envName)
-	if envValue != "" {
-		f, err := strconv.ParseFloat(envValue, 32)
-		if err == nil {
-			return float32(f)
-		}
-	}
-	return defaultValue
-}
-
-// nolint:unused
-// comma separated strings
-func getDefaultServeOptionStringArray(envName string, defaultValue []string) []string {
-	envValue, ok := os.LookupEnv(envName)
-	if ok && envValue != "" {
-		parts := strings.Split(envValue, ",")
-		return parts
-	}
-
-	if ok {
-		// Explicitly set to empty
-		return []string{}
-	}
-
-	return defaultValue
-}
-
 // comma separated key=value pairs e.g. LABELS="name=apples,height=10"
 func getDefaultServeOptionMap(envName string, defaultValue map[string]string) map[string]string {
 	envValue := os.Getenv(envName)

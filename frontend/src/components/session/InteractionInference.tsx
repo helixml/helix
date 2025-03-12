@@ -24,10 +24,6 @@ import {
   IServerConfig,
 } from '../../types'
 
-import {
-  replaceMessageText,
-} from '../../utils/session'
-
 const GeneratedImage = styled('img')({})
 
 export const InteractionInference: FC<{
@@ -61,15 +57,20 @@ export const InteractionInference: FC<{
     return `${serverConfig.filestore_prefix}/${url}?access_token=${account.tokenUrlEscaped}&redirect_urls=true`
   }
 
-  const sourceText = replaceMessageText(message || '', session, getFileURL)
-
+  // Add less detailed logging since processing is moved to Markdown component
+  console.debug(`InteractionInference: Processing message for session ${session.id}`);
+  
   return (
     <>
       {
         message && (
           <Box sx={{ my: 0.5 }}>
             <Markdown
-              text={ sourceText }
+              text={message}
+              session={session}
+              getFileURL={getFileURL}
+              showBlinker={false}
+              isStreaming={false}
             />
           </Box>
         )

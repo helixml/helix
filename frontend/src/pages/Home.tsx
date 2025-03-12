@@ -15,6 +15,7 @@ import ModelPicker from '../components/create/ModelPicker'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
+import { useAccount } from '../contexts/account'
 
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
@@ -22,7 +23,6 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useSessions from '../hooks/useSessions'
 import useApps from '../hooks/useApps'
-import useAccount from '../hooks/useAccount'
 import { useStreaming } from '../contexts/streaming'
 
 import {
@@ -255,10 +255,12 @@ const Home: FC = () => {
                           flex: '1 1 auto',
                         }}
                       >
-                        <SessionTypeButton 
-                          type={currentType}
-                          onSetType={setCurrentType}
-                        />
+                        {account.hasImageModels && (
+                          <SessionTypeButton 
+                            type={currentType}
+                            onSetType={setCurrentType}
+                          />
+                        )}
                         <Box sx={{ maxWidth: '400px' }}>
                           <ModelPicker
                             type={currentType}

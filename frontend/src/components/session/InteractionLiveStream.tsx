@@ -7,7 +7,6 @@ import useLiveInteraction from '../../hooks/useLiveInteraction'
 import Markdown from './Markdown'
 import useAccount from '../../hooks/useAccount'
 import { IInteraction, ISession, IServerConfig } from '../../types'
-import { replaceMessageText } from '../../utils/session'
 import styled, { keyframes } from 'styled-components'
 
 const pulse = keyframes`
@@ -160,7 +159,11 @@ export const InteractionLiveStream: FC<{
       {message && (
         <div>
           <Markdown
-            text={ replaceMessageText(message, session, getFileURL) + blinker }
+            text={message}
+            session={session}
+            getFileURL={getFileURL}
+            showBlinker={true}
+            isStreaming={true}
           />
         </div>
       )}

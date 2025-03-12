@@ -219,7 +219,20 @@ const App: FC = () => {
       console.error('Error refreshing knowledge:', error);
       snackbar.error('Failed to refresh knowledge');
     });
-  }, [api, fetchKnowledge, snackbar]);
+  }, [api, fetchKnowledge]);
+
+  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after completing preparation
+      fetchKnowledge();
+      snackbar.success('Knowledge preparation completed. Indexing started.');
+    }).catch((error) => {
+      console.error('Error completing knowledge preparation:', error);
+      snackbar.error('Failed to complete knowledge preparation');
+    });
+  }, [api, fetchKnowledge]);
 
   useEffect(() => {
     let initialApp: IApp | null = null;
@@ -489,21 +502,31 @@ const App: FC = () => {
   }
 
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
-    setKnowledgeSources(updatedKnowledge);
+    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
+    
+    // We should update both state variables in a single batch to prevent race conditions
+    // and ensure the UI always shows consistent data
     setApp(prevApp => {
-      if (!prevApp) return prevApp;
+      if (!prevApp) {
+        console.log('[App] handleKnowledgeUpdate - No previous app state, skipping update');
+        return prevApp;
+      }
+
+      console.log('[App] handleKnowledgeUpdate - Previous app state:', prevApp);
 
       // if we don't have any assistants - create a default one
       const currentAssistants = prevApp.config.helix.assistants || [];
       let updatedAssistants = currentAssistants;
       
       if (currentAssistants.length === 0) {
+        console.log('[App] handleKnowledgeUpdate - No assistants found, creating default assistant');
         // create a default assistant
         updatedAssistants = [{
           ...getDefaultAssistant(),
           knowledge: updatedKnowledge,
         }];
       } else {
+        console.log('[App] handleKnowledgeUpdate - Updating existing assistants with new knowledge');
         // update existing assistants with new knowledge
         updatedAssistants = currentAssistants.map(assistant => ({
           ...assistant,
@@ -511,7 +534,7 @@ const App: FC = () => {
         }));
       }
 
-      return {
+      const newAppState = {
         ...prevApp,
         config: {
           ...prevApp.config,
@@ -521,6 +544,14 @@ const App: FC = () => {
           },
         },
       };
+      
+      console.log('[App] handleKnowledgeUpdate - New app state:', newAppState);
+      
+      // Update local state to keep it in sync with the app state
+      // This ensures both state values are always consistent
+      setKnowledgeSources(updatedKnowledge);
+      
+      return newAppState;
     });
   }
 
@@ -668,6 +699,17 @@ const App: FC = () => {
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
+      console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
+        sessionId: newSession.id,
+        documentIds: newSession.config.document_ids,
+        documentGroupId: newSession.config.document_group_id,
+        parentApp: newSession.parent_app,
+        hasDocumentIds: newSession.config.document_ids !== null && 
+                      Object.keys(newSession.config.document_ids || {}).length > 0,
+        documentIdKeys: Object.keys(newSession.config.document_ids || {}),
+        documentIdValues: Object.values(newSession.config.document_ids || {}),
+        sessionData: JSON.stringify(newSession)
+      })
       session.setData(newSession)
     }
   })
@@ -1000,12 +1042,14 @@ const App: FC = () => {
                         knowledgeSources={knowledgeSources}
                         onUpdate={handleKnowledgeUpdate}
                         onRefresh={handleRefreshKnowledge}
+                        onCompletePreparation={handleCompleteKnowledgePreparation}
                         onUpload={handleFileUpload}
                         loadFiles={handleLoadFiles}
                         uploadProgress={filestore.uploadProgress}
                         disabled={isReadOnly}
                         knowledgeList={knowledgeList}
                         appId={app.id}
+                        onRequestSave={() => onSave(true)}
                       />
                       {knowledgeErrors && showErrors && (
                         <Alert severity="error" sx={{ mt: 2 }}>

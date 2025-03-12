@@ -94,7 +94,7 @@ services:
   # TODO: figure out how to ship the pgvector extension with our main database
   # so we don't need to run what is essentially 2 versions of postgres
   pgvector:
-    image: pgvector/pgvector:pg17
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
     restart: always
     #ports:
     #  - 5433:5432
