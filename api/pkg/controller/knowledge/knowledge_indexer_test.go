@@ -174,7 +174,8 @@ func (suite *IndexerSuite) TestIndex() {
 
 func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
 	knowledge := &types.Knowledge{
-		ID: "knowledge_id",
+		ID:    "knowledge_id",
+		AppID: "app_id",
 		RAGSettings: types.RAGSettings{
 			TextSplitter: types.TextSplitterTypeText,
 			ChunkSize:    2048,
@@ -208,7 +209,6 @@ func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
 
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
-			// suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
 			suite.Equal(types.KnowledgeStateError, k.State, "knowledge should be error")
 			suite.Equal("failed to get indexing data, error: no files found in filestore", k.Message)
 			suite.Equal(knowledge.ID, k.KnowledgeID, "knowledge id should be set")
@@ -228,6 +228,7 @@ func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
 func (suite *IndexerSuite) TestIndex_RetryRecent_ErrorNoFiles() {
 	knowledge := &types.Knowledge{
 		ID:      "knowledge_id",
+		AppID:   "app_id",
 		Created: time.Now().Add(-1 * time.Minute),
 		RAGSettings: types.RAGSettings{
 			TextSplitter: types.TextSplitterTypeText,
