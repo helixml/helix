@@ -728,7 +728,7 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 			Msg("WriteSession: comparing document IDs between existing and new session")
 
 		// If the existing session has document IDs and the new session doesn't, preserve them
-		if existingSession.Metadata.DocumentIDs != nil && len(existingSession.Metadata.DocumentIDs) > 0 {
+		if len(existingSession.Metadata.DocumentIDs) > 0 {
 			if session.Metadata.DocumentIDs == nil {
 				session.Metadata.DocumentIDs = make(map[string]string)
 			}

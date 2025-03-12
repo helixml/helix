@@ -68,7 +68,7 @@ func (c *Controller) GetFilestoreAppPath(appID, path string) (string, error) {
 
 // GetFilestoreAppKnowledgePath returns a path scoped to the app's knowledge directory
 // This ensures that knowledge paths are always within the app's directory
-func (c *Controller) GetFilestoreAppKnowledgePath(ctx types.OwnerContext, appID, knowledgePath string) (string, error) {
+func (c *Controller) GetFilestoreAppKnowledgePath(_ types.OwnerContext, appID, knowledgePath string) (string, error) {
 	log.Debug().
 		Str("app_id", appID).
 		Str("knowledge_path", knowledgePath).
