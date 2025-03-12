@@ -207,3 +207,12 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 
 	return users, total, nil
 }
+
+func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.gdb.WithContext(ctx).Model(&types.User{}).Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}

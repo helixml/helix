@@ -1,5 +1,4 @@
 import bluebird from 'bluebird'
-import Keycloak from 'keycloak-js'
 import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
@@ -16,10 +15,6 @@ import {
   IUserConfig,
   IProviderEndpoint
 } from '../types'
-
-const REALM = 'helix'
-const KEYCLOAK_URL = '/auth/'
-const CLIENT_ID = 'frontend'
 
 export interface IAccountContext {
   initialized: boolean,
@@ -43,8 +38,9 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   models: IHelixModel[],
+  hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
-  providerEndpoints: IProviderEndpoint[],  
+  providerEndpoints: IProviderEndpoint[],
   fetchProviderEndpoints: () => Promise<void>,
 }
 
@@ -68,16 +64,17 @@ export const AccountContext = createContext<IAccountContext>({
   userConfig: {},
   apiKeys: [],
   mobileMenuOpen: false,
-  setMobileMenuOpen: () => {},
+  setMobileMenuOpen: () => { },
   showLoginWindow: false,
-  setShowLoginWindow: () => {},
-  onLogin: () => {},
-  onLogout: () => {},
-  loadApiKeys: () => {},
-  models: [],  
-  fetchModels: async () => {},
+  setShowLoginWindow: () => { },
+  onLogin: () => { },
+  onLogout: () => { },
+  loadApiKeys: () => { },
+  models: [],
+  fetchModels: async () => { },
   providerEndpoints: [],
   fetchProviderEndpoints: async () => {},
+  hasImageModels: false,
 })
 
 export const useAccount = () => {
@@ -107,21 +104,13 @@ export const useAccountContext = (): IAccountContext => {
     tools_enabled: true,
     apps_enabled: true,
   })
-  const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
-  const [ models, setModels ] = useState<IHelixModel[]>([])
-  const [ providerEndpoints, setProviderEndpoints ] = useState<IProviderEndpoint[]>([])
-  const [ latestVersion, setLatestVersion ] = useState<string>()
-
-  const keycloak = useMemo(() => {
-    return new Keycloak({
-      realm: REALM,
-      url: KEYCLOAK_URL,
-      clientId: CLIENT_ID,
-    })
-  }, [])
+  const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
+  const [models, setModels] = useState<IHelixModel[]>([])
+  const [providerEndpoints, setProviderEndpoints] = useState<IProviderEndpoint[]>([])
+  const [hasImageModels, setHasImageModels] = useState(false)
 
   const token = useMemo(() => {
-    if(user && user.token) {
+    if (user && user.token) {
       return user.token
     } else {
       return ''
@@ -165,7 +154,7 @@ export const useAccountContext = (): IAccountContext => {
 
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
-    if(!statusResult) return
+    if (!statusResult) return
     setCredits(statusResult.credits)
     setAdmin(statusResult.admin)
     setUserConfig(statusResult.config)
@@ -174,21 +163,21 @@ export const useAccountContext = (): IAccountContext => {
 
   const loadServerConfig = useCallback(async () => {
     const configResult = await api.get('/api/v1/config')
-    if(!configResult) return
+    if (!configResult) return
     setServerConfig(configResult)
   }, [])
-  
+
   const loadApiKeys = useCallback(async (params: Record<string, string> = {}) => {
     const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
       params,
     })
-    if(!result) return
+    if (!result) return
     setApiKeys(result)
   }, [])
 
   const fetchProviderEndpoints = useCallback(async () => {
     const response = await api.get('/api/v1/provider-endpoints')
-    if(!response) return
+    if (!response) return
     setProviderEndpoints(response)
   }, [])
 
@@ -204,66 +193,92 @@ export const useAccountContext = (): IAccountContext => {
     fetchProviderEndpoints,
   ])
 
-  const onLogin = useCallback(() => {
-    keycloak.login()
+  const onLogin = useCallback(async () => {
+    try {
+      fetch(`/api/v1/auth/login`, {
+        method: 'POST',
+        body: JSON.stringify({
+          redirect_uri: window.location.href,
+        }),
+      })
+        .then(response => {
+          console.log(response);
+          if (response.redirected) {
+            window.location.href = response.url;
+          }
+        });
+    } catch (e) {
+      const errorMessage = extractErrorMessage(e)
+      console.error(errorMessage)
+      snackbar.error(errorMessage)
+    }
   }, [
-    keycloak,
+    api,
   ])
 
   const onLogout = useCallback(() => {
     setLoggingOut(true)
-    router.navigate('home')
-    keycloak.logout()
+    try {
+      fetch(`/api/v1/auth/logout`, {
+        method: 'POST',
+      })
+        .then(response => {
+          console.log(response);
+          if (response.redirected) {
+            window.location.href = response.url;
+          }
+        });
+    } catch (e) {
+      const errorMessage = extractErrorMessage(e)
+      console.error(errorMessage)
+      snackbar.error(errorMessage)
+    }
   }, [
-    keycloak,
+    api,
   ])
 
   const initialize = useCallback(async () => {
     loading.setLoading(true)
     try {
-      const authenticated = await keycloak.init({
-        onLoad: 'check-sso',
-        pkceMethod: 'S256',
-      })
-      if(authenticated) {
-        if(!keycloak.tokenParsed?.sub) throw new Error(`no user id found from keycloak`)
-        if(!keycloak.tokenParsed?.preferred_username) throw new Error(`no user email found from keycloak`)
-        if(!keycloak.token) throw new Error(`no user token found from keycloak`)
-        const user: IKeycloakUser = {
-          id: keycloak.tokenParsed?.sub,
-          email: keycloak.tokenParsed?.preferred_username,
-          token: keycloak.token,
-          name: keycloak.tokenParsed?.name,
-        }
+      const client = api.getApiClient()
+      const authenticated = await client.v1AuthAuthenticatedList()
+      if (authenticated.data.authenticated) {
+        const userResponse = await client.v1AuthUserList()
+        const user = userResponse.data as IKeycloakUser
+        api.setToken(user.token)
         const win = (window as any)
-        if(win.setUser) {
+        if (win.setUser) {
           win.setUser(user)
         }
 
-        if(win.$crisp) {
+        if (win.$crisp) {
           win.$crisp.push(['set', 'user:email', user?.email])
           win.$crisp.push(['set', 'user:nickname', user?.name])
         }
-        api.setToken(keycloak.token)
+
         setUser(user)
-        
+
         // Set up token refresh interval
         setInterval(async () => {
           try {
-            const updated = await keycloak.updateToken(10)
-            if(updated && keycloak.token) {
-              api.setToken(keycloak.token)
-              setUser(Object.assign({}, user, {
-                token: keycloak.token,
-                is_admin: admin,
-              }))
+            const innerClient = api.getApiClient()
+            await innerClient.v1AuthRefreshCreate()
+            const userResponse = await innerClient.v1AuthUserList()
+            const user = userResponse.data as IKeycloakUser
+            setUser(Object.assign({}, user, {
+              token: user.token,
+              is_admin: admin,
+            }))
+            if (user.token) {
+              api.setToken(user.token)
             }
-          } catch(e) {
-            keycloak.login()
+          } catch (e) {
+            console.error('Error refreshing token:', e)
+            onLogin()
           }
         }, 10 * 1000)
       }
-    } catch(e) {
+    } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       snackbar.error(errorMessage)
@@ -276,7 +291,7 @@ export const useAccountContext = (): IAccountContext => {
     try {
       const url = provider ? `/v1/models?provider=${encodeURIComponent(provider)}` : '/v1/models'
       const response = await api.get(url)
-      
+
       let modelData: IHelixModel[] = [];
       if (response && Array.isArray(response.data)) {
         modelData = response.data.map((m: any) => ({
@@ -294,6 +309,10 @@ export const useAccountContext = (): IAccountContext => {
       }
 
       setModels(modelData)
+      
+      // Check if there are any image models in the results
+      const hasImage = modelData.some(model => model.type === 'image')
+      setHasImageModels(hasImage)
     } catch (error) {
       console.error('Error fetching models:', error)
       setModels([])
@@ -335,17 +354,21 @@ export const useAccountContext = (): IAccountContext => {
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
+<<<<<<< HEAD
     organizationTools,
     isOrgAdmin,
     isOrgMember,
+=======
+    hasImageModels,
+>>>>>>> main
   }
 }
 
 export const AccountContextProvider: FC = ({ children }) => {
   const value = useAccountContext()
   return (
-    <AccountContext.Provider value={ value }>
-      { children }
+    <AccountContext.Provider value={value}>
+      {children}
     </AccountContext.Provider>
   )
 }

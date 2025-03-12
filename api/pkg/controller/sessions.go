@@ -717,7 +717,46 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 	log.Trace().
 		Msgf("🔵 update session: %s %+v", session.ID, session)
 
-	_, err := c.Options.Store.UpdateSession(ctx, *session)
+	// First, check if we need to preserve document IDs from the database
+	existingSession, err := c.Options.Store.GetSession(ctx, session.ID)
+	if err == nil && existingSession != nil {
+		// Log the document IDs from the existing session and the new session
+		log.Debug().
+			Str("session_id", session.ID).
+			Interface("existing_document_ids", existingSession.Metadata.DocumentIDs).
+			Interface("new_document_ids", session.Metadata.DocumentIDs).
+			Msg("WriteSession: comparing document IDs between existing and new session")
+
+		// If the existing session has document IDs and the new session doesn't, preserve them
+		if len(existingSession.Metadata.DocumentIDs) > 0 {
+			if session.Metadata.DocumentIDs == nil {
+				session.Metadata.DocumentIDs = make(map[string]string)
+			}
+
+			// Merge document IDs - preserve existing ones that aren't in the new session
+			for k, v := range existingSession.Metadata.DocumentIDs {
+				if _, exists := session.Metadata.DocumentIDs[k]; !exists {
+					session.Metadata.DocumentIDs[k] = v
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("key", k).
+						Str("value", v).
+						Msg("WriteSession: preserving document ID from database")
+				}
+			}
+
+			// If document group ID is empty in the new session but exists in the database, preserve it
+			if session.Metadata.DocumentGroupID == "" && existingSession.Metadata.DocumentGroupID != "" {
+				session.Metadata.DocumentGroupID = existingSession.Metadata.DocumentGroupID
+				log.Debug().
+					Str("session_id", session.ID).
+					Str("document_group_id", existingSession.Metadata.DocumentGroupID).
+					Msg("WriteSession: preserving document group ID from database")
+			}
+		}
+	}
+
+	_, err = c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
 		return err

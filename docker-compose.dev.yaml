@@ -7,11 +7,12 @@ services:
       dockerfile: Dockerfile
       target: api-dev-env
     ports:
-      - ${API_PORT:-8080}:80
+      - ${API_PORT:-8080}:8080
     restart: always
     env_file:
       - .env
     environment:
+      - SERVER_PORT=8080
       - LOG_LEVEL=${LOG_LEVEL:-debug}
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
@@ -60,6 +61,9 @@ services:
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      - RAG_HAYSTACK_ENABLED=true
+      # URL in the compose stack (rather than localhost in the pod which is default for k8s)
+      - RAG_HAYSTACK_URL=http://haystack:8000
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
@@ -92,7 +96,7 @@ services:
   # TODO: figure out how to ship the pgvector extension with our main database
   # so we don't need to run what is essentially 2 versions of postgres
   pgvector:
-    image: pgvector/pgvector:pg17
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
     restart: always
     #ports:
     #  - 5433:5432

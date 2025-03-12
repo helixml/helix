@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -298,23 +299,169 @@ func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *htt
 }
 
 func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
-	return apiServer.Controller.FilestoreList(getOwnerContext(req), req.URL.Query().Get("path"))
+	path := req.URL.Query().Get("path")
+
+	// Only admins can list the root apps directory to prevent app enumeration
+	if path == "apps" {
+		isAdmin := apiServer.isAdmin(req)
+		if !isAdmin {
+			return nil, fmt.Errorf("access denied: only administrators can list all apps")
+		}
+	}
+
+	// Check if this is an app-scoped path
+	if controller.IsAppPath(path) {
+		appID, err := controller.ExtractAppID(path)
+		if err != nil {
+			return nil, fmt.Errorf("invalid app path format: %s", err)
+		}
+
+		// Check app filestore access for app-scoped paths
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionList)
+		if err != nil {
+			return nil, err
+		}
+		if !hasAccess {
+			return nil, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+
+		// Extract the relative path within the app
+		relativePath := path[len("apps/")+len(appID):]
+		relativePath = strings.TrimPrefix(relativePath, "/")
+
+		// Use the app-specific list method
+		return apiServer.Controller.FilestoreAppList(appID, relativePath)
+	}
+
+	// Regular user path handling
+	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
 func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
-	return apiServer.Controller.FilestoreGet(getOwnerContext(req), req.URL.Query().Get("path"))
+	path := req.URL.Query().Get("path")
+
+	// Check if this is an app-scoped path
+	if controller.IsAppPath(path) {
+		appID, err := controller.ExtractAppID(path)
+		if err != nil {
+			return filestore.Item{}, fmt.Errorf("invalid app path format: %s", err)
+		}
+
+		// Check app filestore access for app-scoped paths
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionGet)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+
+		// Extract the relative path within the app
+		relativePath := path[len("apps/")+len(appID):]
+		relativePath = strings.TrimPrefix(relativePath, "/")
+
+		// Use the app-specific get method
+		return apiServer.Controller.FilestoreAppGet(appID, relativePath)
+	}
+
+	// Regular user path handling
+	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
 func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
-	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), req.URL.Query().Get("path"))
+	var request struct {
+		Path string `json:"path"`
+	}
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return filestore.Item{}, err
+	}
+
+	// Check if this is an app-scoped path
+	if controller.IsAppPath(request.Path) {
+		appID, err := controller.ExtractAppID(request.Path)
+		if err != nil {
+			return filestore.Item{}, fmt.Errorf("invalid app path format: %s", err)
+		}
+
+		// Check app filestore access for app-scoped paths
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), request.Path, req, types.ActionCreate)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", request.Path)
+		}
+
+		// Extract the relative path within the app
+		relativePath := request.Path[len("apps/")+len(appID):]
+		relativePath = strings.TrimPrefix(relativePath, "/")
+
+		// Use the app-specific create folder method
+		return apiServer.Controller.FilestoreAppCreateFolder(appID, relativePath)
+	}
+
+	// Regular user path handling
+	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
 func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
-	return apiServer.Controller.FilestoreRename(getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
+	path := req.URL.Query().Get("path")
+	newPath := req.URL.Query().Get("new_path")
+
+	// Check app filestore access for app-scoped paths
+	if strings.HasPrefix(path, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionUpdate)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+	}
+
+	// Also check access to the new path if it's app-scoped
+	if strings.HasPrefix(newPath, "apps/") {
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), newPath, req, types.ActionUpdate)
+		if err != nil {
+			return filestore.Item{}, err
+		}
+		if !hasAccess {
+			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", newPath)
+		}
+	}
+
+	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
 func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
+
+	// Check if this is an app-scoped path
+	if controller.IsAppPath(path) {
+		appID, err := controller.ExtractAppID(path)
+		if err != nil {
+			return "", fmt.Errorf("invalid app path format: %s", err)
+		}
+
+		// Check app filestore access for app-scoped paths
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionDelete)
+		if err != nil {
+			return "", err
+		}
+		if !hasAccess {
+			return "", fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+
+		// Extract the relative path within the app
+		relativePath := path[len("apps/")+len(appID):]
+		relativePath = strings.TrimPrefix(relativePath, "/")
+
+		// Use the app-specific delete method
+		err = apiServer.Controller.FilestoreAppDelete(appID, relativePath)
+		return path, err
+	}
+
+	// Regular user path handling
 	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
@@ -322,6 +469,52 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 // TODO version of this which is session specific
 func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
+
+	// Check if this is an app-scoped path
+	if controller.IsAppPath(path) {
+		appID, err := controller.ExtractAppID(path)
+		if err != nil {
+			return false, fmt.Errorf("invalid app path format: %s", err)
+		}
+
+		// Check app filestore access for app-scoped paths
+		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
+		if err != nil {
+			return false, err
+		}
+		if !hasAccess {
+			return false, fmt.Errorf("access denied to app filestore path: %s", path)
+		}
+
+		// Parse and handle file upload
+		err = req.ParseMultipartForm(10 << 20)
+		if err != nil {
+			return false, err
+		}
+
+		files := req.MultipartForm.File["files"]
+		for _, fileHeader := range files {
+			file, err := fileHeader.Open()
+			if err != nil {
+				return false, fmt.Errorf("unable to open file")
+			}
+			defer file.Close()
+
+			// Extract the relative path within the app
+			relativePath := path[len("apps/")+len(appID):]
+			relativePath = strings.TrimPrefix(relativePath, "/")
+
+			// Use the app-specific upload method
+			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
+			if err != nil {
+				return false, fmt.Errorf("unable to upload file: %s", err.Error())
+			}
+		}
+
+		return true, nil
+	}
+
+	// Regular user path handling
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
 		return false, err
@@ -710,11 +903,11 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 		if token == "" {
 			return false
 		}
-		jwtToken, err := auth.authenticator.ValidateUserToken(context.Background(), token)
+		user, err := auth.authenticator.ValidateUserToken(context.Background(), token)
 		if err != nil {
 			return false
 		}
-		return auth.isTokenAdmin(jwtToken)
+		return user.Admin
 	}
 	return false
 }

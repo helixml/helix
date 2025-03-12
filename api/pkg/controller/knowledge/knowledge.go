@@ -155,6 +155,8 @@ func (r *Reconciler) reset(ctx context.Context) error {
 	}
 
 	for _, k := range data {
+		// Note: We don't reset knowledge sources in "Preparing" state
+		// as they are waiting for explicit user action
 		k.State = types.KnowledgeStatePending
 
 		_, err = r.store.UpdateKnowledge(ctx, k)
