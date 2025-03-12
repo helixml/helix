@@ -24,6 +24,10 @@ import (
 
 func init() {
 	rootCmd.AddCommand(runProxyCmd)
+
+	runProxyCmd.Flags().StringP("app-id", "a", "", "the app id to run the proxy for")
+	runProxyCmd.Flags().StringP("api-key", "k", "", "the api key to use for the proxy")
+	runProxyCmd.Flags().StringP("url", "u", "", "the url to use for the proxy")
 }
 
 func setup() {
@@ -52,7 +56,7 @@ var runProxyCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run Helix mpc (model context protocol) proxy",
 	Long:  `TODO`,
-	RunE: func(_ *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		setup()
 
 		cfg, err := config.LoadCliConfig()
@@ -61,7 +65,34 @@ var runProxyCmd = &cobra.Command{
 			return err
 		}
 
+		url, err := cmd.Flags().GetString("url")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get url")
+			return err
+		}
+		if url != "" {
+			cfg.URL = url
+		}
+
+		apiKey, err := cmd.Flags().GetString("api-key")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get api key")
+			return err
+		}
+		if apiKey != "" {
+			cfg.APIKey = apiKey
+		}
+
 		helixAppID := os.Getenv("HELIX_APP_ID")
+
+		appID, err := cmd.Flags().GetString("app-id")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get app id")
+			return err
+		}
+		if appID != "" {
+			helixAppID = appID
+		}
 
 		log.Trace().
 			Str("app_id", helixAppID).
