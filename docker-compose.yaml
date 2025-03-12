@@ -73,27 +73,29 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   keycloak:
-    image: quay.io/keycloak/keycloak:23.0
+    image: quay.io/keycloak/keycloak:26.0.0
     restart: always
     environment:
       - KC_DB=postgres
       - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
       - KC_DB_USERNAME=postgres
       - KC_DB_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN_USER-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-      - KC_PROXY_HEADERS=forwarded|xforwarded
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
       - KC_HEALTH_ENABLED=true
-      - KC_HOSTNAME_PATH=/auth
-      - KC_HTTP_RELATIVE_PATH=/auth/
-      - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
+      - KC_HOSTNAME_STRICT=false
+      - KC_PROXY_HEADERS=xforwarded
+      - KC_HOSTNAME=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth}
+      - KC_HOSTNAME_ADMIN=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth}
+      - KC_HTTP_RELATIVE_PATH=/auth
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /auth/health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e 'HEAD /health/ready HTTP/1.1\r\nHost: localhost:9000\r\nConnection: close\r\n\r\n' >&3;cat <&3"]
+      start_period: 10s
       interval: 5s
-      timeout: 5s
       retries: 30
-    command: ["start", "--proxy", "edge"]
+      timeout: 5s
+    command: ["start"]
   llamaindex:
     profiles: [full]
     image: registry.helix.ml/helix/llamaindex:latest

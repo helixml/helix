@@ -122,12 +122,12 @@ services:
       - KC_HOSTNAME=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth}
       - KC_HOSTNAME_ADMIN=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth}
       - KC_HTTP_RELATIVE_PATH=/auth
-    # healthcheck:
-    #   test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e 'GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;"]
-    #   start_period: 10s
-    #   interval: 5s
-    #   retries: 30
-    #   timeout: 5s
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000;echo -e 'HEAD /health/ready HTTP/1.1\r\nHost: localhost:9000\r\nConnection: close\r\n\r\n' >&3;cat <&3"]
+      start_period: 10s
+      interval: 5s
+      retries: 30
+      timeout: 5s
     command: ["start-dev"]
     ports:
       - 30080:8080
