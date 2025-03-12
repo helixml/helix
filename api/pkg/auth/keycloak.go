@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +67,11 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 		}
 	}
 
+	err = ensureAPIClientRedirectURIs(gck, token.AccessToken, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	return &KeycloakAuthenticator{
 		cfg:          cfg,
 		gocloak:      gck,
@@ -87,9 +93,7 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 		idOfClient, err = gck.CreateClient(context.Background(),
 			token, cfg.Realm,
 			gocloak.Client{
-				ClientID:     &cfg.APIClientID,
-				RedirectURIs: &[]string{"*"},
-				WebOrigins:   &[]string{"*"},
+				ClientID: &cfg.APIClientID,
 			},
 		)
 		if err != nil {
@@ -102,6 +106,94 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 	}
 
 	cfg.ClientSecret = *creds.Value
+	return nil
+}
+
+func ensureAPIClientRedirectURIs(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
+	log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Configuring API client")
+
+	idOfClient, err := getIDOfKeycloakClient(gck, token, cfg.Realm, cfg.APIClientID)
+	if err != nil {
+		return fmt.Errorf("ensureAPIClientRedirectURIs: error getting clients: %s", err.Error())
+	}
+
+	if idOfClient == "" {
+		return fmt.Errorf("ensureAPIClientRedirectURIs: no Keycloak client found")
+	}
+
+	client, err := gck.GetClient(context.Background(), token, cfg.Realm, idOfClient)
+	if err != nil {
+		return fmt.Errorf("ensureAPIClientRedirectURIs: error getting client: %s", err.Error())
+	}
+
+	if client.RedirectURIs == nil || len(*client.RedirectURIs) == 0 {
+		log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("No redirect URIs found, updating")
+		u, err := url.Parse(cfg.ServerURL)
+		if err != nil {
+			return fmt.Errorf("ensureAPIClientRedirectURIs: error parsing server URL: %s", err.Error())
+		}
+		if strings.Contains(u.Host, "localhost") {
+			log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Using * as redirect URI for localhost")
+			*client.RedirectURIs = []string{"*"}
+		} else {
+			log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Using server URL as redirect URI")
+			u.Path = "*"
+			*client.RedirectURIs = []string{u.String()}
+		}
+
+		err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		if err != nil {
+			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
+		}
+	}
+
+	if client.WebOrigins == nil || len(*client.WebOrigins) == 0 {
+		log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("No web origins found, updating")
+		u, err := url.Parse(cfg.ServerURL)
+		if err != nil {
+			return fmt.Errorf("ensureAPIClientRedirectURIs: error parsing server URL: %s", err.Error())
+		}
+		if strings.Contains(u.Host, "localhost") {
+			log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Using * as web origin for localhost")
+			*client.WebOrigins = []string{"*"}
+		} else {
+			log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Using server URL as web origin")
+			u.Path = "*"
+			*client.WebOrigins = []string{u.String()}
+		}
+		err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		if err != nil {
+			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
+		}
+	}
+
+	// Logout URLs doesn't have a dedicated field in the Client, so we we must use the Attributes
+	if client.Attributes == nil {
+		client.Attributes = &map[string]string{}
+	}
+	attributes := *client.Attributes
+	if _, exists := attributes["post.logout.redirect.uris"]; !exists {
+		log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("No logout URLs found, updating")
+		u, err := url.Parse(cfg.ServerURL)
+		if err != nil {
+			return fmt.Errorf("ensureAPIClientRedirectURIs: error parsing server URL: %s", err.Error())
+		}
+		if strings.Contains(u.Host, "localhost") {
+			log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Using * as logout URL for localhost")
+			attributes["post.logout.redirect.uris"] = "*"
+		} else {
+			log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("Using server URL as logout URL")
+			u.Path = "*"
+			attributes["post.logout.redirect.uris"] = u.String()
+		}
+		*client.Attributes = attributes
+
+		err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		if err != nil {
+			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
+		}
+	}
+
 	return nil
 }
 
