@@ -37,7 +37,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.8.2
+	github.com/mark3labs/mcp-go v0.13.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/nats-io/nats-server/v2 v2.10.14
 	github.com/nats-io/nats.go v1.38.0
