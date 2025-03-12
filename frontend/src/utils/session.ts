@@ -1,4 +1,3 @@
-
 import {
   IApp,
   IDataPrepChunkWithFilename,
@@ -204,6 +203,16 @@ export const replaceMessageText = (
   getFileURL: (filename: string) => string,
 ): string => {
   const document_ids = session.config.document_ids || {}
+  
+  // More detailed debug logging about document IDs
+  console.debug(`Session ${session.id} document_ids:`, document_ids)
+  console.debug(`Session ${session.id} document_group_id:`, session.config.document_group_id)
+  console.debug(`Session ${session.id} parent_app:`, session.parent_app)
+  console.debug(`Session ${session.id} session type:`, session.type)
+  console.debug(`Session ${session.id} session mode:`, session.mode)
+  console.debug(`Session ${session.id} metadata:`, session.config)
+  
+  // Get all non-text files from the interactions
   const allNonTextFiles = session.interactions.reduce((acc: string[], interaction) => {
     if (!interaction.files || interaction.files.length <= 0) return acc
     return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true))
@@ -214,17 +223,50 @@ export const replaceMessageText = (
   Object.keys(document_ids).forEach(filename => {
     const document_id = document_ids[filename]
     let searchPattern: RegExp | null = null;
-    if (message.indexOf(`DOC_ID:`) >= 0) {
-      searchPattern = RegExp(`\\[.*DOC_ID:.*${document_id}.*\\]`, 'g')
+    
+    // Use different patterns based on what's in the message
+    if (message.indexOf(`[DOC_ID:${document_id}]`) >= 0) {
+      // Exact format match: [DOC_ID:ee4fbace49]
+      searchPattern = new RegExp(`\\[DOC_ID:${document_id}\\]`, 'g')
+      console.debug(`Using exact match pattern for [DOC_ID:${document_id}]`);
+    } else if (message.indexOf(`DOC_ID:${document_id}`) >= 0) {
+      // Pattern with DOC_ID prefix: For more details, please refer to the original document [DOC_ID:ee4fbace49].
+      searchPattern = new RegExp(`\\[.*DOC_ID:${document_id}.*?\\]`, 'g')
+      console.debug(`Using DOC_ID prefix pattern for ${document_id}`);
     } else if (message.indexOf(document_id) >= 0) {
-      searchPattern = RegExp(`${document_id}`, 'g')
+      // Raw ID match
+      searchPattern = new RegExp(`${document_id}`, 'g')
+      console.debug(`Using raw ID pattern for ${document_id}`);
     }
-    if (!searchPattern) return
+    
+    if (!searchPattern) {
+      console.debug(`No pattern found for document ID: ${document_id}`);
+      return;
+    }
+    
     documentReferenceCounter++
-    const baseFilename = filename.replace(/\.txt$/i, '')
-    const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) == 0)
-    if (!sourceFilename) return
-    const link = `<a target="_blank" style="color: white;" href="${getFileURL(sourceFilename)}">[${documentReferenceCounter}]</a>`
+    
+    let link: string;
+    // Check if this is an app session
+    if (session.parent_app) {
+      // For app sessions, create a direct link to the original document
+      // Use the original filename without attempting to find it in interactions
+      const displayName = filename.split('/').pop() || filename; // Get just the filename part
+      console.debug(`Creating app session link for document: ${displayName}, ID: ${document_id}`);
+      link = `<a target="_blank" style="color: white;" href="${getFileURL(filename)}">[${documentReferenceCounter}: ${displayName}]</a>`;
+    } else {
+      // Regular session - try to find the file in the interactions
+      const baseFilename = filename.replace(/\.txt$/i, '')
+      const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) == 0)
+      if (!sourceFilename) {
+        console.debug(`Could not find source file for ${filename} with ID ${document_id}`);
+        // If we can't find a matching file, still create a link to the original filename
+        link = `<a target="_blank" style="color: white;" href="${getFileURL(filename)}">[${documentReferenceCounter}]</a>`;
+      } else {
+        link = `<a target="_blank" style="color: white;" href="${getFileURL(sourceFilename)}">[${documentReferenceCounter}]</a>`;
+      }
+    }
+    
     message = message.replace(searchPattern, link)
   })
 

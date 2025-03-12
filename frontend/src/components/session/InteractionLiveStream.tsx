@@ -160,7 +160,13 @@ export const InteractionLiveStream: FC<{
       {message && (
         <div>
           <Markdown
-            text={ replaceMessageText(message, session, getFileURL) + blinker }
+            text={(() => {
+              console.debug(`InteractionLiveStream: Replacing message text for session ${session.id}`);
+              console.debug(`InteractionLiveStream: Message before replacement: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
+              const replacedText = replaceMessageText(message, session, getFileURL) + blinker;
+              console.debug(`InteractionLiveStream: Message after replacement: "${replacedText.substring(0, 100)}${replacedText.length > 100 ? '...' : ''}"`);
+              return replacedText;
+            })()}
           />
         </div>
       )}

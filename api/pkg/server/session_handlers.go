@@ -161,6 +161,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if session.ParentApp != "" {
 			startReq.AppID = session.ParentApp
 		}
+
+		// Set the session ID in the context to enable document ID tracking
+		ctx = oai.SetContextSessionID(ctx, session.ID)
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("app_id", startReq.AppID).
+			Msg("existing session: set session ID in context for document tracking")
 	} else {
 		// Create session
 		newSession = true
@@ -190,6 +197,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if startReq.RAGSourceID != "" {
 			session.Metadata.RagEnabled = true
 		}
+
+		// Set the session ID in the context to enable document ID tracking
+		ctx = oai.SetContextSessionID(ctx, session.ID)
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("app_id", startReq.AppID).
+			Msg("new session: set session ID in context for document tracking")
 	}
 
 	session.Interactions = append(session.Interactions,
@@ -470,6 +484,13 @@ func (s *HelixAPIServer) handleBlockingSession(
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
 
+	// Set the session ID in the context to enable document ID tracking
+	ctx = oai.SetContextSessionID(ctx, session.ID)
+	log.Debug().
+		Str("session_id", session.ID).
+		Str("app_id", session.ParentApp).
+		Msg("handleBlockingSession: set session ID in context for document tracking")
+
 	// Call the LLM
 	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
@@ -515,6 +536,13 @@ func (s *HelixAPIServer) handleBlockingSession(
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
+
+	// Set the session ID in the context to enable document ID tracking
+	ctx = oai.SetContextSessionID(ctx, session.ID)
+	log.Debug().
+		Str("session_id", session.ID).
+		Str("app_id", session.ParentApp).
+		Msg("handleStreamingSession: set session ID in context for document tracking")
 
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
