@@ -83,6 +83,7 @@ services:
       - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN_USER-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+      - KC_HTTP_ENABLED=true
       - KC_HEALTH_ENABLED=true
       - KC_HOSTNAME_STRICT=false
       - KC_PROXY_HEADERS=xforwarded
