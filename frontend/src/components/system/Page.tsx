@@ -24,6 +24,7 @@ const Page: React.FC<{
   breadcrumbs?: IPageBreadcrumb[],
   headerContent?: ReactNode,
   footerContent?: ReactNode,
+  showDrawerButton?: boolean,
   px?: number,
   sx?: SxProps,
 }> = ({
@@ -34,6 +35,7 @@ const Page: React.FC<{
   breadcrumbs = [],
   headerContent = null,
   footerContent = null,
+  showDrawerButton = true,
   px = 3,
   sx = {},
   children,
@@ -122,7 +124,7 @@ const Page: React.FC<{
             <AppBar
               title={ useTopbarTitle }
               px={ px }
-              onOpenDrawer={ () => account.setMobileMenuOpen(true) }
+              onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
             >
               { topbarContent }
             </AppBar>

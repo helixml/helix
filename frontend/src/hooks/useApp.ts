@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  IApp, 
+  IApp,
+  IAppFlatState,
   IKnowledgeSource,
   IAssistantConfig,
   IKnowledgeSearchResult,
@@ -46,7 +47,7 @@ export const useApp = (appId: string) => {
   )
   const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings')
   
-  const getDefaultAssistant = (): IAssistantConfig => {
+  const getDefaultAssistant = useCallback((): IAssistantConfig => {
     return {
       name: '',
       description: '',
@@ -55,7 +56,7 @@ export const useApp = (appId: string) => {
       type: 'text',
       knowledge: []
     }
-  }
+  }, [account.models])
   
   /**
    * Loads a single app by ID directly from the API
@@ -70,7 +71,7 @@ export const useApp = (appId: string) => {
   } = {
     showErrors: true,
     showLoading: true,
-  }): Promise<IApp | null> => {
+  }) => {
     // Early return - the finally block will still be executed even with this return
     if (!id) return null
     
@@ -99,7 +100,7 @@ export const useApp = (appId: string) => {
 
       setHasLoaded(true)
       
-      return loadedApp
+      setApp(loadedApp)
     } catch (error) {
       console.error('Failed to load app:', error)
       return null
@@ -107,77 +108,32 @@ export const useApp = (appId: string) => {
       // This block will always execute, even after early returns
       setIsLoading(false)
     }
-  }, [api, account])
+  }, [api, account, getDefaultAssistant])
   
   /**
-   * Updates the app config in local state
-   * @param updates - Updates to apply
-   * @returns Updated app
+   * Merges flat state into the app
+   * @param existing - The existing app
+   * @param updates - The updates to apply
+   * @returns The updated app
    */
-  const updateAppState = useCallback((updates: {
-    name?: string
-    description?: string
-    avatar?: string
-    image?: string
-    shared?: boolean
-    global?: boolean
-    secrets?: Record<string, string>
-    allowedDomains?: string[]
-    systemPrompt?: string
-    model?: string
-    provider?: string
-    knowledge?: IKnowledgeSource[] // Added knowledge parameter
-  }) => {
-    setApp(currentApp => {
-      if (!currentApp) return null
-      
-      // Create new app object with updated config
-      // we do this with JSON.parse because then it copes with deep values not having the same reference
-      const updatedApp = JSON.parse(JSON.stringify(currentApp)) as IApp
+  const mergeFlatStateIntoApp = useCallback((existing: IApp, updates: IAppFlatState): IApp => {
+    // Create new app object with updated config
+    // we do this with JSON.parse because then it copes with deep values not having the same reference
+    const updatedApp = JSON.parse(JSON.stringify(existing)) as IApp
 
-      // ensure there is at least one assistant
-      if (!updatedApp.config.helix.assistants || updatedApp.config.helix.assistants.length === 0) {
-        updatedApp.config.helix.assistants = [getDefaultAssistant()]
-      }
+    // ensure there is at least one assistant
+    if (!updatedApp.config.helix.assistants || updatedApp.config.helix.assistants.length === 0) {
+      updatedApp.config.helix.assistants = [getDefaultAssistant()]
+    }
 
-      const assistants = updatedApp.config.helix.assistants
-      
-      // Check if this is a GitHub app
-      const isGithubApp = currentApp.app_source === APP_SOURCE_GITHUB
-      
-      // For GitHub apps, only allow updating shared and global flags
-      if (isGithubApp) {
-        // Update app-level flags that are allowed for GitHub apps
-        if (updates.shared !== undefined) {
-          updatedApp.shared = updates.shared
-        }
-        
-        if (updates.global !== undefined) {
-          updatedApp.global = updates.global
-        }
-        
-        return updatedApp
-      }
-      
-      // For non-GitHub apps, update all fields as before
-      // Update helix config fields
-      if (updates.name !== undefined) {
-        updatedApp.config.helix.name = updates.name
-      }
-      
-      if (updates.description !== undefined) {
-        updatedApp.config.helix.description = updates.description
-      }
-      
-      if (updates.avatar !== undefined) {
-        updatedApp.config.helix.avatar = updates.avatar
-      }
-      
-      if (updates.image !== undefined) {
-        updatedApp.config.helix.image = updates.image
-      }
-
-      // Update app-level flags
+    const assistants = updatedApp.config.helix.assistants
+    
+    // Check if this is a GitHub app
+    const isGithubApp = updatedApp.app_source === APP_SOURCE_GITHUB
+    
+    // For GitHub apps, only allow updating shared and global flags
+    if (isGithubApp) {
+      // Update app-level flags that are allowed for GitHub apps
       if (updates.shared !== undefined) {
         updatedApp.shared = updates.shared
       }
@@ -186,39 +142,68 @@ export const useApp = (appId: string) => {
         updatedApp.global = updates.global
       }
       
-      // Update secrets and allowed domains
-      if (updates.secrets !== undefined) {
-        updatedApp.config.secrets = updates.secrets
-      }
-      
-      if (updates.allowedDomains !== undefined) {
-        updatedApp.config.allowed_domains = updates.allowedDomains
-      }
-
-      /*
-        values below here are part of the assistant config
-        so we ensure we have at least one assistant before updating
-      */
-
-      if (updates.systemPrompt !== undefined) {
-        assistants[0].system_prompt = updates.systemPrompt
-      }
-      
-      if (updates.model !== undefined) {
-        assistants[0].model = updates.model
-      }
-      
-      if (updates.provider !== undefined) {
-        assistants[0].provider = updates.provider
-      }
-      
-      // Update knowledge sources for all assistants if provided
-      if (updates.knowledge !== undefined) {
-        assistants[0].knowledge = updates.knowledge
-      }
-      
       return updatedApp
-    })
+    }
+    
+    // For non-GitHub apps, update all fields as before
+    // Update helix config fields
+    if (updates.name !== undefined) {
+      updatedApp.config.helix.name = updates.name
+    }
+    
+    if (updates.description !== undefined) {
+      updatedApp.config.helix.description = updates.description
+    }
+    
+    if (updates.avatar !== undefined) {
+      updatedApp.config.helix.avatar = updates.avatar
+    }
+    
+    if (updates.image !== undefined) {
+      updatedApp.config.helix.image = updates.image
+    }
+
+    // Update app-level flags
+    if (updates.shared !== undefined) {
+      updatedApp.shared = updates.shared
+    }
+    
+    if (updates.global !== undefined) {
+      updatedApp.global = updates.global
+    }
+    
+    // Update secrets and allowed domains
+    if (updates.secrets !== undefined) {
+      updatedApp.config.secrets = updates.secrets
+    }
+    
+    if (updates.allowedDomains !== undefined) {
+      updatedApp.config.allowed_domains = updates.allowedDomains
+    }
+
+    /*
+      values below here are part of the assistant config
+      so we ensure we have at least one assistant before updating
+    */
+
+    if (updates.systemPrompt !== undefined) {
+      assistants[0].system_prompt = updates.systemPrompt
+    }
+    
+    if (updates.model !== undefined) {
+      assistants[0].model = updates.model
+    }
+    
+    if (updates.provider !== undefined) {
+      assistants[0].provider = updates.provider
+    }
+    
+    // Update knowledge sources for all assistants if provided
+    if (updates.knowledge !== undefined) {
+      assistants[0].knowledge = updates.knowledge
+    }
+    
+    return updatedApp
   }, [])
   
   /**
@@ -426,6 +411,8 @@ export const useApp = (appId: string) => {
   return {
     // App state
     app,
+    setApp,
+    mergeFlatStateIntoApp,
     isLoading,
     hasLoaded,
 
@@ -438,7 +425,7 @@ export const useApp = (appId: string) => {
     
     // App operations
     loadApp,
-    updateAppState,
+    saveApp,
     
     // Inference methods
     loading,

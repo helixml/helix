@@ -27,6 +27,7 @@ import { useStreaming } from '../contexts/streaming'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useApps from '../hooks/useApps'
+import useApp from '../hooks/useApp'
 import useRouter from '../hooks/useRouter'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
@@ -34,12 +35,16 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
-import { removeEmptyValues } from '../utils/app'
+import {
+  removeEmptyValues,
+  getAppFlatState,
+} from '../utils/app'
 
 import {
   APP_SOURCE_GITHUB,
   APP_SOURCE_HELIX,
   IApp,
+  IAppFlatState,
   IAppUpdate,
   IAssistantApi,
   IAssistantGPTScript,
@@ -64,6 +69,8 @@ const App: FC = () => {
     params,
     navigate,
   } = useRouter()
+
+  const appTools = useApp(params.app_id)
 
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
@@ -113,6 +120,21 @@ const App: FC = () => {
     tool: IAssistantGPTScript;
     index: number;
   } | null>(null);
+
+  const onSaveFlatApp = useCallback(async (updates: IAppFlatState) => {
+    if (!appTools.app) return
+    const newApp = appTools.mergeFlatStateIntoApp(appTools.app, updates)
+    await appTools.saveApp(newApp)
+    snackbar.success('App saved successfully')
+  }, [
+    appTools.app,
+    appTools.saveApp,
+  ])
+
+  const flatApp = useMemo(() => {
+    if(!app) return {}
+    return getAppFlatState(app)
+  }, [app])
 
   // for now, all the STATE related code for the various tabs is still in this file
   // that's because synchronising state between the components and the app page
@@ -934,6 +956,7 @@ const App: FC = () => {
 
   return (
     <Page
+      showDrawerButton={false}
       breadcrumbs={[
         {
           title: 'Apps',
@@ -992,27 +1015,9 @@ const App: FC = () => {
                 <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                   {tabValue === 'settings' && (
                     <AppSettings
-                      name={name}
-                      setName={setName}
-                      description={description}
-                      setDescription={setDescription}
-                      systemPrompt={systemPrompt}
-                      setSystemPrompt={setSystemPrompt}
-                      avatar={avatar}
-                      setAvatar={setAvatar}
-                      image={image}
-                      setImage={setImage}
-                      shared={shared}
-                      setShared={setShared}
-                      global={global}
-                      setGlobal={setGlobal}
-                      model={model}
-                      setModel={setModel}
-                      providerEndpoint={providerEndpoint}
-                      setProviderEndpoint={setProviderEndpoint}
-                      providerEndpoints={account.providerEndpoints}
+                      app={ flatApp }
+                      onUpdate={onSaveFlatApp}
                       readOnly={readOnly}
-                      isReadOnly={isReadOnly}
                       showErrors={showErrors}
                       isAdmin={account.admin}
                     />

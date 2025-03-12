@@ -1,8 +1,9 @@
 import { parse as parseYaml } from 'yaml'
 import {
   IApp, 
-  IAppUpdate,
+  IAppFlatState,
 } from '../types'
+
 
 export const removeEmptyValues = (obj: any): any => {
   if (Array.isArray(obj)) {
@@ -17,6 +18,43 @@ export const removeEmptyValues = (obj: any): any => {
     return Object.keys(filtered).length ? filtered : undefined;
   }
   return obj === '' ? undefined : obj;
+};
+
+/**
+ * Extracts properties from an IApp object and flattens them into an IAppFlatState object
+ * Works with both GitHub and Helix app configurations
+ * @param app - The app to flatten
+ * @returns Flattened app state
+ */
+export const getAppFlatState = (app: IApp): IAppFlatState => {
+  if (!app) return {};
+  
+  // Create a default flat state with app-level properties
+  const flatState: IAppFlatState = {
+    shared: app.shared,
+    global: app.global,
+    secrets: app.config.secrets,
+    allowedDomains: app.config.allowed_domains,
+  };
+  
+  // Extract Helix config properties
+  if (app.config.helix) {
+    flatState.name = app.config.helix.name;
+    flatState.description = app.config.helix.description;
+    flatState.avatar = app.config.helix.avatar;
+    flatState.image = app.config.helix.image;
+    
+    // Extract assistant properties if available
+    const assistant = app.config.helix.assistants?.[0];
+    if (assistant) {
+      flatState.systemPrompt = assistant.system_prompt;
+      flatState.model = assistant.model;
+      flatState.provider = assistant.provider;
+      flatState.knowledge = assistant.knowledge || [];
+    }
+  }
+  
+  return flatState;
 };
 
 
