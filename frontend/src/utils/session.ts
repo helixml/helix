@@ -341,7 +341,7 @@ export const replaceMessageText = (
       // Parse the individual excerpts
       const excerptRegex = /<excerpt>([\s\S]*?)<\/excerpt>/g;
       let excerptMatch;
-      let excerpts = [];
+      let excerpts: Array<{docId: string, snippet: string, filename: string, fileUrl: string}> = [];
       
       while ((excerptMatch = excerptRegex.exec(escapedCitationsBody)) !== null) {
         try {

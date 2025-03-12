@@ -80,6 +80,21 @@ export const InteractionMarkdown: FC<{
         }
       );
     }
+    
+    // Also preserve any links added by replaceMessageText
+    let linkIndex = 0;
+    let links: Array<string> = [];
+    const linkRegex = /<a\s+[^>]*?href=["'][^"']*?["'][^>]*?>.*?<\/a>/g;
+    processedWithPreservedCitations = processedWithPreservedCitations.replace(linkRegex, (match) => {
+      const placeholder = `__LINK_PLACEHOLDER_${linkIndex}__`;
+      links.push(match);
+      linkIndex++;
+      return placeholder;
+    });
+    
+    if (linkIndex > 0) {
+      console.debug(`Preserved ${linkIndex} HTML links for rendering`);
+    }
 
     // First ensure that all non-standard XML tags are escaped
     // This prevents browser warnings and errors about unrecognized tags
@@ -135,6 +150,14 @@ ${trimmedContent}
 </div></details></div>`;
       }
     );
+    
+    // Restore the links first
+    if (links.length > 0) {
+      links.forEach((link, index) => {
+        const placeholder = `__LINK_PLACEHOLDER_${index}__`;
+        processed = processed.replace(placeholder, link);
+      });
+    }
     
     // Now restore the citation containers
     if (citationContainers.length > 0) {
