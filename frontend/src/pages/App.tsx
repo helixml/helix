@@ -34,6 +34,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
+import { removeEmptyValues } from '../utils/app'
 
 import {
   APP_SOURCE_GITHUB,
@@ -51,22 +52,6 @@ import {
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
-
-
-const removeEmptyValues = (obj: any): any => {
-  if (Array.isArray(obj)) {
-    const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null);
-    return filtered.length ? filtered : undefined;
-  } else if (typeof obj === 'object' && obj !== null) {
-    const filtered = Object.fromEntries(
-      Object.entries(obj)
-        .map(([k, v]) => [k, removeEmptyValues(v)])
-        .filter(([_, v]) => v !== undefined && v !== null && v !== '')
-    );
-    return Object.keys(filtered).length ? filtered : undefined;
-  }
-  return obj === '' ? undefined : obj;
-};
 
 const App: FC = () => {
   const account = useAccount()
