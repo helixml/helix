@@ -199,12 +199,13 @@ class MessageProcessor {
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
       
-      // Create a temporary container that indicates streaming status
+      // Create a temporary container that indicates streaming status with CSS classes
+      // instead of inline HTML spans that might get escaped
       let wrappedPartialCitation = '<div class="citation-box streaming">';
       wrappedPartialCitation += '<div class="citation-header">SOURCES</div>';
       wrappedPartialCitation += '<div class="citation-item loading">';
-      wrappedPartialCitation += '<p class="citation-quote"><span class="start-quote">\u201C</span><span class="loading-text">Retrieving source information...</span><span class="end-quote">\u201D</span></p>';
-      wrappedPartialCitation += '<p class="citation-source"><span class="loading-text">Searching documents</span></p>';
+      wrappedPartialCitation += '<p class="citation-quote loading-full"><span class="start-quote">\u201C</span>Retrieving source information...<span class="end-quote">\u201D</span></p>';
+      wrappedPartialCitation += '<p class="citation-source loading-full">Searching documents</p>';
       wrappedPartialCitation += '</div></div>';
       
       const placeholder = this.createPlaceholder(wrappedPartialCitation, 'CITATION');
@@ -226,12 +227,12 @@ class MessageProcessor {
         const placeholder = this.createPlaceholder(formattedPartialCitation, 'CITATION');
         this.citations.push({ html: formattedPartialCitation, placeholder });
       } else {
-        // Create a placeholder citation container if we couldn't parse anything
+        // Create a placeholder citation with CSS classes for loading state
         let partialCitation = '<div class="citation-box streaming">';
         partialCitation += '<div class="citation-header">SOURCES</div>';
         partialCitation += '<div class="citation-item loading">';
-        partialCitation += '<p class="citation-quote"><span class="start-quote">\u201C</span><span class="loading-text">Retrieving source information...</span><span class="end-quote">\u201D</span></p>';
-        partialCitation += '<p class="citation-source"><span class="loading-text">Searching documents</span></p>';
+        partialCitation += '<p class="citation-quote loading-full"><span class="start-quote">\u201C</span>Retrieving source information...<span class="end-quote">\u201D</span></p>';
+        partialCitation += '<p class="citation-source loading-full">Searching documents</p>';
         partialCitation += '</div></div>';
         
         const placeholder = this.createPlaceholder(partialCitation, 'CITATION');
@@ -316,9 +317,10 @@ class MessageProcessor {
           if (snippetMatch) {
             snippet = snippetMatch[1].trim();
             
-            // For partial snippets in streaming, add an indicator
+            // For partial snippets in streaming, add an ellipsis indicator 
+            // BUT NO HTML - we'll style it separately using CSS classes
             if (isPartial && !excerptContent.includes('</snippet>')) {
-              snippet += ' <span class="loading-text">...</span>';
+              snippet += ' ...';
             }
             
             // Ensure we properly escape any HTML in the snippet
@@ -414,10 +416,29 @@ class MessageProcessor {
       
       // Add each excerpt with explicit quote marks to ensure they're visible
       excerpts.forEach(excerpt => {
-        html += '<div class="citation-item">';
+        // Add loading class if this excerpt is partial
+        const loadingClass = excerpt.isPartial ? ' loading-item' : '';
+        
+        html += `<div class="citation-item${loadingClass}">`;
         // Add explicit curly quote spans for better visibility 
-        html += '<p class="citation-quote"><span class="start-quote">\u201C</span>' + excerpt.snippet + '<span class="end-quote">\u201D</span></p>';
-        html += '<p class="citation-source"><a href="' + excerpt.fileUrl + '" target="_blank">' + excerpt.filename + '</a></p>';
+        html += '<p class="citation-quote"><span class="start-quote">\u201C</span>';
+        
+        // Add the snippet - if it's a loading state, add it with a dedicated class
+        if (excerpt.isPartial) {
+          html += `<span class="loading-content">${excerpt.snippet}</span>`;
+        } else {
+          html += excerpt.snippet;
+        }
+        
+        html += '<span class="end-quote">\u201D</span></p>';
+        
+        // Add file link or loading indicator
+        if (excerpt.isPartial && excerpt.filename === "Loading...") {
+          html += '<p class="citation-source"><span class="loading-search">Searching documents...</span></p>';
+        } else {
+          html += `<p class="citation-source"><a href="${excerpt.fileUrl}" target="_blank">${excerpt.filename}</a></p>`;
+        }
+        
         html += '</div>';
       });
       
@@ -427,13 +448,13 @@ class MessageProcessor {
     } catch (error) {
       console.error("Error formatting citation:", error);
       
-      // Simple fallback citation for errors
+      // Simple fallback citation for errors that doesn't use direct spans 
       if (isPartial) {
         let html = '<div class="citation-box streaming">';
         html += '<div class="citation-header">SOURCES</div>';
         html += '<div class="citation-item loading">';
-        html += '<p class="citation-quote"><span class="start-quote">\u201C</span><span class="loading-text">Retrieving source information...</span><span class="end-quote">\u201D</span></p>';
-        html += '<p class="citation-source"><span class="loading-text">Searching documents</span></p>';
+        html += '<p class="citation-quote loading-full"><span class="start-quote">\u201C</span>Retrieving source information...<span class="end-quote">\u201D</span></p>';
+        html += '<p class="citation-source loading-full">Searching documents</p>';
         html += '</div></div>';
         return html;
       }
@@ -527,38 +548,32 @@ class MessageProcessor {
       return;
     }
     
-    // Hide blinker if any citations are present during streaming (complete or partial)
-    if (this.isStreaming && this.citations.length > 0) {
-      console.debug('Hiding blinker because citation content is present during streaming');
+    // NEVER show blinker during streaming - the blinker should only appear after streaming is complete
+    if (this.isStreaming) {
+      console.debug('Hiding blinker because streaming is active');
+      return;
+    }
+    
+    // Also never show blinker when citations are present (even after streaming)
+    if (this.citations.length > 0) {
+      console.debug('Hiding blinker because citation content is present');
+      return;
+    }
+    
+    // Final check for any citation-related content
+    if (this.resultContent.includes('<excerpts>') || 
+        this.resultContent.includes('</excerpts>') ||
+        this.resultContent.includes('rag-citations-container') || 
+        this.resultContent.includes('citation-box') ||
+        this.resultContent.match(/---\s*<excerpts>/)) {
+      console.debug('Hiding blinker because citation content detected');
       return;
     }
     
     const blinkerHtml = `<span class="blinker-class">┃</span>`;
     
-    // Check if content includes citations
-    const hasCitation = 
-      /<div class="rag-citations-container">/.test(this.resultContent) || 
-      /&lt;div class="rag-citations-container"&gt;/.test(this.resultContent);
-    
-    if (hasCitation) {
-      // Insert before citation container
-      if (this.resultContent.includes('<div class="rag-citations-container">')) {
-        this.resultContent = this.resultContent.replace(
-          /<div class="rag-citations-container">/,
-          `${blinkerHtml}<div class="rag-citations-container">`
-        );
-      } else {
-        // Try with escaped version
-        this.resultContent = this.resultContent.replace(
-          /&lt;div class="rag-citations-container"&gt;/,
-          `${blinkerHtml}&lt;div class="rag-citations-container"&gt;`
-        );
-      }
-    } else {
-      // No citation, append at the end
-      this.resultContent += blinkerHtml;
-    }
-    
+    // No citation, append at the end
+    this.resultContent += blinkerHtml;
     this.blinker = blinkerHtml;
   }
   
@@ -567,7 +582,19 @@ class MessageProcessor {
    * This removes unsafe HTML while keeping our special elements intact
    */
   private sanitizeHTML(): void {
-    // First, find and temporarily replace citations to preserve them
+    // First, identify and handle citation delimiters (---)
+    // These are often confused with horizontal rules in markdown
+    if (this.isStreaming) {
+      // Remove any standalone triple dashes, which are used as citation delimiters
+      // but might be interpreted as horizontal rules
+      this.resultContent = this.resultContent.replace(/^\s*---\s*$/gm, '');
+      
+      // Also handle cases where they might be at the beginning or end of excerpts blocks
+      this.resultContent = this.resultContent.replace(/---\s*<excerpts>/g, '<excerpts>');
+      this.resultContent = this.resultContent.replace(/<\/excerpts>\s*---/g, '</excerpts>');
+    }
+    
+    // Find and temporarily replace citations to preserve them
     this.citations.forEach(citation => {
       if (citation.placeholder && this.resultContent.includes(citation.placeholder)) {
         // Instead of removing citations, mark them with a temporary marker
@@ -579,12 +606,25 @@ class MessageProcessor {
       }
     });
     
+    // During streaming, temporarily remove any standalone HR markdown that appears at the end
+    // and might be part of an incomplete message
+    if (this.isStreaming) {
+      // Check for horizontal rules at the end of the content
+      const lastLineHrRegex = /\n\s*(-{3,}|<hr\s*\/?>)\s*$/;
+      if (lastLineHrRegex.test(this.resultContent)) {
+        this.resultContent = this.resultContent.replace(lastLineHrRegex, '');
+      }
+      
+      // Handle any triple-dash delimiters that might be interpreted as horizontal rules
+      this.resultContent = this.resultContent.replace(/(?:^|\n)\s*---\s*(?:$|\n)/g, '\n\n');
+    }
+    
     // Continue with normal sanitization
     // Use DOMPurify to remove unsafe elements but keep our special ones
     this.resultContent = DOMPurify.sanitize(this.resultContent, {
       ALLOWED_TAGS: ['b', 'i', 'u', 'strong', 'em', 'code', 'pre', 'a', 'span', 'div', 'p', 
                     'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'details', 'summary', 
-                    'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+                    'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr'],
       ALLOWED_ATTR: ['href', 'class', 'target', 'rel', 'id', 'style'],
       KEEP_CONTENT: true,
       RETURN_DOM: false,
@@ -606,6 +646,21 @@ class MessageProcessor {
     // Fix code block indentation
     this.resultContent = this.resultContent.replace(/^\s*```/gm, '```');
     
+    // Handle citation delimiters (---) that might be confused with horizontal rules
+    // during streaming to prevent them from being rendered as <hr> tags
+    if (this.isStreaming) {
+      // Remove any standalone triple dashes that appear at the end, which
+      // might be part of an incomplete citation or think tag delimiter
+      const hrAtEndRegex = /\n-{3,}\s*$/;
+      if (hrAtEndRegex.test(this.resultContent)) {
+        this.resultContent = this.resultContent.replace(hrAtEndRegex, '');
+      }
+      
+      // Convert citation-related triple dashes to spaces
+      this.resultContent = this.resultContent.replace(/---\s*(?:<excerpts>|$)/g, ' <excerpts>');
+      this.resultContent = this.resultContent.replace(/(?:<\/excerpts>)\s*---/g, '</excerpts> ');
+    }
+    
     // Replace "---" with "</think>" if there's an unclosed think tag
     let openCount = 0;
     this.resultContent = this.resultContent.split('\n').map(line => {
@@ -614,6 +669,12 @@ class MessageProcessor {
       if (line.trim() === '---' && openCount > 0) {
         openCount--;
         return '</think>';
+      }
+      // Ignore isolated horizontal rules during streaming if they appear at the end
+      // as they might be part of an incomplete message
+      if (this.isStreaming && line.trim().match(/^-{3,}$/) && 
+          openCount === 0) {
+        return ''; // Remove any isolated horizontal rules during streaming
       }
       return line;
     }).join('\n');
@@ -642,6 +703,14 @@ ${trimmedContent}
 </div></details></div>`;
       }
     );
+    
+    // After think tag processing, check for any remaining <hr> tags when streaming
+    // and remove those at the end that might be incomplete
+    if (this.isStreaming) {
+      this.resultContent = this.resultContent.replace(/<hr\s*\/?>\s*$/g, '');
+      // Also remove any <hr> tags that appear right before excerpts
+      this.resultContent = this.resultContent.replace(/<hr\s*\/?>\s*<excerpts>/g, '<excerpts>');
+    }
   }
   
   /**
@@ -899,6 +968,66 @@ const citationStyles = `
   margin-left: 0.15em;
   top: 0.1em; /* Slight vertical adjustment */
 }
+
+/* New loading indicator styles to avoid raw HTML spans */
+.loading-full {
+  color: #aaa;
+  font-style: italic;
+  animation: ${subtleBounce} 1.2s infinite ease-in-out;
+}
+
+.loading-content {
+  color: #aaa;
+  font-style: italic;
+}
+
+.loading-content::after {
+  content: "...";
+  animation: ${subtleBounce} 1.2s infinite ease-in-out;
+  display: inline-block;
+}
+
+.loading-search {
+  color: #aaa;
+  font-style: italic;
+  display: inline-block;
+  position: relative;
+  padding-right: 20px;
+}
+
+.loading-search::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(88, 166, 255, 0.4);
+  border-top-color: rgba(88, 166, 255, 0.8);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-item {
+  position: relative;
+}
+
+.loading-item::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: rgba(88, 166, 255, 0.5);
+  animation: ${pulseFade} 1.5s infinite ease-in-out;
+}
 `;
 
 export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
@@ -910,7 +1039,7 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
 }) => {
   const theme = useTheme()
   if(!text) return null
-  
+
   // Process the message content
   const processContent = (content: string): string => {
     // If we have session info, process with full functionality
@@ -937,7 +1066,7 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     
     // Fix code block indentation
     processed = processed.replace(/^\s*```/gm, '```');
-    
+
     // Process thinking tags with the same logic as above
     let openCount = 0;
     processed = processed.split('\n').map(line => {
@@ -949,24 +1078,24 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       }
       return line;
     }).join('\n');
-    
+
     // Check if there's an unclosed think tag
     const openTagCount = (processed.match(/<think>/g) || []).length;
     const closeTagCount = (processed.match(/<\/think>/g) || []).length;
     const isThinking = openTagCount > closeTagCount;
-    
+
     if (isThinking) {
       // If there's an unclosed tag, add the closing tag
       processed += '\n</think>';
     }
-    
+
     // Convert <think> tags to styled divs
     processed = processed.replace(
       /<think>([\s\S]*?)<\/think>/g,
       (_, content) => {
         const trimmedContent = content.trim();
         if (!trimmedContent) return ''; // Skip empty think tags
-        
+
         return `<div class="think-container${isThinking ? ' thinking' : ''}"><details${isThinking ? ' open' : ''}><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
 
 ${trimmedContent}
@@ -987,7 +1116,7 @@ ${trimmedContent}
         return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
       }
     );
-    
+
     return processed;
   };
 
@@ -996,55 +1125,55 @@ ${trimmedContent}
       <style>
         {citationStyles}
       </style>
-      <Box
-        sx={{
-          '& pre': {
-            backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
-            padding: '1em',
-            borderRadius: '4px',
-            overflowX: 'auto',
+    <Box
+      sx={{
+        '& pre': {
+          backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
+          padding: '1em',
+          borderRadius: '4px',
+          overflowX: 'auto',
+        },
+        '& code': {
+          backgroundColor: 'transparent',
+          fontSize: '0.9rem',
+        },
+        '& :not(pre) > code': {
+          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
+          padding: '0.2em 0.4em',
+          borderRadius: '3px',
+        },
+        '& a': {
+          color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+        },
+        '& .think-container': {
+          margin: '1em 0',
+          padding: '1em',
+          borderRadius: '8px',
+          backgroundColor: theme.palette.mode === 'light' ? '#f5f5f5' : '#2a2a2a',
+          border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
+        },
+        '& .think-container.thinking': {
+          animation: `${rainbowShadow} 10s linear infinite`,
+        },
+        '& .think-header': {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5em',
+          cursor: 'pointer',
+          '&::-webkit-details-marker': {
+            display: 'none'
           },
-          '& code': {
-            backgroundColor: 'transparent',
-            fontSize: '0.9rem',
-          },
-          '& :not(pre) > code': {
-            backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
-            padding: '0.2em 0.4em',
-            borderRadius: '3px',
-          },
-          '& a': {
-            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
-          },
-          '& .think-container': {
-            margin: '1em 0',
-            padding: '1em',
-            borderRadius: '8px',
-            backgroundColor: theme.palette.mode === 'light' ? '#f5f5f5' : '#2a2a2a',
-            border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
-          },
-          '& .think-container.thinking': {
-            animation: `${rainbowShadow} 10s linear infinite`,
-          },
-          '& .think-header': {
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5em',
-            cursor: 'pointer',
-            '&::-webkit-details-marker': {
-              display: 'none'
-            },
-            '&::before': {
-              content: '"▶"',
-              transition: 'transform 0.2s',
-            }
-          },
-          '& details[open] .think-header::before': {
-            content: '"▼"',
-          },
-          '& .think-content': {
-            marginTop: '0.5em',
-          },
+          '&::before': {
+            content: '"▶"',
+            transition: 'transform 0.2s',
+          }
+        },
+        '& details[open] .think-header::before': {
+          content: '"▼"',
+        },
+        '& .think-content': {
+          marginTop: '0.5em',
+        },
           // Blinker styling
           '& .blinker-class': {
             animation: `${blink} 1.2s step-end infinite`,
@@ -1103,44 +1232,44 @@ ${trimmedContent}
             paddingLeft: '2em',
             marginBottom: '1.2em',
           },
-        }}
-      >
-        <Markdown
-          children={processContent(text)}
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw]}
-          className="interactionMessage"
-          components={{
-            code(props) {
-              const {children, className, node, ...rest} = props
-              const match = /language-(\w+)/.exec(className || '')
-              return match ? (
-                <SyntaxHighlighter
-                  {...rest}
-                  PreTag="div"
-                  children={String(children).replace(/\n$/, '')}
-                  language={match[1]}
-                  style={oneDark}
-                />
-              ) : (
-                <code {...rest} className={className}>
-                  {children}
-                </code>
-              )
-            },
-            p(props) {
-              const { children } = props;
-              return (
-                <Box
-                  component="p"
-                  sx={{
-                    my: 0.5,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {React.Children.map(children, child => {
-                    if (typeof child === 'string') {
-                      return child.split('\n').map((line, i, arr) => (
+      }}
+    >
+      <Markdown
+        children={processContent(text)}
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        className="interactionMessage"
+        components={{
+          code(props) {
+            const {children, className, node, ...rest} = props
+            const match = /language-(\w+)/.exec(className || '')
+            return match ? (
+              <SyntaxHighlighter
+                {...rest}
+                PreTag="div"
+                children={String(children).replace(/\n$/, '')}
+                language={match[1]}
+                style={oneDark}
+              />
+            ) : (
+              <code {...rest} className={className}>
+                {children}
+              </code>
+            )
+          },
+          p(props) {
+            const { children } = props;
+            return (
+              <Box
+                component="p"
+                sx={{
+                  my: 0.5,
+                  lineHeight: 1.4,
+                }}
+              >
+                {React.Children.map(children, child => {
+                  if (typeof child === 'string') {
+                    return child.split('\n').map((line, i, arr) => (
                       <React.Fragment key={i}>
                         {line}
                         {i < arr.length - 1 && <br />}
@@ -1149,12 +1278,12 @@ ${trimmedContent}
                   }
                   return child;
                 })}
-                </Box>
-              );
-            }
-          }}
-        />
-      </Box>
+              </Box>
+            );
+          }
+        }}
+      />
+    </Box>
     </>
   )
 }
