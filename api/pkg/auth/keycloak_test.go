@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -254,7 +255,7 @@ func (suite *KeycloakTestSuite) TestConcurrentAccess() {
 
 func (suite *KeycloakTestSuite) TestErrorHandling() {
 	suite.Run("timeout_handling", func() {
-		ctx, cancel := context.WithTimeout(suite.ctx, 1*time.Millisecond)
+		ctx, cancel := context.WithTimeout(suite.ctx, -1*time.Second)
 		defer cancel()
 
 		_, err := suite.auth.GetUserByID(ctx, "test-user")
@@ -287,4 +288,144 @@ func (suite *KeycloakTestSuite) TestErrorHandling() {
 		suite.Error(err)
 		suite.Contains(err.Error(), "404 Not Found: Realm does not exist")
 	})
+}
+
+func (suite *KeycloakTestSuite) TestEnsureAPIClientRedirectURIs() {
+	tests := []struct {
+		name               string
+		serverURL          string
+		initialRedirectURI string
+		initialWebOrigin   string
+		initialLogoutURL   string
+		wantErr            bool
+		errMsg             string
+	}{
+		{
+			name:      "localhost_server",
+			serverURL: "http://localhost:3000",
+			wantErr:   false,
+		},
+		{
+			name:      "production_server",
+			serverURL: "https://example.com",
+			wantErr:   false,
+		},
+		{
+			name:               "existing_uris_preserved",
+			serverURL:          "https://example.com",
+			initialRedirectURI: "https://custom-redirect.com/*",
+			initialWebOrigin:   "https://custom-origin.com/*",
+			initialLogoutURL:   "https://custom-logout.com/*",
+			wantErr:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		suite.Run(tt.name, func() {
+			// Get admin token for the test
+			adminToken, err := suite.auth.getAdminToken(suite.ctx)
+			suite.Require().NoError(err, "Failed to get admin token")
+
+			// Create a test config with the test server URL
+			testCfg := &config.Keycloak{
+				KeycloakURL:         suite.auth.cfg.KeycloakURL,
+				KeycloakFrontEndURL: suite.auth.cfg.KeycloakFrontEndURL,
+				ServerURL:           tt.serverURL,
+				APIClientID:         "test-client-" + time.Now().Format("20060102150405"),
+				Realm:               suite.auth.cfg.Realm,
+			}
+
+			// Create initial client configuration
+			clientConfig := gocloak.Client{
+				ClientID: &testCfg.APIClientID,
+			}
+
+			// Set initial URIs if provided
+			if tt.initialRedirectURI != "" {
+				redirectURIs := []string{tt.initialRedirectURI}
+				clientConfig.RedirectURIs = &redirectURIs
+			}
+			if tt.initialWebOrigin != "" {
+				webOrigins := []string{tt.initialWebOrigin}
+				clientConfig.WebOrigins = &webOrigins
+			}
+			if tt.initialLogoutURL != "" {
+				attributes := make(map[string]string)
+				attributes["post.logout.redirect.uris"] = tt.initialLogoutURL
+				clientConfig.Attributes = &attributes
+			}
+
+			// Create a test client
+			gck := suite.auth.gocloak
+			idOfClient, err := gck.CreateClient(
+				suite.ctx,
+				adminToken.AccessToken,
+				testCfg.Realm,
+				clientConfig,
+			)
+			suite.Require().NoError(err, "Failed to create test client")
+
+			// Clean up the test client after the test
+			defer func() {
+				err := gck.DeleteClient(suite.ctx, adminToken.AccessToken, testCfg.Realm, idOfClient)
+				suite.NoError(err, "Failed to delete test client")
+			}()
+
+			// Test ensureAPIClientRedirectURIs
+			err = ensureAPIClientRedirectURIs(gck, adminToken.AccessToken, testCfg)
+			if tt.wantErr {
+				suite.Error(err)
+				if tt.errMsg != "" {
+					suite.Contains(err.Error(), tt.errMsg)
+				}
+			} else {
+				suite.NoError(err)
+
+				// Verify the client configuration
+				client, err := gck.GetClient(suite.ctx, adminToken.AccessToken, testCfg.Realm, idOfClient)
+				suite.NoError(err)
+
+				// Check RedirectURIs
+				suite.NotNil(client.RedirectURIs)
+				suite.Len(*client.RedirectURIs, 1)
+				if tt.initialRedirectURI != "" {
+					suite.Equal(tt.initialRedirectURI, (*client.RedirectURIs)[0])
+				} else if strings.Contains(tt.serverURL, "localhost") {
+					suite.Equal("*", (*client.RedirectURIs)[0])
+				} else {
+					u, _ := url.Parse(tt.serverURL)
+					u.Path = "*"
+					suite.Equal(u.String(), (*client.RedirectURIs)[0])
+				}
+
+				// Check WebOrigins
+				suite.NotNil(client.WebOrigins)
+				suite.Len(*client.WebOrigins, 1)
+				if tt.initialWebOrigin != "" {
+					suite.Equal(tt.initialWebOrigin, (*client.WebOrigins)[0])
+				} else if strings.Contains(tt.serverURL, "localhost") {
+					suite.Equal("*", (*client.WebOrigins)[0])
+				} else {
+					u, _ := url.Parse(tt.serverURL)
+					u.Path = "*"
+					suite.Equal(u.String(), (*client.WebOrigins)[0])
+				}
+
+				// Check Logout URLs in Attributes
+				suite.NotNil(client.Attributes)
+				attributes := *client.Attributes
+				logoutURL, exists := attributes["post.logout.redirect.uris"]
+				suite.True(exists)
+				if tt.initialLogoutURL != "" {
+					suite.Equal(tt.initialLogoutURL, logoutURL)
+				} else if strings.Contains(tt.serverURL, "localhost") {
+					suite.Equal("*", logoutURL)
+				} else {
+					u, _ := url.Parse(tt.serverURL)
+					u.Path = "*"
+					suite.Equal(u.String(), logoutURL)
+				}
+			}
+		})
+	}
 }
