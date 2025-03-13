@@ -143,7 +143,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
-    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?access_token=${account.tokenUrlEscaped}&session_id=${currentSessionId}`;
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${currentSessionId}`;
     const rws = new ReconnectingWebSocket(url);
 
     const messageHandler = (event: MessageEvent<any>) => {
