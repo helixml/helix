@@ -119,7 +119,6 @@ type Keycloak struct {
 	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	APIClientID         string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
 	ClientSecret        string `envconfig:"KEYCLOAK_CLIENT_SECRET"` // If not set, will be looked up using admin API
-	FrontEndClientID    string `envconfig:"KEYCLOAK_FRONTEND_CLIENT_ID" default:"frontend"`
 	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
 	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
 	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
