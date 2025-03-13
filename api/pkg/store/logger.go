@@ -36,8 +36,8 @@ var (
 	// FileFieldName is the field name used for the file field.
 	FileFieldName = "file"
 
-	// SqlFieldName is the field name used for the sql field.
-	SqlFieldName = "sql"
+	// SQLFieldName is the field name used for the sql field.
+	SQLFieldName = "sql"
 
 	// RowsFieldName is the field name used for the rows field.
 	RowsFieldName = "rows"
@@ -63,7 +63,7 @@ func gormDefaultFieldsOrder() []string {
 		TimestampFieldName,
 		DurationFieldName,
 		FileFieldName,
-		SqlFieldName,
+		SQLFieldName,
 		RowsFieldName,
 	}
 }
@@ -83,7 +83,7 @@ func (l GormLogger) isExcluded(field string) bool {
 }
 
 // LogMode log mode
-func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
+func (l *GormLogger) LogMode(_ logger.LogLevel) logger.Interface {
 	return l
 }
 
@@ -171,7 +171,7 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 		}
 
 		// add sql field
-		if f == SqlFieldName && !l.isExcluded(f) {
+		if f == SQLFieldName && !l.isExcluded(f) {
 			if sql != "" {
 				event.Str("sql", sql)
 			}
