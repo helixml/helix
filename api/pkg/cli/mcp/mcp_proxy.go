@@ -153,7 +153,8 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	log.Info().Any("mcpTools", mcpTools).Msg("adding tools")
 
 	for _, mt := range mcpTools {
-		s.AddTool(mt.tool, mt.handler)
+		s.AddTool(mt.tool, mt.toolHandler)
+		s.AddPrompt(mt.prompt, mt.promptHandler)
 	}
 
 	// Start the server
@@ -165,8 +166,11 @@ func (mcps *ModelContextProtocolServer) Start() error {
 }
 
 type helixMCPTool struct {
-	tool    mcp.Tool
-	handler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	prompt        mcp.Prompt // Prompts are templates for calls, they are similar
+	promptHandler func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error)
+
+	tool        mcp.Tool
+	toolHandler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
 // TODO: load gptscript, zapier tools as well
@@ -194,7 +198,10 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 				continue
 			}
 
-			var mcpParams []mcp.ToolOption
+			var (
+				mcpParams          []mcp.ToolOption   // Tool parameters
+				mcpPromptArguments []mcp.PromptOption // Prompt arguments (for MCP prompts)
+			)
 
 			mcpParams = append(mcpParams, mcp.WithDescription(action.Description))
 
@@ -204,9 +211,16 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 						mcp.Required(),
 						mcp.Description(param.Description),
 					))
+					mcpPromptArguments = append(mcpPromptArguments, mcp.WithArgument(param.Name,
+						mcp.ArgumentDescription(param.Description),
+						mcp.RequiredArgument(),
+					))
 				} else {
 					mcpParams = append(mcpParams, mcp.WithString(param.Name,
 						mcp.Description(param.Description),
+					))
+					mcpPromptArguments = append(mcpPromptArguments, mcp.WithArgument(param.Name,
+						mcp.ArgumentDescription(param.Description),
 					))
 				}
 			}
@@ -215,11 +229,15 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 				mcpParams...,
 			)
 
+			mcpPrompt := mcp.NewPrompt(tool.Name, append(mcpPromptArguments, mcp.WithPromptDescription(action.Description))...)
+
 			log.Info().Any("tool", action).Msg("adding tool")
 
 			mcpTools = append(mcpTools, &helixMCPTool{
-				tool:    mcpTool,
-				handler: mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
+				prompt:        mcpPrompt,
+				promptHandler: mcps.getToolPromptHandler(mcps.appID, tool, action.Name),
+				tool:          mcpTool,
+				toolHandler:   mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
 			})
 		}
 	}
@@ -230,8 +248,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:    mcpTool,
-			handler: mcps.gptScriptToolHandler,
+			tool:        mcpTool,
+			toolHandler: mcps.gptScriptToolHandler,
 		})
 	}
 
@@ -241,8 +259,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:    mcpTool,
-			handler: mcps.zapierToolHandler,
+			tool:        mcpTool,
+			toolHandler: mcps.zapierToolHandler,
 		})
 	}
 
@@ -264,12 +282,19 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:    mcpTool,
-			handler: mcps.getKnowledgeToolHandler(knowledge.ID),
+			tool:        mcpTool,
+			toolHandler: mcps.getKnowledgeToolHandler(knowledge.ID),
 		})
 	}
 
 	return mcpTools, nil
+}
+
+func (mcps *ModelContextProtocolServer) getToolPromptHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	return func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		// log.Info().Str("prompt", prompt.Name).Msg("prompt handler")
+		return nil, nil
+	}
 }
 
 func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
