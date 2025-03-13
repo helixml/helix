@@ -129,6 +129,8 @@ const App: FC = () => {
     index: number;
   } | null>(null);
 
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
   // for now, all the STATE related code for the various tabs is still in this file
   // that's because synchronising state between the components and the app page
   // is unclear, so it's easier to just pass it down to the components
@@ -136,6 +138,7 @@ const App: FC = () => {
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
     if (app.id == "new") return;
+    if (hasUnsavedChanges) return; // Don't fetch if there are unsaved changes
     const now = Date.now();
     if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
     
@@ -150,7 +153,7 @@ const App: FC = () => {
       console.error('Failed to fetch knowledge:', error);
       snackbar.error('Failed to fetch knowledge');
     }
-  }, [api, snackbar, app?.id]);
+  }, [api, snackbar, app?.id, hasUnsavedChanges]);
 
   // Fetch knowledge initially when the app is loaded
   useEffect(() => {
@@ -470,6 +473,7 @@ const App: FC = () => {
         }
       }
       console.log('finished saving app')
+      setHasUnsavedChanges(false); // Reset unsaved changes flag after successful save
 
       if (!result) {
         throw new Error('No result returned from the server');
@@ -503,6 +507,7 @@ const App: FC = () => {
 
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
+    setHasUnsavedChanges(true); // Set unsaved changes flag when knowledge is updated
     
     // We should update both state variables in a single batch to prevent race conditions
     // and ensure the UI always shows consistent data
