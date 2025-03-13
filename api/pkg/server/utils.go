@@ -359,26 +359,31 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 		return true, nil
 	}
 
-	// Check if this is an app path
-	if strings.Contains(req.URL.Path, "/apps/") {
-		appPath := extractAppPathFromViewerURL(req.URL.Path)
-		if appPath != "" {
-			logger.Debug().Str("appPath", appPath).Msg("Path appears to be an app path")
+	// Check if this is an app path - ensure it matches the expected structure:
+	// /api/v1/filestore/viewer/dev/apps/... - not just any path with "apps" in it
+	appPath := extractAppPathFromViewerURL(req.URL.Path)
+	logger.Debug().
+		Str("originalPath", req.URL.Path).
+		Str("extractedAppPath", appPath).
+		Bool("isAppPath", appPath != "" && strings.HasPrefix(appPath, "apps/")).
+		Msg("App path extraction result")
 
-			// Check app access using the same logic as in the API handlers
-			hasAccess, appID, err := apiServer.checkAppFilestoreAccess(req.Context(), appPath, req, types.ActionGet)
-			if err != nil {
-				logger.Error().Err(err).Str("appPath", appPath).Msg("Error checking app filestore access")
-				return false, err
-			}
+	if appPath != "" && strings.HasPrefix(appPath, "apps/") {
+		logger.Debug().Str("appPath", appPath).Msg("Path appears to be an app path")
 
-			logger.Debug().
-				Str("appID", appID).
-				Bool("hasAccess", hasAccess).
-				Msg("App access check result")
-
-			return hasAccess, nil
+		// Check app access using the same logic as in the API handlers
+		hasAccess, appID, err := apiServer.checkAppFilestoreAccess(req.Context(), appPath, req, types.ActionGet)
+		if err != nil {
+			logger.Error().Err(err).Str("appPath", appPath).Msg("Error checking app filestore access")
+			return false, err
 		}
+
+		logger.Debug().
+			Str("appID", appID).
+			Bool("hasAccess", hasAccess).
+			Msg("App access check result")
+
+		return hasAccess, nil
 	}
 
 	reqUser := getRequestUser(req)
@@ -413,13 +418,19 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 
 // Helper function to extract app path from a viewer URL
 func extractAppPathFromViewerURL(urlPath string) string {
-	// Example: /api/v1/filestore/viewer/dev/apps/app_123/file.pdf
-	parts := strings.Split(urlPath, "/")
-	for i, part := range parts {
-		if part == "apps" && i+1 < len(parts) {
-			return strings.Join(parts[i:], "/")
-		}
+	// In the stripped case, we're receiving paths like:
+	// "{prefix}/apps/{app_id}/..." (after StripPrefix was applied)
+	// e.g. "dev/apps/app_123/file.pdf"
+
+	// Split the path into segments
+	segments := strings.Split(urlPath, "/")
+
+	// We need at least 2 segments and the second one should be "apps"
+	if len(segments) > 1 && segments[1] == "apps" {
+		// Return everything from "apps" onwards
+		return strings.Join(segments[1:], "/")
 	}
+
 	return ""
 }
 
