@@ -74,10 +74,23 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
   const account = useAccount();
+  const hasLocalChangesRef = useRef<boolean>(false);
+  const latestKnowledgeSourcesRef = useRef<IKnowledgeSource[]>([]);
+
+  const default_max_depth = 1;
+  const default_max_pages = 5;
+
+  useEffect(() => {
+    if (knowledgeSources && knowledgeSources.length > 0 && latestKnowledgeSourcesRef.current.length === 0) {
+      latestKnowledgeSourcesRef.current = JSON.parse(JSON.stringify(knowledgeSources));
+    }
+  }, [knowledgeSources]);
 
   const debouncedUpdate = useCallback(
     debounce((updatedSources: IKnowledgeSource[]) => {
       console.log('[KnowledgeEditor] Debounced update triggered with sources:', updatedSources);
+      hasLocalChangesRef.current = true;
+      latestKnowledgeSourcesRef.current = JSON.parse(JSON.stringify(updatedSources));
       onUpdate(updatedSources);
     }, 300),
     [onUpdate]
@@ -88,28 +101,44 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       knowledgeSources,
       disabled,
       knowledgeList,
-      appId
+      appId,
+      hasLocalChanges: hasLocalChangesRef.current
     });
+
+    if (hasLocalChangesRef.current && knowledgeSources && 
+        JSON.stringify(knowledgeSources) !== JSON.stringify(latestKnowledgeSourcesRef.current)) {
+      console.warn('[KnowledgeEditor] Received new knowledgeSources while having local changes:', {
+        incoming: knowledgeSources,
+        local: latestKnowledgeSourcesRef.current
+      });
+      
+      if (latestKnowledgeSourcesRef.current.length > 0) {
+        console.log('[KnowledgeEditor] Restoring local changes');
+        onUpdate(latestKnowledgeSourcesRef.current);
+      }
+    }
 
     return () => {
       console.log('[KnowledgeEditor] Component will unmount');
     };
-  }, [knowledgeSources, disabled, knowledgeList, appId]);
+  }, [knowledgeSources, disabled, knowledgeList, appId, onUpdate]);
 
   useEffect(() => {
     console.log('[KnowledgeEditor] Knowledge sources changed:', knowledgeSources);
+    
+    if (!hasLocalChangesRef.current || 
+        (knowledgeSources && knowledgeSources.length > 0 && latestKnowledgeSourcesRef.current.length === 0)) {
+      latestKnowledgeSourcesRef.current = JSON.parse(JSON.stringify(knowledgeSources));
+    }
   }, [knowledgeSources]);
 
-  useEffect(() => {
-    console.log('[KnowledgeEditor] Knowledge list (backend data) changed:', knowledgeList);
-  }, [knowledgeList]);
-
-  useEffect(() => {
-    console.log('KnowledgeEditor uploadProgress:', uploadProgress);
-  }, [uploadProgress]);
-
-  const default_max_depth = 1;
-  const default_max_pages = 5;
+  const handleSaveRequest = async () => {
+    if (onRequestSave) {
+      await onRequestSave();
+      hasLocalChangesRef.current = false;
+      console.log('[KnowledgeEditor] App saved, reset local changes flag');
+    }
+  };
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
@@ -118,6 +147,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
     console.log('[KnowledgeEditor] handleSourceUpdate - Original source:', knowledgeSources[index]);
     console.log('[KnowledgeEditor] handleSourceUpdate - Updated fields:', updatedSource);
+    
+    hasLocalChangesRef.current = true;
     
     const newSources = [...knowledgeSources];
     const existingSource = newSources[index];
@@ -144,6 +175,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     newSources[index] = newSource;
     console.log('[KnowledgeEditor] handleSourceUpdate - Final sources array being sent to parent:', newSources);
     
+    latestKnowledgeSourcesRef.current = JSON.parse(JSON.stringify(newSources));
+    
     if (updatedSource.name || updatedSource.description || 
         (updatedSource.source?.web?.urls && !updatedSource.source.filestore)) {
       debouncedUpdate(newSources);
@@ -160,8 +193,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const handleAddSource = (newSource: IKnowledgeSource) => {
     console.log('[KnowledgeEditor] handleAddSource - Adding new source:', newSource);
+    
+    hasLocalChangesRef.current = true;
+    
     let knowledges = [...knowledgeSources, newSource];
     console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', knowledges);
+    
+    latestKnowledgeSourcesRef.current = JSON.parse(JSON.stringify(knowledges));
+    
     onUpdate(knowledges);
     
     setExpanded(`panel${knowledgeSources.length}`);
@@ -173,8 +212,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const deleteSource = (index: number) => {
     console.log('[KnowledgeEditor] deleteSource - Deleting source at index:', index);
+    
+    hasLocalChangesRef.current = true;
+    
     const newSources = knowledgeSources.filter((_, i) => i !== index);
     console.log('[KnowledgeEditor] deleteSource - Remaining sources:', newSources);
+    
+    latestKnowledgeSourcesRef.current = JSON.parse(JSON.stringify(newSources));
+    
     onUpdate(newSources);
   };
 
@@ -1043,32 +1088,27 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     );
   };
 
-  // Add functions to open files in a new tab and in the filestore
   const openFileInNewTab = (file: IFileStoreItem, sourcePath: string) => {
     if (!account.token) {
       snackbarError('Must be logged in to view files');
       return;
     }
 
-    // Ensure the path is properly scoped to the app directory
     let basePath = sourcePath;
     if (!basePath.startsWith(`apps/${appId}/`)) {
       basePath = `apps/${appId}/${basePath}`;
     }
 
-    // Construct the full URL to the file
     const fileUrl = `${file.url}?access_token=${account.tokenUrlEscaped}`;
     window.open(fileUrl, '_blank');
   };
 
   const openInFilestore = (sourcePath: string) => {
-    // Ensure the path is properly scoped to the app directory
     let basePath = sourcePath;
     if (!basePath.startsWith(`apps/${appId}/`)) {
       basePath = `apps/${appId}/${basePath}`;
     }
 
-    // Open the filestore page with the given path
     window.open(`/files?path=${encodeURIComponent(basePath)}`, '_blank');
   };
 
@@ -1189,6 +1229,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         <Alert severity="error" sx={{ mt: 2 }}>
           Please specify at least one URL for each knowledge source.
         </Alert>
+      )}
+      {hasLocalChangesRef.current && (
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleSaveRequest}
+          sx={{ mt: 2, ml: 2 }}
+        >
+          Save Changes
+        </Button>
       )}
       <CrawledUrlsDialog
         open={urlDialogOpen}

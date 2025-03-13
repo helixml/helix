@@ -138,7 +138,10 @@ const App: FC = () => {
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
     if (app.id == "new") return;
-    if (hasUnsavedChanges) return; // Don't fetch if there are unsaved changes
+    if (hasUnsavedChanges) {
+      console.log('[App] fetchKnowledge - Skipping fetch due to unsaved changes');
+      return; // Don't fetch if there are unsaved changes
+    }
     const now = Date.now();
     if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
     
@@ -146,8 +149,14 @@ const App: FC = () => {
     try {
       const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
       if (knowledge) {
-        setKnowledgeList(knowledge);
-        setHasKnowledgeSources(knowledge.length > 0);
+        // Only update if we don't have unsaved changes (double-check in case state changed during fetch)
+        if (!hasUnsavedChanges) {
+          console.log('[App] fetchKnowledge - Updating knowledge from server');
+          setKnowledgeList(knowledge);
+          setHasKnowledgeSources(knowledge.length > 0);
+        } else {
+          console.log('[App] fetchKnowledge - Received knowledge from server but not updating due to unsaved changes');
+        }
       }
     } catch (error) {
       console.error('Failed to fetch knowledge:', error);
@@ -168,9 +177,15 @@ const App: FC = () => {
       if (fetchKnowledgeTimeoutRef.current) {
         clearTimeout(fetchKnowledgeTimeoutRef.current);
       }
+      
       fetchKnowledgeTimeoutRef.current = setTimeout(() => {
-        fetchKnowledge();
-        scheduleFetch(); // Schedule the next fetch
+        if (!hasUnsavedChanges) {
+          // Only fetch if there are no unsaved changes
+          fetchKnowledge();
+        } else {
+          console.log('[App] Periodic fetch - Skipping due to unsaved changes');
+        }
+        scheduleFetch(); // Schedule the next check
       }, 2000); // 2 seconds
     };
 
@@ -183,7 +198,7 @@ const App: FC = () => {
         clearTimeout(fetchKnowledgeTimeoutRef.current);
       }
     };
-  }, [app?.id, fetchKnowledge]);
+  }, [app?.id, fetchKnowledge, hasUnsavedChanges]);
 
   const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
     try {
@@ -213,6 +228,13 @@ const App: FC = () => {
   }, [api]);
 
   const handleRefreshKnowledge = useCallback((id: string) => {
+    // Don't refresh if we have unsaved changes
+    if (hasUnsavedChanges) {
+      console.log('[App] handleRefreshKnowledge - Skipping refresh due to unsaved changes');
+      snackbar.info('Please save your changes before refreshing knowledge.');
+      return;
+    }
+    
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
       snackbar: true,
     }).then(() => {
@@ -222,9 +244,16 @@ const App: FC = () => {
       console.error('Error refreshing knowledge:', error);
       snackbar.error('Failed to refresh knowledge');
     });
-  }, [api, fetchKnowledge]);
+  }, [api, fetchKnowledge, hasUnsavedChanges, snackbar]);
 
   const handleCompleteKnowledgePreparation = useCallback((id: string) => {
+    // Don't complete preparation if we have unsaved changes
+    if (hasUnsavedChanges) {
+      console.log('[App] handleCompleteKnowledgePreparation - Skipping due to unsaved changes');
+      snackbar.info('Please save your changes before completing knowledge preparation.');
+      return;
+    }
+    
     api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
       snackbar: true,
     }).then(() => {
@@ -235,7 +264,7 @@ const App: FC = () => {
       console.error('Error completing knowledge preparation:', error);
       snackbar.error('Failed to complete knowledge preparation');
     });
-  }, [api, fetchKnowledge]);
+  }, [api, fetchKnowledge, hasUnsavedChanges, snackbar]);
 
   useEffect(() => {
     let initialApp: IApp | null = null;
@@ -507,7 +536,12 @@ const App: FC = () => {
 
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
-    setHasUnsavedChanges(true); // Set unsaved changes flag when knowledge is updated
+    
+    // Set unsaved changes flag first to prevent any concurrent fetches from overriding
+    setHasUnsavedChanges(true);
+    
+    // Store the updated knowledge in the knowledgeSources state directly
+    setKnowledgeSources(updatedKnowledge);
     
     // We should update both state variables in a single batch to prevent race conditions
     // and ensure the UI always shows consistent data
@@ -551,10 +585,6 @@ const App: FC = () => {
       };
       
       console.log('[App] handleKnowledgeUpdate - New app state:', newAppState);
-      
-      // Update local state to keep it in sync with the app state
-      // This ensures both state values are always consistent
-      setKnowledgeSources(updatedKnowledge);
       
       return newAppState;
     });
@@ -1172,7 +1202,7 @@ const App: FC = () => {
           zIndex: 1000,
         }}>
           <Container maxWidth="xl">
-            <Box sx={{ p: 2 }}>
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center' }}>
               <Button
                 type="button"
                 color="secondary"
@@ -1182,6 +1212,32 @@ const App: FC = () => {
               >
                 Save
               </Button>
+              {hasUnsavedChanges && (
+                <Box 
+                  sx={{
+                    display: 'inline-flex',
+                    ml: 1,
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    backgroundColor: '#4caf50',
+                    boxShadow: '0 0 8px 2px rgba(76, 175, 80, 0.6)',
+                    animation: 'pulse 1.5s infinite',
+                    '@keyframes pulse': {
+                      '0%': {
+                        boxShadow: '0 0 0 0 rgba(76, 175, 80, 0.7)',
+                      },
+                      '70%': {
+                        boxShadow: '0 0 0 6px rgba(76, 175, 80, 0)',
+                      },
+                      '100%': {
+                        boxShadow: '0 0 0 0 rgba(76, 175, 80, 0)',
+                      },
+                    },
+                  }}
+                  title="You have unsaved changes"
+                />
+              )}
             </Box>
           </Container>
         </Box>
