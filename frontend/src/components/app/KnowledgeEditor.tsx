@@ -74,6 +74,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
   const account = useAccount();
+  const [loading, setLoading] = useState(false);
 
   const debouncedUpdate = useCallback(
     debounce((updatedSources: IKnowledgeSource[]) => {
@@ -158,31 +159,74 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     };
   }, [debouncedUpdate]);
 
-  const handleAddSource = (newSource: IKnowledgeSource) => {
+  const handleSaveKnowledge = async (source: IKnowledgeSource) => {
+    console.log('[KnowledgeEditor] handleSaveKnowledge - Saving knowledge source:', source);
+    console.log('[KnowledgeEditor] handleSaveKnowledge - Current knowledge sources:', knowledgeSources);
+    setLoading(true);
+    
+    try {
+      // Request save from parent component - typically App.tsx's onRequestSave method
+      if (typeof onRequestSave === 'function') {
+        const savedApp = await onRequestSave();
+        
+        if (savedApp) {
+          console.log('[KnowledgeEditor] handleSaveKnowledge - App saved successfully:', 
+            savedApp.config?.helix?.assistants?.[0]?.knowledge || []);
+        } else {
+          console.error('[KnowledgeEditor] handleSaveKnowledge - App save failed');
+        }
+        return savedApp;
+      } else {
+        console.error('[KnowledgeEditor] handleSaveKnowledge - No onRequestSave function provided');
+        return null;
+      }
+    } catch (error) {
+      console.error('[KnowledgeEditor] handleSaveKnowledge - Error saving knowledge:', error);
+      snackbarError('Failed to save knowledge');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddSource = async (newSource: IKnowledgeSource) => {
     console.log('[KnowledgeEditor] handleAddSource - Adding new source:', newSource);
-    let knowledges = [...knowledgeSources, newSource];
-    console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', knowledges);
-    onUpdate(knowledges);
     
-    // Immediately save the new knowledge source to the backend
-    if (onRequestSave) {
-      console.log('[KnowledgeEditor] handleAddSource - Saving new knowledge source to backend');
-      onRequestSave().then(() => {
+    // Generate an ID for the new source
+    const sourceWithId = {
+      ...newSource,
+      id: '',
+    };
+    
+    // Update the local state with the new source
+    const updatedKnowledge = [...knowledgeSources, sourceWithId];
+    console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', updatedKnowledge);
+    
+    // Update the parent component with the new knowledge array
+    onUpdate(updatedKnowledge);
+    
+    // Save the updated knowledge to the backend
+    console.log('[KnowledgeEditor] handleAddSource - Saving new knowledge source to backend');
+    
+    // Only attempt to save if onRequestSave is defined
+    if (typeof onRequestSave === 'function') {
+      const result = await handleSaveKnowledge(sourceWithId);
+      if (result) {
         console.log('[KnowledgeEditor] handleAddSource - Successfully saved new knowledge source to backend');
-      }).catch((error) => {
-        console.error('[KnowledgeEditor] handleAddSource - Failed to save new knowledge source to backend:', error);
-      });
+      } else {
+        console.error('[KnowledgeEditor] handleAddSource - Failed to save new knowledge source to backend');
+      }
+    } else {
+      console.warn('[KnowledgeEditor] handleAddSource - No onRequestSave function provided, cannot save to backend');
     }
     
+    // Expand the panel for the new source
     setExpanded(`panel${knowledgeSources.length}`);
-    
-    if (newSource.source.filestore) {
-      snackbarInfo(`Knowledge source "${newSource.name}" created. You can now upload files.`);
-    }
   };
 
   const deleteSource = (index: number) => {
     console.log('[KnowledgeEditor] deleteSource - Deleting source at index:', index);
+    
     const newSources = knowledgeSources.filter((_, i) => i !== index);
     console.log('[KnowledgeEditor] deleteSource - Remaining sources:', newSources);
     onUpdate(newSources);

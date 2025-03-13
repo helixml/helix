@@ -226,28 +226,34 @@ export const useApps = () => {
     }
   }, [api, account.models])
 
-  const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
+  const updateApp = useCallback(async (id: string, data: IAppUpdate): Promise<IApp | null> => {
+    console.log('[useApps] updateApp - Sending data to server:', {
+      id,
+      knowledge: data.config?.helix?.assistants?.[0]?.knowledge || []
+    });
+    
     try {
-      const url = `/api/v1/apps/${id}`;
-      console.log("useApps: Request URL:", url);
-      const result = await api.put<IAppUpdate, IApp>(url, updatedApp, {}, {
+      setLoading(true)
+      console.log('useApps: Request URL:', `/api/v1/apps/${id}`)
+      const res = await api.put<IApp>(`/api/v1/apps/${id}`, data, {}, {
         snackbar: true,
-      });      
-      if (!result) {
-        console.log("useApps: No result returned from update");
-        return undefined;
-      }
-      loadData();
-      return result;
-    } catch (error) {
-      console.error("useApps: Error updating app:", error);
-      if (error instanceof Error) {
-        console.error("Error message:", error.message);
-        console.error("Error stack:", error.stack);
-      }
-      throw error;
+      })
+      if(!res) return null
+      
+      console.log('[useApps] updateApp - Response from server:', {
+        id: res.id,
+        knowledge: res.config?.helix?.assistants?.[0]?.knowledge || []
+      });
+      
+      await loadData()
+      return res
+    } catch(e) {
+      console.error('[useApps] updateApp - Error:', e);
+      return null
+    } finally {
+      setLoading(false)
     }
-  }, [api, loadData]);
+  }, [api, loadData])
 
   const deleteApp = useCallback(async (id: string): Promise<boolean | undefined> => {
     await api.delete(`/api/v1/apps/${id}`, {}, {

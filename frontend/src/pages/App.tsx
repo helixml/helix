@@ -115,10 +115,17 @@ const App: FC = () => {
 
   const [providerEndpoint, setProviderEndpoint] = useState('');
 
+  // Flag to track if we have unsaved knowledge changes
+  const [hasUnsavedKnowledge, setHasUnsavedKnowledge] = useState(false);
+  
+  // Track the current operation to prevent race conditions
+  const isSavingRef = useRef(false);
+  
+  // Backend knowledge state (from API)
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
+  
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
-  const lastKnowledgeUpdateRef = useRef<number>(Date.now());
 
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
 
@@ -135,28 +142,49 @@ const App: FC = () => {
   // is unclear, so it's easier to just pass it down to the components
 
   const fetchKnowledge = useCallback(async () => {
+    // Skip fetching if we're currently saving - this prevents race conditions
+    if (isSavingRef.current) {
+      console.log('[App] fetchKnowledge - Save in progress, skipping fetch');
+      return;
+    }
+    
     if (!app?.id) return;
     if (app.id == "new") return;
     const now = Date.now();
     if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
     
     lastFetchTimeRef.current = now;
-    const fetchStartTime = Date.now();
+    
+    console.log('[App] fetchKnowledge - Fetching knowledge sources from server, hasUnsavedKnowledge:', hasUnsavedKnowledge);
     
     try {
       const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
+      console.log('[App] fetchKnowledge - Knowledge received from server:', knowledge);
+      
       if (knowledge) {
-        // Only update the state if there were no local changes during the fetch
-        if (fetchStartTime > lastKnowledgeUpdateRef.current) {
-          setKnowledgeList(knowledge);
+        // Skip updating if we started saving while the request was in flight
+        if (isSavingRef.current) {
+          console.log('[App] fetchKnowledge - Save started during fetch, discarding results');
+          return;
+        }
+        
+        // Update backend knowledge list
+        setKnowledgeList(knowledge);
+        
+        // Only update the UI state if there are no unsaved changes
+        if (!hasUnsavedKnowledge) {
+          console.log('[App] fetchKnowledge - No unsaved changes, updating knowledge sources to:', knowledge);
+          setKnowledgeSources(knowledge);
           setHasKnowledgeSources(knowledge.length > 0);
+        } else {
+          console.log('[App] fetchKnowledge - Unsaved changes exist, NOT updating knowledge sources');
         }
       }
     } catch (error) {
       console.error('Failed to fetch knowledge:', error);
       snackbar.error('Failed to fetch knowledge');
     }
-  }, [api, snackbar, app?.id]);
+  }, [api, snackbar, app?.id, hasUnsavedKnowledge]);
 
   // Fetch knowledge initially when the app is loaded
   useEffect(() => {
@@ -436,7 +464,7 @@ const App: FC = () => {
     return updatedApp
   }
 
-  const onSave = async (quiet: boolean = false): Promise<IApp | null> => {
+  const onSave = async (quiet: boolean = false, preserveKnowledge: boolean = false): Promise<IApp | null> => {
     if (!app) {
       snackbar.error('No app data available');
       return null;
@@ -457,6 +485,17 @@ const App: FC = () => {
 
     const updatedApp = getUpdatedAppState()
     if (!updatedApp) return null
+    
+    // Remember the current knowledge sources if we need to preserve them
+    const currentKnowledgeSources = preserveKnowledge ? [...knowledgeSources] : [];
+    
+    // Set saving flag to prevent race conditions
+    isSavingRef.current = true;
+    console.log('SAVE STARTING - setting isSavingRef to true');
+    
+    // Log the knowledge being sent to the server
+    console.log('[App] onSave - Knowledge being sent to server:', 
+      updatedApp.config.helix.assistants?.[0]?.knowledge || []);
 
     try {
       let result;
@@ -472,10 +511,36 @@ const App: FC = () => {
       } else {
         result = await apps.updateApp(app.id, updatedApp);
         if (result) {
+          // Log knowledge received from server
+          console.log('[App] onSave - Knowledge received from server:',
+            result.config.helix.assistants?.[0]?.knowledge || []);
+          
+          if (preserveKnowledge) {
+            // Modify the result to keep our current knowledge sources
+            if (result.config.helix.assistants && result.config.helix.assistants.length > 0) {
+              console.log('[App] onSave - Preserving knowledge sources:', currentKnowledgeSources);
+              result.config.helix.assistants = result.config.helix.assistants.map(assistant => ({
+                ...assistant,
+                knowledge: currentKnowledgeSources
+              }));
+            }
+          }
+          
+          // When preserving knowledge, set the knowledge first separately, 
+          // this ensures it won't be lost during the app update
+          if (preserveKnowledge) {
+            setKnowledgeSources(currentKnowledgeSources);
+          }
+          
+          // Then update the app object
           setApp(result);
+          
+          // Reset the unsaved knowledge flag since we've now saved
+          setHasUnsavedKnowledge(false);
+          console.log('[App] onSave - Reset hasUnsavedKnowledge to false');
         }
       }
-      console.log('finished saving app')
+      console.log('finished saving app');
 
       if (!result) {
         throw new Error('No result returned from the server');
@@ -483,6 +548,11 @@ const App: FC = () => {
       if (!quiet) {
         snackbar.success(isNewApp ? 'App created' : 'App updated');
       }
+      
+      // Log final app state after save
+      console.log('[App] onSave - Final app state after save:', 
+        result.config.helix.assistants?.[0]?.knowledge || []);
+      
       return result;
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -491,6 +561,10 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
       return null;
+    } finally {
+      // Always reset the saving flag when done
+      isSavingRef.current = false;
+      console.log('SAVE COMPLETED - setting isSavingRef to false');
     }
   }
 
@@ -510,7 +584,9 @@ const App: FC = () => {
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
     
-    lastKnowledgeUpdateRef.current = Date.now();
+    // Mark that we have unsaved knowledge changes
+    setHasUnsavedKnowledge(true);
+    console.log('[App] handleKnowledgeUpdate - Setting hasUnsavedKnowledge to true');
     
     setApp(prevApp => {
       if (!prevApp) {
@@ -687,6 +763,13 @@ const App: FC = () => {
     setImage(app.config.helix.image || '');
     setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
     setProviderEndpoint(app.config.helix.assistants ? app.config.helix.assistants[0]?.provider || '' : '');
+    
+    // Only update knowledge sources if we're not in the middle of saving
+    if (!isSavingRef.current && !hasUnsavedKnowledge) {
+      const appKnowledge = app.config.helix.assistants?.[0]?.knowledge || [];
+      setKnowledgeSources(appKnowledge);
+    }
+    
     setHasLoaded(true);
   }, [app])
 
@@ -1055,7 +1138,10 @@ const App: FC = () => {
                         disabled={isReadOnly}
                         knowledgeList={knowledgeList}
                         appId={app.id}
-                        onRequestSave={() => onSave(true)}
+                        onRequestSave={() => {
+                          const result = onSave(true, true);
+                          return result;
+                        }}
                       />
                       {knowledgeErrors && showErrors && (
                         <Alert severity="error" sx={{ mt: 2 }}>
