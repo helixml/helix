@@ -54,7 +54,9 @@ export const InteractionInference: FC<{
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   const getFileURL = (url: string) => {
-    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.tokenUrlEscaped}&redirect_urls=true`
+    if(!url) return ''
+    if(!serverConfig) return ''
+    return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`
   }
 
   // Add less detailed logging since processing is moved to Markdown component

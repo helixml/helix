@@ -1056,8 +1056,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       basePath = `apps/${appId}/${basePath}`;
     }
 
-    // Construct the full URL to the file
-    const fileUrl = `${file.url}?access_token=${account.tokenUrlEscaped}`;
+    // Construct the full URL to the file - token will be read from cookies
+    const fileUrl = file.url;
     window.open(fileUrl, '_blank');
   };
 

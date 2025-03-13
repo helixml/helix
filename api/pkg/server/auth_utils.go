@@ -72,11 +72,20 @@ func getQueryToken(r *http.Request) string {
 }
 
 func getRequestToken(r *http.Request) string {
+	// First try to get from Authorization header
 	token := getBearerToken(r)
-	if token == "" {
-		token = getQueryToken(r)
+	if token != "" {
+		return token
 	}
-	return token
+
+	// Then try to get from cookie
+	cookie, err := r.Cookie("access_token")
+	if err == nil && cookie != nil && cookie.Value != "" {
+		return cookie.Value
+	}
+
+	// Finally fall back to query parameter
+	return getQueryToken(r)
 }
 
 /*
