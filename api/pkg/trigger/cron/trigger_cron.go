@@ -259,7 +259,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 				AppID: app.ID,
 			})
 		if err != nil {
-			log.Error().
+			log.Warn().
 				Err(err).
 				Str("app_id", app.ID).
 				Msg("failed to run app cron job")
