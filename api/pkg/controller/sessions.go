@@ -324,7 +324,8 @@ func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.S
 	}
 
 	log.Debug().
-		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Metadata)
+		Str("session_id", sessionData.ID).
+		Msg("🟢 update session config")
 
 	return &sessionData.Metadata, nil
 }
