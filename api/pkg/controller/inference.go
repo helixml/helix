@@ -723,7 +723,7 @@ func (c *Controller) emitStepInfo(ctx context.Context, stepInfo *types.StepInfo)
 		return fmt.Errorf("failed to marshal step info: %w", err)
 	}
 
-	log.Info().
+	log.Trace().
 		Str("queue", queue).
 		Str("step_name", stepInfo.Name).
 		Str("step_message", stepInfo.Message).
