@@ -118,6 +118,7 @@ const App: FC = () => {
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
+  const lastKnowledgeUpdateRef = useRef<number>(Date.now());
 
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
 
@@ -140,11 +141,16 @@ const App: FC = () => {
     if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
     
     lastFetchTimeRef.current = now;
+    const fetchStartTime = Date.now();
+    
     try {
       const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
       if (knowledge) {
-        setKnowledgeList(knowledge);
-        setHasKnowledgeSources(knowledge.length > 0);
+        // Only update the state if there were no local changes during the fetch
+        if (fetchStartTime > lastKnowledgeUpdateRef.current) {
+          setKnowledgeList(knowledge);
+          setHasKnowledgeSources(knowledge.length > 0);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch knowledge:', error);
@@ -504,8 +510,8 @@ const App: FC = () => {
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
     console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
     
-    // We should update both state variables in a single batch to prevent race conditions
-    // and ensure the UI always shows consistent data
+    lastKnowledgeUpdateRef.current = Date.now();
+    
     setApp(prevApp => {
       if (!prevApp) {
         console.log('[App] handleKnowledgeUpdate - No previous app state, skipping update');
