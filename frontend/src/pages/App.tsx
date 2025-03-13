@@ -50,6 +50,7 @@ import {
   ISession,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  IOwnerType,
 } from '../types'
 
 
@@ -104,10 +105,30 @@ const App: FC = () => {
   const themeConfig = useThemeConfig()
 
   const [systemPrompt, setSystemPrompt] = useState('');
-  const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
-
   const [avatar, setAvatar] = useState('');
   const [image, setImage] = useState('');
+
+  // ===== Knowledge Source State Management =====
+  // knowledgeSources: UI STATE - Represents the knowledge sources as shown and edited in the UI
+  // - Source of truth for unsaved changes made by the user
+  // - Initially populated from app.config.helix.assistants[0].knowledge when app loads
+  // - Updated when user adds/edits/deletes knowledge sources
+  // - Used when saving changes to the backend
+  const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
+  
+  // knowledgeList: BACKEND STATE - Represents the knowledge sources as stored in the backend
+  // - Source of truth for processing status (ready, preparing, indexing, error)
+  // - Updated regularly via polling the backend API
+  // - Used to display status indicators, but NOT used for saving
+  // - Contains metadata like crawled URLs, progress percentage, version
+  const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
+  
+  // Tracks if there are any knowledge sources in the backend list
+  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
+  
+  // References for controlling the knowledge fetch polling
+  const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
 
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
 
@@ -115,13 +136,8 @@ const App: FC = () => {
 
   const [providerEndpoint, setProviderEndpoint] = useState('');
 
-  const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
-  const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastFetchTimeRef = useRef<number>(0);
-
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
 
-  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const [editingGptScript, setEditingGptScript] = useState<{
@@ -129,15 +145,43 @@ const App: FC = () => {
     index: number;
   } | null>(null);
 
-  // for now, all the STATE related code for the various tabs is still in this file
-  // that's because synchronising state between the components and the app page
-  // is unclear, so it's easier to just pass it down to the components
+  // Add component lifecycle logging
+  useEffect(() => {
+    console.log('[App] Component mounted');
+    return () => {
+      console.log('[App] Component will unmount');
+    };
+  }, []);
+
+  useEffect(() => {
+    console.log('[App] Component updated with app state:', {
+      id: app?.id,
+      appSource: app?.app_source,
+      isNewApp,
+      hasLoaded,
+      tabValue
+    });
+  }, [app, isNewApp, hasLoaded, tabValue]);
+
+  useEffect(() => {
+    console.log('[App] Knowledge sources changed:', knowledgeSources);
+  }, [knowledgeSources]);
+
+  useEffect(() => {
+    console.log('[App] Knowledge list (backend data) changed:', knowledgeList);
+  }, [knowledgeList]);
 
   const fetchKnowledge = useCallback(async () => {
-    if (!app?.id) return;
-    if (app.id == "new") return;
+    if (!app?.id) {
+      return;
+    }
+    if (app.id == "new") {
+      return;
+    }
     const now = Date.now();
-    if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
+    if (now - lastFetchTimeRef.current < 2000) {
+      return; // Prevent fetching more than once every 2 seconds
+    }
     
     lastFetchTimeRef.current = now;
     try {
@@ -150,7 +194,7 @@ const App: FC = () => {
       console.error('Failed to fetch knowledge:', error);
       snackbar.error('Failed to fetch knowledge');
     }
-  }, [api, snackbar, app?.id]);
+  }, [api, snackbar, app?.id, knowledgeSources]);
 
   // Fetch knowledge initially when the app is loaded
   useEffect(() => {
@@ -235,58 +279,87 @@ const App: FC = () => {
   }, [api, fetchKnowledge]);
 
   useEffect(() => {
-    let initialApp: IApp | null = null;
-    if (params.app_id === "new") {
-      const now = new Date();
-      initialApp = {
-        id: "new",
-        config: {
-          allowed_domains: [],
-          secrets: {},
-          helix: {
+    // This effect now only handles app ID changes, not app data loading
+    // It resets everything when the app ID changes
+    setHasInitialised(false);
+    setHasLoaded(false);
+  }, [params.app_id]);
+
+  // Add a new effect that runs when apps.data changes
+  useEffect(() => {
+    // Skip if no app ID or if it's a new app
+    if (!params.app_id || params.app_id === "new") return;
+    
+    // Find the app in the data
+    const foundApp = apps.data.find((a) => a.id === params.app_id);
+    
+    // If app is found and we haven't initialized yet, set it up
+    if (foundApp && !hasInitialised) {
+      // Set the app
+      setApp(foundApp);
+      setIsNewApp(false);
+      
+      // Set knowledge sources if available
+      if (foundApp.config.helix.assistants && foundApp.config.helix.assistants.length > 0) {
+        const knowledge = foundApp.config.helix.assistants[0].knowledge || [];
+        setKnowledgeSources(knowledge);
+      }
+    } else if (foundApp) {
+      // If app is found but we're already initialized, just update the app state
+      // without changing knowledge sources
+      setApp(foundApp);
+    }
+  }, [params.app_id, apps.data, hasInitialised]);
+
+  // Keep the "new" app initialization effect separate
+  useEffect(() => {
+    if (params.app_id !== "new") return;
+    
+    const now = new Date();
+    const newApp: IApp = {
+      id: "new",
+      config: {
+        allowed_domains: [],
+        secrets: {},
+        helix: {
+          name: "",
+          description: "",
+          avatar: "",
+          image: "",
+          external_url: "",
+          assistants: [{
+            id: "",
             name: "",
             description: "",
             avatar: "",
             image: "",
-            external_url: "",
-            assistants: [{
-              id: "",
-              name: "",
-              description: "",
-              avatar: "",
-              image: "",
-              provider: "",
-              model: "",
-              type: SESSION_TYPE_TEXT,
-              system_prompt: "",
-              rag_source_id: "",
-              lora_id: "",
-              is_actionable_template: "",
-              apis: [],
-              gptscripts: [],
-              tools: [],
-              zapier: []
-            }],
-          },
+            provider: "",
+            model: "",
+            type: SESSION_TYPE_TEXT,
+            system_prompt: "",
+            rag_source_id: "",
+            lora_id: "",
+            is_actionable_template: "",
+            apis: [],
+            gptscripts: [],
+            tools: [],
+            zapier: []
+          }],
         },
-        shared: false,
-        global: false,
-        created: now,
-        updated: now,
-        owner: account.user?.id || "",
-        owner_type: "user",
-        app_source: APP_SOURCE_HELIX,
-      };
-      setIsNewApp(true);
-    } else {
-      initialApp = apps.data.find((a) => a.id === params.app_id) || null;
-      setIsNewApp(false);
-    }
-    setApp(initialApp);
-    if (initialApp && initialApp.config.helix.assistants && initialApp.config.helix.assistants.length > 0) {
-      setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
-    }
-  }, [params.app_id, apps.data, account.user]);
+      },
+      shared: false,
+      global: false,
+      created: now,
+      updated: now,
+      owner: account.user?.id || "",
+      owner_type: "user" as IOwnerType,
+      app_source: APP_SOURCE_HELIX,
+    };
+    
+    setApp(newApp);
+    setIsNewApp(true);
+    setKnowledgeSources([]);
+  }, [params.app_id, account.user]);
 
   const isReadOnly = useMemo(() => {
     return app?.app_source === APP_SOURCE_GITHUB && !isNewApp;
@@ -502,31 +575,24 @@ const App: FC = () => {
   }
 
   const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
-    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
-    
     // We should update both state variables in a single batch to prevent race conditions
     // and ensure the UI always shows consistent data
     setApp(prevApp => {
       if (!prevApp) {
-        console.log('[App] handleKnowledgeUpdate - No previous app state, skipping update');
         return prevApp;
       }
-
-      console.log('[App] handleKnowledgeUpdate - Previous app state:', prevApp);
 
       // if we don't have any assistants - create a default one
       const currentAssistants = prevApp.config.helix.assistants || [];
       let updatedAssistants = currentAssistants;
       
       if (currentAssistants.length === 0) {
-        console.log('[App] handleKnowledgeUpdate - No assistants found, creating default assistant');
         // create a default assistant
         updatedAssistants = [{
           ...getDefaultAssistant(),
           knowledge: updatedKnowledge,
         }];
       } else {
-        console.log('[App] handleKnowledgeUpdate - Updating existing assistants with new knowledge');
         // update existing assistants with new knowledge
         updatedAssistants = currentAssistants.map(assistant => ({
           ...assistant,
@@ -544,8 +610,6 @@ const App: FC = () => {
           },
         },
       };
-      
-      console.log('[App] handleKnowledgeUpdate - New app state:', newAppState);
       
       // Update local state to keep it in sync with the app state
       // This ensures both state values are always consistent
@@ -669,6 +733,7 @@ const App: FC = () => {
   useEffect(() => {
     if (!app) return;
     if (hasInitialised) return;
+    
     setHasInitialised(true);
     setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
     setDescription(app.config.helix.description || '');
@@ -682,7 +747,7 @@ const App: FC = () => {
     setModel(app.config.helix.assistants ? app.config.helix.assistants[0]?.model || '' : '');
     setProviderEndpoint(app.config.helix.assistants ? app.config.helix.assistants[0]?.provider || '' : '');
     setHasLoaded(true);
-  }, [app])
+  }, [app, knowledgeSources])
 
   useEffect(() => {
     // When provider changes, check if current model exists in new provider's models
