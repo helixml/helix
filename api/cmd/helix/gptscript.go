@@ -37,9 +37,6 @@ func newGptScriptCmd() *cobra.Command {
 }
 
 func gptscriptServer(_ *cobra.Command) error {
-
-	// this is populated by a testfaster secret which is written into /root/secrets and then hoisted
-	// as the environment file for the gptscript systemd service which runs this
 	if os.Getenv("OPENAI_API_KEY") == "" {
 		log.Fatal().Msg("missing API key for OpenAI")
 	}

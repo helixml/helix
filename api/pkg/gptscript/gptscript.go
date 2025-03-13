@@ -141,8 +141,6 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 // DirectExecutor runs GPTScript scripts directly
 type DirectExecutor struct{}
 
-var _ Executor = &TestFasterExecutor{}
-
 func NewDirectExecutor() *DirectExecutor {
 	return &DirectExecutor{}
 }
