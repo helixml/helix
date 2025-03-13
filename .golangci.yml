@@ -26,9 +26,6 @@ issues:
     - path: 'api/pkg/cli'
       linters:
         - forbidigo
-    - path: 'api/pkg/testfaster_client'
-      linters:
-        - forbidigo
     - path: 'demos'
       linters:
         - forbidigo
