@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"net"
-
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/nats-io/nats-server/v2/server"
@@ -682,15 +680,5 @@ func checkStoreDir(dir string) error {
 	f.Close()
 	os.Remove(testFile)
 
-	return nil
-}
-
-func checkPortAvailable(port int) error {
-	addr := fmt.Sprintf(":%d", port)
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("port %d is in use", port)
-	}
-	l.Close()
 	return nil
 }
