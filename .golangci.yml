@@ -41,9 +41,6 @@ linters-settings:
     forbid:
       - ^fmt\.Print.*
       - ^print(ln)?$
-      # - os.Exit # it's not safe to exit in random places, because defer will not work.
-      # - log.Fatal.* # it calls os.Exit (see above)
-  revive:
     rules:
       - name: error-strings
         disabled: false
