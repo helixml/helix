@@ -36,9 +36,8 @@ func ValidateSessionMode(sessionMode string, acceptEmpty bool) (SessionMode, err
 	default:
 		if acceptEmpty && sessionMode == string(SessionModeNone) {
 			return SessionModeNone, nil
-		} else {
-			return SessionModeNone, fmt.Errorf("invalid session mode: %s", sessionMode)
 		}
+		return SessionModeNone, fmt.Errorf("invalid session mode: %s", sessionMode)
 	}
 }
 
@@ -59,9 +58,8 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	default:
 		if acceptEmpty && sessionType == string(SessionTypeNone) {
 			return SessionTypeNone, nil
-		} else {
-			return SessionTypeNone, fmt.Errorf("invalid session type: %s", sessionType)
 		}
+		return SessionTypeNone, fmt.Errorf("invalid session type: %s", sessionType)
 	}
 }
 
@@ -85,9 +83,8 @@ func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneInterac
 	default:
 		if acceptEmpty && cloneTextType == string(CloneInteractionModeNone) {
 			return CloneInteractionModeNone, nil
-		} else {
-			return CloneInteractionModeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
 		}
+		return CloneInteractionModeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
 	}
 }
 
@@ -253,9 +250,8 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 	default:
 		if acceptEmpty && moduleName == string(DataprepmoduleNone) {
 			return DataprepmoduleNone, nil
-		} else {
-			return DataprepmoduleNone, fmt.Errorf("invalid data prep module name: %s", moduleName)
 		}
+		return DataprepmoduleNone, fmt.Errorf("invalid data prep module name: %s", moduleName)
 	}
 }
 
@@ -309,9 +305,8 @@ func ValidateEntityType(datasetType string, acceptEmpty bool) (DataEntityType, e
 	default:
 		if acceptEmpty && datasetType == string(DataEntityTypeNone) {
 			return DataEntityTypeNone, nil
-		} else {
-			return DataEntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
 		}
+		return DataEntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
 	}
 }
 
