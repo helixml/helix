@@ -1,3 +1,4 @@
+import React, { useState, useEffect, FC } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -5,11 +6,12 @@ import FormGroup from '@mui/material/FormGroup'
 import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import React, { useState } from 'react'
 import ModelPicker from '../create/ModelPicker'
 import ProviderEndpointPicker from '../create/ProviderEndpointPicker'
 import {
-  IProviderEndpoint,
+  TypesProviderEndpoint,
+} from '../../api/api'
+import {
   IAppFlatState,
 } from '../../types'
 
@@ -19,10 +21,10 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
-  providerEndpoints?: IProviderEndpoint[],
+  providerEndpoints?: TypesProviderEndpoint[],
 }
 
-const AppSettings: React.FC<AppSettingsProps> = ({
+const AppSettings: FC<AppSettingsProps> = ({
   app,
   onUpdate,
   readOnly = false,
@@ -40,6 +42,19 @@ const AppSettings: React.FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
+
+  // Update local state when app prop changes
+  useEffect(() => {
+    setName(app.name || '')
+    setDescription(app.description || '')
+    setSystemPrompt(app.systemPrompt || '')
+    setAvatar(app.avatar || '')
+    setImage(app.image || '')
+    setShared(app.shared || false)
+    setGlobal(app.global || false)
+    setModel(app.model || '')
+    setProvider(app.provider || '')
+  }, [app]) // Re-run effect when app changes
 
   // Handle blur event - gather all current state values and call onUpdate
   const handleBlur = () => {

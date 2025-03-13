@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import {
   IApp,
   IAppFlatState,
@@ -11,9 +11,13 @@ import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
 import useRouter from './useRouter'
+import { useEndpointProviders } from './useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
-import { validateApp } from '../utils/app'
+import {
+  validateApp,
+  getAppFlatState,
+} from '../utils/app'
 
 /**
  * Hook to manage single app state and operations
@@ -25,6 +29,7 @@ export const useApp = (appId: string) => {
   const account = useAccount()
   const { navigate } = useRouter()
   const { NewInference } = useStreaming()
+  const endpointProviders = useEndpointProviders()
   
   // Main app state
   const [app, setApp] = useState<IApp | null>(null)
@@ -47,6 +52,11 @@ export const useApp = (appId: string) => {
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
   )
   const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings')
+
+  const flatApp = useMemo(() => {
+    if(!app) return {}
+    return getAppFlatState(app)
+  }, [app])
   
   const getDefaultAssistant = useCallback((): IAssistantConfig => {
     return {
@@ -98,6 +108,8 @@ export const useApp = (appId: string) => {
         snackbar: showErrors,
       })
       loadedApp.config.helix.assistants[0].knowledge = knowledge || []
+
+      await endpointProviders.loadData()
 
       setApp(loadedApp)
       setInitialised(true)
@@ -247,6 +259,19 @@ export const useApp = (appId: string) => {
     }
   }, [api, snackbar])
   
+  /**
+   * Saves the app from the flat state
+   * @param updates - The updates to apply
+   */
+  const saveFlatApp = useCallback(async (updates: IAppFlatState) => {
+    if (!app) return
+    const newApp = mergeFlatStateIntoApp(app, updates)
+    await saveApp(newApp)
+  }, [
+    app,
+    saveApp,
+  ])
+
   /**
    * Handles sending a new inference message
    * @param currentInputValue - Optional override for the current input value
@@ -408,15 +433,17 @@ export const useApp = (appId: string) => {
     appId,
     account.user,
   ])
-  
+
   return {
     // App state
     app,
+    flatApp,
     setApp,
     mergeFlatStateIntoApp,
     isLoading,
     isSaving,
     initialized,
+    getDefaultAssistant,
 
     // Validation methods
     validateApp,
@@ -428,6 +455,7 @@ export const useApp = (appId: string) => {
     // App operations
     loadApp,
     saveApp,
+    saveFlatApp,
     
     // Inference methods
     loading,
@@ -448,6 +476,9 @@ export const useApp = (appId: string) => {
     
     // API keys
     onAddAPIKey,
+
+    // Endpoint providers
+    endpointProviders: endpointProviders.data,
   }
 }
 

@@ -10,13 +10,15 @@ import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
 
 import {
-  IProviderEndpoint
-} from '../../types'
+  TypesProviderEndpoint,
+  TypesProviderEndpointType,
+  TypesOwnerType,
+} from '../../api/api'
 
 const ProviderEndpointPicker: FC<{  
   providerEndpoint: string | undefined,
   onSetProviderEndpoint: (providerEndpoint: string) => void,
-  providerEndpoints: IProviderEndpoint[],
+  providerEndpoints: TypesProviderEndpoint[],
 }> = ({  
   providerEndpoint,
   onSetProviderEndpoint,
@@ -48,10 +50,10 @@ const ProviderEndpointPicker: FC<{
       updated: '',
       name: 'default',
       description: '',
-      endpoint_type: 'global',
+      endpoint_type: ('global' as TypesProviderEndpointType),
       models: [],
       owner: '',
-      owner_type: 'user',
+      owner_type: ('user' as TypesOwnerType),
       base_url: '',
       api_key: '',
       id: '',          
@@ -113,7 +115,7 @@ const ProviderEndpointPicker: FC<{
                 key={provider.name}
                 sx={{fontSize: "large"}}
                 onClick={() => {
-                  onSetProviderEndpoint(provider.name)
+                  onSetProviderEndpoint(provider.name || '')
                   handleCloseMenu()
                 }}
                 selected={provider.name === providerEndpoint}
