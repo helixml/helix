@@ -77,7 +77,7 @@ const Files: FC = () => {
     if(file.directory) {
       filestore.setPath(getRelativePath(filestore.config, file))
     } else {
-      window.open(`${file.url}?access_token=${account.tokenUrlEscaped}`)
+      window.open(file.url)
     }
   }, [
     filestore.config,
