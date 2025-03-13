@@ -10,9 +10,6 @@ import Tabs from '@mui/material/Tabs'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
-import { v4 as uuidv4 } from 'uuid'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-
 import ApiIntegrations from '../components/app/ApiIntegrations'
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
@@ -38,11 +35,6 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
-import {
-  removeEmptyValues,
-  getAppFlatState,
-  validateApp,
-} from '../utils/app'
 
 import {
   APP_SOURCE_GITHUB,
@@ -64,12 +56,12 @@ import {
 
 const App: FC = () => {
   const account = useAccount()
-  const apps = useApps()
   const endpointProviders = useEndpointProviders()
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
-  const filestore = useFilestore();
+  const filestore = useFilestore()
+  const themeConfig = useThemeConfig()
   const {
     params,
     navigate,
@@ -77,46 +69,13 @@ const App: FC = () => {
 
   const appTools = useApp(params.app_id)
 
-  // this is the value used for the preview inference
-  const [ inputValue, setInputValue ] = useState('')
-
-  // TODO: use this from appTools
-  const [ hasInitialised, setHasInitialised ] = useState(false)
-
-  const [ secrets, setSecrets ] = useState<Record<string, string>>({})
-  const [ allowedDomains, setAllowedDomains ] = useState<string[]>([])
   const [ schema, setSchema ] = useState('')
-  const [ showErrors, setShowErrors ] = useState(false)
   const [ showBigSchema, setShowBigSchema ] = useState(false)
-  const [ hasLoaded, setHasLoaded ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
-
-  const [app, setApp] = useState<IApp | null>(null);
-  const [isNewApp, setIsNewApp] = useState(false);
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
   const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
-
-  const themeConfig = useThemeConfig()
-
-  
-  const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
-
-  
-
-  const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
-
-  
-
-  const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
-  const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastFetchTimeRef = useRef<number>(0);
-
-  const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
-
-  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
-  const [loading, setLoading] = useState(false);
 
   const [editingGptScript, setEditingGptScript] = useState<{
     tool: IAssistantGPTScript;
@@ -150,23 +109,22 @@ const App: FC = () => {
    * Launches the app - we assume the app has been saving we it's been edited
    */
   const handleLaunch = async () => {
-    if (!app) {
+    if (!appTools.app) {
       snackbar.error('We have no app to launch')
       return
     }
-    navigate('new', { app_id: app.id })
+    navigate('new', { app_id: appTools.id })
   }
+  
+  const isGithubApp = useMemo(() => {
+    if(!appTools.app) return true
+    return appTools.app?.app_source === APP_SOURCE_GITHUB
+  }, [appTools.app])
 
   const isReadOnly = useMemo(() => {
-    return app?.app_source === APP_SOURCE_GITHUB && !isNewApp;
-  }, [app, isNewApp]);
-
-  const readOnly = useMemo(() => {
-    if(!app) return true
-    return false
-  }, [
-    app,
-  ])
+    if(!appTools.app) return true
+    return isGithubApp
+  }, [appTools.app, isGithubApp])
 
   const sessionID = useMemo(() => {
     return session.data?.id || ''
@@ -174,6 +132,7 @@ const App: FC = () => {
     session.data,
   ])
 
+  
 
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
@@ -194,7 +153,7 @@ const App: FC = () => {
     }
   })
 
-  const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]); 
+  
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
@@ -218,26 +177,8 @@ const App: FC = () => {
     }
   }, [account.apiKeys, snackbar]);  
 
-
-  const assistants = app?.config.helix.assistants || []
-  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
-  const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
-  const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
-
-  useEffect(() => {
-    if(!account.user) return
-    endpointProviders.loadData()
-    if(params.app_id) {
-      account.loadApiKeys({
-        types: 'app',
-        app_id: params.app_id,
-      })
-    }
-  }, [account.user])
-
   if(!account.user) return null
-  if(!app) return null
-  if(!hasLoaded && params.app_id !== "new") return null
+  if(!appTools.app) return null
   
   return (
     <Page
@@ -248,7 +189,7 @@ const App: FC = () => {
           routeName: 'apps'
         },
         {
-          title: app.config.helix.name || 'App',
+          title: appTools.flatApp.name || 'App',
         }
       ]}
       topbarContent={(
@@ -269,7 +210,6 @@ const App: FC = () => {
             color="secondary"
             variant="contained"
             onClick={handleLaunch}
-            disabled={app.id === 'new'}
           >
             Launch
           </Button>
@@ -302,8 +242,8 @@ const App: FC = () => {
                     <AppSettings
                       app={appTools.flatApp}
                       onUpdate={appTools.saveFlatApp}
-                      readOnly={readOnly}
-                      showErrors={showErrors}
+                      readOnly={isReadOnly}
+                      showErrors={appTools.showErrors}
                       isAdmin={account.admin}
                       providerEndpoints={endpointProviders.data}
                     />
@@ -323,14 +263,14 @@ const App: FC = () => {
                         loadFiles={appTools.handleLoadFiles}
                         uploadProgress={filestore.uploadProgress}
                         disabled={isReadOnly}
-                        knowledgeList={knowledgeList}
-                        appId={app.id}
+                        knowledgeList={appTools.knowledge}
+                        appId={appTools.id}
                         onRequestSave={async () => {
                           console.log('--------------------------------------------')
                           console.log('run onSave()')
                         }}
                       />
-                      {knowledgeErrors && showErrors && (
+                      {appTools.knowledgeErrors && appTools.showErrors && (
                         <Alert severity="error" sx={{ mt: 2 }}>
                           Please specify at least one URL for each knowledge source.
                         </Alert>
@@ -341,14 +281,14 @@ const App: FC = () => {
                   {tabValue === 'integrations' && (
                     <>
                       <ApiIntegrations
-                        apis={apiAssistants}
+                        apis={appTools.apiAssistants}
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
                         isReadOnly={isReadOnly}
                       />
 
                       <ZapierIntegrations
-                        zapier={zapierAssistants}
+                        zapier={appTools.zapierAssistants}
                         onSaveZapierTool={appTools.onSaveZapierTool}
                         onDeleteZapierTool={appTools.onDeleteZapierTool}
                         isReadOnly={isReadOnly}
@@ -358,7 +298,7 @@ const App: FC = () => {
 
                   {tabValue === 'gptscripts' && (
                     <GPTScriptsSection
-                      app={app}
+                      app={appTools.app}
                       onAddGptScript={() => {
                         const newScript: IAssistantGPTScript = {
                           name: '',
@@ -367,7 +307,7 @@ const App: FC = () => {
                         };
                         setEditingGptScript({
                           tool: newScript,
-                          index: gptscriptsAssistants.length
+                          index: appTools.gptscriptsAssistants.length
                         });
                       }}
                       onEdit={(tool, index) => setEditingGptScript({tool, index})}
@@ -380,12 +320,11 @@ const App: FC = () => {
                   {tabValue === 'apikeys' && (
                     <APIKeysSection
                       apiKeys={account.apiKeys}
-                      onAddAPIKey={() => account.addAppAPIKey(app.id)}
+                      onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
-                      allowedDomains={allowedDomains}
-                      setAllowedDomains={setAllowedDomains}
+                      allowedDomains={appTools.flatApp.allowedDomains || []}
+                      setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({allowedDomains})}
                       isReadOnly={isReadOnly}
-                      readOnly={readOnly}
                     />
                   )}
 
@@ -393,15 +332,15 @@ const App: FC = () => {
                     <DevelopersSection
                       schema={schema}
                       setSchema={setSchema}
-                      showErrors={showErrors}
-                      appId={app.id}
+                      showErrors={appTools.showErrors}
+                      appId={appTools.id}
                       navigate={navigate}
                     />
                   )}
 
                   {tabValue === 'logs' && (
                     <Box sx={{ mt: 2 }}>
-                      <AppLogsTable appId={app.id} />
+                      <AppLogsTable appId={appTools.id} />
                     </Box>
                   )}
                 </Box>
@@ -411,18 +350,18 @@ const App: FC = () => {
                 <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
               ) : (
                 <PreviewPanel
-                  loading={loading}
+                  loading={appTools.isInferenceLoading}
                   name={appTools.flatApp.name || ''}
                   avatar={appTools.flatApp.avatar || ''}
                   image={appTools.flatApp.image || ''}
                   isSearchMode={isSearchMode}
                   setIsSearchMode={setIsSearchMode}
-                  inputValue={inputValue}
-                  setInputValue={setInputValue}
+                  inputValue={appTools.inputValue}
+                  setInputValue={appTools.setInputValue}
                   onInference={appTools.onInference}
                   onSearch={appTools.onSearch}
-                  hasKnowledgeSources={hasKnowledgeSources}
-                  searchResults={searchResults}
+                  hasKnowledgeSources={appTools.knowledge.length > 0}
+                  searchResults={appTools.searchResults}
                   session={session.data}
                   serverConfig={account.serverConfig}
                   themeConfig={themeConfig}
@@ -479,14 +418,14 @@ const App: FC = () => {
               }}
             >
               <TextField
-                error={showErrors && !schema}
+                error={appTools.showErrors && !schema}
                 value={schema}
                 onChange={(e) => setSchema(e.target.value)}
                 fullWidth
                 multiline
                 disabled
                 label="App Configuration"
-                helperText={showErrors && !schema ? "Please enter a schema" : ""}
+                helperText={appTools.showErrors && !schema ? "Please enter a schema" : ""}
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
             </Box>
@@ -549,8 +488,8 @@ const App: FC = () => {
                   } : null)}
                   label="Name"
                   fullWidth
-                  error={showErrors && !editingGptScript.tool.name}
-                  helperText={showErrors && !editingGptScript.tool.name ? 'Please enter a name' : ''}
+                  error={appTools.showErrors && !editingGptScript.tool.name}
+                  helperText={appTools.showErrors && !editingGptScript.tool.name ? 'Please enter a name' : ''}
                   disabled={isReadOnly}
                 />
               </Grid>
@@ -563,8 +502,8 @@ const App: FC = () => {
                   } : null)}
                   label="Description"
                   fullWidth
-                  error={showErrors && !editingGptScript.tool.description}
-                  helperText={showErrors && !editingGptScript.tool.description ? "Description is required" : ""}
+                  error={appTools.showErrors && !editingGptScript.tool.description}
+                  helperText={appTools.showErrors && !editingGptScript.tool.description ? "Description is required" : ""}
                   disabled={isReadOnly}
                 />
               </Grid>
@@ -579,8 +518,8 @@ const App: FC = () => {
                   fullWidth
                   multiline
                   rows={10}
-                  error={showErrors && !editingGptScript.tool.content}
-                  helperText={showErrors && !editingGptScript.tool.content ? "Script content is required" : ""}
+                  error={appTools.showErrors && !editingGptScript.tool.content}
+                  helperText={appTools.showErrors && !editingGptScript.tool.content ? "Script content is required" : ""}
                   disabled={isReadOnly}
                 />
               </Grid>
