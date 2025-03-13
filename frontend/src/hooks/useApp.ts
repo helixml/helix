@@ -14,8 +14,7 @@ import {
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
-import useRouter from './useRouter'
-import { useEndpointProviders } from './useEndpointProviders'
+import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
@@ -31,6 +30,7 @@ export const useApp = (appId: string) => {
   const api = useApi()
   const snackbar = useSnackbar()
   const account = useAccount()
+  const endpointProviders = useEndpointProviders()
   const { NewInference } = useStreaming()
   
   /**
@@ -91,6 +91,18 @@ export const useApp = (appId: string) => {
     return app.config.helix.assistants || [getDefaultAssistant()]
   }, [app, getDefaultAssistant])
 
+  const apiAssistants = useMemo(() => {
+    return assistants.length > 0 ? assistants[0].apis || [] : []
+  }, [assistants])
+
+  const zapierAssistants = useMemo(() => {
+    return assistants.length > 0 ? assistants[0].zapier || [] : []
+  }, [assistants])
+
+  const gptscriptsAssistants = useMemo(() => {
+    return assistants.length > 0 ? assistants[0].gptscripts || [] : []
+  }, [assistants])
+  
   /**
    * 
    * 
@@ -721,8 +733,7 @@ export const useApp = (appId: string) => {
         showLoading: true,
       })
       await loadKnowledge()
-      if (!app) return
-      setApp(app)
+      await endpointProviders.loadData()
       account.loadApiKeys({
         types: 'app',
         app_id: appId,
@@ -738,10 +749,14 @@ export const useApp = (appId: string) => {
 
   return {
     // App state
+    id: appId,
     app,
     flatApp,
     assistants,
-    loading: isInferenceLoading,
+    apiAssistants,
+    zapierAssistants,
+    gptscriptsAssistants,
+    isInferenceLoading,
     isAppLoading,
     isAppSaving,
     initialized,
