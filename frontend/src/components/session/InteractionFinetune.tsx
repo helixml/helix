@@ -124,6 +124,12 @@ export const InteractionFinetune: FC<{
     session,
   ])
 
+  const getFileURL = (file: string) => {
+    if(!serverConfig?.filestore_prefix) return ''
+    const useURL = `${serverConfig.filestore_prefix}/${file}`
+    return useURL
+  }
+
   if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
 
   const matches = useMediaQuery(theme.breakpoints.down('md'))
@@ -146,7 +152,7 @@ export const InteractionFinetune: FC<{
                     return file.match(/\.txt$/i) ? false : true
                   })
                   .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.tokenUrlEscaped}`
+                    const useURL = getFileURL(file)
                     const filenameParts = file.split('/')
                     const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
@@ -202,7 +208,7 @@ export const InteractionFinetune: FC<{
                     return true
                   })
                   .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.tokenUrlEscaped}`
+                    const useURL = getFileURL(file)
                     const filenameParts = file.split('/')
                     const filename = filenameParts[filenameParts.length - 1] || ''
 
