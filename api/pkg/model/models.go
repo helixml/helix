@@ -114,12 +114,10 @@ func ProcessModelName(
 			if modelName == "" {
 				// default text model for non-finetune inference
 				return ModelOllamaLlama38b, nil
-
-			} else {
-				// allow user-provided model name (e.g. assume API users
-				// know what they're doing).
-				return modelName, nil
 			}
+			// allow user-provided model name (e.g. assume API users
+			// know what they're doing).
+			return modelName, nil
 		}
 	case types.SessionTypeImage:
 		if modelName == "" {
