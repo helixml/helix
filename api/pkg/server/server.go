@@ -453,7 +453,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		runnerID := vars["runner_id"]
 		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
 		log.Debug().Interface("request", r).Msg("nats request")
-		fmt.Printf("proxying runner websocket request to nats for runner %s", runnerID)
 
 		// Upgrade the incoming HTTP connection to a WebSocket connection.
 		upgrader := websocket.Upgrader{
