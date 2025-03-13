@@ -164,6 +164,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', knowledges);
     onUpdate(knowledges);
     
+    // Immediately save the new knowledge source to the backend
+    if (onRequestSave) {
+      console.log('[KnowledgeEditor] handleAddSource - Saving new knowledge source to backend');
+      onRequestSave().then(() => {
+        console.log('[KnowledgeEditor] handleAddSource - Successfully saved new knowledge source to backend');
+      }).catch((error) => {
+        console.error('[KnowledgeEditor] handleAddSource - Failed to save new knowledge source to backend:', error);
+      });
+    }
+    
     setExpanded(`panel${knowledgeSources.length}`);
     
     if (newSource.source.filestore) {
@@ -176,6 +186,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     const newSources = knowledgeSources.filter((_, i) => i !== index);
     console.log('[KnowledgeEditor] deleteSource - Remaining sources:', newSources);
     onUpdate(newSources);
+    
+    // Immediately save the deletion to the backend
+    if (onRequestSave) {
+      console.log('[KnowledgeEditor] deleteSource - Saving deletion to backend');
+      onRequestSave().then(() => {
+        console.log('[KnowledgeEditor] deleteSource - Successfully saved deletion to backend');
+      }).catch((error) => {
+        console.error('[KnowledgeEditor] deleteSource - Failed to save deletion to backend:', error);
+      });
+    }
   };
 
   const refreshSource = (index: number) => {
