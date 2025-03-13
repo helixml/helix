@@ -19,16 +19,8 @@ import (
 	"github.com/rs/zerolog/log"
 	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
-
-// zerologAdapter adapts zerolog to GORM's logger.Writer interface
-type zerologAdapter struct{}
-
-func (a *zerologAdapter) Printf(format string, args ...interface{}) {
-	log.Debug().Msgf(format, args...)
-}
 
 type PostgresStore struct {
 	cfg config.Store
@@ -350,13 +342,7 @@ func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 			dialector = gormpostgres.Open(dsn)
 
 			gormConfig := &gorm.Config{
-				Logger: logger.New(
-					&zerologAdapter{},
-					logger.Config{
-						// Set log level to Error to avoid logging "record not found" messages
-						LogLevel: logger.Error,
-					},
-				),
+				Logger: NewGormLogger(time.Second, true),
 			}
 
 			if cfg.schemaName != "" {
