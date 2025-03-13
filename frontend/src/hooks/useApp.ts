@@ -29,7 +29,8 @@ export const useApp = (appId: string) => {
   // Main app state
   const [app, setApp] = useState<IApp | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [hasLoaded, setHasLoaded] = useState(false)
+  const [isSaving, setIsSaving] = useState(true)
+  const [initialized, setInitialised] = useState(false)
 
   // App validation states
   const [showErrors, setShowErrors] = useState(false)
@@ -98,9 +99,8 @@ export const useApp = (appId: string) => {
       })
       loadedApp.config.helix.assistants[0].knowledge = knowledge || []
 
-      setHasLoaded(true)
-      
       setApp(loadedApp)
+      setInitialised(true)
     } catch (error) {
       console.error('Failed to load app:', error)
       return null
@@ -216,8 +216,8 @@ export const useApp = (appId: string) => {
     quiet?: boolean,
   } = {
     quiet: false,
-  }): Promise<IApp | null> => {
-    if (!app) return null
+  }) => {
+    if (!app) return
     
     // Validate before saving
     const validationErrors = validateApp(app)
@@ -226,23 +226,24 @@ export const useApp = (appId: string) => {
       if (!opts.quiet) {
         snackbar.error(`Please fix the errors before saving: ${validationErrors.join(', ')}`)
       }
-      return null
+      return
     }
     
     try {
+      setIsSaving(true)
       const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
       setApp(savedApp)
       if (!opts.quiet) {
         snackbar.success('App saved successfully')
       }
-      
-      return savedApp
+      setIsSaving(false)
+      return 
     } catch (error) {
       console.error('Failed to save app:', error)
       if (!opts.quiet) {
         snackbar.error('Failed to save app')
       }
-      return null
+      return
     }
   }, [api, snackbar])
   
@@ -414,7 +415,8 @@ export const useApp = (appId: string) => {
     setApp,
     mergeFlatStateIntoApp,
     isLoading,
-    hasLoaded,
+    isSaving,
+    initialized,
 
     // Validation methods
     validateApp,
