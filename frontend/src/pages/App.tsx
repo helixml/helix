@@ -26,6 +26,7 @@ import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import Window from '../components/widgets/Window'
 import { useStreaming } from '../contexts/streaming'
+import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useApps from '../hooks/useApps'
@@ -64,6 +65,7 @@ import {
 const App: FC = () => {
   const account = useAccount()
   const apps = useApps()
+  const endpointProviders = useEndpointProviders()
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
@@ -121,164 +123,39 @@ const App: FC = () => {
     index: number;
   } | null>(null);
 
-  // for now, all the STATE related code for the various tabs is still in this file
-  // that's because synchronising state between the components and the app page
-  // is unclear, so it's easier to just pass it down to the components
-
-  const fetchKnowledge = useCallback(async () => {
-    if (!app?.id) return;
-    if (app.id == "new") return;
-    const now = Date.now();
-    if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
+  
+  /**
+   * Handles tab change in the app interface
+   * @param event - React event
+   * @param newValue - New tab value
+   */
+  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
+    setTabValue(newValue)
     
-    lastFetchTimeRef.current = now;
-    try {
-      const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
-      if (knowledge) {
-        setKnowledgeList(knowledge);
-        setHasKnowledgeSources(knowledge.length > 0);
+    // Update URL search params
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString())
+      newParams.set('tab', newValue)
+      
+      // Update URL without reload
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`)
       }
-    } catch (error) {
-      console.error('Failed to fetch knowledge:', error);
-      snackbar.error('Failed to fetch knowledge');
-    }
-  }, [api, snackbar, app?.id]);
-
-  // Fetch knowledge initially when the app is loaded
-  useEffect(() => {
-    if (app?.id) {
-      fetchKnowledge();
-    }
-  }, [app?.id, fetchKnowledge]);
-
-  // Set up periodic fetching
-  useEffect(() => {
-    const scheduleFetch = () => {
-      if (fetchKnowledgeTimeoutRef.current) {
-        clearTimeout(fetchKnowledgeTimeoutRef.current);
-      }
-      fetchKnowledgeTimeoutRef.current = setTimeout(() => {
-        fetchKnowledge();
-        scheduleFetch(); // Schedule the next fetch
-      }, 2000); // 2 seconds
-    };
-
-    if (app?.id) {
-      scheduleFetch();
-    }
-
-    return () => {
-      if (fetchKnowledgeTimeoutRef.current) {
-        clearTimeout(fetchKnowledgeTimeoutRef.current);
-      }
-    };
-  }, [app?.id, fetchKnowledge]);
-
-  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
-    try {
-      const filesResult = await api.get('/api/v1/filestore/list', {
-        params: {
-          path,
-        }
-      })
-      if(filesResult) {
-        return filesResult
-      }
-    } catch(e) {}
-    return []
-  }, [api]);
-
-  // Upload the files to the filestore
-  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
-    const formData = new FormData()
-    files.forEach((file) => {
-      formData.append("files", file)
+      
+      return newParams
     })
-    await api.post('/api/v1/filestore/upload', formData, {
-      params: {
-        path,
-      },
-    })
-  }, [api]);
-
-  const handleRefreshKnowledge = useCallback((id: string) => {
-    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
-      snackbar: true,
-    }).then(() => {
-      // Call fetchKnowledge immediately after the refresh is initiated
-      fetchKnowledge();
-    }).catch((error) => {
-      console.error('Error refreshing knowledge:', error);
-      snackbar.error('Failed to refresh knowledge');
-    });
-  }, [api, fetchKnowledge]);
-
-  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
-    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
-      snackbar: true,
-    }).then(() => {
-      // Call fetchKnowledge immediately after completing preparation
-      fetchKnowledge();
-      snackbar.success('Knowledge preparation completed. Indexing started.');
-    }).catch((error) => {
-      console.error('Error completing knowledge preparation:', error);
-      snackbar.error('Failed to complete knowledge preparation');
-    });
-  }, [api, fetchKnowledge]);
-
-  useEffect(() => {
-    let initialApp: IApp | null = null;
-    if (params.app_id === "new") {
-      const now = new Date();
-      initialApp = {
-        id: "new",
-        config: {
-          allowed_domains: [],
-          secrets: {},
-          helix: {
-            name: "",
-            description: "",
-            avatar: "",
-            image: "",
-            external_url: "",
-            assistants: [{
-              id: "",
-              name: "",
-              description: "",
-              avatar: "",
-              image: "",
-              provider: "",
-              model: "",
-              type: SESSION_TYPE_TEXT,
-              system_prompt: "",
-              rag_source_id: "",
-              lora_id: "",
-              is_actionable_template: "",
-              apis: [],
-              gptscripts: [],
-              tools: [],
-              zapier: []
-            }],
-          },
-        },
-        shared: false,
-        global: false,
-        created: now,
-        updated: now,
-        owner: account.user?.id || "",
-        owner_type: "user",
-        app_source: APP_SOURCE_HELIX,
-      };
-      setIsNewApp(true);
-    } else {
-      initialApp = apps.data.find((a) => a.id === params.app_id) || null;
-      setIsNewApp(false);
+  }
+  
+  /**
+   * Launches the app - we assume the app has been saving we it's been edited
+   */
+  const handleLaunch = async () => {
+    if (!app) {
+      snackbar.error('We have no app to launch')
+      return
     }
-    setApp(initialApp);
-    if (initialApp && initialApp.config.helix.assistants && initialApp.config.helix.assistants.length > 0) {
-      setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
-    }
-  }, [params.app_id, apps.data, account.user]);
+    navigate('new', { app_id: app.id })
+  }
 
   const isReadOnly = useMemo(() => {
     return app?.app_source === APP_SOURCE_GITHUB && !isNewApp;
@@ -297,118 +174,6 @@ const App: FC = () => {
     session.data,
   ])
 
-  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
-    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge);
-    
-    // We should update both state variables in a single batch to prevent race conditions
-    // and ensure the UI always shows consistent data
-    setApp(prevApp => {
-      if (!prevApp) {
-        console.log('[App] handleKnowledgeUpdate - No previous app state, skipping update');
-        return prevApp;
-      }
-
-      console.log('[App] handleKnowledgeUpdate - Previous app state:', prevApp);
-
-      // if we don't have any assistants - create a default one
-      const currentAssistants = prevApp.config.helix.assistants || [];
-      let updatedAssistants = currentAssistants;
-      
-      if (currentAssistants.length === 0) {
-        console.log('[App] handleKnowledgeUpdate - No assistants found, creating default assistant');
-        // create a default assistant
-        updatedAssistants = [{
-          ...appTools.getDefaultAssistant(),
-          knowledge: updatedKnowledge,
-        }];
-      } else {
-        console.log('[App] handleKnowledgeUpdate - Updating existing assistants with new knowledge');
-        // update existing assistants with new knowledge
-        updatedAssistants = currentAssistants.map(assistant => ({
-          ...assistant,
-          knowledge: updatedKnowledge,
-        }));
-      }
-
-      const newAppState = {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-      
-      console.log('[App] handleKnowledgeUpdate - New app state:', newAppState);
-      
-      // Update local state to keep it in sync with the app state
-      // This ensures both state values are always consistent
-      setKnowledgeSources(updatedKnowledge);
-      
-      return newAppState;
-    });
-  }
-
-  // const getUpdatedSchema = useCallback(() => {
-  //   if (!app) return '';
-  //   // Create a temporary app state with current form values
-  //   const currentConfig = {
-  //     ...app.config.helix,
-  //     name: name || app.id,
-  //     description,
-  //     avatar,
-  //     image,
-  //     assistants: (app.config.helix.assistants || []).map(assistant => ({
-  //       ...assistant,
-  //       system_prompt: systemPrompt,
-  //       knowledge: knowledgeSources,
-  //       model: model,
-  //     })),
-  //   };
-
-  //   // Remove empty values and format as YAML
-  //   let cleanedConfig = removeEmptyValues(currentConfig);
-  //   const configName = cleanedConfig.name;
-  //   delete cleanedConfig.name;
-  //   cleanedConfig = {
-  //     "apiVersion": "app.aispec.org/v1alpha1",
-  //     "kind": "AIApp",
-  //     "metadata": {
-  //       "name": configName
-  //     },
-  //     "spec": cleanedConfig
-  //   };
-  //   return stringifyYaml(cleanedConfig, { indent: 2 });
-  // }, [app, name, description, avatar, image, systemPrompt, knowledgeSources, model]);
-
-  // Update schema whenever relevant form fields change
-  // useEffect(() => {
-  //   if (!hasInitialised) return;
-  //   setSchema(getUpdatedSchema());
-  // }, [
-  //   hasInitialised,
-  //   getUpdatedSchema,
-  //   name,
-  //   description,
-  //   avatar,
-  //   image,
-  //   systemPrompt,
-  //   knowledgeSources,
-  //   model,
-  // ]);
-
-  // useEffect(() => {
-  //   // When provider changes, check if current model exists in new provider's models
-  //   const currentProviderModels = account.models;
-  //   const currentModelExists = currentProviderModels.some(m => m.id === model);
-
-  //   // If current model doesn't exist in new provider's models, select the first available model
-  //   if (!currentModelExists && currentProviderModels.length > 0) {
-  //     setModel(currentProviderModels[0].id);
-  //   }
-  // }, [providerEndpoint, account.models, model]);
 
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
@@ -428,54 +193,6 @@ const App: FC = () => {
       session.setData(newSession)
     }
   })
-
-  const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
-    if (!app) return;
-    
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
-        const gptscripts = [...(assistant.gptscripts || [])];
-        const targetIndex = typeof index === 'number' ? index : gptscripts.length;
-        gptscripts[targetIndex] = script;
-        return {
-          ...assistant,
-          gptscripts
-        };
-      });
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-    setEditingGptScript(null);
-  }, [app]);
-
-  const onDeleteGptScript = useCallback((scriptId: string) => {
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, []);
 
   const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]); 
 
@@ -501,168 +218,27 @@ const App: FC = () => {
     }
   }, [account.apiKeys, snackbar]);  
 
-  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
-    if (!app) return;
-    console.log('App - saving API tool:', { tool, index });
-    
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      let assistants = prevApp.config.helix.assistants || []
-      let isNew = typeof index !== 'number'
-
-      if(index === undefined) {
-        assistants = [appTools.getDefaultAssistant()]
-        index = 0
-      }
-
-      const updatedAssistants = assistants.map(assistant => {
-        const apis = [...(assistant.apis || [])];
-        const targetIndex = typeof index === 'number' ? index : apis.length;
-        console.log('App - API tool update:', {
-          currentApis: apis,
-          targetIndex,
-          isNew,
-        });
-        apis[targetIndex] = tool;
-        return {
-          ...assistant,
-          apis
-        };
-      });
-
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, [app]);
-
-  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
-    if (!app) return;
-    console.log('App - saving Zapier tool:', { tool, index });
-    
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      let assistants = prevApp.config.helix.assistants || []
-      let isNew = typeof index !== 'number'
-
-      if(index === undefined) {
-        assistants = [appTools.getDefaultAssistant()]
-        index = 0
-      }
-
-      const updatedAssistants = assistants.map(assistant => {
-        const zapier = [...(assistant.zapier || [])];
-        const targetIndex = typeof index === 'number' ? index : zapier.length;
-        console.log('App - Zapier tool update:', {
-          currentZapier: zapier,
-          targetIndex,
-          isNew: typeof index !== 'number'
-        });
-        zapier[targetIndex] = tool;
-        return {
-          ...assistant,
-          zapier
-        };
-      });
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, [app]);
-
-  const onDeleteApiTool = useCallback((toolId: string) => {
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        apis: (assistant.apis || []).filter((api) => api.name !== toolId)
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, []);
-
-  const onDeleteZapierTool = useCallback((toolId: string) => {
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, []);
 
   const assistants = app?.config.helix.assistants || []
   const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
   const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
   const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
 
+  useEffect(() => {
+    if(!account.user) return
+    endpointProviders.loadData()
+    if(params.app_id) {
+      account.loadApiKeys({
+        types: 'app',
+        app_id: params.app_id,
+      })
+    }
+  }, [account.user])
+
   if(!account.user) return null
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
   
-  const handleLaunch = async () => {
-    alert('launch')
-    // if (app.id === 'new') {
-    //   snackbar.error('Please save the app before launching');
-    //   return;
-    // }
-
-    // try {
-    //   const savedApp = await onSave(true);
-    //   if (savedApp) {
-    //     navigate('new', { app_id: savedApp.id });
-    //   } else {
-    //     snackbar.error('Failed to save app before launching');
-    //   }
-    // } catch (error) {
-    //   console.error('Error saving app before launch:', error);
-    //   snackbar.error('Failed to save app before launching');
-    // }
-  };
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
-    setTabValue(newValue);
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev.toString());
-      newParams.set('tab', newValue);
-      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
-      return newParams;
-    });
-  };
-
   return (
     <Page
       showDrawerButton={false}
@@ -729,7 +305,7 @@ const App: FC = () => {
                       readOnly={readOnly}
                       showErrors={showErrors}
                       isAdmin={account.admin}
-                      providerEndpoints={appTools.endpointProviders}
+                      providerEndpoints={endpointProviders.data}
                     />
                   )}
 
@@ -739,17 +315,20 @@ const App: FC = () => {
                         Knowledge Sources
                       </Typography>
                       <KnowledgeEditor
-                        knowledgeSources={knowledgeSources}
-                        onUpdate={handleKnowledgeUpdate}
-                        onRefresh={handleRefreshKnowledge}
-                        onCompletePreparation={handleCompleteKnowledgePreparation}
-                        onUpload={handleFileUpload}
-                        loadFiles={handleLoadFiles}
+                        knowledgeSources={appTools.knowledge}
+                        onUpdate={appTools.handleKnowledgeUpdate}
+                        onRefresh={appTools.handleRefreshKnowledge}
+                        onCompletePreparation={appTools.handleCompleteKnowledgePreparation}
+                        onUpload={appTools.handleFileUpload}
+                        loadFiles={appTools.handleLoadFiles}
                         uploadProgress={filestore.uploadProgress}
                         disabled={isReadOnly}
                         knowledgeList={knowledgeList}
                         appId={app.id}
-                        onRequestSave={async () => true/*onSave(true)*/}
+                        onRequestSave={async () => {
+                          console.log('--------------------------------------------')
+                          console.log('run onSave()')
+                        }}
                       />
                       {knowledgeErrors && showErrors && (
                         <Alert severity="error" sx={{ mt: 2 }}>
@@ -763,15 +342,15 @@ const App: FC = () => {
                     <>
                       <ApiIntegrations
                         apis={apiAssistants}
-                        onSaveApiTool={onSaveApiTool}
-                        onDeleteApiTool={onDeleteApiTool}
+                        onSaveApiTool={appTools.onSaveApiTool}
+                        onDeleteApiTool={appTools.onDeleteApiTool}
                         isReadOnly={isReadOnly}
                       />
 
                       <ZapierIntegrations
                         zapier={zapierAssistants}
-                        onSaveZapierTool={onSaveZapierTool}
-                        onDeleteZapierTool={onDeleteZapierTool}
+                        onSaveZapierTool={appTools.onSaveZapierTool}
+                        onDeleteZapierTool={appTools.onDeleteZapierTool}
                         isReadOnly={isReadOnly}
                       />
                     </>
@@ -792,7 +371,7 @@ const App: FC = () => {
                         });
                       }}
                       onEdit={(tool, index) => setEditingGptScript({tool, index})}
-                      onDeleteGptScript={onDeleteGptScript}
+                      onDeleteGptScript={appTools.onDeleteGptScript}
                       isReadOnly={isReadOnly}
                       isGithubApp={isGithubApp}
                     />
@@ -801,7 +380,7 @@ const App: FC = () => {
                   {tabValue === 'apikeys' && (
                     <APIKeysSection
                       apiKeys={account.apiKeys}
-                      onAddAPIKey={appTools.onAddAPIKey}
+                      onAddAPIKey={() => account.addAppAPIKey(app.id)}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={allowedDomains}
                       setAllowedDomains={setAllowedDomains}
@@ -952,7 +531,7 @@ const App: FC = () => {
           onCancel={() => setEditingGptScript(null)}
           onSubmit={() => {
             if (editingGptScript.tool) {
-              onSaveGptScript(editingGptScript.tool, editingGptScript.index);
+              appTools.onSaveGptScript(editingGptScript.tool, editingGptScript.index);
             }
           }}
         >

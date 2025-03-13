@@ -5,6 +5,10 @@ import {
   IKnowledgeSource,
   IAssistantConfig,
   IKnowledgeSearchResult,
+  IAssistantGPTScript,
+  IAssistantApi,
+  IAssistantZapier,
+  IFileStoreItem,
   APP_SOURCE_GITHUB,
 } from '../types'
 import useApi from './useApi'
@@ -27,14 +31,19 @@ export const useApp = (appId: string) => {
   const api = useApi()
   const snackbar = useSnackbar()
   const account = useAccount()
-  const { navigate } = useRouter()
   const { NewInference } = useStreaming()
-  const endpointProviders = useEndpointProviders()
   
-  // Main app state
+  /**
+   * 
+   * 
+   * hook state
+   * 
+   * 
+   */
   const [app, setApp] = useState<IApp | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(true)
+  const [knowledge, setKnowledge] = useState<IKnowledgeSource[]>([])
+  const [isAppLoading, setIsAppLoading] = useState(true)
+  const [isAppSaving, setIsAppSaving] = useState(true)
   const [initialized, setInitialised] = useState(false)
 
   // App validation states
@@ -42,22 +51,25 @@ export const useApp = (appId: string) => {
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false)
 
   // New inference state
-  const [loading, setLoading] = useState(false)
+  const [isInferenceLoading, setIsInferenceLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
-  const [model, setModel] = useState('')
   
   // Search state
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([])
-  const [searchParams, setSearchParams] = useState(() => 
-    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
-  )
-  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings')
 
-  const flatApp = useMemo(() => {
-    if(!app) return {}
-    return getAppFlatState(app)
-  }, [app])
-  
+  // Editing GPT scripts
+  const [editingGptScript, setEditingGptScript] = useState<{
+    tool: IAssistantGPTScript;
+    index: number;
+  } | null>(null);
+
+  /**
+   * 
+   * 
+   * Utils and memos
+   * 
+   * 
+   */
   const getDefaultAssistant = useCallback((): IAssistantConfig => {
     return {
       name: '',
@@ -68,7 +80,77 @@ export const useApp = (appId: string) => {
       knowledge: []
     }
   }, [account.models])
+
+  const flatApp = useMemo(() => {
+    if(!app) return {}
+    return getAppFlatState(app)
+  }, [app])
+
+  const assistants = useMemo(() => {
+    if(!app) return []
+    return app.config.helix.assistants || [getDefaultAssistant()]
+  }, [app, getDefaultAssistant])
+
+  /**
+   * 
+   * 
+   * knowledge handlers
+   * 
+   * 
+   */
+
+  /**
+   * Loads knowledge for the app
+   */
+  const loadKnowledge = useCallback(async () => {
+    if(!appId) return
+    const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${appId}`, undefined, {
+      snackbar: showErrors,
+    })
+    setKnowledge(knowledge || [])
+  }, [api, appId, showErrors])
+
+  const handleRefreshKnowledge = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after the refresh is initiated
+      loadKnowledge();
+    }).catch((error) => {
+      console.error('Error refreshing knowledge:', error);
+      snackbar.error('Failed to refresh knowledge');
+    });
+  }, [api, loadKnowledge]);
+
+  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after completing preparation
+      loadKnowledge();
+      snackbar.success('Knowledge preparation completed. Indexing started.');
+    }).catch((error) => {
+      console.error('Error completing knowledge preparation:', error);
+      snackbar.error('Failed to complete knowledge preparation');
+    });
+  }, [api, loadKnowledge]);
+
   
+  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
+    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge)
+    saveFlatApp({
+      knowledge: updatedKnowledge,
+    })
+  }
+  
+  /**
+   * 
+   * 
+   * app handlers
+   * 
+   * 
+   */
+
   /**
    * Loads a single app by ID directly from the API
    * More efficient than loading all apps when we know the specific app ID
@@ -87,7 +169,7 @@ export const useApp = (appId: string) => {
     if (!id) return null
     
     if (opts.showLoading) {
-      setIsLoading(true)
+      setIsAppLoading(true)
     }
     
     try {
@@ -104,23 +186,15 @@ export const useApp = (appId: string) => {
         loadedApp.config.helix.assistants = [getDefaultAssistant()]
       }
 
-      const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${loadedApp.id}`, undefined, {
-        snackbar: showErrors,
-      })
-      loadedApp.config.helix.assistants[0].knowledge = knowledge || []
-
-      await endpointProviders.loadData()
-
       setApp(loadedApp)
-      setInitialised(true)
     } catch (error) {
       console.error('Failed to load app:', error)
       return null
     } finally {
       // This block will always execute, even after early returns
-      setIsLoading(false)
+      setIsAppLoading(false)
     }
-  }, [api, account, getDefaultAssistant])
+  }, [api, getDefaultAssistant])
   
   /**
    * Merges flat state into the app
@@ -240,15 +314,15 @@ export const useApp = (appId: string) => {
       }
       return
     }
+
+    setIsAppSaving(true)
     
     try {
-      setIsSaving(true)
       const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
       setApp(savedApp)
       if (!opts.quiet) {
         snackbar.success('App saved successfully')
       }
-      setIsSaving(false)
       return 
     } catch (error) {
       console.error('Failed to save app:', error)
@@ -256,6 +330,8 @@ export const useApp = (appId: string) => {
         snackbar.error('Failed to save app')
       }
       return
+    } finally {
+      setIsAppSaving(false)
     }
   }, [api, snackbar])
   
@@ -273,6 +349,234 @@ export const useApp = (appId: string) => {
   ])
 
   /**
+   * 
+   * 
+   * filestore handlers
+   * 
+   * 
+   */  
+  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
+    try {
+      const filesResult = await api.get('/api/v1/filestore/list', {
+        params: {
+          path,
+        }
+      })
+      if(filesResult) {
+        return filesResult
+      }
+    } catch(e) {}
+    return []
+  }, [api]);
+
+  // Upload the files to the filestore
+  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
+    await api.post('/api/v1/filestore/upload', formData, {
+      params: {
+        path,
+      },
+    })
+  }, [api]);
+  
+  /**
+   * 
+   * 
+   * api tool handlers
+   * 
+   * 
+   */  
+  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
+    if (!app) return;
+    console.log('App - saving API tool:', { tool, index });
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      let assistants = prevApp.config.helix.assistants || []
+      let isNew = typeof index !== 'number'
+
+      if(index === undefined) {
+        assistants = [getDefaultAssistant()]
+        index = 0
+      }
+
+      const updatedAssistants = assistants.map(assistant => {
+        const apis = [...(assistant.apis || [])];
+        const targetIndex = typeof index === 'number' ? index : apis.length;
+        console.log('App - API tool update:', {
+          currentApis: apis,
+          targetIndex,
+          isNew,
+        });
+        apis[targetIndex] = tool;
+        return {
+          ...assistant,
+          apis
+        };
+      });
+
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, [app]);
+
+  
+  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
+    if (!app) return;
+    console.log('App - saving Zapier tool:', { tool, index });
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      let assistants = prevApp.config.helix.assistants || []
+      let isNew = typeof index !== 'number'
+
+      if(index === undefined) {
+        assistants = [getDefaultAssistant()]
+        index = 0
+      }
+
+      const updatedAssistants = assistants.map(assistant => {
+        const zapier = [...(assistant.zapier || [])];
+        const targetIndex = typeof index === 'number' ? index : zapier.length;
+        console.log('App - Zapier tool update:', {
+          currentZapier: zapier,
+          targetIndex,
+          isNew: typeof index !== 'number'
+        });
+        zapier[targetIndex] = tool;
+        return {
+          ...assistant,
+          zapier
+        };
+      });
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, [app]);
+
+  const onDeleteApiTool = useCallback((toolId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        apis: (assistant.apis || []).filter((api) => api.name !== toolId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
+
+  const onDeleteZapierTool = useCallback((toolId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
+  
+  /**
+   * 
+   * 
+   * gpt script handlers
+   * 
+   * 
+   */  
+  const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
+    if (!app) return;
+    
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
+        const gptscripts = [...(assistant.gptscripts || [])];
+        const targetIndex = typeof index === 'number' ? index : gptscripts.length;
+        gptscripts[targetIndex] = script;
+        return {
+          ...assistant,
+          gptscripts
+        };
+      });
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+    setEditingGptScript(null);
+  }, [app]);
+
+  const onDeleteGptScript = useCallback((scriptId: string) => {
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
+        ...assistant,
+        gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
+
+  /**
+   * 
+   * 
+   * Inference and search handlers
+   * 
+   * 
+   */  
+
+  /**
    * Handles sending a new inference message
    * @param currentInputValue - Optional override for the current input value
    * @returns Promise<void>
@@ -280,18 +584,19 @@ export const useApp = (appId: string) => {
   const onInference = async (currentInputValue?: string) => {
     if(!app) return
     
-    try {
-      setLoading(true)
-      setInputValue('')
-      
+    setIsInferenceLoading(true)
+
+    try {  
       // Use the provided input value or the current state value
       const messageToSend = currentInputValue !== undefined ? currentInputValue : inputValue
+
+      setInputValue('')
       
       const newSessionData = await NewInference({
         message: messageToSend,
         appId: app.id,
         type: SESSION_TYPE_TEXT,
-        modelName: model,
+        modelName: app.config.helix.assistants?.[0]?.model || account.models[0]?.id || '',
       })
       
       return newSessionData
@@ -299,7 +604,7 @@ export const useApp = (appId: string) => {
       console.error('Inference error:', error)
       snackbar.error('Failed to process your message')
     } finally {
-      setLoading(false)
+      setIsInferenceLoading(false)
     }
   }
   
@@ -342,71 +647,66 @@ export const useApp = (appId: string) => {
       setSearchResults([])
     }
   }
+
+  // const getUpdatedSchema = useCallback(() => {
+  //   if (!app) return '';
+  //   // Create a temporary app state with current form values
+  //   const currentConfig = {
+  //     ...app.config.helix,
+  //     name: name || app.id,
+  //     description,
+  //     avatar,
+  //     image,
+  //     assistants: (app.config.helix.assistants || []).map(assistant => ({
+  //       ...assistant,
+  //       system_prompt: systemPrompt,
+  //       knowledge: knowledgeSources,
+  //       model: model,
+  //     })),
+  //   };
+
+  //   // Remove empty values and format as YAML
+  //   let cleanedConfig = removeEmptyValues(currentConfig);
+  //   const configName = cleanedConfig.name;
+  //   delete cleanedConfig.name;
+  //   cleanedConfig = {
+  //     "apiVersion": "app.aispec.org/v1alpha1",
+  //     "kind": "AIApp",
+  //     "metadata": {
+  //       "name": configName
+  //     },
+  //     "spec": cleanedConfig
+  //   };
+  //   return stringifyYaml(cleanedConfig, { indent: 2 });
+  // }, [app, name, description, avatar, image, systemPrompt, knowledgeSources, model]);
+
+  // Update schema whenever relevant form fields change
+  // useEffect(() => {
+  //   if (!hasInitialised) return;
+  //   setSchema(getUpdatedSchema());
+  // }, [
+  //   hasInitialised,
+  //   getUpdatedSchema,
+  //   name,
+  //   description,
+  //   avatar,
+  //   image,
+  //   systemPrompt,
+  //   knowledgeSources,
+  //   model,
+  // ]);
+
+  // useEffect(() => {
+  //   // When provider changes, check if current model exists in new provider's models
+  //   const currentProviderModels = account.models;
+  //   const currentModelExists = currentProviderModels.some(m => m.id === model);
+
+  //   // If current model doesn't exist in new provider's models, select the first available model
+  //   if (!currentModelExists && currentProviderModels.length > 0) {
+  //     setModel(currentProviderModels[0].id);
+  //   }
+  // }, [providerEndpoint, account.models, model]);
   
-  /**
-   * Adds a new API key for the app
-   */
-  const onAddAPIKey = async () => {
-    if (!app) return
-    
-    try {
-      const res = await api.post('/api/v1/api_keys', {
-        name: `api key ${account.apiKeys.length + 1}`,
-        type: 'app',
-        app_id: app.id,
-      }, {}, {
-        snackbar: true,
-      })
-      
-      if (!res) return
-      
-      snackbar.success('API Key added')
-      
-      // Reload API keys
-      account.loadApiKeys({
-        types: 'app',
-        app_id: app.id,
-      })
-      
-      return res
-    } catch (error) {
-      console.error('Error adding API key:', error)
-      snackbar.error('Failed to add API key')
-    }
-  }
-  
-  /**
-   * Handles tab change in the app interface
-   * @param event - React event
-   * @param newValue - New tab value
-   */
-  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
-    setTabValue(newValue)
-    
-    // Update URL search params
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev.toString())
-      newParams.set('tab', newValue)
-      
-      // Update URL without reload
-      if (typeof window !== 'undefined') {
-        window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`)
-      }
-      
-      return newParams
-    })
-  }
-  
-  /**
-   * Launches the app (saves and navigates to new page)
-   */
-  const handleLaunch = async () => {
-    if (!app) {
-      snackbar.error('We have no app to launch')
-      return
-    }
-    navigate('new', { app_id: app.id })
-  }
 
   /**
    * The main loading that will trigger when the page loads
@@ -416,16 +716,18 @@ export const useApp = (appId: string) => {
     if (!account.user) return
 
     const handleLoading = async () => {
-      const app = await loadApp(appId, {
+      await loadApp(appId, {
         showErrors: true,
         showLoading: true,
       })
+      await loadKnowledge()
       if (!app) return
       setApp(app)
       account.loadApiKeys({
         types: 'app',
         app_id: appId,
       })
+      setInitialised(true)
     }
 
     handleLoading()
@@ -438,12 +740,11 @@ export const useApp = (appId: string) => {
     // App state
     app,
     flatApp,
-    setApp,
-    mergeFlatStateIntoApp,
-    isLoading,
-    isSaving,
+    assistants,
+    loading: isInferenceLoading,
+    isAppLoading,
+    isAppSaving,
     initialized,
-    getDefaultAssistant,
 
     // Validation methods
     validateApp,
@@ -456,29 +757,37 @@ export const useApp = (appId: string) => {
     loadApp,
     saveApp,
     saveFlatApp,
+
+    // Knowledge methods
+    knowledge,
+    handleRefreshKnowledge,
+    handleCompleteKnowledgePreparation,
+    handleKnowledgeUpdate,
+
+    // File methods
+    handleLoadFiles,
+    handleFileUpload,
+
+    // Tools methods
+    onSaveApiTool,
+    onSaveZapierTool,
+    onDeleteApiTool,
+    onDeleteZapierTool,
+    
+    // GPT Script methods
+    editingGptScript,
+    setEditingGptScript,
+    onSaveGptScript,
+    onDeleteGptScript,
     
     // Inference methods
-    loading,
     inputValue,
-    model,
     setInputValue,
-    setModel,
-    onInference,
     
-    // Search
+    // Search & inference
     searchResults,
+    onInference,
     onSearch,
-    
-    // Navigation
-    tabValue,
-    handleTabChange,
-    handleLaunch,
-    
-    // API keys
-    onAddAPIKey,
-
-    // Endpoint providers
-    endpointProviders: endpointProviders.data,
   }
 }
 

@@ -37,6 +37,7 @@ export interface IAccountContext {
   onLogin: () => void,
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
+  addAppAPIKey: (appId: string) => Promise<void>,
   models: IHelixModel[],
   hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
@@ -70,6 +71,7 @@ export const AccountContext = createContext<IAccountContext>({
   onLogin: () => { },
   onLogout: () => { },
   loadApiKeys: () => { },
+  addAppAPIKey: async () => { },
   models: [],
   fetchModels: async () => { },
   providerEndpoints: [],
@@ -174,6 +176,39 @@ export const useAccountContext = (): IAccountContext => {
     if (!result) return
     setApiKeys(result)
   }, [])
+
+  
+  /**
+   * Adds a new API key for the app
+   */
+  const addAppAPIKey = useCallback(async (appId: string) => {
+    try {
+      const res = await api.post('/api/v1/api_keys', {
+        name: `api key ${apiKeys.length + 1}`,
+        type: 'app',
+        app_id: appId,
+      }, {}, {
+        snackbar: true,
+      })
+      
+      if (!res) return
+      
+      snackbar.success('API Key added')
+      
+      // Reload API keys
+      loadApiKeys({
+        types: 'app',
+        app_id: appId,
+      })
+    } catch (error) {
+      console.error('Error adding API key:', error)
+      snackbar.error('Failed to add API key')
+    }
+  }, [
+    api,
+    snackbar,
+    apiKeys,
+  ])
 
   const fetchProviderEndpoints = useCallback(async () => {
     const response = await api.get('/api/v1/provider-endpoints')
@@ -350,6 +385,7 @@ export const useAccountContext = (): IAccountContext => {
     onLogin,
     onLogout,
     loadApiKeys,
+    addAppAPIKey,
     models,
     fetchModels,
     fetchProviderEndpoints,
