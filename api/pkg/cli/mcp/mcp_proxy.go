@@ -292,8 +292,28 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 func (mcps *ModelContextProtocolServer) getToolPromptHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	return func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		// log.Info().Str("prompt", prompt.Name).Msg("prompt handler")
-		return nil, nil
+		log.Info().
+			Str("tool", tool.Name).
+			Str("action", action).
+			Msg("api tool handler")
+
+		params := make(map[string]string)
+
+		for k, v := range request.Params.Arguments {
+			params[k] = v
+		}
+
+		textContent := fmt.Sprintf("Here is the response from the API action that used parameters %v: 'example response based on API'", params)
+
+		return mcp.NewGetPromptResult(
+			tool.Name,
+			[]mcp.PromptMessage{
+				mcp.NewPromptMessage(
+					mcp.RoleAssistant,
+					mcp.NewTextContent(textContent),
+				),
+			},
+		), nil
 	}
 }
 
@@ -369,5 +389,20 @@ func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID stri
 		}
 
 		return mcp.NewToolResultText(string(resultsJSON)), nil
+	}
+}
+
+func (mcps *ModelContextProtocolServer) getKnowledgePromptHandler(appID string, knowledge *types.Knowledge) func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	return func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		log.Info().
+			Str("knowledge", knowledge.Name).
+			Msg("knowledge tool handler")
+
+		prompt := request.Params.Arguments["prompt"]
+		if prompt == "" {
+			prompt = ""
+		}
+
+		return nil, nil
 	}
 }
