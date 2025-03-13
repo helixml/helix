@@ -715,9 +715,6 @@ func (c *Controller) BeginFineTune(ctx context.Context, session *types.Session) 
 // this will emit a UserWebsocketEvent with a type of
 // WebsocketEventSessionUpdate
 func (c *Controller) WriteSession(ctx context.Context, session *types.Session) error {
-	log.Trace().
-		Msgf("🔵 update session: %s %+v", session.ID, session)
-
 	// First, check if we need to preserve document IDs from the database
 	existingSession, err := c.Options.Store.GetSession(ctx, session.ID)
 	if err == nil && existingSession != nil {
