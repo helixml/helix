@@ -219,6 +219,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   }, []); // Empty dependency array means only run on mount
 
   const getSourcePreview = (source: IKnowledgeSource): string => {
+    // Prioritize using the source name if available
+    if (source.name && source.name.trim() !== '') {
+      return source.name;
+    }
+    
+    // Fall back to URL or path if name is not available
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
       return source.source.web.urls[0];
     } else if (source.source.filestore?.path) {
