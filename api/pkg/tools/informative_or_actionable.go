@@ -84,23 +84,10 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	messages := []openai.ChatCompletionMessage{systemPrompt}
 
 	// Log history and current message in a readable way
-	log.Info().
+	log.Trace().
 		Str("session_id", sessionID).
 		Str("interaction_id", interactionID).
 		Msg("Processing isActionable request")
-
-	if len(history) > 0 {
-		log.Info().Msg("Message history:")
-		for i, msg := range history {
-			log.Info().
-				Int("message_number", i+1).
-				Str("role", msg.Role).
-				Str("content", msg.Content).
-				Msg("Historical message")
-		}
-	} else {
-		log.Info().Msg("No message history")
-	}
 
 	for _, msg := range history {
 		messages = append(messages, openai.ChatCompletionMessage{
@@ -152,8 +139,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, answer)
 	}
 
-	log.Info().
-		Str("history", fmt.Sprintf("%+v", history)).
+	log.Debug().
 		Str("justification", actionableResponse.Justification).
 		Str("needs_tool", actionableResponse.NeedsTool).
 		Str("chosen_tool", actionableResponse.API).
