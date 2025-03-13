@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/types"
@@ -73,6 +74,10 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 
 	resp, err := client.CreateEmbeddings(r.Context(), cleanRequest)
 	if err != nil {
+		if strings.Contains(err.Error(), "context cancelled") {
+			// Client already gone
+			return
+		}
 		log.Error().
 			Err(err).
 			Str("model", string(embeddingRequest.Model)).
