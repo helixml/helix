@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"net"
-
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/nats-io/nats-server/v2/server"
@@ -92,6 +90,66 @@ func setupConnectionHandlers(nc *nats.Conn, n *Nats) {
 	})
 }
 
+// getRandomPorts returns a tuple of random available ports for server and websocket
+func getRandomPorts() (int, int, error) {
+	serverPort, err := freeport.GetFreePort()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get free server port: %w", err)
+	}
+
+	wsPort, err := freeport.GetFreePort()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get free websocket port: %w", err)
+	}
+
+	return serverPort, wsPort, nil
+}
+
+// tryStartServer attempts to start the NATS server with given ports
+// returns the server instance and any error that occurred
+func tryStartServer(cfg *config.ServerConfig, serverPort, wsPort int) (*server.Server, error) {
+	opts := &server.Options{
+		Debug:         true,
+		Trace:         true,
+		Host:          "127.0.0.1", // For internal use only
+		Port:          serverPort,
+		JetStream:     cfg.PubSub.Server.JetStream,
+		StoreDir:      cfg.PubSub.StoreDir,
+		MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
+		Authorization: cfg.PubSub.Server.Token,
+		AllowNonTLS:   true, // TLS is terminated at the reverse proxy
+		Websocket: server.WebsocketOpts{
+			Host:  cfg.PubSub.Server.Host,
+			Port:  wsPort,
+			NoTLS: true,
+			Token: cfg.PubSub.Server.Token,
+		},
+	}
+
+	// Initialize new server with options
+	ns, err := server.NewServer(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create nats server: %w", err)
+	}
+
+	// Start the server via goroutine
+	go ns.Start()
+
+	// Wait for server to be ready for connections
+	if !ns.ReadyForConnections(4 * time.Second) {
+		ns.Shutdown()
+		return nil, fmt.Errorf("server failed to start (ports %d, %d): running=%v", serverPort, wsPort, ns.Running())
+	}
+
+	log.Info().
+		Str("internal_url", ns.ClientURL()).
+		Str("external_url", fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, wsPort)).
+		Str("store_dir", cfg.PubSub.StoreDir).
+		Msg("nats server started successfully")
+
+	return ns, nil
+}
+
 // NewNats creates a new NATS instance with the given configuration
 func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	var ns *server.Server
@@ -104,61 +162,42 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 
 	// Create and start embedded server if we're not connecting to an external one
 	if cfg.PubSub.Server.EmbeddedNatsServerEnabled {
-		opts := &server.Options{
-			Debug:         true,
-			Trace:         true,
-			Host:          "127.0.0.1", // For internal use only
-			Port:          cfg.PubSub.Server.Port,
-			JetStream:     cfg.PubSub.Server.JetStream,
-			StoreDir:      cfg.PubSub.StoreDir,
-			MaxPayload:    int32(cfg.PubSub.Server.MaxPayload),
-			Authorization: cfg.PubSub.Server.Token,
-			AllowNonTLS:   true, // TLS is terminated at the reverse proxy
-			Websocket: server.WebsocketOpts{
-				Host:  cfg.PubSub.Server.Host,
-				Port:  cfg.PubSub.Server.WebsocketPort,
-				NoTLS: true,
-				Token: cfg.PubSub.Server.Token,
-			},
-		}
-
 		// Check store directory permissions
 		if err := checkStoreDir(cfg.PubSub.StoreDir); err != nil {
 			return nil, fmt.Errorf("nats store directory issue: %w", err)
 		}
 
-		// Check if ports are in use
-		for _, port := range []int{cfg.PubSub.Server.Port, cfg.PubSub.Server.WebsocketPort} {
-			if err := checkPortAvailable(port); err != nil {
-				return nil, fmt.Errorf("port %d is in use: %w", port, err)
+		maxRetries := 5
+		var lastErr error
+
+		for i := 0; i < maxRetries; i++ {
+			// Always get new random ports on retry
+			serverPort, wsPort, err := getRandomPorts()
+			if err != nil {
+				lastErr = err
+				continue
 			}
+
+			// If ports were specified in config, try those first
+			if i == 0 && cfg.PubSub.Server.Port != 0 && cfg.PubSub.Server.WebsocketPort != 0 {
+				serverPort = cfg.PubSub.Server.Port
+				wsPort = cfg.PubSub.Server.WebsocketPort
+			}
+
+			ns, err = tryStartServer(cfg, serverPort, wsPort)
+			if err != nil {
+				lastErr = err
+				log.Debug().Err(err).Int("attempt", i+1).Msg("retrying nats server start with different ports")
+				continue
+			}
+
+			// Server started successfully
+			break
 		}
 
-		// Initialize new server with options
-		ns, err = server.NewServer(opts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create nats server: %w", err)
-		}
-
-		// Start the server via goroutine
-		log.Info().
-			Str("internal_url", ns.ClientURL()).
-			Str("external_url", fmt.Sprintf("ws://%s:%d", cfg.PubSub.Server.Host, cfg.PubSub.Server.WebsocketPort)).
-			Str("store_dir", cfg.PubSub.StoreDir).
-			Msg("starting nats server")
-
-		go ns.Start()
-
-		// Wait for server to be ready for connections
-		if !ns.ReadyForConnections(4 * time.Second) {
-			log.Error().
-				Bool("running", ns.Running()).
-				Str("client_url", ns.ClientURL()).
-				Str("store_dir", cfg.PubSub.StoreDir).
-				Int("websocket_port", cfg.PubSub.Server.WebsocketPort).
-				Msg("nats server failed to start")
-
-			return nil, fmt.Errorf("failed to start nats server: running=%v", ns.Running())
+		// If we exhausted all retries, return the last error
+		if ns == nil {
+			return nil, fmt.Errorf("failed to start nats server after %d retries: %w", maxRetries, lastErr)
 		}
 	}
 
@@ -641,15 +680,5 @@ func checkStoreDir(dir string) error {
 	f.Close()
 	os.Remove(testFile)
 
-	return nil
-}
-
-func checkPortAvailable(port int) error {
-	addr := fmt.Sprintf(":%d", port)
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("port %d is in use", port)
-	}
-	l.Close()
 	return nil
 }
