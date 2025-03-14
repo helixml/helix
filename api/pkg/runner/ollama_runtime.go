@@ -80,7 +80,7 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 	}
 
 	// Determine context length
-	var contextLength int64 = 0
+	var contextLength int64
 
 	// If context length is provided, use it
 	if params.ContextLength != nil {

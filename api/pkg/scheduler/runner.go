@@ -303,7 +303,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	modelName := slot.InitialWork().ModelName().String()
 
 	// Get the model's context length
-	var contextLength int64 = 0
+	var contextLength int64
 	modelObj, err := model.GetModel(modelName)
 	if err == nil {
 		contextLength = modelObj.GetContextLength()
