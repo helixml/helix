@@ -119,58 +119,6 @@ export const useApp = (appId: string) => {
   /**
    * 
    * 
-   * knowledge handlers
-   * 
-   * 
-   */
-
-  /**
-   * Loads knowledge for the app
-   */
-  const loadKnowledge = useCallback(async () => {
-    if(!appId) return
-    const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${appId}`, undefined, {
-      snackbar: showErrors,
-    })
-    setKnowledge(knowledge || [])
-  }, [api, appId, showErrors])
-
-  const handleRefreshKnowledge = useCallback((id: string) => {
-    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
-      snackbar: true,
-    }).then(() => {
-      // Call fetchKnowledge immediately after the refresh is initiated
-      loadKnowledge();
-    }).catch((error) => {
-      console.error('Error refreshing knowledge:', error);
-      snackbar.error('Failed to refresh knowledge');
-    });
-  }, [api, loadKnowledge]);
-
-  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
-    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
-      snackbar: true,
-    }).then(() => {
-      // Call fetchKnowledge immediately after completing preparation
-      loadKnowledge();
-      snackbar.success('Knowledge preparation completed. Indexing started.');
-    }).catch((error) => {
-      console.error('Error completing knowledge preparation:', error);
-      snackbar.error('Failed to complete knowledge preparation');
-    });
-  }, [api, loadKnowledge]);
-
-  
-  const handleKnowledgeUpdate = (updatedKnowledge: IKnowledgeSource[]) => {
-    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge)
-    saveFlatApp({
-      knowledge: updatedKnowledge,
-    })
-  }
-  
-  /**
-   * 
-   * 
    * app handlers
    * 
    * 
@@ -202,7 +150,7 @@ export const useApp = (appId: string) => {
       const loadedApp = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
         snackbar: showErrors,
       })
-      
+
       if (!loadedApp) {
         return null
       }
@@ -367,6 +315,60 @@ export const useApp = (appId: string) => {
     app,
     saveApp,
   ])
+
+  /**
+   * 
+   * 
+   * knowledge handlers
+   * 
+   * 
+   */
+
+  /**
+   * Loads knowledge for the app
+   */
+  const loadKnowledge = useCallback(async () => {
+    if(!appId) return
+    const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${appId}`, undefined, {
+      snackbar: showErrors,
+    })
+    setKnowledge(knowledge || [])
+  }, [api, appId, showErrors])
+
+  const handleRefreshKnowledge = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after the refresh is initiated
+      loadKnowledge();
+    }).catch((error) => {
+      console.error('Error refreshing knowledge:', error);
+      snackbar.error('Failed to refresh knowledge');
+    });
+  }, [api, loadKnowledge]);
+
+  const handleCompleteKnowledgePreparation = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/complete`, null, {}, {
+      snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after completing preparation
+      loadKnowledge();
+      snackbar.success('Knowledge preparation completed. Indexing started.');
+    }).catch((error) => {
+      console.error('Error completing knowledge preparation:', error);
+      snackbar.error('Failed to complete knowledge preparation');
+    });
+  }, [api, loadKnowledge]);
+
+  
+  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
+    console.log('[App] handleKnowledgeUpdate - Received updated knowledge sources:', updatedKnowledge)
+    saveFlatApp({
+      knowledge: updatedKnowledge,
+    })
+    setKnowledge(updatedKnowledge)
+  }, [saveFlatApp])
+  
 
   /**
    * 
