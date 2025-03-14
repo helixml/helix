@@ -26,6 +26,10 @@ func (i *DiffusersGenericImage) GetType() types.SessionType {
 	return types.SessionTypeImage
 }
 
+func (i *DiffusersGenericImage) GetContextLength() int64 {
+	return 0 // Default to 0 (use model's default)
+}
+
 func (i *DiffusersGenericImage) GetID() string {
 	return i.ID
 }

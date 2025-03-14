@@ -18,6 +18,7 @@ type Slot struct {
 	ID              uuid.UUID // Same as scheduler.Slot
 	RunnerID        string    // Same as scheduler.Slot
 	Model           string    // The model assigned to this slot
+	ContextLength   int64     // Optional context length override for the model
 	IntendedRuntime types.Runtime
 	Active          bool // True if the slot is active
 	Ready           bool // True if the slot is ready to be used
@@ -47,6 +48,7 @@ type CreateSlotParams struct {
 	ID            uuid.UUID
 	Runtime       types.Runtime
 	Model         string
+	ContextLength int64 // Optional context length override
 }
 
 func NewEmptySlot(params CreateSlotParams) *Slot {
@@ -54,6 +56,7 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		ID:              params.ID,
 		RunnerID:        params.RunnerOptions.ID,
 		Model:           params.Model,
+		ContextLength:   params.ContextLength,
 		IntendedRuntime: params.Runtime,
 		Active:          false,
 		Ready:           false,
@@ -81,9 +84,16 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 
 	switch s.IntendedRuntime {
 	case types.RuntimeOllama:
-		s.runningRuntime, err = NewOllamaRuntime(ctx, OllamaRuntimeParams{
+		runtimeParams := OllamaRuntimeParams{
 			CacheDir: &s.runnerOptions.CacheDir,
-		}) // TODO(phil): Add params
+		}
+
+		// Only set ContextLength if it's non-zero
+		if s.ContextLength > 0 {
+			runtimeParams.ContextLength = &s.ContextLength
+		}
+
+		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
 			return
 		}
