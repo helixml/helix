@@ -24,7 +24,7 @@ type HaystackRAGSuite struct {
 
 func (suite *HaystackRAGSuite) SetupTest() {
 	// Create a test server that will handle our mock responses
-	suite.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	suite.server = httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		// We'll implement the handler in our tests
 	}))
 	suite.haystackRAG = NewHaystackRAG(suite.server.URL)
@@ -224,7 +224,8 @@ func (suite *HaystackRAGSuite) TestQuery() {
 
 				// Send mock response
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(tc.mockResponse)
+				err = json.NewEncoder(w).Encode(tc.mockResponse)
+				suite.NoError(err)
 			})
 
 			// Execute the query
