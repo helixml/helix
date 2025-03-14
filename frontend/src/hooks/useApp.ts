@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import {
   IApp,
   IAppFlatState,
@@ -52,6 +52,9 @@ export const useApp = (appId: string) => {
   const [isAppLoading, setIsAppLoading] = useState(true)
   const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
+  // Polling state
+  const [pollingActive, setPollingActive] = useState(true)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // App validation states
   const [showErrors, setShowErrors] = useState(false)
@@ -323,6 +326,34 @@ export const useApp = (appId: string) => {
    * 
    * 
    */
+
+  /**
+   * Merges server-controlled knowledge fields with current knowledge state
+   * Only updates fields that the server controls during background processing
+   */
+  const mergeKnowledgeUpdates = useCallback((currentKnowledge: IKnowledgeSource[], serverKnowledge: IKnowledgeSource[]) => {
+    // If we don't have any current knowledge, just use server knowledge
+    if (!currentKnowledge.length) return serverKnowledge;
+    
+    return currentKnowledge.map(clientItem => {
+      // Find matching server item by ID
+      const serverItem = serverKnowledge.find(serverItem => serverItem.id === clientItem.id);
+      
+      // If no matching server item found, return client item unchanged
+      if (!serverItem) return clientItem;
+      
+      // Only update server-controlled fields
+      return {
+        ...clientItem,
+        // Server-controlled fields
+        state: serverItem.state,
+        message: serverItem.message,
+        progress: serverItem.progress,
+        crawled_sources: serverItem.crawled_sources,
+        version: serverItem.version
+      };
+    });
+  }, []);
 
   /**
    * Loads knowledge for the app
@@ -672,66 +703,6 @@ export const useApp = (appId: string) => {
     }
   }
 
-  // const getUpdatedSchema = useCallback(() => {
-  //   if (!app) return '';
-  //   // Create a temporary app state with current form values
-  //   const currentConfig = {
-  //     ...app.config.helix,
-  //     name: name || app.id,
-  //     description,
-  //     avatar,
-  //     image,
-  //     assistants: (app.config.helix.assistants || []).map(assistant => ({
-  //       ...assistant,
-  //       system_prompt: systemPrompt,
-  //       knowledge: knowledgeSources,
-  //       model: model,
-  //     })),
-  //   };
-
-  //   // Remove empty values and format as YAML
-  //   let cleanedConfig = removeEmptyValues(currentConfig);
-  //   const configName = cleanedConfig.name;
-  //   delete cleanedConfig.name;
-  //   cleanedConfig = {
-  //     "apiVersion": "app.aispec.org/v1alpha1",
-  //     "kind": "AIApp",
-  //     "metadata": {
-  //       "name": configName
-  //     },
-  //     "spec": cleanedConfig
-  //   };
-  //   return stringifyYaml(cleanedConfig, { indent: 2 });
-  // }, [app, name, description, avatar, image, systemPrompt, knowledgeSources, model]);
-
-  // Update schema whenever relevant form fields change
-  // useEffect(() => {
-  //   if (!hasInitialised) return;
-  //   setSchema(getUpdatedSchema());
-  // }, [
-  //   hasInitialised,
-  //   getUpdatedSchema,
-  //   name,
-  //   description,
-  //   avatar,
-  //   image,
-  //   systemPrompt,
-  //   knowledgeSources,
-  //   model,
-  // ]);
-
-  // useEffect(() => {
-  //   // When provider changes, check if current model exists in new provider's models
-  //   const currentProviderModels = account.models;
-  //   const currentModelExists = currentProviderModels.some(m => m.id === model);
-
-  //   // If current model doesn't exist in new provider's models, select the first available model
-  //   if (!currentModelExists && currentProviderModels.length > 0) {
-  //     setModel(currentProviderModels[0].id);
-  //   }
-  // }, [providerEndpoint, account.models, model]);
-  
-
   /**
    * The main loading that will trigger when the page loads
    */
@@ -758,6 +729,88 @@ export const useApp = (appId: string) => {
     appId,
     account.user,
   ])
+  
+  /**
+   * Polling effect for knowledge updates
+   * Regularly checks for changes to server-controlled fields
+   */
+  useEffect(() => {
+    if (!appId || !account.user) return;
+
+    // Function to poll for knowledge updates
+    const pollKnowledge = async () => {
+      try {
+        // Fetch latest knowledge from server
+        const serverKnowledge = await api.get<IKnowledgeSource[]>(
+          `/api/v1/knowledge?app_id=${appId}`, 
+          undefined, 
+          { snackbar: false } // Silent - don't show errors for polling
+        );
+        
+        if (!serverKnowledge) return;
+        
+        // Merge with current knowledge, preserving user edits
+        const updatedKnowledge = mergeKnowledgeUpdates(knowledge, serverKnowledge);
+        
+        // Only update if something changed
+        if (JSON.stringify(updatedKnowledge) !== JSON.stringify(knowledge)) {
+          console.log('[useApp] Polling detected knowledge changes');
+          setKnowledge(updatedKnowledge);
+          
+          // We won't try to update app state directly, since the knowledge state
+          // will be used by the app components anyway
+        }
+        
+        // Check if we should stop polling
+        const allComplete = updatedKnowledge.every(k => 
+          k.state === 'complete' || k.state === 'error'
+        );
+        
+        if (allComplete) {
+          console.log('[useApp] All knowledge processing complete, stopping polling');
+          setPollingActive(false);
+        }
+        
+      } catch (error) {
+        console.error('Error polling knowledge:', error);
+        // Don't stop polling on errors - retry next interval
+      }
+    };
+    
+    // Start polling if active
+    if (pollingActive) {
+      // Initial poll
+      pollKnowledge();
+      
+      // Set up interval
+      pollingIntervalRef.current = setInterval(pollKnowledge, 2000);
+    }
+    
+    // Cleanup function
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [appId, account.user, pollingActive, api, knowledge, app, mergeKnowledgeUpdates]);
+  
+  /**
+   * Effect to restart polling when new knowledge is added
+   */
+  useEffect(() => {
+    // If knowledge length increases, restart polling
+    if (knowledge.length > 0 && !pollingActive) {
+      const hasProcessingItems = knowledge.some(k => 
+        k.state !== 'complete' && k.state !== 'error'
+      );
+      
+      if (hasProcessingItems) {
+        console.log('[useApp] Detected processing knowledge items, restarting polling');
+        setPollingActive(true);
+      }
+    }
+  }, [knowledge, pollingActive]);
   
   // this hooks into any changes for the apps current preview session
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
