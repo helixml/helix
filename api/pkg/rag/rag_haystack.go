@@ -135,17 +135,43 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 		Str("component", "HaystackRAG").
 		Str("method", "Query").
 		Str("data_entity_id", q.DataEntityID).
+		Interface("document_id_list", q.DocumentIDList).
 		Logger()
 
-	logger.Debug().Str("query", q.Prompt).Msg("Querying Haystack")
+	documentIDConditions := []map[string]interface{}{}
+	for _, documentID := range q.DocumentIDList {
+		documentIDConditions = append(documentIDConditions, map[string]interface{}{
+			"field":    "meta.document_id",
+			"operator": "==",
+			"value":    documentID,
+		})
+	}
+	documentIDFilter := map[string]interface{}{
+		"operator":   "OR",
+		"conditions": documentIDConditions,
+	}
 
-	// Create query request
+	conditions := []map[string]interface{}{}
+	conditions = append(conditions, map[string]interface{}{
+		"field":    "meta.data_entity_id",
+		"operator": "==",
+		"value":    q.DataEntityID,
+	})
+	if len(documentIDConditions) > 0 {
+		conditions = append(conditions, documentIDFilter)
+	}
+
+	filters := map[string]interface{}{
+		"operator":   "AND",
+		"conditions": conditions,
+	}
+
+	log.Trace().Interface("filters", filters).Msg("Query filters")
+
 	queryReq := map[string]interface{}{
-		"query": q.Prompt,
-		"filters": map[string]interface{}{
-			"data_entity_id": q.DataEntityID,
-		},
-		"top_k": q.MaxResults,
+		"query":   q.Prompt,
+		"filters": filters,
+		"top_k":   q.MaxResults,
 	}
 
 	bts, err := json.Marshal(queryReq)

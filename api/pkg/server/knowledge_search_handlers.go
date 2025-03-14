@@ -11,6 +11,7 @@ import (
 
 	"sort"
 
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -60,12 +61,15 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 
 		pool.Go(func() error {
 			start := time.Now()
+			documentIDs := rag.ParseDocumentIDs(prompt)
+			log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
 			resp, err := client.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
+				DocumentIDList:    documentIDs,
 			})
 			if err != nil {
 				log.Error().Err(err).Msgf("error querying RAG for knowledge %s", knowledge.ID)

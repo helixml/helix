@@ -683,6 +683,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 		DistanceThreshold: 40,
 		DistanceFunction:  "cosine",
 		MaxResults:        2,
+		DocumentIDList:    []string{},
 	}).Return([]*types.SessionRAGResult{
 		{
 			Content: "This is a test RAG source 1",
