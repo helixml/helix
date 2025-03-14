@@ -420,7 +420,9 @@ const Home: FC = () => {
                                 }}
                                 src={app.config.helix.avatar}
                               >
-                                {app.config.helix.name[0].toUpperCase()}
+                                {app.config.helix.name && app.config.helix.name.length > 0 
+                                  ? app.config.helix.name[0].toUpperCase() 
+                                  : '?'}
                               </Avatar>
                               <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
                                 <Typography sx={{ 
