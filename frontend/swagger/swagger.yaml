@@ -829,6 +829,8 @@ definitions:
     type: object
   types.CrawledURL:
     properties:
+      document_id:
+        type: string
       duration_ms:
         type: integer
       message:
@@ -1219,12 +1221,14 @@ definitions:
     type: object
   types.KnowledgeState:
     enum:
+    - preparing
     - pending
     - indexing
     - ready
     - error
     type: string
     x-enum-varnames:
+    - KnowledgeStatePreparing
     - KnowledgeStatePending
     - KnowledgeStateIndexing
     - KnowledgeStateReady
@@ -2078,6 +2082,7 @@ definitions:
     - ""
     - runner
     - keycloak
+    - oidc
     - api_key
     - socket
     type: string
@@ -2085,6 +2090,7 @@ definitions:
     - TokenTypeNone
     - TokenTypeRunner
     - TokenTypeKeycloak
+    - TokenTypeOIDC
     - TokenTypeAPIKey
     - TokenTypeSocket
   types.ToolAPIAction:
@@ -2165,6 +2171,20 @@ definitions:
         $ref: '#/definitions/types.CronTrigger'
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
+    type: object
+  types.UIAtData:
+    properties:
+      label:
+        type: string
+      value:
+        type: string
+    type: object
+  types.UIAtResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/types.UIAtData'
+        type: array
     type: object
   types.UpdateOrganizationMemberRequest:
     properties:
@@ -2547,6 +2567,19 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.Knowledge'
+  /api/v1/knowledge/{id}/complete:
+    post:
+      description: Complete knowledge preparation and move to pending state for indexing
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Knowledge'
+      security:
+      - BearerAuth: []
+      summary: Complete knowledge preparation
+      tags:
+      - knowledge
   /api/v1/knowledge/{id}/refresh:
     post:
       description: Refresh knowledge
@@ -3016,6 +3049,28 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
+  /api/v1/ui/at:
+    get:
+      description: uiAt
+      parameters:
+      - description: Query string
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: App ID
+        in: query
+        name: app_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UIAtResponse'
+      summary: uiAt
+      tags:
+      - ui
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.
