@@ -138,40 +138,38 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 		Interface("document_id_list", q.DocumentIDList).
 		Logger()
 
-	documentIDConditions := []map[string]interface{}{}
-	for _, documentID := range q.DocumentIDList {
-		documentIDConditions = append(documentIDConditions, map[string]interface{}{
-			"field":    "meta.document_id",
-			"operator": "==",
-			"value":    documentID,
-		})
-	}
-	documentIDFilter := map[string]interface{}{
-		"operator":   "OR",
-		"conditions": documentIDConditions,
+	// Build document ID conditions
+	documentIDConditions := make([]Condition, len(q.DocumentIDList))
+	for i, documentID := range q.DocumentIDList {
+		documentIDConditions[i] = Condition{
+			Field:    "meta.document_id",
+			Operator: "==",
+			Value:    documentID,
+		}
 	}
 
-	conditions := []map[string]interface{}{}
-	conditions = append(conditions, map[string]interface{}{
-		"field":    "meta.data_entity_id",
-		"operator": "==",
-		"value":    q.DataEntityID,
-	})
+	// Build the complete query request
+	queryReq := QueryRequest{
+		Query: q.Prompt,
+		TopK:  q.MaxResults,
+		Filters: QueryFilter{
+			Operator: "AND",
+			Conditions: []Condition{
+				{
+					Field:    "meta.data_entity_id",
+					Operator: "==",
+					Value:    q.DataEntityID,
+				},
+			},
+		},
+	}
+
+	// Add document ID filter if there are any document IDs
 	if len(documentIDConditions) > 0 {
-		conditions = append(conditions, documentIDFilter)
-	}
-
-	filters := map[string]interface{}{
-		"operator":   "AND",
-		"conditions": conditions,
-	}
-
-	log.Trace().Interface("filters", filters).Msg("Query filters")
-
-	queryReq := map[string]interface{}{
-		"query":   q.Prompt,
-		"filters": filters,
-		"top_k":   q.MaxResults,
+		queryReq.Filters.Conditions = append(queryReq.Filters.Conditions, Condition{
+			Operator:   "OR",
+			Conditions: documentIDConditions,
+		})
 	}
 
 	bts, err := json.Marshal(queryReq)
@@ -205,15 +203,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	}
 
 	// Parse response
-	var queryResp struct {
-		Results []struct {
-			Content  string                 `json:"content"`
-			Metadata map[string]interface{} `json:"metadata"`
-			Meta     map[string]interface{} `json:"meta,omitempty"`
-			Score    float64                `json:"score"`
-		} `json:"results"`
-	}
-
+	var queryResp QueryResponse
 	err = json.NewDecoder(resp.Body).Decode(&queryResp)
 	if err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
@@ -222,47 +212,13 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	// Convert to SessionRAGResult
 	results := make([]*types.SessionRAGResult, len(queryResp.Results))
 	for i, r := range queryResp.Results {
-		// Extract document_id and document_group_id from metadata
-		documentID, _ := r.Metadata["document_id"].(string)
-		documentGroupID, _ := r.Metadata["document_group_id"].(string)
-
-		// Try to get the source from metadata with fallbacks
-		var source string
-
-		// First check meta field if it exists (Haystack stores original metadata here)
-		if r.Meta != nil {
-			if metaSource, ok := r.Meta["source"].(string); ok && metaSource != "" && !strings.HasPrefix(metaSource, "tmp") {
-				source = metaSource
-			}
-		}
-
-		// If we still don't have a source, try our other options
-		if source == "" {
-			// Next try original_filename which we explicitly added
-			if origFilename, ok := r.Metadata["original_filename"].(string); ok && origFilename != "" {
-				source = origFilename
-			} else if metaSource, ok := r.Metadata["source"].(string); ok && metaSource != "" && !strings.HasPrefix(metaSource, "tmp") {
-				// Then try the source from metadata if it's not a tmp file
-				source = metaSource
-			} else {
-				// Finally fall back to regular source
-				source, _ = r.Metadata["source"].(string)
-			}
-		}
-
-		// Convert content_offset from float64 to int if present
-		var contentOffset int
-		if co, ok := r.Metadata["content_offset"].(float64); ok {
-			contentOffset = int(co)
-		}
-
 		results[i] = &types.SessionRAGResult{
 			Content:         r.Content,
 			Distance:        r.Score,
-			DocumentID:      documentID,
-			DocumentGroupID: documentGroupID,
-			Source:          source,
-			ContentOffset:   contentOffset,
+			DocumentID:      r.Metadata.DocumentID,
+			DocumentGroupID: r.Metadata.DocumentGroupID,
+			Source:          r.Metadata.Source,
+			ContentOffset:   r.Metadata.ContentOffset,
 		}
 	}
 
