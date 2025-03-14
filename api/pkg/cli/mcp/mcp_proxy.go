@@ -97,7 +97,6 @@ var runProxyCmd = &cobra.Command{
 		log.Trace().
 			Str("app_id", helixAppID).
 			Str("helix_url", cfg.URL).
-			Str("helix_api_key", cfg.APIKey).
 			Msg("starting mcp proxy")
 
 		if helixAppID == "" {
@@ -150,7 +149,9 @@ func (mcps *ModelContextProtocolServer) Start() error {
 		return err
 	}
 
-	log.Info().Any("mcpTools", mcpTools).Msg("adding tools")
+	log.Info().
+		Any("mcp_tools", mcpTools).
+		Msg("adding tools")
 
 	for _, mt := range mcpTools {
 		s.AddTool(mt.tool, mt.toolHandler)
@@ -166,9 +167,16 @@ func (mcps *ModelContextProtocolServer) Start() error {
 }
 
 type helixMCPTool struct {
-	prompt        mcp.Prompt // Prompts are templates for calls, they are similar
+	// Prompts: https://modelcontextprotocol.io/docs/concepts/prompts
+	// Prompts enable servers to define reusable prompt templates and workflows that clients
+	// can easily surface to users and LLMs. They provide a powerful way to standardize and
+	//share common LLM interactions.
+	prompt        mcp.Prompt
 	promptHandler func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error)
 
+	// Tools: https://modelcontextprotocol.io/docs/concepts/roots
+	// Roots are a concept in MCP that define the boundaries where servers can operate.
+	// They provide a way for clients to inform servers about relevant resources and their locations
 	tool        mcp.Tool
 	toolHandler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
@@ -264,6 +272,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		})
 	}
 
+	log.Info().Msg("listing knowledges")
+
 	knowledges, err := mcps.apiClient.ListKnowledge(context.Background(), &client.KnowledgeFilter{
 		AppID: mcps.appID,
 	})
@@ -271,6 +281,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		log.Error().Err(err).Msg("failed to list knowledge")
 		return nil, err
 	}
+
+	log.Info().Any("knowledges", knowledges).Msg("knowledges")
 
 	for _, knowledge := range knowledges {
 		mcpTool := mcp.NewTool(knowledge.Name,
@@ -282,8 +294,14 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:        mcpTool,
-			toolHandler: mcps.getKnowledgeToolHandler(knowledge.ID),
+			prompt: mcp.NewPrompt(knowledge.Name,
+				mcp.WithPromptDescription(knowledge.Description),
+				mcp.WithArgument("prompt", mcp.RequiredArgument(),
+					mcp.ArgumentDescription("The prompt to search knowledge with, use concise, main keywords as the engine is performing both semantic and full text search")),
+			),
+			promptHandler: mcps.getKnowledgePromptHandler(mcps.appID, knowledge),
+			tool:          mcpTool,
+			toolHandler:   mcps.getKnowledgeToolHandler(knowledge.ID),
 		})
 	}
 
