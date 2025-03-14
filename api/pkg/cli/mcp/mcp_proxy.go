@@ -385,6 +385,8 @@ func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID stri
 			return mcp.NewToolResultError("prompt is required"), nil
 		}
 
+		log.Info().Str("knowledge_id", knowledgeID).Str("prompt", prompt.(string)).Msg("searching knowledge")
+
 		promptStr, ok := prompt.(string)
 		if !ok {
 			return mcp.NewToolResultError("prompt must be a string"), nil
