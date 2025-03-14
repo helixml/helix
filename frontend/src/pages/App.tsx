@@ -115,7 +115,7 @@ const App: FC = () => {
     }
     navigate('new', { app_id: appTools.id })
   }
-  
+
   const isGithubApp = useMemo(() => {
     if(!appTools.app) return true
     return appTools.app?.app_source === APP_SOURCE_GITHUB
@@ -131,8 +131,6 @@ const App: FC = () => {
   }, [
     session.data,
   ])
-
-  
 
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
@@ -152,8 +150,6 @@ const App: FC = () => {
       session.setData(newSession)
     }
   })
-
-  
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
@@ -216,8 +212,13 @@ const App: FC = () => {
         </Box>
       )}
     >
-      <Container maxWidth="xl" sx={{ height: 'calc(100% - 100px)' }}>
-        <Box sx={{ height: 'calc(100vh - 100px)', width: '100%', flexGrow: 1, p: 2 }}>
+      <Container
+        maxWidth="xl"
+        sx={{
+          height: '100%',
+        }}
+      >
+        <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0, }}>
           <Box>
             <Tabs value={tabValue} onChange={handleTabChange}>
               <Tab label="Settings" value="settings" />
@@ -372,33 +373,6 @@ const App: FC = () => {
           </Box>
         </Box>
       </Container>
-
-      {/* Fixed bottom bar with save button */}
-      {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
-        <Box sx={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          borderTop: '1px solid #303047',
-          bgcolor: 'background.paper',
-          zIndex: 1000,
-        }}>
-          <Container maxWidth="xl">
-            <Box sx={{ p: 2 }}>
-              <Button
-                type="button"
-                color="secondary"
-                variant="contained"
-                onClick={async () => true/*onSave(false)*/}
-                disabled={isReadOnly && !isGithubApp}
-              >
-                Save
-              </Button>
-            </Box>
-          </Container>
-        </Box>
-      )}
 
       {
         showBigSchema && (
