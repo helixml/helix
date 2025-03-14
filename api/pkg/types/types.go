@@ -154,12 +154,13 @@ type SessionRAGIndexChunk struct {
 // the query we post to llamaindex to get results back from a user
 // prompt against a rag enabled session
 type SessionRAGQuery struct {
-	Prompt            string  `json:"prompt"`
-	DataEntityID      string  `json:"data_entity_id"`
-	DistanceThreshold float64 `json:"distance_threshold"`
-	DistanceFunction  string  `json:"distance_function"`
-	MaxResults        int     `json:"max_results"`
-	ExhaustiveSearch  bool    `json:"exhaustive_search"`
+	Prompt            string   `json:"prompt"`
+	DataEntityID      string   `json:"data_entity_id"`
+	DistanceThreshold float64  `json:"distance_threshold"`
+	DistanceFunction  string   `json:"distance_function"`
+	MaxResults        int      `json:"max_results"`
+	ExhaustiveSearch  bool     `json:"exhaustive_search"`
+	DocumentIDList    []string `json:"document_id_list"` // TODO(Phil): I can see this getting out of hand, should make it more generic to handle any kind of metadata filter
 }
 
 type DeleteIndexRequest struct {

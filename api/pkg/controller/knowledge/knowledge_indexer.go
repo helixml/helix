@@ -506,6 +506,7 @@ func getCrawledSources(data []*indexerData) []*types.CrawledURL {
 			StatusCode: d.StatusCode,
 			DurationMs: d.DurationMs,
 			Message:    d.Message,
+			DocumentID: getDocumentID(d.Data),
 		})
 	}
 

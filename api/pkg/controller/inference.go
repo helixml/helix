@@ -537,12 +537,20 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
 	}
 
+	prompt := getLastMessage(req)
+
+	// Parse document IDs from the completion request
+	documentIDs := rag.ParseDocumentIDs(prompt)
+
+	log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
+
 	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
-		Prompt:            getLastMessage(req),
+		Prompt:            prompt,
 		DataEntityID:      entity.ID,
 		DistanceThreshold: entity.Config.RAGSettings.Threshold,
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
+		DocumentIDList:    documentIDs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error querying RAG: %w", err)
@@ -603,12 +611,18 @@ func (c *Controller) evaluateKnowledge(
 				log.Debug().Err(err).Msg("failed to emit step info")
 			}
 
+			// Parse document IDs from the completion request
+			documentIDs := rag.ParseDocumentIDs(prompt)
+
+			log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
+
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
+				DocumentIDList:    documentIDs,
 			})
 			if err != nil {
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
