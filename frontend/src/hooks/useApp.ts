@@ -349,8 +349,7 @@ export const useApp = (appId: string) => {
    */
   const saveFlatApp = useCallback(async (updates: IAppFlatState, opts: { quiet?: boolean } = {}) => {
     if (!app) return
-    const newApp = mergeFlatStateIntoApp(app, updates)
-    await saveApp(newApp, opts)
+    await saveApp(mergeFlatStateIntoApp(app, updates), opts)
   }, [
     app,
     saveApp,
