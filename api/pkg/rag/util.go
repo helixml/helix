@@ -1,6 +1,9 @@
 package rag
 
-import "regexp"
+import (
+	"fmt"
+	"regexp"
+)
 
 // Extract document IDs from the prompt
 func ParseDocumentIDs(prompt string) []string {
@@ -13,4 +16,8 @@ func ParseDocumentIDs(prompt string) []string {
 		documentIDs[i] = match[1]
 	}
 	return documentIDs
+}
+
+func BuildDocumentID(documentID string) string {
+	return fmt.Sprintf("[DOC_ID:%s]", documentID)
 }
