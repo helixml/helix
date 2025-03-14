@@ -243,15 +243,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	var gse gptscript.Executor
-
 	if cfg.GPTScript.TestFaster.URL != "" {
-		log.Info().Msg("using firecracker based GPTScript executor")
-		gse = gptscript.NewTestFasterExecutor(cfg)
-	} else {
-		log.Info().Msg("using runner based GPTScript executor")
-		gse = gptscript.NewExecutor(cfg, ps)
+		return fmt.Errorf("HELIX_TESTFASTER_URL is deprecated, please use runner based GPTScript executor")
 	}
+	log.Info().Msg("using runner based GPTScript executor")
+	gse := gptscript.NewExecutor(cfg, ps)
 
 	var extractor extract.Extractor
 

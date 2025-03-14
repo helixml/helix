@@ -63,7 +63,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
                 border: '1px solid',
                 borderColor: 'secondary.main',
               }}
-              src={ `${data.url}?access_token=${account.tokenUrlEscaped}` }
+              src={data.url}
             />
           ) : null
         }

@@ -169,7 +169,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		}
 		if !strings.HasPrefix(loginRequest.RedirectURI, s.Cfg.WebServer.URL) {
 			log.Debug().Str("server_url", s.Cfg.WebServer.URL).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI")
-			http.Error(w, "invalid redirect URI", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("invalid redirect URI: %s != %s", loginRequest.RedirectURI, s.Cfg.WebServer.URL), http.StatusBadRequest)
 			return
 		}
 		cookieManager.Set(w, redirectURICookie, loginRequest.RedirectURI)
