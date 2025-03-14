@@ -130,39 +130,39 @@ services:
     command: ["start-dev"]
     ports:
       - 30080:8080
-  webhook_relay_stripe:
-    image: webhookrelay/webhookrelayd
-    environment:
-      - KEY=${WEBHOOK_RELAY_KEY:-}
-      - SECRET=${WEBHOOK_RELAY_SECRET:-}
-      - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
-  webhook_relay_github:
-    image: webhookrelay/webhookrelayd
-    environment:
-      - KEY=${WEBHOOK_RELAY_KEY:-}
-      - SECRET=${WEBHOOK_RELAY_SECRET:-}
-      - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
-  tika:
-    image: apache/tika:2.9.2.1
-    ports:
-      - 9998:9998
-  typense-ui:
-    image: ghcr.io/bfritscher/typesense-dashboard:latest
-    ports:
-      - 8877:80
-    volumes:
-      - ./scripts/config.json:/srv/config.json
-    depends_on:
-      - typesense
-  typesense:
-    build:
-      context: .
-      dockerfile: Dockerfile.typesense
-    command: ["--data-dir", "/data", "--api-key", "typesense"]
-    ports:
-      - 8108:8108
-    volumes:
-      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+  # webhook_relay_stripe:
+  #   image: webhookrelay/webhookrelayd
+  #   environment:
+  #     - KEY=${WEBHOOK_RELAY_KEY:-}
+  #     - SECRET=${WEBHOOK_RELAY_SECRET:-}
+  #     - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
+  # webhook_relay_github:
+  #   image: webhookrelay/webhookrelayd
+  #   environment:
+  #     - KEY=${WEBHOOK_RELAY_KEY:-}
+  #     - SECRET=${WEBHOOK_RELAY_SECRET:-}
+  #     - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
+  # tika:
+  #   image: apache/tika:2.9.2.1
+  #   ports:
+  #     - 9998:9998
+  # typense-ui:
+  #   image: ghcr.io/bfritscher/typesense-dashboard:latest
+  #   ports:
+  #     - 8877:80
+  #   volumes:
+  #     - ./scripts/config.json:/srv/config.json
+  #   depends_on:
+  #     - typesense
+  # typesense:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.typesense
+  #   command: ["--data-dir", "/data", "--api-key", "typesense"]
+  #   ports:
+  #     - 8108:8108
+  #   volumes:
+  #     - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
@@ -170,77 +170,77 @@ services:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     ports:
       - 7317:7317
-  llamaindex:
-    profiles: [full]
-    image: registry.helix.ml/helix/llamaindex:latest
-    # build:
-    #   context: llamaindex
-    #   dockerfile: Dockerfile
-    # ports:
-    #   - 5000:5000
-    environment:
-      - POSTGRES_HOST=pgvector
-      - POSTGRES_DATABASE=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-    # entrypoint: ${LLAMAINDEX_ENTRYPOINT:-tail -f /dev/null}
-    restart: always
-    volumes:
-      - ./llamaindex/src:/home/app/src
-  gptscript_runner:
-    build:
-      context: .
-      dockerfile: Dockerfile.gptscript
-    restart: always
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - API_HOST=http://api:80
-      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
-      - CONCURRENCY=20 # number of tasks to run concurrently
-      - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
-    depends_on:
-      - api
-  dev_gpu_runner:
-    profiles: ["dev_gpu_runner"]
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
-      args:
-        TAG: 2024-12-07a-small
-    #image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
-    entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
-    env_file:
-      - .env
-    volumes:
-      - .:/workspace/helix
-      # - ~/.cache/huggingface:/root/.cache/huggingface
-      # comment these out if you don't have appropriate repos checked out
-      # - ../axolotl:/workspace/axolotl
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-  demos:
-    profiles: ["demos"]
-    build:
-      context: .
-      dockerfile: Dockerfile.demos
-    ports:
-      - ${DEMOS_PORT:-8085}:8085
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - PORT=8085
-    entrypoint: ${DEMOS_ENTRYPOINT:-tail -f /dev/null}
-    volumes:
-      - ./go.mod:/app/go.mod
-      - ./go.sum:/app/go.sum
-      - ./demos:/app/demos
+  # llamaindex:
+  #   profiles: [full]
+  #   image: registry.helix.ml/helix/llamaindex:latest
+  #   # build:
+  #   #   context: llamaindex
+  #   #   dockerfile: Dockerfile
+  #   # ports:
+  #   #   - 5000:5000
+  #   environment:
+  #     - POSTGRES_HOST=pgvector
+  #     - POSTGRES_DATABASE=postgres
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+  #   # entrypoint: ${LLAMAINDEX_ENTRYPOINT:-tail -f /dev/null}
+  #   restart: always
+  #   volumes:
+  #     - ./llamaindex/src:/home/app/src
+  # gptscript_runner:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.gptscript
+  #   restart: always
+  #   environment:
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  #     - API_HOST=http://api:80
+  #     - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+  #     - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
+  #     - CONCURRENCY=20 # number of tasks to run concurrently
+  #     - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
+  #   depends_on:
+  #     - api
+  # dev_gpu_runner:
+  #   profiles: ["dev_gpu_runner"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.runner
+  #     args:
+  #       TAG: 2024-12-07a-small
+  #   #image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
+  #   entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - .:/workspace/helix
+  #     # - ~/.cache/huggingface:/root/.cache/huggingface
+  #     # comment these out if you don't have appropriate repos checked out
+  #     # - ../axolotl:/workspace/axolotl
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  # demos:
+  #   profiles: ["demos"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.demos
+  #   ports:
+  #     - ${DEMOS_PORT:-8085}:8085
+  #   restart: always
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - PORT=8085
+  #   entrypoint: ${DEMOS_ENTRYPOINT:-tail -f /dev/null}
+  #   volumes:
+  #     - ./go.mod:/app/go.mod
+  #     - ./go.sum:/app/go.sum
+  #     - ./demos:/app/demos
 
   frontend:
     ports:
@@ -270,7 +270,7 @@ services:
       - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL} # Need to set this to an external VLLM server in development
       - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
       - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-Alibaba-NLP/gte-Qwen2-7B-instruct}
-      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-3584}
+      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-768}
       - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
       - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-1000}
       - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
