@@ -259,6 +259,7 @@ type CrawledURL struct {
 	StatusCode int    `json:"status_code"`
 	Message    string `json:"message"`
 	DurationMs int64  `json:"duration_ms"`
+	DocumentID string `json:"document_id"`
 }
 
 type KnowledgeProgress struct {
