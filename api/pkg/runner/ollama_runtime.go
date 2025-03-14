@@ -30,13 +30,14 @@ var (
 )
 
 type OllamaRuntime struct {
-	version      string
-	cacheDir     string
-	port         int
-	startTimeout time.Duration
-	ollamaClient *api.Client
-	cmd          *exec.Cmd
-	cancel       context.CancelFunc
+	version       string
+	cacheDir      string
+	port          int
+	startTimeout  time.Duration
+	contextLength int64
+	ollamaClient  *api.Client
+	cmd           *exec.Cmd
+	cancel        context.CancelFunc
 }
 
 type Model struct {
@@ -53,9 +54,10 @@ type Model struct {
 }
 
 type OllamaRuntimeParams struct {
-	CacheDir     *string        // Where to store the models
-	Port         *int           // If nil, will be assigned a random port
-	StartTimeout *time.Duration // How long to wait for ollama to start, if nil, will use default
+	CacheDir      *string        // Where to store the models
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for ollama to start, if nil, will use default
+	ContextLength *int64         // Optional: Context length to use for the model
 }
 
 func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
@@ -77,11 +79,21 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		log.Debug().Int("port", *params.Port).Msg("Found free port")
 	}
 
+	// Determine context length
+	var contextLength int64
+
+	// If context length is provided, use it
+	if params.ContextLength != nil {
+		contextLength = *params.ContextLength
+		log.Debug().Int64("context_length", contextLength).Msg("Using provided context length")
+	}
+
 	return &OllamaRuntime{
-		version:      "unknown",
-		cacheDir:     *params.CacheDir,
-		port:         *params.Port,
-		startTimeout: *params.StartTimeout,
+		version:       "unknown",
+		cacheDir:      *params.CacheDir,
+		port:          *params.Port,
+		startTimeout:  *params.StartTimeout,
+		contextLength: contextLength,
 	}, nil
 }
 
@@ -117,7 +129,7 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start ollama cmd
-	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir)
+	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength)
 	if err != nil {
 		return fmt.Errorf("error building ollama cmd: %w", err)
 	}
@@ -265,7 +277,7 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string) (*exec.Cmd, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64) (*exec.Cmd, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
@@ -277,14 +289,28 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	log.Debug().Msg("Preparing ollama serve command")
 	cmd := commander.CommandContext(ctx, ollamaPath, "serve")
 	ollamaHost := fmt.Sprintf("127.0.0.1:%d", port)
-	cmd.Env = append(cmd.Env,
-		"HOME="+os.Getenv("HOME"),
-		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
-		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
+
+	// Build environment variables
+	env := []string{
+		"HOME=" + os.Getenv("HOME"),
+		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
+		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_KEEP_ALIVE=-1",
-		"OLLAMA_HOST="+ollamaHost, // Bind on localhost with random port
-		"OLLAMA_MODELS="+cacheDir, // Where to store the models
-	)
+		"OLLAMA_MAX_LOADED_MODELS=1",
+		"OLLAMA_NUM_PARALLEL=1",
+		"OLLAMA_FLASH_ATTENTION=1",
+		"OLLAMA_KV_CACHE_TYPE=q8_0",
+		"OLLAMA_HOST=" + ollamaHost, // Bind on localhost with random port
+		"OLLAMA_MODELS=" + cacheDir, // Where to store the models
+	}
+
+	// Add context length configuration if provided
+	if contextLength > 0 {
+		env = append(env, fmt.Sprintf("OLLAMA_CONTEXT_LENGTH=%d", contextLength))
+		log.Debug().Int64("context_length", contextLength).Msg("Setting Ollama context length")
+	}
+
+	cmd.Env = env
 	log.Debug().Interface("env", cmd.Env).Msg("Ollama serve command")
 
 	// Prepare stdout and stderr
