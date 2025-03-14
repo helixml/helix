@@ -24,7 +24,7 @@ func (s *HelixAPIServer) uiAt(_ http.ResponseWriter, r *http.Request) (*types.UI
 	// contained in that app.
 	appID := r.URL.Query().Get("app_id")
 	if appID != "" {
-		knowledges, err := s.Controller.Options.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
+		knowledges, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
 			AppID: appID,
 			Owner: user.ID,
 		})
