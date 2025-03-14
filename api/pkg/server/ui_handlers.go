@@ -10,6 +10,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// uiAt godoc
+// @Summary uiAt
+// @Description uiAt
+// @Tags    ui
+// @Success 200 {object} types.UIAtResponse
+// @Param q    query string true "Query string"
+// @Param app_id    query string true "App ID"
+// @Router /api/v1/ui/at [get]
 func (s *HelixAPIServer) uiAt(_ http.ResponseWriter, r *http.Request) (*types.UIAtResponse, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
