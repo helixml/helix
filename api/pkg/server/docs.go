@@ -473,6 +473,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/knowledge/{id}/complete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Complete knowledge preparation and move to pending state for indexing",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Complete knowledge preparation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge/{id}/refresh": {
             "post": {
                 "security": [
@@ -1245,6 +1267,39 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ui/at": {
+            "get": {
+                "description": "uiAt",
+                "tags": [
+                    "ui"
+                ],
+                "summary": "uiAt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Query string",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UIAtResponse"
                         }
                     }
                 }
@@ -2463,6 +2518,9 @@ const docTemplate = `{
         "types.CrawledURL": {
             "type": "object",
             "properties": {
+                "document_id": {
+                    "type": "string"
+                },
                 "duration_ms": {
                     "type": "integer"
                 },
@@ -3014,12 +3072,14 @@ const docTemplate = `{
         "types.KnowledgeState": {
             "type": "string",
             "enum": [
+                "preparing",
                 "pending",
                 "indexing",
                 "ready",
                 "error"
             ],
             "x-enum-varnames": [
+                "KnowledgeStatePreparing",
                 "KnowledgeStatePending",
                 "KnowledgeStateIndexing",
                 "KnowledgeStateReady",
@@ -4217,6 +4277,7 @@ const docTemplate = `{
                 "",
                 "runner",
                 "keycloak",
+                "oidc",
                 "api_key",
                 "socket"
             ],
@@ -4224,6 +4285,7 @@ const docTemplate = `{
                 "TokenTypeNone",
                 "TokenTypeRunner",
                 "TokenTypeKeycloak",
+                "TokenTypeOIDC",
                 "TokenTypeAPIKey",
                 "TokenTypeSocket"
             ]
@@ -4342,6 +4404,28 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
+                }
+            }
+        },
+        "types.UIAtData": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UIAtResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UIAtData"
+                    }
                 }
             }
         },
