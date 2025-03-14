@@ -296,6 +296,10 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_KEEP_ALIVE=-1",
+		"OLLAMA_MAX_LOADED_MODELS=1",
+		"OLLAMA_NUM_PARALLEL=1",
+		"OLLAMA_FLASH_ATTENTION=1",
+		"OLLAMA_KV_CACHE_TYPE=q8_0",
 		"OLLAMA_HOST=" + ollamaHost, // Bind on localhost with random port
 		"OLLAMA_MODELS=" + cacheDir, // Where to store the models
 	}
