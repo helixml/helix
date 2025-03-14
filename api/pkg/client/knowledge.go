@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 )
 
 type KnowledgeFilter struct {
@@ -26,8 +25,6 @@ func (c *HelixClient) ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]
 	if err != nil {
 		return nil, err
 	}
-
-	log.Info().Any("knowledge", knowledge).Msg("knowledge retrieved")
 
 	return knowledge, nil
 }
