@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC } from 'react'
+import React, { useState, useEffect, FC, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -42,19 +42,28 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
+  
+  // Track if component has been initialized
+  const isInitialized = useRef(false)
 
-  // Update local state when app prop changes
+  // Update local state ONLY on initial mount, not when app prop changes
   useEffect(() => {
-    setName(app.name || '')
-    setDescription(app.description || '')
-    setSystemPrompt(app.systemPrompt || '')
-    setAvatar(app.avatar || '')
-    setImage(app.image || '')
-    setShared(app.shared || false)
-    setGlobal(app.global || false)
-    setModel(app.model || '')
-    setProvider(app.provider || '')
-  }, [app]) // Re-run effect when app changes
+    // Only initialize values if not already initialized
+    if (!isInitialized.current) {
+      setName(app.name || '')
+      setDescription(app.description || '')
+      setSystemPrompt(app.systemPrompt || '')
+      setAvatar(app.avatar || '')
+      setImage(app.image || '')
+      setShared(app.shared || false)
+      setGlobal(app.global || false)
+      setModel(app.model || '')
+      setProvider(app.provider || '')
+      
+      // Mark as initialized
+      isInitialized.current = true
+    }
+  }, [app]) // Still depend on app, but we'll only use it for initialization
 
   // Handle blur event - gather all current state values and call onUpdate
   const handleBlur = (field: 'name' | 'description' | 'systemPrompt' | 'avatar' | 'image') => {

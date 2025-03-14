@@ -369,7 +369,7 @@ const App: FC = () => {
                   onSearch={appTools.onSearch}
                   hasKnowledgeSources={appTools.knowledge.length > 0}
                   searchResults={appTools.searchResults}
-                  session={session.data}
+                  session={appTools.session.data}
                   serverConfig={account.serverConfig}
                   themeConfig={themeConfig}
                   snackbar={snackbar}
