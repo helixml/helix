@@ -309,52 +309,129 @@ func extractSessionID(path string) string {
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
 // this will tell you if the given http request is authorized to access it
 func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, error) {
+	logger := log.With().
+		Str("path", req.URL.Path).
+		Str("method", req.Method).
+		Logger()
+
+	logger.Debug().Msg("Checking filestore route authorization")
+
 	if req.URL.Query().Get("signature") != "" {
 		// Construct full URL
 		u := fmt.Sprintf("http://api/%s%s?%s", req.URL.Host, req.URL.Path, req.URL.RawQuery)
-		return apiServer.Controller.VerifySignature(u), nil
+		verified := apiServer.Controller.VerifySignature(u)
+		logger.Debug().Bool("signatureVerified", verified).Msg("Checking URL signature")
+		return verified, nil
 	}
 
 	// if the session is "shared" then anyone can see it's files
 	sessionID := extractSessionID(req.URL.Path)
 	if sessionID != "" {
+		logger.Debug().Str("sessionID", sessionID).Msg("Found session ID in path")
 		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 		if err != nil {
+			logger.Error().Err(err).Str("sessionID", sessionID).Msg("Error retrieving session")
 			return false, err
 		}
 		if session.Metadata.Shared {
+			logger.Debug().Str("sessionID", sessionID).Msg("Session is shared, allowing access")
 			return true, nil
 		}
+		logger.Debug().Str("sessionID", sessionID).Bool("isShared", false).Msg("Session is not shared")
 	}
 
 	user := getRequestUser(req)
+	logger.Debug().
+		Str("userID", user.ID).
+		Str("username", user.Username).
+		Str("userType", string(user.Type)).
+		Msg("User information from request")
 
 	// a runner can see all files
 	if isRunner(user) {
+		logger.Debug().Msg("User is a runner, allowing access")
 		return true, nil
 	}
 
 	// an admin user can see all files
 	if isAdmin(user) {
+		logger.Debug().Msg("User is an admin, allowing access")
 		return true, nil
+	}
+
+	// Check if this is an app path - ensure it matches the expected structure:
+	// /api/v1/filestore/viewer/dev/apps/... - not just any path with "apps" in it
+	appPath := extractAppPathFromViewerURL(req.URL.Path)
+	logger.Debug().
+		Str("originalPath", req.URL.Path).
+		Str("extractedAppPath", appPath).
+		Bool("isAppPath", appPath != "" && strings.HasPrefix(appPath, "apps/")).
+		Msg("App path extraction result")
+
+	if appPath != "" && strings.HasPrefix(appPath, "apps/") {
+		logger.Debug().Str("appPath", appPath).Msg("Path appears to be an app path")
+
+		// Check app access using the same logic as in the API handlers
+		hasAccess, appID, err := apiServer.checkAppFilestoreAccess(req.Context(), appPath, req, types.ActionGet)
+		if err != nil {
+			logger.Error().Err(err).Str("appPath", appPath).Msg("Error checking app filestore access")
+			return false, err
+		}
+
+		logger.Debug().
+			Str("appID", appID).
+			Bool("hasAccess", hasAccess).
+			Msg("App access check result")
+
+		return hasAccess, nil
 	}
 
 	reqUser := getRequestUser(req)
 	userID := reqUser.ID
 	if userID == "" {
+		logger.Debug().Msg("No user ID found in request, denying access")
 		return false, nil
 	}
+
 	userPath, err := apiServer.Controller.GetFilestoreUserPath(types.OwnerContext{
 		Owner:     userID,
 		OwnerType: types.OwnerTypeUser,
 	}, "")
 	if err != nil {
+		logger.Error().Err(err).Msg("Error getting user filestore path")
 		return false, err
 	}
+
+	logger.Debug().
+		Str("userPath", userPath).
+		Bool("pathMatch", strings.HasPrefix(req.URL.Path, userPath)).
+		Msg("Checking if path is in user's filestore")
+
 	if strings.HasPrefix(req.URL.Path, userPath) {
+		logger.Debug().Msg("Path is in user's filestore, allowing access")
 		return true, nil
 	}
+
+	logger.Debug().Msg("No access rules matched, denying access")
 	return false, nil
+}
+
+// Helper function to extract app path from a viewer URL
+func extractAppPathFromViewerURL(urlPath string) string {
+	// In the stripped case, we're receiving paths like:
+	// "{prefix}/apps/{app_id}/..." (after StripPrefix was applied)
+	// e.g. "dev/apps/app_123/file.pdf"
+
+	// Split the path into segments
+	segments := strings.Split(urlPath, "/")
+
+	// We need at least 2 segments and the second one should be "apps"
+	if len(segments) > 1 && segments[1] == "apps" {
+		// Return everything from "apps" onwards
+		return strings.Join(segments[1:], "/")
+	}
+
+	return ""
 }
 
 // this means our local filestore viewer will not list directories
@@ -382,46 +459,84 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 // checkAppFilestoreAccess checks if the user has access to app-scoped filestore paths
 // This enforces the same RBAC controls as for apps themselves
 func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path string, req *http.Request, requiredAction types.Action) (bool, string, error) {
+	logger := log.With().
+		Str("path", path).
+		Str("requiredAction", string(requiredAction)).
+		Logger()
+
+	logger.Debug().Msg("Starting filestore access check")
+
 	// If the path doesn't start with "apps/", it's not app-scoped
 	if !controller.IsAppPath(path) {
+		logger.Debug().Msg("Path is not an app path")
 		return false, "", nil
 	}
 
 	// Extract the app ID from the path (apps/:app_id/...)
 	appID, err := controller.ExtractAppID(path)
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to extract app ID from path")
 		return false, "", fmt.Errorf("invalid app filestore path format: %s", path)
 	}
+
+	logger.Debug().Str("appID", appID).Msg("Extracted app ID from path")
 
 	// Get the app to check permissions
 	app, err := apiServer.Store.GetApp(ctx, appID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			logger.Debug().Str("appID", appID).Msg("App not found")
 			return false, appID, nil
 		}
+		logger.Error().Err(err).Str("appID", appID).Msg("Error retrieving app")
 		return false, appID, err
 	}
 
+	logger.Debug().
+		Str("appID", appID).
+		Str("appOwner", app.Owner).
+		Str("ownerType", string(app.OwnerType)).
+		Bool("isGlobal", app.Global).
+		Bool("isShared", app.Shared).
+		Msg("Retrieved app information")
+
 	// Get the user from the request
 	user := getRequestUser(req)
+	logger.Debug().
+		Str("userID", user.ID).
+		Str("username", user.Username).
+		Bool("isAuthenticated", user.ID != "").
+		Msg("User information from request")
 
 	// Admin users have access to all apps
 	if isAdmin(user) {
+		logger.Debug().Msg("User is admin, granting access")
 		return true, appID, nil
 	}
 
 	// If the user is the owner of the app, they have access
 	if user.ID == app.Owner && app.OwnerType == types.OwnerTypeUser {
+		logger.Debug().Msg("User is the app owner, granting access")
 		return true, appID, nil
+	}
+
+	// Log ownership mismatch if user is not empty and not the owner
+	if user.ID != "" && user.ID != app.Owner {
+		logger.Debug().
+			Str("userID", user.ID).
+			Str("appOwner", app.Owner).
+			Msg("User is not the app owner")
 	}
 
 	// Check if the app is public/global
 	if app.Global {
 		// For global apps, read access is allowed for everyone
 		if requiredAction == types.ActionGet || requiredAction == types.ActionList {
+			logger.Debug().Msg("App is global, granting read access")
 			return true, appID, nil
 		}
 		// Only admins and owners can modify global apps
+		logger.Debug().Msg("App is global but user requires write access, denying access")
 		return false, appID, nil
 	}
 
@@ -429,9 +544,11 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 	if app.Shared {
 		// For shared apps, read access is allowed for everyone
 		if requiredAction == types.ActionGet || requiredAction == types.ActionList {
+			logger.Debug().Msg("App is shared, granting read access")
 			return true, appID, nil
 		}
 		// Only admins and owners can modify shared apps
+		logger.Debug().Msg("App is shared but user requires write access, denying access")
 		return false, appID, nil
 	}
 
@@ -442,18 +559,58 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 		UserID:       user.ID,
 	})
 	if err != nil {
+		logger.Error().Err(err).Msg("Error querying access grants")
 		return false, appID, err
 	}
 
+	logger.Debug().Int("numAccessGrants", len(accessGrants)).Msg("Retrieved access grants")
+
 	// If no access grants found, the user doesn't have access
 	if len(accessGrants) == 0 {
+		logger.Debug().Msg("No access grants found for user, denying access")
 		return false, appID, nil
 	}
 
 	// Check if any of the roles in the access grants allow the required action
 	for _, accessGrant := range accessGrants {
-		for _, role := range accessGrant.Roles {
-			for _, rule := range role.Config.Rules {
+		logger := logger.With().
+			Str("grantID", accessGrant.ID).
+			Int("numRoles", len(accessGrant.Roles)).
+			Logger()
+
+		logger.Debug().Msg("Checking access grant")
+
+		for i, role := range accessGrant.Roles {
+			logger := logger.With().
+				Int("roleIndex", i).
+				Str("roleName", role.Name).
+				Int("numRules", len(role.Config.Rules)).
+				Logger()
+
+			logger.Debug().Msg("Checking role")
+
+			for j, rule := range role.Config.Rules {
+				// Convert []Resource to []string for logging
+				resources := make([]string, len(rule.Resources))
+				for k, r := range rule.Resources {
+					resources[k] = string(r)
+				}
+
+				// Convert []Action to []string for logging
+				actions := make([]string, len(rule.Actions))
+				for k, a := range rule.Actions {
+					actions[k] = string(a)
+				}
+
+				logger := logger.With().
+					Int("ruleIndex", j).
+					Strs("resources", resources).
+					Strs("actions", actions).
+					Str("effect", string(rule.Effect)).
+					Logger()
+
+				logger.Debug().Msg("Checking rule")
+
 				// Check if the rule applies to application resources
 				resourceMatch := false
 				for _, resource := range rule.Resources {
@@ -464,6 +621,7 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 				}
 
 				if !resourceMatch {
+					logger.Debug().Msg("Rule does not apply to application resources")
 					continue
 				}
 
@@ -477,12 +635,18 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 				}
 
 				if actionMatch && rule.Effect == types.EffectAllow {
+					logger.Debug().Msg("Found matching rule with allow effect, granting access")
 					return true, appID, nil
+				}
+
+				if actionMatch {
+					logger.Debug().Str("effect", string(rule.Effect)).Msg("Action matched but effect is not 'allow'")
 				}
 			}
 		}
 	}
 
 	// No matching rules found, access denied
+	logger.Debug().Msg("No matching rules found in access grants, denying access")
 	return false, appID, nil
 }

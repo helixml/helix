@@ -126,9 +126,10 @@ export const InteractionLiveStream: FC<{
     return () => clearTimeout(timer)
   }, [isComplete, onStreamingComplete])
 
-  const getFileURL = (url: string) => {
+  const useClientURL = (url: string) => {
+    if(!url) return ''
     if(!serverConfig) return ''
-    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.tokenUrlEscaped}&redirect_urls=true`
+    return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`
   }
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
@@ -161,7 +162,7 @@ export const InteractionLiveStream: FC<{
           <Markdown
             text={message}
             session={session}
-            getFileURL={getFileURL}
+            getFileURL={useClientURL}
             showBlinker={true}
             isStreaming={true}
           />

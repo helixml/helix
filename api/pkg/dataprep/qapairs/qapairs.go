@@ -153,7 +153,7 @@ func Run(client openai.Client, ownerID, sessionID, model string, promptFilter, t
 	// for _, target := range filteredTargets {
 	for _, prompt := range filteredPrompts {
 		for _, text := range filteredTexts {
-			fmt.Printf("Running helix qapairs --target=\"%s\" --prompt=\"%s\" --text=\"%s\"\n", model, prompt.Name, text.Name)
+			log.Info().Msgf("Running helix qapairs --target=\"%s\" --prompt=\"%s\" --text=\"%s\"\n", model, prompt.Name, text.Name)
 			resp, err := Query(client, ownerID, sessionID, model, prompt, text, "", "", 0)
 			if err != nil {
 				return fmt.Errorf("error querying model: %v", err)
@@ -162,7 +162,7 @@ func Run(client openai.Client, ownerID, sessionID, model string, promptFilter, t
 			if err != nil {
 				return fmt.Errorf("error marshalling response to yaml (%v): %w ", resp, err)
 			}
-			fmt.Println(string(bs))
+			log.Info().Msg(string(bs))
 		}
 	}
 

@@ -49,11 +49,6 @@ const Layout: FC = ({
     return account.serverConfig.version !== account.serverConfig.latest_version
   }, [account.serverConfig?.version, account.serverConfig?.latest_version])
 
-  console.log('Layout:', {
-    deploymentId: account.serverConfig?.deployment_id,
-    serverConfig: account.serverConfig
-  });
-
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
 
