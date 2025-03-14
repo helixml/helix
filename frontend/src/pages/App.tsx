@@ -22,6 +22,7 @@ import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import Window from '../components/widgets/Window'
+import SavingToast from '../components/widgets/SavingToast'
 import { useStreaming } from '../contexts/streaming'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import useAccount from '../hooks/useAccount'
@@ -374,6 +375,9 @@ const App: FC = () => {
           </Box>
         </Box>
       </Container>
+
+      {/* Toast notification for app saving */}
+      <SavingToast isSaving={appTools.isAppSaving} />
 
       {
         showBigSchema && (

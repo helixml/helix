@@ -43,7 +43,7 @@ export const useApp = (appId: string) => {
   const [app, setApp] = useState<IApp | null>(null)
   const [knowledge, setKnowledge] = useState<IKnowledgeSource[]>([])
   const [isAppLoading, setIsAppLoading] = useState(true)
-  const [isAppSaving, setIsAppSaving] = useState(true)
+  const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
 
   // App validation states
@@ -313,7 +313,7 @@ export const useApp = (appId: string) => {
   const saveApp = useCallback(async (app: IApp, opts: {
     quiet?: boolean,
   } = {
-    quiet: false,
+    quiet: true,
   }) => {
     if (!app) return
     
@@ -332,15 +332,10 @@ export const useApp = (appId: string) => {
     try {
       const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
       setApp(savedApp)
-      if (!opts.quiet) {
-        snackbar.success('App saved successfully')
-      }
       return 
     } catch (error) {
       console.error('Failed to save app:', error)
-      if (!opts.quiet) {
-        snackbar.error('Failed to save app')
-      }
+      snackbar.error('Failed to save app')
       return
     } finally {
       setIsAppSaving(false)
@@ -350,11 +345,12 @@ export const useApp = (appId: string) => {
   /**
    * Saves the app from the flat state
    * @param updates - The updates to apply
+   * @param opts - Options for the save operation
    */
-  const saveFlatApp = useCallback(async (updates: IAppFlatState) => {
+  const saveFlatApp = useCallback(async (updates: IAppFlatState, opts: { quiet?: boolean } = {}) => {
     if (!app) return
     const newApp = mergeFlatStateIntoApp(app, updates)
-    await saveApp(newApp)
+    await saveApp(newApp, opts)
   }, [
     app,
     saveApp,
