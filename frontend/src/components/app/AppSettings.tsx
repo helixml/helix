@@ -57,23 +57,38 @@ const AppSettings: FC<AppSettingsProps> = ({
   }, [app]) // Re-run effect when app changes
 
   // Handle blur event - gather all current state values and call onUpdate
-  const handleBlur = () => {
-    // Create a new IAppFlatState with all current state values
-    const updatedApp: IAppFlatState = {
-      ...app, // Keep any properties we're not explicitly managing
+  const handleBlur = (field: 'name' | 'description' | 'systemPrompt' | 'avatar' | 'image') => {
+    // Get current value based on field name
+    const currentValue = {
       name,
       description,
       systemPrompt,
       avatar,
-      image,
-      shared,
-      global,
-      model,
-      provider,
-    }
+      image
+    }[field]
     
-    // Call onUpdate with the complete updated state
-    onUpdate(updatedApp)
+    // Get original value from app prop
+    const originalValue = (app[field] || '') as string
+    
+    // Only update if the value has changed
+    if (currentValue !== originalValue) {
+      // Create a new IAppFlatState with all current state values
+      const updatedApp: IAppFlatState = {
+        ...app, // Keep any properties we're not explicitly managing
+        name,
+        description,
+        systemPrompt,
+        avatar,
+        image,
+        shared,
+        global,
+        model,
+        provider,
+      }
+      
+      // Call onUpdate with the complete updated state
+      onUpdate(updatedApp)
+    }
   }
 
   // Handle checkbox changes - these update immediately since they're not typing events
@@ -136,7 +151,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         value={name}
         disabled={readOnly}
         onChange={(e) => setName(e.target.value)}
-        onBlur={handleBlur}
+        onBlur={() => handleBlur('name')}
         fullWidth
         label="Name"
         helperText="Name your app"
@@ -147,7 +162,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         name="app-description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        onBlur={handleBlur}
+        onBlur={() => handleBlur('description')}
         disabled={readOnly}
         fullWidth
         rows={2}
@@ -181,7 +196,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         name="app-instructions"
         value={systemPrompt}
         onChange={(e) => setSystemPrompt(e.target.value)}
-        onBlur={handleBlur}
+        onBlur={() => handleBlur('systemPrompt')}
         disabled={readOnly}
         fullWidth
         multiline
@@ -195,7 +210,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         name="app-avatar"
         value={avatar}
         onChange={(e) => setAvatar(e.target.value)}
-        onBlur={handleBlur}
+        onBlur={() => handleBlur('avatar')}
         disabled={readOnly}
         fullWidth
         label="Avatar"
@@ -207,7 +222,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         name="app-image"
         value={image}
         onChange={(e) => setImage(e.target.value)}
-        onBlur={handleBlur}
+        onBlur={() => handleBlur('image')}
         disabled={readOnly}
         fullWidth
         label="Image"
