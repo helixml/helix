@@ -34,6 +34,10 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
+func (l *Mistral7bInstruct01) GetContextLength() int64 {
+	return 0 // Default to 0 (use model's default)
+}
+
 func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager SessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {

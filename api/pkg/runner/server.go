@@ -160,6 +160,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		ID:            slotRequest.ID,
 		Runtime:       slotRequest.Attributes.Runtime,
 		Model:         slotRequest.Attributes.Model,
+		ContextLength: slotRequest.Attributes.ContextLength,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 
@@ -185,13 +186,14 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
-			ID:      id,
-			Runtime: slot.Runtime(),
-			Version: slot.Version(),
-			Model:   slot.Model,
-			Active:  slot.Active,
-			Ready:   slot.Ready,
-			Status:  slot.Status(r.Context()),
+			ID:            id,
+			Runtime:       slot.Runtime(),
+			Version:       slot.Version(),
+			Model:         slot.Model,
+			ContextLength: slot.ContextLength,
+			Active:        slot.Active,
+			Ready:         slot.Ready,
+			Status:        slot.Status(r.Context()),
 		})
 		return true
 	})
@@ -219,13 +221,14 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 	}
 
 	response := &types.RunnerSlot{
-		ID:      slotUUID,
-		Runtime: slot.Runtime(),
-		Version: slot.Version(),
-		Model:   slot.Model,
-		Active:  slot.Active,
-		Ready:   slot.Ready,
-		Status:  slot.Status(r.Context()),
+		ID:            slotUUID,
+		Runtime:       slot.Runtime(),
+		Version:       slot.Version(),
+		Model:         slot.Model,
+		ContextLength: slot.ContextLength,
+		Active:        slot.Active,
+		Ready:         slot.Ready,
+		Status:        slot.Status(r.Context()),
 	}
 
 	err = json.NewEncoder(w).Encode(response)
