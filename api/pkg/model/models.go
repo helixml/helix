@@ -114,12 +114,10 @@ func ProcessModelName(
 			if modelName == "" {
 				// default text model for non-finetune inference
 				return ModelOllamaLlama38b, nil
-
-			} else {
-				// allow user-provided model name (e.g. assume API users
-				// know what they're doing).
-				return modelName, nil
 			}
+			// allow user-provided model name (e.g. assume API users
+			// know what they're doing).
+			return modelName, nil
 		}
 	case types.SessionTypeImage:
 		if modelName == "" {
@@ -203,7 +201,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			ID:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
 			Memory:        GB * 15,
-			ContextLength: 32768, // goes up to 128k, but then uses 35GB
+			ContextLength: 65536, // goes up to 128k, but then uses 35GB
 			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 32K context",
 			Hide:          false,
 		},

@@ -13,10 +13,41 @@ linters:
     - tparallel
     - errcheck
     - revive
+    - forbidigo
+    # - gocritic
 
 issues:
   exlude-dirs:
     - vendor
+  exclude-rules:
+    - path: 'api/cmd'
+      linters:
+        - forbidigo
+    - path: 'api/pkg/cli'
+      linters:
+        - forbidigo
+    - path: 'demos'
+      linters:
+        - forbidigo
+    - path: '.*_test.go'
+      linters:
+        - forbidigo
 
 run:
   timeout: 10m
+
+linters-settings:
+  forbidigo:
+    forbid:
+      - ^fmt\.Print.*
+      - ^print(ln)?$
+    rules:
+      - name: error-strings
+        disabled: false
+      - name: error-naming
+        disabled: false
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style

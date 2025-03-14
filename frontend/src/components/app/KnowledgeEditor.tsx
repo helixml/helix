@@ -28,7 +28,6 @@ import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import debounce from 'lodash/debounce';
 import useAccount from '../../hooks/useAccount';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
@@ -74,14 +73,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
   const account = useAccount();
-
-  const debouncedUpdate = useCallback(
-    debounce((updatedSources: IKnowledgeSource[]) => {
-      console.log('[KnowledgeEditor] Debounced update triggered with sources:', updatedSources);
-      onUpdate(updatedSources);
-    }, 300),
-    [onUpdate]
-  );
 
   useEffect(() => {
     console.log('[KnowledgeEditor] Component mounted or updated with props:', {
@@ -144,19 +135,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     newSources[index] = newSource;
     console.log('[KnowledgeEditor] handleSourceUpdate - Final sources array being sent to parent:', newSources);
     
-    if (updatedSource.name || updatedSource.description || 
-        (updatedSource.source?.web?.urls && !updatedSource.source.filestore)) {
-      debouncedUpdate(newSources);
-    } else {
-      onUpdate(newSources);
+    // Only reload directory contents if the filestore path was changed
+    if (updatedSource.source?.filestore?.path && 
+        updatedSource.source.filestore.path !== existingSource.source.filestore?.path) {
+      loadDirectoryContents(updatedSource.source.filestore.path, index);
     }
+    
+    // Directly update without debouncing
+    onUpdate(newSources);
   };
-
-  useEffect(() => {
-    return () => {
-      debouncedUpdate.cancel();
-    };
-  }, [debouncedUpdate]);
 
   const handleAddSource = (newSource: IKnowledgeSource) => {
     console.log('[KnowledgeEditor] handleAddSource - Adding new source:', newSource);
@@ -168,6 +155,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     
     if (newSource.source.filestore) {
       snackbarInfo(`Knowledge source "${newSource.name}" created. You can now upload files.`);
+      // Explicitly load directory contents when a new filestore source is added
+      if (newSource.source.filestore.path) {
+        loadDirectoryContents(newSource.source.filestore.path, knowledgeSources.length);
+      }
     }
   };
 
@@ -209,15 +200,31 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     validateSources();
   }, [knowledgeSources]);
 
+  // Modified effect to only load directory contents when needed
   useEffect(() => {
+    // Extract current filestore paths
+    const filestorePaths = knowledgeSources.map((source) => 
+      source.source.filestore?.path || null
+    );
+    
+    // Only load initial directory contents on component mount
     knowledgeSources.forEach((source, index) => {
       if (source.source.filestore?.path) {
         loadDirectoryContents(source.source.filestore.path, index);
       }
     });
-  }, [knowledgeSources]);
+    
+    // The effect dependency is intentionally empty to only run on mount
+    // Use the loadDirectoryContents function directly when needed instead
+  }, []); // Empty dependency array means only run on mount
 
   const getSourcePreview = (source: IKnowledgeSource): string => {
+    // Prioritize using the source name if available
+    if (source.name && source.name.trim() !== '') {
+      return source.name;
+    }
+    
+    // Fall back to URL or path if name is not available
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
       return source.source.web.urls[0];
     } else if (source.source.filestore?.path) {
@@ -1056,8 +1063,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       basePath = `apps/${appId}/${basePath}`;
     }
 
-    // Construct the full URL to the file
-    const fileUrl = `${file.url}?access_token=${account.tokenUrlEscaped}`;
+    // Construct the full URL to the file - token will be read from cookies
+    const fileUrl = file.url;
     window.open(fileUrl, '_blank');
   };
 

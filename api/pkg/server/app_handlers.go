@@ -269,7 +269,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceHelix)).Msg("Created Helix app")
 	case types.AppSourceGithub:
 		if app.Config.Github.Repo == "" {
 			return nil, system.NewHTTPError400("github repo is required")
@@ -279,7 +279,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceGithub)).Msg("Created Github app")
 
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
@@ -436,7 +436,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
-					State:           types.KnowledgeStatePreparing,
+					State:           determineInitialState(k.Source),
 					RAGSettings:     k.RAGSettings,
 					Source:          k.Source,
 					RefreshEnabled:  k.RefreshEnabled,
@@ -485,6 +485,17 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	}
 
 	return nil
+}
+
+// determineInitialState decides whether a new knowledge source should start in the 'preparing' or 'pending' state
+// Only file-based knowledge sources should start in 'preparing' state, all others should start in 'pending'
+func determineInitialState(source types.KnowledgeSource) types.KnowledgeState {
+	// If the source is file-based, it requires user to upload files first
+	if source.Filestore != nil {
+		return types.KnowledgeStatePreparing
+	}
+	// For all other sources (web, S3, GCS, direct content), start in pending state
+	return types.KnowledgeStatePending
 }
 
 // what the user can change about a github app fromm the frontend

@@ -108,7 +108,6 @@ func GetRepoHash(
 func makeAuth(keypair types.KeyPair) transport.AuthMethod {
 	signer, err := ssh.NewPublicKeys("git", []byte(keypair.PrivateKey), keypair.PublicKey)
 	if err != nil {
-		fmt.Println("Failed to create signer:", err)
 		return nil
 	}
 	signer.HostKeyCallbackHelper = ssh.HostKeyCallbackHelper{

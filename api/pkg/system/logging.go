@@ -1,11 +1,9 @@
 package system
 
 import (
-	"fmt"
 	"os"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -28,9 +26,4 @@ func SetupLogging() {
 	// edit to change the level of the stack we report
 	// zerolog.CallerSkipFrameCount = 3 // Skip 3 frames (this function, log.Output, log.Logger)
 	log.Logger = log.Output(output).With().Caller().Logger().Level(logLevel)
-}
-
-func Spew(things []interface{}) {
-	fmt.Printf(" --------------------------------------\n")
-	spew.Dump(things)
 }
