@@ -269,7 +269,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceHelix)).Msg("Created Helix app")
 	case types.AppSourceGithub:
 		if app.Config.Github.Repo == "" {
 			return nil, system.NewHTTPError400("github repo is required")
@@ -279,7 +279,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceGithub)).Msg("Created Github app")
 
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {

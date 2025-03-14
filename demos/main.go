@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 
 	"github.com/gorilla/mux"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/rs/zerolog/log"
 )
 
 type Config struct {
@@ -31,8 +31,8 @@ func main() {
 
 	r.HandleFunc("/salesleads/v1/list", listSalesLeads).Methods("GET")
 
-	fmt.Println("Server will listen on port", config.Port)
+	log.Info().Str("port", config.Port).Msg("Starting server...")
 	if err := http.ListenAndServe(fmt.Sprintf(":%s", config.Port), r); err != nil {
-		log.Fatalf("Failed listening: %v", err)
+		log.Fatal().Err(err).Msg("Failed listening")
 	}
 }

@@ -76,8 +76,9 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		}()
 
 		log.Trace().
-			Str("action", "⚪ user ws CONNECT").
-			Msgf("connected user websocket: %s for session: %s\n", user.ID, sessionID)
+			Str("user_id", user.ID).
+			Str("session_id", sessionID).
+			Msg("user websocket connected")
 
 		// we block on reading messages from the client
 		// if we get any errors then we break and this will close

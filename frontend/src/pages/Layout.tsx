@@ -47,11 +47,6 @@ const Layout: FC = ({
     return account.serverConfig.version !== account.serverConfig.latest_version
   }, [account.serverConfig?.version, account.serverConfig?.latest_version])
 
-  console.log('Layout:', {
-    deploymentId: account.serverConfig?.deployment_id,
-    serverConfig: account.serverConfig
-  });
-
   return (
     <>
       <Collapse in={showVersionBanner && hasNewVersion}>
