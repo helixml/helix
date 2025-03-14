@@ -175,9 +175,13 @@ const App: FC = () => {
     }
   }, [account.apiKeys, snackbar]);  
 
+  useEffect(() => {
+    endpointProviders.loadData()
+  }, [])
+
   if(!account.user) return null
   if(!appTools.app) return null
-  
+
   return (
     <Page
       showDrawerButton={false}
