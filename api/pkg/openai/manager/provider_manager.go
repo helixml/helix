@@ -234,7 +234,6 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 			runnerIDs := m.runnerController.RunnerIDs()
 			if len(runnerIDs) == 0 {
 				// No runners available, skip adding Helix provider
-				log.Debug().Msg("Helix provider hidden because no runners are available")
 				continue
 			}
 		}

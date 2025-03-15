@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
+	"strconv"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -85,6 +86,7 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 			"content_offset":    fmt.Sprintf("%d", chunk.ContentOffset),
 			"filename":          filename,
 			"original_filename": filepath.Base(chunk.Source),
+			"data_entity_id":    chunk.DataEntityID,
 			// Add other metadata as needed
 		}
 
@@ -95,7 +97,20 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 				Interface("chunk_metadata", chunk.Metadata).
 				Msg("Adding metadata to document during indexing")
 
+			// First add all user metadata
 			for k, v := range chunk.Metadata {
+				// Skip if it's a critical system field to prevent overriding
+				if k == "document_id" || k == "document_group_id" || k == "source" ||
+					k == "content_offset" || k == "filename" || k == "original_filename" ||
+					k == "data_entity_id" {
+					logger.Info().
+						Str("document_id", chunk.DocumentID).
+						Str("key", k).
+						Str("value", v).
+						Msg("Skipping user metadata key - system field takes precedence")
+					continue
+				}
+
 				logger.Info().
 					Str("document_id", chunk.DocumentID).
 					Str("key", k).
@@ -277,7 +292,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 			DocumentID:      r.Metadata.DocumentID,
 			DocumentGroupID: r.Metadata.DocumentGroupID,
 			Source:          source,
-			ContentOffset:   r.Metadata.ContentOffset,
+			ContentOffset:   parseContentOffset(r.Metadata.ContentOffset),
 			Metadata:        r.Metadata.CustomMetadata,
 		}
 
@@ -351,4 +366,22 @@ func (h *HaystackRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest)
 	logger.Debug().Msg("Successfully deleted documents from Haystack")
 
 	return nil
+}
+
+// parseContentOffset safely converts a string contentOffset to an integer
+func parseContentOffset(offset string) int {
+	if offset == "" {
+		return 0
+	}
+
+	intOffset, err := strconv.Atoi(offset)
+	if err != nil {
+		log.Warn().
+			Str("offset", offset).
+			Err(err).
+			Msg("Failed to parse ContentOffset as integer, using 0")
+		return 0
+	}
+
+	return intOffset
 }

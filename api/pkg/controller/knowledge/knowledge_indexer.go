@@ -355,6 +355,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			DocumentGroupID: getDocumentGroupID(d.Source),
 			ContentOffset:   0,
 			Content:         string(d.Data),
+			Metadata:        convertMetadataToStringMap(d.Metadata),
 		})
 		if err != nil {
 			// return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
@@ -453,6 +454,7 @@ type indexerData struct {
 	StatusCode      int
 	DurationMs      int64
 	Message         string
+	Metadata        map[string]interface{}
 }
 
 func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
@@ -466,6 +468,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 	return batches
 }
 
+// convertTextSplitterChunks converts the haystack chunks to RAG index chunks
 func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
@@ -473,55 +476,72 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 	metadataCache := make(map[string]map[string]string)
 
 	for _, chunk := range chunks {
-		// Check if we already have metadata for this file in the cache
-		metadata, ok := metadataCache[chunk.Filename]
-		if !ok {
-			// Try to find and load metadata file from the filestore
+		// Use metadata from the chunk if available, otherwise load from filestore
+		metadata := chunk.Metadata
+
+		if metadata == nil {
+			// Try to load metadata from filestore if not already in the chunk
 			metadataFilePath := chunk.Filename + ".metadata.yaml"
 
-			log.Info().
-				Str("knowledge_id", k.ID).
-				Str("chunk_filename", chunk.Filename).
-				Str("metadata_path", metadataFilePath).
-				Msg("Looking for metadata file")
+			// Check if we've already tried to load this metadata
+			if cachedMetadata, exists := metadataCache[metadataFilePath]; exists {
+				metadata = cachedMetadata
 
-			// Check if the metadata file exists in the filestore
-			// This would need to be implemented based on how we access the filestore
-			// For now, we're just assuming a function that checks and loads metadata
-			var err error
-			metadata, err = r.getMetadataFromFilestore(ctx, metadataFilePath)
-			if err != nil {
-				// Log but continue - metadata is optional
-				log.Warn().
-					Err(err).
-					Str("knowledge_id", k.ID).
-					Str("metadata_file", metadataFilePath).
-					Msg("Failed to load metadata file")
-			}
-
-			// Special handling for critical fields
-			if metadata != nil {
-				log.Info().
-					Str("knowledge_id", k.ID).
-					Interface("metadata", metadata).
-					Msg("Successfully loaded metadata for file")
-
-				// Log special fields like source_url to track them
-				if sourceURL, ok := metadata["source_url"]; ok {
+				if metadata != nil {
 					log.Info().
 						Str("knowledge_id", k.ID).
-						Str("source_url", sourceURL).
-						Msg("Found source_url in metadata")
+						Str("chunk_filename", chunk.Filename).
+						Interface("metadata", metadata).
+						Msg("Using cached metadata for file")
 				}
 			} else {
 				log.Info().
 					Str("knowledge_id", k.ID).
-					Str("metadata_file", metadataFilePath).
-					Msg("No metadata found for file")
-			}
+					Str("chunk_filename", chunk.Filename).
+					Str("metadata_path", metadataFilePath).
+					Msg("Loading metadata from filestore")
 
-			// Cache the metadata (even if nil) to avoid repeated lookups
-			metadataCache[chunk.Filename] = metadata
+				// Check if the metadata file exists in the filestore
+				var err error
+				metadata, err = r.getMetadataFromFilestore(ctx, metadataFilePath)
+				if err != nil {
+					// Log but continue - metadata is optional
+					log.Warn().
+						Err(err).
+						Str("knowledge_id", k.ID).
+						Str("metadata_file", metadataFilePath).
+						Msg("Failed to load metadata file")
+				}
+
+				// Cache the result, even if nil
+				metadataCache[metadataFilePath] = metadata
+
+				if metadata != nil {
+					log.Info().
+						Str("knowledge_id", k.ID).
+						Interface("metadata", metadata).
+						Msg("Successfully loaded metadata for file")
+
+					// Log if we found a source_url
+					if sourceURL, ok := metadata["source_url"]; ok {
+						log.Info().
+							Str("knowledge_id", k.ID).
+							Str("source_url", sourceURL).
+							Msg("Found source_url in metadata")
+					}
+				} else {
+					log.Info().
+						Str("knowledge_id", k.ID).
+						Str("metadata_file", metadataFilePath).
+						Msg("No metadata found for file")
+				}
+			}
+		} else {
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Str("chunk_filename", chunk.Filename).
+				Interface("metadata", metadata).
+				Msg("Chunk already has metadata")
 		}
 
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{
@@ -548,7 +568,6 @@ func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFileP
 	_, err := r.filestore.Get(ctx, metadataFilePath)
 	if err != nil {
 		// If the file doesn't exist, just return nil with no error
-		log.Info().Str("path", metadataFilePath).Err(err).Msg("Metadata file not found")
 		return nil, nil
 	}
 
@@ -629,4 +648,12 @@ func getCrawledSources(data []*indexerData) []*types.CrawledURL {
 	}
 
 	return crawledSources
+}
+
+func convertMetadataToStringMap(metadata map[string]interface{}) map[string]string {
+	stringMap := make(map[string]string)
+	for key, value := range metadata {
+		stringMap[key] = fmt.Sprintf("%v", value)
+	}
+	return stringMap
 }

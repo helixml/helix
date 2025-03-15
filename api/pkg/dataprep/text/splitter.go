@@ -17,6 +17,8 @@ type DataPrepTextSplitterChunk struct {
 	// suite of prompts, this is where they store which prompt this chunk will
 	// be processed by
 	PromptName string
+	// Metadata associated with the original document
+	Metadata map[string]string
 }
 
 type DataPrepTextSplitterOptions struct {
@@ -36,7 +38,14 @@ func NewDataPrepSplitter(options DataPrepTextSplitterOptions) (*DataPrepTextSpli
 	}, nil
 }
 
+// AddDocument adds a document to the splitter and returns its document ID
+// This is kept for backward compatibility
 func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGroupID string) (string, error) {
+	return splitter.AddDocumentWithMetadata(filename, content, documentGroupID, nil)
+}
+
+// AddDocumentWithMetadata adds a document with associated metadata to the splitter
+func (splitter *DataPrepTextSplitter) AddDocumentWithMetadata(filename, content, documentGroupID string, metadata map[string]string) (string, error) {
 	// Calculate the SHA256 hash of the part
 	hash := sha256.Sum256([]byte(content))
 	hashString := hex.EncodeToString(hash[:])
@@ -54,6 +63,7 @@ func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGro
 			Text:            part,
 			DocumentID:      documentID,
 			DocumentGroupID: documentGroupID,
+			Metadata:        metadata,
 		})
 	}
 
