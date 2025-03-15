@@ -345,6 +345,14 @@ class MessageProcessor {
           // First try direct document_id match
           for (const [fname, id] of Object.entries(document_ids)) {
             if (id === docId) {
+              // If the filename is a URL, use it directly
+              if (fname.startsWith('http')) {
+                fileUrl = fname; // Use the URL directly
+                filename = fname.split('/').pop() || fname;
+                fileFound = true;
+                break;
+              }
+              
               filename = fname.split('/').pop() || fname;
               
               // Create the file URL
@@ -394,6 +402,7 @@ class MessageProcessor {
           const metadata = this.getMetadataForDocument(docId);
           if (metadata && metadata.source_url) {
             fileUrl = metadata.source_url;
+            fileFound = true;
           }
           
           // Add this excerpt to our processed array
@@ -518,8 +527,12 @@ class MessageProcessor {
       let link: string;
       const allNonTextFiles = this.getAllNonTextFiles();
       
-      if (this.session.parent_app) {
-        // For app sessions
+      // If the filename is a URL, use it directly regardless of session type
+      if (filename.startsWith('http')) {
+        const displayName = filename.split('/').pop() || filename;
+        link = `<a target="_blank" style="color: white;" href="${filename}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
+      } else if (this.session.parent_app) {
+        // For app sessions with non-URL files
         const displayName = filename.split('/').pop() || filename;
         link = `<a target="_blank" style="color: white;" href="${this.getFileURL(filename)}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
       } else {

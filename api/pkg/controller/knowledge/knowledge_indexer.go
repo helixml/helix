@@ -479,6 +479,12 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 			// Try to find and load metadata file from the filestore
 			metadataFilePath := chunk.Filename + ".metadata.yaml"
 
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Str("chunk_filename", chunk.Filename).
+				Str("metadata_path", metadataFilePath).
+				Msg("Looking for metadata file")
+
 			// Check if the metadata file exists in the filestore
 			// This would need to be implemented based on how we access the filestore
 			// For now, we're just assuming a function that checks and loads metadata
@@ -491,6 +497,27 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 					Str("knowledge_id", k.ID).
 					Str("metadata_file", metadataFilePath).
 					Msg("Failed to load metadata file")
+			}
+
+			// Special handling for critical fields
+			if metadata != nil {
+				log.Info().
+					Str("knowledge_id", k.ID).
+					Interface("metadata", metadata).
+					Msg("Successfully loaded metadata for file")
+
+				// Log special fields like source_url to track them
+				if sourceURL, ok := metadata["source_url"]; ok {
+					log.Info().
+						Str("knowledge_id", k.ID).
+						Str("source_url", sourceURL).
+						Msg("Found source_url in metadata")
+				}
+			} else {
+				log.Info().
+					Str("knowledge_id", k.ID).
+					Str("metadata_file", metadataFilePath).
+					Msg("No metadata found for file")
 			}
 
 			// Cache the metadata (even if nil) to avoid repeated lookups
@@ -514,12 +541,18 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 
 // getMetadataFromFilestore attempts to retrieve and parse a metadata.yaml file from the filestore
 func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFilePath string) (map[string]string, error) {
+	// Log attempt to read metadata file
+	log.Info().Str("path", metadataFilePath).Msg("Attempting to read metadata file")
+
 	// Check if the metadata file exists
 	_, err := r.filestore.Get(ctx, metadataFilePath)
 	if err != nil {
 		// If the file doesn't exist, just return nil with no error
+		log.Info().Str("path", metadataFilePath).Err(err).Msg("Metadata file not found")
 		return nil, nil
 	}
+
+	log.Info().Str("path", metadataFilePath).Msg("Metadata file exists, opening...")
 
 	// Open the metadata file
 	reader, err := r.filestore.OpenFile(ctx, metadataFilePath)
@@ -534,14 +567,36 @@ func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFileP
 		return nil, fmt.Errorf("failed to read metadata file: %w", err)
 	}
 
-	// Parse the YAML
+	log.Info().Str("path", metadataFilePath).Str("content", string(data)).Msg("Read metadata file content")
+
+	// First try parsing with the expected structure
 	var metadataFile struct {
 		Metadata map[string]string `yaml:"metadata"`
 	}
 
 	if err := yaml.Unmarshal(data, &metadataFile); err != nil {
-		return nil, fmt.Errorf("failed to parse metadata file: %w", err)
+		log.Error().Str("path", metadataFilePath).Err(err).Msg("Failed to parse metadata YAML with expected structure")
+
+		// Try alternative structure without the metadata field
+		var directMetadata map[string]string
+		if err := yaml.Unmarshal(data, &directMetadata); err != nil {
+			log.Error().Str("path", metadataFilePath).Err(err).Msg("Failed to parse metadata YAML as direct map")
+			return nil, fmt.Errorf("failed to parse metadata file: %w", err)
+		}
+
+		log.Info().
+			Str("path", metadataFilePath).
+			Interface("direct_metadata", directMetadata).
+			Msg("Parsed metadata file as direct map")
+
+		return directMetadata, nil
 	}
+
+	// After reading and parsing
+	log.Info().
+		Str("path", metadataFilePath).
+		Interface("metadata", metadataFile.Metadata).
+		Msg("Successfully parsed metadata file with expected structure")
 
 	return metadataFile.Metadata, nil
 }

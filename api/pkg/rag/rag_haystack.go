@@ -33,24 +33,30 @@ func NewHaystackRAG(endpoint string) *HaystackRAG {
 // Files are sent here NOT chunked, despite the type.
 func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGIndexChunk) error {
 	logger := log.With().
-		Str("component", "HaystackRAG").
-		Str("method", "Index").
+		Str("component", "haystack_rag").
+		Int("chunk_count", len(chunks)).
 		Logger()
 
-	logger.Debug().Int("chunks", len(chunks)).Msg("Indexing chunks")
+	logger.Debug().Msg("Indexing documents")
 
-	// For each chunk, create a multipart request with the content
 	for _, chunk := range chunks {
-		// Add debug logging to see the actual values of Source and Filename
 		logger.Debug().
-			Str("source", chunk.Source).
-			Str("filename", chunk.Filename).
+			Str("data_entity_id", chunk.DataEntityID).
 			Str("document_id", chunk.DocumentID).
-			Str("document_group_id", chunk.DocumentGroupID).
-			Int("content_offset", chunk.ContentOffset).
-			Msg("Chunk details for indexing")
+			Msg("indexing chunk")
 
-		// Create multipart form
+		// Metadata check before processing
+		if chunk.Metadata != nil {
+			logger.Info().
+				Str("document_id", chunk.DocumentID).
+				Interface("chunk_metadata", chunk.Metadata).
+				Msg("Chunk contains metadata")
+		} else {
+			logger.Info().
+				Str("document_id", chunk.DocumentID).
+				Msg("Chunk does NOT contain metadata")
+		}
+
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
 
@@ -60,29 +66,41 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 
 		logger.Debug().Str("filename", filename).Msg("Indexing file")
 
-		fw, err := w.CreateFormFile("file", filename)
+		// Add the file as a part
+		part, err := w.CreateFormFile("file", filename)
 		if err != nil {
 			return fmt.Errorf("creating form file: %w", err)
 		}
-		_, err = fw.Write([]byte(chunk.Content))
+
+		_, err = part.Write([]byte(chunk.Content))
 		if err != nil {
-			return fmt.Errorf("writing chunk text: %w", err)
+			return fmt.Errorf("writing file content: %w", err)
 		}
 
-		// Add metadata
-		metadata := map[string]interface{}{
-			"data_entity_id":    chunk.DataEntityID,
+		// Add metadata for the document
+		metadata := map[string]string{
 			"document_id":       chunk.DocumentID,
 			"document_group_id": chunk.DocumentGroupID,
-			"content_offset":    chunk.ContentOffset,
 			"source":            chunk.Source,
+			"content_offset":    fmt.Sprintf("%d", chunk.ContentOffset),
+			"filename":          filename,
 			"original_filename": filepath.Base(chunk.Source),
 			// Add other metadata as needed
 		}
 
 		// Add any custom metadata from the chunk
 		if chunk.Metadata != nil {
+			logger.Info().
+				Str("document_id", chunk.DocumentID).
+				Interface("chunk_metadata", chunk.Metadata).
+				Msg("Adding metadata to document during indexing")
+
 			for k, v := range chunk.Metadata {
+				logger.Info().
+					Str("document_id", chunk.DocumentID).
+					Str("key", k).
+					Str("value", v).
+					Msg("Adding metadata key-value to document")
 				metadata[k] = v
 			}
 		}
@@ -92,22 +110,41 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 			return fmt.Errorf("marshaling metadata: %w", err)
 		}
 
-		err = w.WriteField("metadata", string(metadataJSON))
+		logger.Info().
+			Str("document_id", chunk.DocumentID).
+			Str("metadataJSON", string(metadataJSON)).
+			Msg("Metadata being sent to Haystack")
+
+		metadataPart, err := w.CreateFormField("metadata")
 		if err != nil {
-			return fmt.Errorf("writing metadata field: %w", err)
+			return fmt.Errorf("creating metadata field: %w", err)
 		}
 
-		// Close multipart writer
+		_, err = metadataPart.Write(metadataJSON)
+		if err != nil {
+			return fmt.Errorf("writing metadata: %w", err)
+		}
+
+		// Create the form field for data_entity_id
+		dataEntityPart, err := w.CreateFormField("data_entity_id")
+		if err != nil {
+			return fmt.Errorf("creating data_entity_id field: %w", err)
+		}
+		_, err = dataEntityPart.Write([]byte(chunk.DataEntityID))
+		if err != nil {
+			return fmt.Errorf("writing data_entity_id: %w", err)
+		}
+
 		w.Close()
 
-		// Create request
+		// Create the request
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.endpoint+"/process", &b)
 		if err != nil {
 			return fmt.Errorf("creating request: %w", err)
 		}
 		req.Header.Set("Content-Type", w.FormDataContentType())
 
-		// Send request
+		// Send the request
 		resp, err := h.client.Do(req)
 		if err != nil {
 			logger.Err(err).Msg("error making request to Haystack service")
@@ -115,22 +152,23 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		}
 		defer resp.Body.Close()
 
-		// Check response
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			logger.Error().
-				Int("status_code", resp.StatusCode).
-				Str("response", string(body)).
-				Msg("bad response from Haystack service")
-			return fmt.Errorf("bad response: %s (%s)", resp.Status, string(body))
+		// Check the response
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading response: %w", err)
+		}
+
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
 		}
 
 		logger.Debug().
 			Str("document_id", chunk.DocumentID).
-			Str("data_entity_id", chunk.DataEntityID).
-			Msg("Successfully indexed chunk")
+			Str("response", string(body)).
+			Msg("document indexed successfully")
 	}
 
+	logger.Debug().Msg("All documents indexed successfully")
 	return nil
 }
 
@@ -226,6 +264,13 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 			}
 		}
 
+		// Add debug logging to see what metadata we're getting back
+		logger.Info().
+			Str("document_id", r.Metadata.DocumentID).
+			Interface("custom_metadata", r.Metadata.CustomMetadata).
+			Msg("Retrieved document with metadata")
+
+		// Create result with all metadata fields
 		results[i] = &types.SessionRAGResult{
 			Content:         r.Content,
 			Distance:        r.Score,
@@ -234,6 +279,18 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 			Source:          source,
 			ContentOffset:   r.Metadata.ContentOffset,
 			Metadata:        r.Metadata.CustomMetadata,
+		}
+
+		// Check for source_url in metadata and ensure it's added to the result
+		if sourceURL, ok := r.Metadata.CustomMetadata["source_url"]; ok && sourceURL != "" {
+			if results[i].Metadata == nil {
+				results[i].Metadata = make(map[string]string)
+			}
+			results[i].Metadata["source_url"] = sourceURL
+			logger.Info().
+				Str("document_id", r.Metadata.DocumentID).
+				Str("source_url", sourceURL).
+				Msg("Found source_url in document metadata")
 		}
 	}
 
