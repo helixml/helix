@@ -107,7 +107,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
         return (
           <>
             <Typography variant="body1" sx={{ mb: 2 }}>
-              Follow these steps to configure Claude Desktop:
+              Follow these steps to configure <Link href="https://claude.ai/download" target="_blank" rel="noopener noreferrer">Claude Desktop</Link>:
             </Typography>
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" sx={{ mb: 1 }}>1. Open Claude Desktop settings</Typography>
@@ -138,6 +138,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
                 Copy
               </Button>
             </Box>
+            <Typography variant="body1" sx={{ mb: 2 }}>
+              You can find additional documentation in <Link href="https://modelcontextprotocol.io/quickstart/user" target="_blank" rel="noopener noreferrer">Model Context Protocol quickstart</Link>
+            </Typography>
           </>
         );
       default:
