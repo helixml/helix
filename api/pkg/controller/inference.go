@@ -875,9 +875,6 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 					}
 				}
 
-				// Store the document ID mapping
-				session.Metadata.DocumentIDs[key] = result.DocumentID
-
 				// If the result has metadata with source_url, also store it directly
 				if result.Metadata != nil && result.Metadata["source_url"] != "" {
 					// Use the source_url as a key directly to allow frontend to find it
@@ -887,6 +884,9 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 						Str("source_url", result.Metadata["source_url"]).
 						Msg("adding source_url mapping for document ID")
 					session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
+				} else {
+					// Store the document ID mapping
+					session.Metadata.DocumentIDs[key] = result.DocumentID
 				}
 			}
 		}
