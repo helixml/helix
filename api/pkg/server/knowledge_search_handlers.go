@@ -45,6 +45,12 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 		return []*types.KnowledgeSearchResult{}, nil
 	}
 
+	log.Info().
+		Str("app_id", appID).
+		Str("knowledge_id", knowledgeID).
+		Str("prompt", prompt).
+		Msg("searching knowledges")
+
 	pool := pool.New().
 		WithMaxGoroutines(20).
 		WithErrors()
