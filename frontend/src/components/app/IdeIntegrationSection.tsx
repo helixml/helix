@@ -8,6 +8,9 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import JsonWindowLink from '../widgets/JsonWindowLink';
 import Link from '@mui/material/Link';
+import Button from '@mui/material/Button';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import useSnackbar from '../../hooks/useSnackbar';
 
 interface IdeIntegrationSectionProps {
   appId: string;
@@ -19,6 +22,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   apiKey,
 }) => {
   const [selectedIde, setSelectedIde] = useState<string>('cline');
+  const { success: snackbarSuccess } = useSnackbar();
 
   const getClineConfig = () => {
     return `{
@@ -54,19 +58,25 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               value={getClineConfig()}
               fullWidth
               multiline
-              rows={10}
+              
               disabled
               InputProps={{
                 style: { fontFamily: 'monospace' }
               }}
             />
             <Box sx={{ textAlign: 'right', mb: 1 }}>
-              <JsonWindowLink
-                sx={{textDecoration: 'underline'}}
-                data={getClineConfig()}
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<ContentCopyIcon />}
+                onClick={() => {
+                  navigator.clipboard.writeText(getClineConfig());
+                  snackbarSuccess('Configuration copied to clipboard');
+                }}
+                sx={{ textTransform: 'none' }}
               >
-                expand
-              </JsonWindowLink>
+                Copy
+              </Button>
             </Box>
           </>
         );
