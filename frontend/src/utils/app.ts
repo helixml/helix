@@ -2,6 +2,7 @@ import { parse as parseYaml } from 'yaml'
 import {
   IApp, 
   IAppFlatState,
+  APP_SOURCE_GITHUB,
 } from '../types'
 
 
@@ -140,4 +141,8 @@ export const validateApp = (app: IApp): string[] => {
   errors = errors.concat(validateKnowledge(app))
 
   return errors
+}
+
+export const isGithubApp = (app: IApp): boolean => {
+  return app?.app_source === APP_SOURCE_GITHUB
 }

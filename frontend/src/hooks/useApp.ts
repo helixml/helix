@@ -26,6 +26,7 @@ import {
 import {
   validateApp,
   getAppFlatState,
+  isGithubApp as isGithubAppBackend,
 } from '../utils/app'
 
 /**
@@ -118,6 +119,16 @@ export const useApp = (appId: string) => {
   }, [
     session.data,
   ])
+
+  const isGithubApp = useMemo(() => {
+    if(!app) return true
+    return isGithubAppBackend(app)
+  }, [app])
+
+  const isReadOnly = useMemo(() => {
+    if(!app) return true
+    return isGithubApp
+  }, [app, isGithubApp])
 
   /**
    * 
@@ -266,7 +277,9 @@ export const useApp = (appId: string) => {
     }
     
     return updatedApp
-  }, [])
+  }, [
+    isGithubApp,
+  ])
   
   /**
    * Saves the app to the API
@@ -848,6 +861,8 @@ export const useApp = (appId: string) => {
     isAppLoading,
     isAppSaving,
     initialized,
+    isGithubApp,
+    isReadOnly,
 
     // Validation methods
     validateApp,

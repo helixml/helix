@@ -49,12 +49,11 @@ interface KnowledgeEditorProps {
   loadFiles: (path: string) => Promise<IFileStoreItem[]>;
   uploadProgress?: IFilestoreUploadProgress;
   disabled: boolean;
-  knowledgeList: IKnowledgeSource[];
   appId: string;
   onRequestSave?: () => Promise<any>;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onCompletePreparation, onUpload, loadFiles, uploadProgress, disabled, knowledgeList, appId, onRequestSave }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onCompletePreparation, onUpload, loadFiles, uploadProgress, disabled, appId, onRequestSave }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const { error: snackbarError, info: snackbarInfo, success: snackbarSuccess } = useSnackbar();
@@ -77,23 +76,18 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   useEffect(() => {
     console.log('[KnowledgeEditor] Component mounted or updated with props:', {
       knowledgeSources,
-      disabled,
-      knowledgeList,
+      disabled,  
       appId
     });
 
     return () => {
       console.log('[KnowledgeEditor] Component will unmount');
     };
-  }, [knowledgeSources, disabled, knowledgeList, appId]);
+  }, [knowledgeSources, disabled, appId]);
 
   useEffect(() => {
     console.log('[KnowledgeEditor] Knowledge sources changed:', knowledgeSources);
   }, [knowledgeSources]);
-
-  useEffect(() => {
-    console.log('[KnowledgeEditor] Knowledge list (backend data) changed:', knowledgeList);
-  }, [knowledgeList]);
 
   useEffect(() => {
     console.log('KnowledgeEditor uploadProgress:', uploadProgress);
@@ -170,7 +164,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const refreshSource = (index: number) => {
-    const knowledge = knowledgeList.find(k => k.name === knowledgeSources[index].name);
+    const knowledge = knowledgeSources.find(k => k.name === knowledgeSources[index].name);
     if (knowledge) {
       onRefresh(knowledge.id);
       snackbarSuccess('Knowledge refresh initiated. This may take a few minutes.');
@@ -178,7 +172,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const completePreparation = (index: number) => {
-    const knowledge = knowledgeList.find(k => k.name === knowledgeSources[index].name);
+    const knowledge = knowledgeSources.find(k => k.name === knowledgeSources[index].name);
     if (knowledge) {
       onCompletePreparation(knowledge.id);
       snackbarSuccess('Knowledge preparation completed. Indexing started.');
@@ -246,11 +240,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
     if (source.id) {
-      const byId = knowledgeList.find(k => k.id === source.id);
+      const byId = knowledgeSources.find(k => k.id === source.id);
       if (byId) return byId;
     }
     
-    return knowledgeList.find(k => k.name === source.name);
+    return knowledgeSources.find(k => k.name === source.name);
   };
 
   const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
