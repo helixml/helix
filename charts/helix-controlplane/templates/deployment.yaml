@@ -222,6 +222,10 @@ spec:
             - name: RAG_HAYSTACK_CHUNK_OVERLAP
               value: {{ . | quote }}
             {{- end }}
+            {{- with (default "" .Values.controlplane.haystack.chunkUnit) }}
+            - name: RAG_HAYSTACK_CHUNK_UNIT
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.controlplane.haystack }}
             {{- if .Values.controlplane.haystack.pgvectorDsn }}
             - name: PGVECTOR_DSN

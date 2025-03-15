@@ -9,6 +9,7 @@ class Settings:
     # Document processing
     CHUNK_SIZE: int = int(os.getenv("RAG_HAYSTACK_CHUNK_SIZE", "1000"))
     CHUNK_OVERLAP: int = int(os.getenv("RAG_HAYSTACK_CHUNK_OVERLAP", "50"))
+    CHUNK_UNIT: str = os.getenv("RAG_HAYSTACK_CHUNK_UNIT", "word")
     
     # Embedding model settings
     EMBEDDING_DIM: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_DIM", "3584"))
