@@ -34,6 +34,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
+import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 
 import {
   APP_SOURCE_GITHUB,
@@ -1058,6 +1059,7 @@ const App: FC = () => {
               <Tab label="GPTScripts" value="gptscripts" />
               <Tab label="API Keys" value="apikeys" />
               <Tab label="Developers" value="developers" />
+              <Tab label="IDE" value="ide" />
               <Tab label="Logs" value="logs" />
             </Tabs>
           </Box>
@@ -1189,6 +1191,13 @@ const App: FC = () => {
                     <Box sx={{ mt: 2 }}>
                       <AppLogsTable appId={app.id} />
                     </Box>
+                  )}
+
+                  {tabValue === 'ide' && (
+                    <IdeIntegrationSection
+                      appId={app.id}
+                      apiKey={account.apiKeys[0]?.key || ''}
+                    />
                   )}
                 </Box>
               </Grid>
