@@ -2,6 +2,8 @@ module github.com/helixml/helix
 
 go 1.23.4
 
+toolchain go1.24.1
+
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
 replace github.com/gptscript-ai/gptscript => github.com/helixml/gptscript v0.0.0-20241204095353-9c7fd8d5cf45
@@ -49,7 +51,7 @@ require (
 	github.com/puzpuzpuz/xsync/v3 v3.4.1
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.31.0
-	github.com/sashabaranov/go-openai v1.31.0
+	github.com/sashabaranov/go-openai v1.38.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.10.0
