@@ -388,7 +388,15 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 						Str("knowledge_id", k.ID).
 						Str("file", item.Path).
 						Interface("metadata", metadata).
-						Msgf("Added metadata to file")
+						Msg("Added metadata to file")
+				} else if metadataErr != nil && !strings.Contains(metadataErr.Error(), "metadata file not found") {
+					// Only log unexpected errors, not file not found errors
+					log.Debug().
+						Err(metadataErr).
+						Str("knowledge_id", k.ID).
+						Str("file", item.Path).
+						Str("metadata_file", metadataFilePath).
+						Msg("Metadata file not available")
 				}
 
 				result = append(result, indexerItem)

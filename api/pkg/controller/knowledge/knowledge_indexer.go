@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -505,12 +507,20 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 				var err error
 				metadata, err = r.getMetadataFromFilestore(ctx, metadataFilePath)
 				if err != nil {
-					// Log but continue - metadata is optional
-					log.Warn().
-						Err(err).
-						Str("knowledge_id", k.ID).
-						Str("metadata_file", metadataFilePath).
-						Msg("Failed to load metadata file")
+					// Only log as a warning for unexpected errors, not for "not found" errors
+					if !strings.Contains(err.Error(), "metadata file not found") {
+						log.Warn().
+							Err(err).
+							Str("knowledge_id", k.ID).
+							Str("metadata_file", metadataFilePath).
+							Msg("Failed to load metadata file due to unexpected error")
+					} else {
+						// Not found is an expected case - log at debug level
+						log.Debug().
+							Str("knowledge_id", k.ID).
+							Str("metadata_file", metadataFilePath).
+							Msg("No metadata file found")
+					}
 				}
 
 				// Cache the result, even if nil
@@ -567,8 +577,13 @@ func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFileP
 	// Check if the metadata file exists
 	_, err := r.filestore.Get(ctx, metadataFilePath)
 	if err != nil {
-		// If the file doesn't exist, just return nil with no error
-		return nil, nil
+		// Check specifically if this is a not found error
+		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+			log.Debug().Str("path", metadataFilePath).Msg("Metadata file not found")
+			return nil, fmt.Errorf("metadata file not found: %w", err)
+		}
+		// For other types of errors, return the error as is
+		return nil, fmt.Errorf("error checking metadata file: %w", err)
 	}
 
 	log.Info().Str("path", metadataFilePath).Msg("Metadata file exists, opening...")
