@@ -41,6 +41,23 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
 }`;
   };
 
+  const getClaudeDesktopConfig = () => {
+    return `{
+  "mcpServers": {
+    "helix-mcp": {
+      "command": "/usr/local/bin/helix",
+      "args": [
+        "mcp",
+        "run",
+        "--app-id", "${appId}",
+        "--api-key", "${apiKey}",
+        "--url", "http://localhost:8080"
+      ]
+    }
+  }
+}`;
+  };
+
   const renderIdeInstructions = () => {
     switch (selectedIde) {
       case 'cline':
@@ -88,9 +105,40 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
         );
       case 'claude':
         return (
-          <Typography variant="body1">
-            Claude Desktop integration coming soon...
-          </Typography>
+          <>
+            <Typography variant="body1" sx={{ mb: 2 }}>
+              Follow these steps to configure Claude Desktop:
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>1. Open Claude Desktop settings</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>2. Select "Developer" section</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>3. Click "Edit Config"</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>4. Add the following configuration:</Typography>
+            </Box>
+            <TextField
+              value={getClaudeDesktopConfig()}
+              fullWidth
+              multiline
+              disabled
+              InputProps={{
+                style: { fontFamily: 'monospace' }
+              }}
+            />
+            <Box sx={{ textAlign: 'right', mb: 1 }}>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<ContentCopyIcon />}
+                onClick={() => {
+                  navigator.clipboard.writeText(getClaudeDesktopConfig());
+                  snackbarSuccess('Configuration copied to clipboard');
+                }}
+                sx={{ textTransform: 'none' }}
+              >
+                Copy
+              </Button>
+            </Box>
+          </>
         );
       default:
         return null;
