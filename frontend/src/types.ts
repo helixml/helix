@@ -190,7 +190,6 @@ export interface IInteraction {
   data_prep_stage: ITextDataPrepStage,
   data_prep_limited: boolean,
   data_prep_limit: number,
-  rag_results?: ISessionRAGResult[],
 }
 
 export interface ISessionOrigin {
