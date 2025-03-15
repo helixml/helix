@@ -16,6 +16,7 @@ import AppSettings from '../components/app/AppSettings'
 import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import GPTScriptsSection from '../components/app/GPTScriptsSection'
+import GPTScriptEditor from '../components/app/GPTScriptEditor'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
 import ZapierIntegrations from '../components/app/ZapierIntegrations'
@@ -78,12 +79,6 @@ const App: FC = () => {
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
   const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
 
-  const [editingGptScript, setEditingGptScript] = useState<{
-    tool: IAssistantGPTScript;
-    index: number;
-  } | null>(null);
-
-  
   /**
    * Handles tab change in the app interface
    * @param event - React event
@@ -117,28 +112,6 @@ const App: FC = () => {
     navigate('new', { app_id: appTools.id })
   }
 
-  const handleCopyEmbedCode = useCallback(() => {
-    if (account.apiKeys.length > 0) {
-      // TODO: remove model from embed code
-      const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
-<script>
-  ChatWidget({
-    url: '${window.location.origin}/v1/chat/completions',
-    model: 'llama3:instruct',
-    bearerToken: '${account.apiKeys[0].key}',
-  })
-</script>`
-      navigator.clipboard.writeText(embedCode).then(() => {
-        snackbar.success('Embed code copied to clipboard');
-      }, (err) => {
-        console.error('Could not copy text: ', err);
-        snackbar.error('Failed to copy embed code');
-      });
-    } else {
-      snackbar.error('No API key available');
-    }
-  }, [account.apiKeys, snackbar]);  
-
   useEffect(() => {
     endpointProviders.loadData()
   }, [])
@@ -155,7 +128,7 @@ const App: FC = () => {
           routeName: 'apps'
         },
         {
-          title: appTools.flatApp.name || 'App',
+          title: appTools.flatApp?.name || 'App',
         }
       ]}
       topbarContent={(
@@ -165,7 +138,7 @@ const App: FC = () => {
             type="button"
             color="primary"
             variant="outlined"
-            onClick={handleCopyEmbedCode}
+            onClick={appTools.handleCopyEmbedCode}
             startIcon={<ContentCopyIcon />}
             disabled={account.apiKeys.length === 0 || appTools.isReadOnly}
           >
@@ -209,7 +182,7 @@ const App: FC = () => {
                 pb: 8 // Add padding at bottom to prevent content being hidden behind fixed bar
               }}>
                 <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                  {tabValue === 'settings' && (
+                  {tabValue === 'settings' && appTools.flatApp && (
                     <AppSettings
                       app={appTools.flatApp}
                       onUpdate={appTools.saveFlatApp}
@@ -256,14 +229,14 @@ const App: FC = () => {
                   {tabValue === 'integrations' && (
                     <>
                       <ApiIntegrations
-                        apis={appTools.apiAssistants}
+                        apis={appTools.apiTools}
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
                         isReadOnly={appTools.isReadOnly}
                       />
 
                       <ZapierIntegrations
-                        zapier={appTools.zapierAssistants}
+                        zapier={appTools.zapierTools}
                         onSaveZapierTool={appTools.onSaveZapierTool}
                         onDeleteZapierTool={appTools.onDeleteZapierTool}
                         isReadOnly={appTools.isReadOnly}
@@ -275,17 +248,16 @@ const App: FC = () => {
                     <GPTScriptsSection
                       app={appTools.app}
                       onAddGptScript={() => {
-                        const newScript: IAssistantGPTScript = {
-                          name: '',
-                          description: '',
-                          content: '',
-                        };
-                        setEditingGptScript({
-                          tool: newScript,
-                          index: appTools.gptscriptsAssistants.length
+                        appTools.setEditingGptScript({
+                          tool: {
+                            name: '',
+                            description: '',
+                            content: '',
+                          },
+                          index: appTools.gptscriptsTools.length
                         });
                       }}
-                      onEdit={(tool, index) => setEditingGptScript({tool, index})}
+                      onEdit={(tool, index) => appTools.setEditingGptScript({tool, index})}
                       onDeleteGptScript={appTools.onDeleteGptScript}
                       isReadOnly={appTools.isReadOnly}
                       isGithubApp={appTools.isGithubApp}
@@ -297,7 +269,7 @@ const App: FC = () => {
                       apiKeys={account.apiKeys}
                       onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
-                      allowedDomains={appTools.flatApp.allowedDomains || []}
+                      allowedDomains={appTools.flatApp?.allowedDomains || []}
                       setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({allowedDomains})}
                       isReadOnly={appTools.isReadOnly}
                     />
@@ -326,9 +298,9 @@ const App: FC = () => {
               ) : (
                 <PreviewPanel
                   loading={appTools.isInferenceLoading}
-                  name={appTools.flatApp.name || ''}
-                  avatar={appTools.flatApp.avatar || ''}
-                  image={appTools.flatApp.image || ''}
+                  name={appTools.flatApp?.name || ''}
+                  avatar={appTools.flatApp?.avatar || ''}
+                  image={appTools.flatApp?.image || ''}
                   isSearchMode={isSearchMode}
                   setIsSearchMode={setIsSearchMode}
                   inputValue={appTools.inputValue}
@@ -383,6 +355,7 @@ const App: FC = () => {
           </Window>
         )
       }
+
       {
         deletingAPIKey && (
           <DeleteConfirmWindow
@@ -410,74 +383,14 @@ const App: FC = () => {
         )
       }
 
-      {editingGptScript && (
-        <Window
-          title={`${editingGptScript.tool.name ? 'Edit' : 'Add'} GPTScript`}
-          fullHeight
-          size="lg"
-          open
-          withCancel
-          cancelTitle="Close"
-          onCancel={() => setEditingGptScript(null)}
-          onSubmit={() => {
-            if (editingGptScript.tool) {
-              appTools.onSaveGptScript(editingGptScript.tool, editingGptScript.index);
-            }
-          }}
-        >
-          <Box sx={{ p: 2 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              GPTScript
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <TextField
-                  value={editingGptScript.tool.name}
-                  onChange={(e) => setEditingGptScript(prev => prev ? {
-                    ...prev,
-                    tool: { ...prev.tool, name: e.target.value }
-                  } : null)}
-                  label="Name"
-                  fullWidth
-                  error={appTools.showErrors && !editingGptScript.tool.name}
-                  helperText={appTools.showErrors && !editingGptScript.tool.name ? 'Please enter a name' : ''}
-                  disabled={appTools.isReadOnly}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  value={editingGptScript.tool.description}
-                  onChange={(e) => setEditingGptScript(prev => prev ? {
-                    ...prev,
-                    tool: { ...prev.tool, description: e.target.value }
-                  } : null)}
-                  label="Description"
-                  fullWidth
-                  error={appTools.showErrors && !editingGptScript.tool.description}
-                  helperText={appTools.showErrors && !editingGptScript.tool.description ? "Description is required" : ""}
-                  disabled={appTools.isReadOnly}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  value={editingGptScript.tool.content}
-                  onChange={(e) => setEditingGptScript(prev => prev ? {
-                    ...prev,
-                    tool: { ...prev.tool, content: e.target.value }
-                  } : null)}
-                  label="Script Content"
-                  fullWidth
-                  multiline
-                  rows={10}
-                  error={appTools.showErrors && !editingGptScript.tool.content}
-                  helperText={appTools.showErrors && !editingGptScript.tool.content ? "Script content is required" : ""}
-                  disabled={appTools.isReadOnly}
-                />
-              </Grid>
-            </Grid>
-          </Box>
-        </Window>
-      )}
+      {/* GPT Script Editor Modal */}
+      <GPTScriptEditor
+        editingGptScript={appTools.editingGptScript}
+        setEditingGptScript={appTools.setEditingGptScript}
+        onSaveGptScript={appTools.onSaveGptScript}
+        showErrors={appTools.showErrors}
+        isReadOnly={appTools.isReadOnly}
+      />
     </Page>
   )
 }

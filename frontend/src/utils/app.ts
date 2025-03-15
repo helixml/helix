@@ -8,18 +8,18 @@ import {
 
 export const removeEmptyValues = (obj: any): any => {
   if (Array.isArray(obj)) {
-    const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null);
-    return filtered.length ? filtered : undefined;
+    const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null)
+    return filtered.length ? filtered : undefined
   } else if (typeof obj === 'object' && obj !== null) {
     const filtered = Object.fromEntries(
       Object.entries(obj)
         .map(([k, v]) => [k, removeEmptyValues(v)])
         .filter(([_, v]) => v !== undefined && v !== null && v !== '')
-    );
-    return Object.keys(filtered).length ? filtered : undefined;
+    )
+    return Object.keys(filtered).length ? filtered : undefined
   }
-  return obj === '' ? undefined : obj;
-};
+  return obj === '' ? undefined : obj
+}
 
 /**
  * Extracts properties from an IApp object and flattens them into an IAppFlatState object
@@ -28,7 +28,7 @@ export const removeEmptyValues = (obj: any): any => {
  * @returns Flattened app state
  */
 export const getAppFlatState = (app: IApp): IAppFlatState => {
-  if (!app) return {};
+  if (!app) return {}
   
   // Create a default flat state with app-level properties
   const flatState: IAppFlatState = {
@@ -36,27 +36,30 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     global: app.global,
     secrets: app.config.secrets,
     allowedDomains: app.config.allowed_domains,
-  };
+  }
   
   // Extract Helix config properties
   if (app.config.helix) {
-    flatState.name = app.config.helix.name;
-    flatState.description = app.config.helix.description;
-    flatState.avatar = app.config.helix.avatar;
-    flatState.image = app.config.helix.image;
+    flatState.name = app.config.helix.name
+    flatState.description = app.config.helix.description
+    flatState.avatar = app.config.helix.avatar
+    flatState.image = app.config.helix.image
     
     // Extract assistant properties if available
-    const assistant = app.config.helix.assistants?.[0];
+    const assistant = app.config.helix.assistants?.[0]
     if (assistant) {
-      flatState.systemPrompt = assistant.system_prompt;
-      flatState.model = assistant.model;
-      flatState.provider = assistant.provider;
-      flatState.knowledge = assistant.knowledge || [];
+      flatState.systemPrompt = assistant.system_prompt
+      flatState.model = assistant.model
+      flatState.provider = assistant.provider
+      flatState.knowledge = assistant.knowledge || []
+      flatState.apiTools = assistant.apis || []
+      flatState.zapierTools = assistant.zapier || []
+      flatState.gptscriptTools = assistant.gptscripts || []
     }
   }
   
-  return flatState;
-};
+  return flatState
+}
 
 
 /**
