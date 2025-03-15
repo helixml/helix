@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -396,7 +398,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 	for idx, batch := range batches {
 		// Convert the chunks into index chunks
-		indexChunks := convertTextSplitterChunks(k, version, batch)
+		indexChunks := r.convertTextSplitterChunks(ctx, k, version, batch)
 
 		percentage := int(float32(idx) / float32(len(batches)) * 100)
 
@@ -464,11 +466,37 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 	return batches
 }
 
-func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
-
+func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
+	// Keep a cache of metadata for files
+	metadataCache := make(map[string]map[string]string)
+
 	for _, chunk := range chunks {
+		// Check if we already have metadata for this file in the cache
+		metadata, ok := metadataCache[chunk.Filename]
+		if !ok {
+			// Try to find and load metadata file from the filestore
+			metadataFilePath := chunk.Filename + ".metadata.yaml"
+
+			// Check if the metadata file exists in the filestore
+			// This would need to be implemented based on how we access the filestore
+			// For now, we're just assuming a function that checks and loads metadata
+			var err error
+			metadata, err = r.getMetadataFromFilestore(ctx, metadataFilePath)
+			if err != nil {
+				// Log but continue - metadata is optional
+				log.Warn().
+					Err(err).
+					Str("knowledge_id", k.ID).
+					Str("metadata_file", metadataFilePath).
+					Msg("Failed to load metadata file")
+			}
+
+			// Cache the metadata (even if nil) to avoid repeated lookups
+			metadataCache[chunk.Filename] = metadata
+		}
+
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{
 			DataEntityID:    types.GetDataEntityID(k.ID, version),
 			Filename:        chunk.Filename,
@@ -477,10 +505,45 @@ func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*tex
 			DocumentGroupID: chunk.DocumentGroupID,
 			ContentOffset:   chunk.Index,
 			Content:         chunk.Text,
+			Metadata:        metadata,
 		})
 	}
 
 	return indexChunks
+}
+
+// getMetadataFromFilestore attempts to retrieve and parse a metadata.yaml file from the filestore
+func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFilePath string) (map[string]string, error) {
+	// Check if the metadata file exists
+	_, err := r.filestore.Get(ctx, metadataFilePath)
+	if err != nil {
+		// If the file doesn't exist, just return nil with no error
+		return nil, nil
+	}
+
+	// Open the metadata file
+	reader, err := r.filestore.OpenFile(ctx, metadataFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open metadata file: %w", err)
+	}
+	defer reader.Close()
+
+	// Read the content
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata file: %w", err)
+	}
+
+	// Parse the YAML
+	var metadataFile struct {
+		Metadata map[string]string `yaml:"metadata"`
+	}
+
+	if err := yaml.Unmarshal(data, &metadataFile); err != nil {
+		return nil, fmt.Errorf("failed to parse metadata file: %w", err)
+	}
+
+	return metadataFile.Metadata, nil
 }
 
 func checkContents(data []*indexerData) error {

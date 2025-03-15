@@ -284,11 +284,16 @@ class HaystackService:
         """
         if metadata is None:
             metadata = {}
-            
-        logger.info(f"Processing and indexing {os.path.basename(file_path)} with metadata: {metadata}")
         
-        # Add the file path to metadata
-        metadata["source"] = os.path.basename(file_path)
+        # Get the original filename from metadata
+        original_filename = metadata.get("filename")
+        if not original_filename:
+            raise ValueError("Original filename must be provided in metadata for process_and_index")
+        
+        logger.info(f"Processing and indexing {original_filename} with metadata: {metadata}")
+        
+        # Use the original filename as the source, never the temp path
+        metadata["source"] = original_filename
         
         # Set up the parameters for the indexing pipeline
         params = {
@@ -303,7 +308,7 @@ class HaystackService:
             
             # Return stats
             return {
-                "filename": os.path.basename(file_path),
+                "filename": original_filename,
                 "indexed": True,
                 "chunks": num_chunks,
                 "metadata": metadata,

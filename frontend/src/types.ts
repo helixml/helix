@@ -190,6 +190,7 @@ export interface IInteraction {
   data_prep_stage: ITextDataPrepStage,
   data_prep_limited: boolean,
   data_prep_limit: number,
+  rag_results?: ISessionRAGResult[],
 }
 
 export interface ISessionOrigin {
@@ -688,6 +689,7 @@ export interface ISessionRAGResult {
   source: string;
   document_id: string;
   document_group_id: string;
+  metadata?: Record<string, string>;
   // Add any other properties that your API returns
 }
 
