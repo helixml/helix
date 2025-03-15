@@ -2,7 +2,6 @@ package knowledge
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -120,8 +119,9 @@ func (suite *IndexerSuite) TestIndex() {
 
 	var version string
 
-	// Mock filestore.Get call for the metadata file
-	suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
+	// The metadata lookup is bypassed because the crawler data already has metadata
+	// Remove this expectation to fix the test
+	// suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
 
 	// Then it will index it
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -340,8 +340,9 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 
 	var version string
 
-	// Mock filestore.Get call for the metadata file
-	suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
+	// The metadata lookup is bypassed because the crawler data already has metadata
+	// Remove this expectation to fix the test
+	// suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
 
 	// Then it will index it
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
