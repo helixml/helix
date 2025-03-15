@@ -369,25 +369,6 @@ class MessageProcessor {
             }
           }
           
-          // If no direct match was found, try using the source from RAG results
-          if (!fileFound) {
-            const source = this.getSourceFromRagResult(docId);
-            if (source) {
-              filename = source.split('/').pop() || source;
-              
-              // Create the file URL using the source
-              if (this.session.parent_app) {
-                fileUrl = this.getFileURL(source);
-              } else {
-                const baseFilename = source.replace(/\.txt$/i, '');
-                const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) === 0);
-                fileUrl = sourceFilename ? this.getFileURL(sourceFilename) : this.getFileURL(source);
-              }
-              
-              fileFound = true;
-            }
-          }
-          
           // If still no match found, try to extract from the document_id if it contains a URL
           if (!fileFound && docId.includes('http')) {
             const urlFilenameMatch = docId.match(/\/([^\/]+\.[^\/\.]+)($|\?)/);
@@ -396,13 +377,6 @@ class MessageProcessor {
               fileUrl = docId;
               fileFound = true;
             }
-          }
-          
-          // Check if there's source_url metadata available for this document
-          const metadata = this.getMetadataForDocument(docId);
-          if (metadata && metadata.source_url) {
-            fileUrl = metadata.source_url;
-            fileFound = true;
           }
           
           // Add this excerpt to our processed array
@@ -817,61 +791,6 @@ ${trimmedContent}
       if (!interaction.files || interaction.files.length <= 0) return acc;
       return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true));
     }, []);
-  }
-
-  /**
-   * Helper method to retrieve metadata for a document ID
-   */
-  private getMetadataForDocument(docId: string): Record<string, string> | undefined {
-    if (!this.session?.interactions) return undefined;
-    
-    // Find the interaction that contains RAG results
-    for (const interaction of this.session.interactions) {
-      if (interaction.rag_results && interaction.rag_results.length > 0) {
-        // Find the RAG result with matching document_id
-        const ragResult = interaction.rag_results.find((result) => 
-          result.document_id === docId
-        );
-        
-        if (ragResult && ragResult.metadata) {
-          return ragResult.metadata;
-        }
-      }
-    }
-    
-    return undefined;
-  }
-  
-  // Helper to get best source filename from RAG results
-  private getSourceFromRagResult(docId: string): string | undefined {
-    if (!this.session?.interactions) return undefined;
-    
-    // Find the interaction that contains RAG results
-    for (const interaction of this.session.interactions) {
-      if (interaction.rag_results && interaction.rag_results.length > 0) {
-        // Find the RAG result with matching document_id
-        const ragResult = interaction.rag_results.find((result) => 
-          result.document_id === docId
-        );
-        
-        if (ragResult) {
-          // Prioritize metadata fields first if they exist
-          if (ragResult.metadata) {
-            if (ragResult.metadata.original_filename) {
-              return ragResult.metadata.original_filename;
-            }
-            if (ragResult.metadata.filename) {
-              return ragResult.metadata.filename;
-            }
-          }
-          
-          // Fall back to the source field
-          return ragResult.source;
-        }
-      }
-    }
-    
-    return undefined;
   }
 }
 
