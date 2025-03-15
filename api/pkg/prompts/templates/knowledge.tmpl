@@ -3,10 +3,10 @@ We have found the following context you may refer to in your answer:
 {{- range .RagResults }}
 <article>
 <document_id>
-DocumentID: {{ .DocumentID }}
+{{ .DocumentID }}
 </document_id>
 <content>
-Content: {{ .Content }}
+{{ .Content }}
 </content>
 </article>
 {{- end }}
@@ -33,22 +33,22 @@ We have found the following context you may refer to in your answer:
 {{- range .KnowledgeResults }}
 {{- if .DocumentID }}
 <document_id>
-DocumentID: {{ .DocumentID }}
+{{ .DocumentID }}
 </document_id>
 {{- end }}
 <article>
 {{- if .Source }}
 <source>
-Source URL: {{ .Source }}
+{{ .Source }}
 </source>
 {{- end }}
 {{- if .Description }}
 <description>
-Description: {{ .Description }}
+{{ .Description }}
 </description>
 {{- end }}
 <content>
-Content: {{ .Content }}
+{{ .Content }}
 </content>
 </article>
 {{- end }}

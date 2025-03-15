@@ -9,7 +9,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
-	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -55,11 +54,9 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
 
-		// Split filename into base and extension
-		base, ext := strings.TrimSuffix(
-			filepath.Base(chunk.Filename),
-			filepath.Ext(chunk.Filename)), strings.TrimPrefix(filepath.Ext(chunk.Filename), ".")
-		filename := fmt.Sprintf("%s_%d.%s", base, chunk.ContentOffset, ext)
+		// Use the original filename without adding content offset suffix
+		// This prevents temporary/modified filenames from leaking into user-facing code
+		filename := filepath.Base(chunk.Filename)
 
 		logger.Debug().Str("filename", filename).Msg("Indexing file")
 
@@ -82,6 +79,14 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 			"original_filename": filepath.Base(chunk.Source),
 			// Add other metadata as needed
 		}
+
+		// Add any custom metadata from the chunk
+		if chunk.Metadata != nil {
+			for k, v := range chunk.Metadata {
+				metadata[k] = v
+			}
+		}
+
 		metadataJSON, err := json.Marshal(metadata)
 		if err != nil {
 			return fmt.Errorf("marshaling metadata: %w", err)
@@ -212,13 +217,23 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	// Convert to SessionRAGResult
 	results := make([]*types.SessionRAGResult, len(queryResp.Results))
 	for i, r := range queryResp.Results {
+		// Use the source from metadata, falling back to filename if needed
+		source := r.Metadata.Source
+		if source == "" {
+			// If source is empty, try to get it from the filename in metadata
+			if filename, ok := r.Metadata.CustomMetadata["filename"]; ok && filename != "" {
+				source = filename
+			}
+		}
+
 		results[i] = &types.SessionRAGResult{
 			Content:         r.Content,
 			Distance:        r.Score,
 			DocumentID:      r.Metadata.DocumentID,
 			DocumentGroupID: r.Metadata.DocumentGroupID,
-			Source:          r.Metadata.Source,
+			Source:          source,
 			ContentOffset:   r.Metadata.ContentOffset,
+			Metadata:        r.Metadata.CustomMetadata,
 		}
 	}
 
