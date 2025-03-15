@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -17,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -508,7 +507,7 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 				metadata, err = r.getMetadataFromFilestore(ctx, metadataFilePath)
 				if err != nil {
 					// Only log as a warning for unexpected errors, not for "not found" errors
-					if !strings.Contains(err.Error(), "metadata file not found") {
+					if !errors.Is(err, filestore.ErrNotFound) {
 						log.Warn().
 							Err(err).
 							Str("knowledge_id", k.ID).
@@ -578,7 +577,7 @@ func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFileP
 	_, err := r.filestore.Get(ctx, metadataFilePath)
 	if err != nil {
 		// Check specifically if this is a not found error
-		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+		if errors.Is(err, filestore.ErrNotFound) {
 			log.Debug().Str("path", metadataFilePath).Msg("Metadata file not found")
 			return nil, fmt.Errorf("metadata file not found: %w", err)
 		}

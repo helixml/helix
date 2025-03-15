@@ -2,9 +2,13 @@ package filestore
 
 import (
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 )
+
+// ErrNotFound is returned when a file or directory doesn't exist
+var ErrNotFound = errors.New("file not found")
 
 type Item struct {
 	// timestamp

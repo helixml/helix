@@ -389,7 +389,7 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 						Str("file", item.Path).
 						Interface("metadata", metadata).
 						Msg("Added metadata to file")
-				} else if metadataErr != nil && !strings.Contains(metadataErr.Error(), "metadata file not found") {
+				} else if metadataErr != nil && !errors.Is(metadataErr, filestore.ErrNotFound) {
 					// Only log unexpected errors, not file not found errors
 					log.Debug().
 						Err(metadataErr).
