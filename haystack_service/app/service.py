@@ -87,7 +87,7 @@ class HaystackService:
         splitter = DocumentSplitter(
             split_length=settings.CHUNK_SIZE,
             split_overlap=settings.CHUNK_OVERLAP,
-            split_by="word",
+            split_by=settings.CHUNK_UNIT,
             respect_sentence_boundary=True
         )
         splitter.warm_up()
