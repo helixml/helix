@@ -234,11 +234,17 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 			return nil, fmt.Errorf("failed to extract data from %s, error: %w", d.Source, err)
 		}
 
-		extractedData = append(extractedData, &indexerData{
+		// Create new data item with preserved metadata from the original file
+		extractedItem := &indexerData{
 			Data:            []byte(extractedText),
 			Source:          d.Source,
 			DocumentGroupID: getDocumentGroupID(d.Source),
-		})
+			// Preserve metadata from the original file
+			Metadata: d.Metadata,
+		}
+
+		// Add the extracted data with metadata preserved
+		extractedData = append(extractedData, extractedItem)
 	}
 
 	return extractedData, nil
@@ -329,7 +335,16 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 					Int64("size", item.Size).
 					Msgf("Found file")
 
-				r, err := fs.OpenFile(ctx, item.Path)
+				// Skip metadata YAML files from being indexed directly
+				if strings.HasSuffix(item.Path, ".metadata.yaml") {
+					log.Debug().
+						Str("knowledge_id", k.ID).
+						Str("file", item.Path).
+						Msgf("Skipping metadata file from direct indexing")
+					continue
+				}
+
+				fileReader, err := fs.OpenFile(ctx, item.Path)
 				if err != nil {
 					log.Warn().
 						Err(err).
@@ -339,9 +354,9 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 					return fmt.Errorf("failed to open file at %s, error: %w", item.Path, err)
 				}
 
-				defer r.Close()
+				defer fileReader.Close()
 
-				data, err := io.ReadAll(r)
+				data, err := io.ReadAll(fileReader)
 				if err != nil {
 					log.Warn().
 						Err(err).
@@ -351,16 +366,38 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 					return fmt.Errorf("failed to read file at %s, error: %w", item.Path, err)
 				}
 
-				result = append(result, &indexerData{
+				// Create the indexer data item
+				indexerItem := &indexerData{
 					Source:          item.Path,
 					Data:            data,
 					DocumentGroupID: getDocumentGroupID(item.Path),
-				})
+				}
+
+				// Try to load metadata for this file
+				metadataFilePath := item.Path + ".metadata.yaml"
+				metadata, metadataErr := r.getMetadataFromFilestore(ctx, metadataFilePath)
+				if metadataErr == nil && metadata != nil {
+					// Convert map[string]string to map[string]interface{}
+					metadataMap := make(map[string]interface{})
+					for k, v := range metadata {
+						metadataMap[k] = v
+					}
+					indexerItem.Metadata = metadataMap
+
+					log.Debug().
+						Str("knowledge_id", k.ID).
+						Str("file", item.Path).
+						Interface("metadata", metadata).
+						Msgf("Added metadata to file")
+				}
+
+				result = append(result, indexerItem)
 
 				log.Debug().
 					Str("knowledge_id", k.ID).
 					Str("file", item.Path).
 					Int("data_size", len(data)).
+					Bool("has_metadata", indexerItem.Metadata != nil).
 					Msgf("Successfully read file")
 			}
 		}

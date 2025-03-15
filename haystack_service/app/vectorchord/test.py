@@ -110,7 +110,7 @@ def initialize_document_store() -> VectorchordDocumentStore:
         table_name=TABLE_NAME,
         vector_function="cosine_similarity",
         search_strategy="vchordrq",  # Use VectorChord's RaBitQ index like in production
-        recreate_table=True  # Match production
+        recreate_table=True
     )
     
     logger.info(f"VectorchordDocumentStore initialized with table {TABLE_NAME}")

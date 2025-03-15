@@ -320,6 +320,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)
 
+	// Connect the runner controller to the provider manager
+	providerManager.SetRunnerController(runnerController)
+	log.Info().Msg("Connected runner controller to provider manager to enable hiding Helix provider when no runners are available")
+
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
 

@@ -142,13 +142,14 @@ func (RAGSettings) GormDataType() string {
 
 // the data we send off to rag implementations to be indexed
 type SessionRAGIndexChunk struct {
-	DataEntityID    string `json:"data_entity_id"`
-	Source          string `json:"source"`
-	Filename        string `json:"filename"`
-	DocumentID      string `json:"document_id"`
-	DocumentGroupID string `json:"document_group_id"`
-	ContentOffset   int    `json:"content_offset"`
-	Content         string `json:"content"`
+	DataEntityID    string            `json:"data_entity_id"`
+	Source          string            `json:"source"`
+	Filename        string            `json:"filename"`
+	DocumentID      string            `json:"document_id"`
+	DocumentGroupID string            `json:"document_group_id"`
+	ContentOffset   int               `json:"content_offset"`
+	Content         string            `json:"content"`
+	Metadata        map[string]string `json:"metadata"`
 }
 
 // the query we post to llamaindex to get results back from a user
@@ -170,16 +171,17 @@ type DeleteIndexRequest struct {
 // the thing we load from llamaindex when we send the user prompt
 // there and it does a lookup
 type SessionRAGResult struct {
-	ID              string  `json:"id"`
-	SessionID       string  `json:"session_id"`
-	InteractionID   string  `json:"interaction_id"`
-	DocumentID      string  `json:"document_id"`
-	DocumentGroupID string  `json:"document_group_id"`
-	Filename        string  `json:"filename"`
-	Source          string  `json:"source"`
-	ContentOffset   int     `json:"content_offset"`
-	Content         string  `json:"content"`
-	Distance        float64 `json:"distance"`
+	ID              string            `json:"id"`
+	SessionID       string            `json:"session_id"`
+	InteractionID   string            `json:"interaction_id"`
+	DocumentID      string            `json:"document_id"`
+	DocumentGroupID string            `json:"document_group_id"`
+	Filename        string            `json:"filename"`
+	Source          string            `json:"source"`
+	ContentOffset   int               `json:"content_offset"`
+	Content         string            `json:"content"`
+	Distance        float64           `json:"distance"`
+	Metadata        map[string]string `json:"metadata"`
 }
 
 // gives us a quick way to add settings

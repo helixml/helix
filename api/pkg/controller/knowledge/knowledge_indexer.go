@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -353,6 +355,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			DocumentGroupID: getDocumentGroupID(d.Source),
 			ContentOffset:   0,
 			Content:         string(d.Data),
+			Metadata:        convertMetadataToStringMap(d.Metadata),
 		})
 		if err != nil {
 			// return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
@@ -396,7 +399,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 	for idx, batch := range batches {
 		// Convert the chunks into index chunks
-		indexChunks := convertTextSplitterChunks(k, version, batch)
+		indexChunks := r.convertTextSplitterChunks(ctx, k, version, batch)
 
 		percentage := int(float32(idx) / float32(len(batches)) * 100)
 
@@ -451,6 +454,7 @@ type indexerData struct {
 	StatusCode      int
 	DurationMs      int64
 	Message         string
+	Metadata        map[string]interface{}
 }
 
 func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
@@ -464,11 +468,82 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 	return batches
 }
 
-func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
-
+// convertTextSplitterChunks converts the haystack chunks to RAG index chunks
+func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
+	// Keep a cache of metadata for files
+	metadataCache := make(map[string]map[string]string)
+
 	for _, chunk := range chunks {
+		// Use metadata from the chunk if available, otherwise load from filestore
+		metadata := chunk.Metadata
+
+		if metadata == nil {
+			// Try to load metadata from filestore if not already in the chunk
+			metadataFilePath := chunk.Filename + ".metadata.yaml"
+
+			// Check if we've already tried to load this metadata
+			if cachedMetadata, exists := metadataCache[metadataFilePath]; exists {
+				metadata = cachedMetadata
+
+				if metadata != nil {
+					log.Info().
+						Str("knowledge_id", k.ID).
+						Str("chunk_filename", chunk.Filename).
+						Interface("metadata", metadata).
+						Msg("Using cached metadata for file")
+				}
+			} else {
+				log.Info().
+					Str("knowledge_id", k.ID).
+					Str("chunk_filename", chunk.Filename).
+					Str("metadata_path", metadataFilePath).
+					Msg("Loading metadata from filestore")
+
+				// Check if the metadata file exists in the filestore
+				var err error
+				metadata, err = r.getMetadataFromFilestore(ctx, metadataFilePath)
+				if err != nil {
+					// Log but continue - metadata is optional
+					log.Warn().
+						Err(err).
+						Str("knowledge_id", k.ID).
+						Str("metadata_file", metadataFilePath).
+						Msg("Failed to load metadata file")
+				}
+
+				// Cache the result, even if nil
+				metadataCache[metadataFilePath] = metadata
+
+				if metadata != nil {
+					log.Info().
+						Str("knowledge_id", k.ID).
+						Interface("metadata", metadata).
+						Msg("Successfully loaded metadata for file")
+
+					// Log if we found a source_url
+					if sourceURL, ok := metadata["source_url"]; ok {
+						log.Info().
+							Str("knowledge_id", k.ID).
+							Str("source_url", sourceURL).
+							Msg("Found source_url in metadata")
+					}
+				} else {
+					log.Info().
+						Str("knowledge_id", k.ID).
+						Str("metadata_file", metadataFilePath).
+						Msg("No metadata found for file")
+				}
+			}
+		} else {
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Str("chunk_filename", chunk.Filename).
+				Interface("metadata", metadata).
+				Msg("Chunk already has metadata")
+		}
+
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{
 			DataEntityID:    types.GetDataEntityID(k.ID, version),
 			Filename:        chunk.Filename,
@@ -477,10 +552,72 @@ func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*tex
 			DocumentGroupID: chunk.DocumentGroupID,
 			ContentOffset:   chunk.Index,
 			Content:         chunk.Text,
+			Metadata:        metadata,
 		})
 	}
 
 	return indexChunks
+}
+
+// getMetadataFromFilestore attempts to retrieve and parse a metadata.yaml file from the filestore
+func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFilePath string) (map[string]string, error) {
+	// Log attempt to read metadata file
+	log.Info().Str("path", metadataFilePath).Msg("Attempting to read metadata file")
+
+	// Check if the metadata file exists
+	_, err := r.filestore.Get(ctx, metadataFilePath)
+	if err != nil {
+		// If the file doesn't exist, just return nil with no error
+		return nil, nil
+	}
+
+	log.Info().Str("path", metadataFilePath).Msg("Metadata file exists, opening...")
+
+	// Open the metadata file
+	reader, err := r.filestore.OpenFile(ctx, metadataFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open metadata file: %w", err)
+	}
+	defer reader.Close()
+
+	// Read the content
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata file: %w", err)
+	}
+
+	log.Info().Str("path", metadataFilePath).Str("content", string(data)).Msg("Read metadata file content")
+
+	// First try parsing with the expected structure
+	var metadataFile struct {
+		Metadata map[string]string `yaml:"metadata"`
+	}
+
+	if err := yaml.Unmarshal(data, &metadataFile); err != nil {
+		log.Error().Str("path", metadataFilePath).Err(err).Msg("Failed to parse metadata YAML with expected structure")
+
+		// Try alternative structure without the metadata field
+		var directMetadata map[string]string
+		if err := yaml.Unmarshal(data, &directMetadata); err != nil {
+			log.Error().Str("path", metadataFilePath).Err(err).Msg("Failed to parse metadata YAML as direct map")
+			return nil, fmt.Errorf("failed to parse metadata file: %w", err)
+		}
+
+		log.Info().
+			Str("path", metadataFilePath).
+			Interface("direct_metadata", directMetadata).
+			Msg("Parsed metadata file as direct map")
+
+		return directMetadata, nil
+	}
+
+	// After reading and parsing
+	log.Info().
+		Str("path", metadataFilePath).
+		Interface("metadata", metadataFile.Metadata).
+		Msg("Successfully parsed metadata file with expected structure")
+
+	return metadataFile.Metadata, nil
 }
 
 func checkContents(data []*indexerData) error {
@@ -511,4 +648,12 @@ func getCrawledSources(data []*indexerData) []*types.CrawledURL {
 	}
 
 	return crawledSources
+}
+
+func convertMetadataToStringMap(metadata map[string]interface{}) map[string]string {
+	stringMap := make(map[string]string)
+	for key, value := range metadata {
+		stringMap[key] = fmt.Sprintf("%v", value)
+	}
+	return stringMap
 }

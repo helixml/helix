@@ -688,6 +688,7 @@ export interface ISessionRAGResult {
   source: string;
   document_id: string;
   document_group_id: string;
+  metadata?: Record<string, string>;
   // Add any other properties that your API returns
 }
 
