@@ -153,6 +153,14 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 
+	if actionableResponse.API == "" {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Msg("model thinks it needs a tool but no tool was chosen, setting needs_tool to no")
+		actionableResponse.NeedsTool = "no"
+	}
+
 	return &actionableResponse, nil
 }
 
