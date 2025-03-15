@@ -88,12 +88,16 @@ export const useApp = (appId: string) => {
       model: account.models[0]?.id || '',
       system_prompt: '',
       type: 'text',
-      knowledge: []
+      knowledge: [],
+      apis: [],
+      zapier: [],
+      gptscripts: [],
+      tools: [],
     }
   }, [account.models])
 
   const flatApp = useMemo(() => {
-    if(!app) return {}
+    if(!app) return
     return getAppFlatState(app)
   }, [app])
 
@@ -102,15 +106,15 @@ export const useApp = (appId: string) => {
     return app.config.helix.assistants || [getDefaultAssistant()]
   }, [app, getDefaultAssistant])
 
-  const apiAssistants = useMemo(() => {
+  const apiTools = useMemo(() => {
     return assistants.length > 0 ? assistants[0].apis || [] : []
   }, [assistants])
 
-  const zapierAssistants = useMemo(() => {
+  const zapierTools = useMemo(() => {
     return assistants.length > 0 ? assistants[0].zapier || [] : []
   }, [assistants])
 
-  const gptscriptsAssistants = useMemo(() => {
+  const gptscriptsTools = useMemo(() => {
     return assistants.length > 0 ? assistants[0].gptscripts || [] : []
   }, [assistants])
 
@@ -275,6 +279,18 @@ export const useApp = (appId: string) => {
     if (updates.knowledge !== undefined) {
       assistants[0].knowledge = updates.knowledge
     }
+
+    if (updates.apiTools !== undefined) {
+      assistants[0].apis = updates.apiTools
+    }
+
+    if (updates.zapierTools !== undefined) {
+      assistants[0].zapier = updates.zapierTools
+    }
+
+    if (updates.gptscriptTools !== undefined) {
+      assistants[0].gptscripts = updates.gptscriptTools
+    }
     
     return updatedApp
   }, [
@@ -357,8 +373,7 @@ export const useApp = (appId: string) => {
       
       // Only update server-controlled fields
       return {
-        ...clientItem,
-        // Server-controlled fields
+        ...clientItem,        
         state: serverItem.state,
         message: serverItem.message,
         progress: serverItem.progress,
@@ -451,189 +466,62 @@ export const useApp = (appId: string) => {
   /**
    * 
    * 
-   * api tool handlers
+   * tool handlers
    * 
    * 
-   */  
+   */   
   const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
-    if (!app) return;
-    console.log('App - saving API tool:', { tool, index });
-    
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      let assistants = prevApp.config.helix.assistants || []
-      let isNew = typeof index !== 'number'
-
-      if(index === undefined) {
-        assistants = [getDefaultAssistant()]
-        index = 0
-      }
-
-      const updatedAssistants = assistants.map(assistant => {
-        const apis = [...(assistant.apis || [])];
-        const targetIndex = typeof index === 'number' ? index : apis.length;
-        console.log('App - API tool update:', {
-          currentApis: apis,
-          targetIndex,
-          isNew,
-        });
-        apis[targetIndex] = tool;
-        return {
-          ...assistant,
-          apis
-        };
-      });
-
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, [app]);
-
+    if(!flatApp) return
+    let newTools = flatApp.apiTools || []
+    if(typeof index !== 'number') {
+      newTools = [...newTools, tool]
+    } else {
+      newTools[index] = tool
+    }
+    saveFlatApp({apiTools: newTools})
+  }, [saveFlatApp, flatApp])
   
   const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
-    if (!app) return;
-    console.log('App - saving Zapier tool:', { tool, index });
+    if(!flatApp) return
+    let newTools = flatApp.zapierTools || []
+    if(typeof index !== 'number') {
+      newTools = [...newTools, tool]
+    } else {
+      newTools[index] = tool
+    }
+    saveFlatApp({zapierTools: newTools})
+  }, [saveFlatApp, flatApp])
+
+  const onSaveGptScript = useCallback((tool: IAssistantGPTScript, index?: number) => {
+    if(!flatApp) return
+    let newTools = flatApp.gptscriptTools || []
+    if(typeof index !== 'number') {
+      newTools = [...newTools, tool]
+    } else {
+      newTools[index] = tool
+    }
+    saveFlatApp({gptscriptTools: newTools})
+    setEditingGptScript(null)
+  }, [saveFlatApp, flatApp])
     
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      let assistants = prevApp.config.helix.assistants || []
-      let isNew = typeof index !== 'number'
-
-      if(index === undefined) {
-        assistants = [getDefaultAssistant()]
-        index = 0
-      }
-
-      const updatedAssistants = assistants.map(assistant => {
-        const zapier = [...(assistant.zapier || [])];
-        const targetIndex = typeof index === 'number' ? index : zapier.length;
-        console.log('App - Zapier tool update:', {
-          currentZapier: zapier,
-          targetIndex,
-          isNew: typeof index !== 'number'
-        });
-        zapier[targetIndex] = tool;
-        return {
-          ...assistant,
-          zapier
-        };
-      });
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, [app]);
-
   const onDeleteApiTool = useCallback((toolId: string) => {
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        apis: (assistant.apis || []).filter((api) => api.name !== toolId)
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, []);
+    if(!flatApp) return
+    const newTools = (flatApp.apiTools || []).filter(app => app.name !== toolId)
+    saveFlatApp({apiTools: newTools})
+  }, [saveFlatApp, flatApp])
 
   const onDeleteZapierTool = useCallback((toolId: string) => {
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        zapier: (assistant.zapier || []).filter((z) => z.name !== toolId)
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, []);
+    if(!flatApp) return
+    const newTools = (flatApp.zapierTools || []).filter(app => app.name !== toolId)
+    saveFlatApp({zapierTools: newTools})
+  }, [saveFlatApp, flatApp])
+
+  const onDeleteGptScript = useCallback((toolId: string) => {
+    if(!flatApp) return
+    const newTools = (flatApp.gptscriptTools || []).filter(app => app.name !== toolId)
+    saveFlatApp({gptscriptTools: newTools})
+  }, [saveFlatApp, flatApp])
   
-  /**
-   * 
-   * 
-   * gpt script handlers
-   * 
-   * 
-   */  
-  const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
-    if (!app) return;
-    
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
-        const gptscripts = [...(assistant.gptscripts || [])];
-        const targetIndex = typeof index === 'number' ? index : gptscripts.length;
-        gptscripts[targetIndex] = script;
-        return {
-          ...assistant,
-          gptscripts
-        };
-      });
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-    setEditingGptScript(null);
-  }, [app]);
-
-  const onDeleteGptScript = useCallback((scriptId: string) => {
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
-      const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => ({
-        ...assistant,
-        gptscripts: (assistant.gptscripts || []).filter((script) => script.file !== scriptId)
-      }));
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
-        },
-      };
-    });
-  }, []);
-
   /**
    * 
    * 
@@ -686,6 +574,8 @@ export const useApp = (appId: string) => {
     // Get knowledge ID from the app state
     // TODO: support multiple knowledge sources
     const knowledgeId = app?.config.helix.assistants?.[0]?.knowledge?.[0]?.id
+
+    console.log(JSON.stringify(app, null, 4))
     
     if (!knowledgeId) {
       snackbar.error('No knowledge sources available')
@@ -716,32 +606,27 @@ export const useApp = (appId: string) => {
     }
   }
 
-  /**
-   * The main loading that will trigger when the page loads
-   */
-  useEffect(() => {
-    if (!appId) return
-    if (!account.user) return
-
-    const handleLoading = async () => {
-      await loadApp(appId, {
-        showErrors: true,
-        showLoading: true,
-      })
-      await loadKnowledge()
-      await endpointProviders.loadData()
-      account.loadApiKeys({
-        types: 'app',
-        app_id: appId,
-      })
-      setInitialised(true)
+  const handleCopyEmbedCode = useCallback(() => {
+    if (account.apiKeys.length > 0) {
+      // TODO: remove model from embed code
+      const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
+<script>
+  ChatWidget({
+    url: '${window.location.origin}/v1/chat/completions',
+    model: 'llama3:instruct',
+    bearerToken: '${account.apiKeys[0].key}',
+  })
+</script>`
+      navigator.clipboard.writeText(embedCode).then(() => {
+        snackbar.success('Embed code copied to clipboard');
+      }, (err) => {
+        console.error('Could not copy text: ', err);
+        snackbar.error('Failed to copy embed code');
+      });
+    } else {
+      snackbar.error('No API key available');
     }
-
-    handleLoading()
-  }, [
-    appId,
-    account.user,
-  ])
+  }, [account.apiKeys, snackbar]);  
   
   /**
    * Polling effect for knowledge updates
@@ -845,6 +730,34 @@ export const useApp = (appId: string) => {
     }
   })
 
+  
+  /**
+   * The main loading that will trigger when the page loads
+   */
+  useEffect(() => {
+    if (!appId) return
+    if (!account.user) return
+
+    const handleLoading = async () => {
+      await loadApp(appId, {
+        showErrors: true,
+        showLoading: true,
+      })
+      await loadKnowledge()
+      await endpointProviders.loadData()
+      account.loadApiKeys({
+        types: 'app',
+        app_id: appId,
+      })
+      setInitialised(true)
+    }
+
+    handleLoading()
+  }, [
+    appId,
+    account.user,
+  ])
+
   return {
 
     session,
@@ -854,9 +767,9 @@ export const useApp = (appId: string) => {
     app,
     flatApp,
     assistants,
-    apiAssistants,
-    zapierAssistants,
-    gptscriptsAssistants,
+    apiTools,
+    zapierTools,
+    gptscriptsTools,
     isInferenceLoading,
     isAppLoading,
     isAppSaving,
@@ -906,6 +819,9 @@ export const useApp = (appId: string) => {
     searchResults,
     onInference,
     onSearch,
+
+    // Embed code
+    handleCopyEmbedCode,
   }
 }
 

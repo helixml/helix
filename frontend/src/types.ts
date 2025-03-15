@@ -761,6 +761,9 @@ export interface IAppFlatState {
   model?: string
   provider?: string
   knowledge?: IKnowledgeSource[] // Added knowledge parameter
+  apiTools?: IAssistantApi[]
+  zapierTools?: IAssistantZapier[]
+  gptscriptTools?: IAssistantGPTScript[]
 }
 
 export interface IGithubStatus {
