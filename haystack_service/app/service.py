@@ -38,7 +38,7 @@ class HaystackService:
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
                 search_strategy="vchordrq", # Enable for faster vector search
-                recreate_table=True # XXX disable to avoid data loss?
+                recreate_table=False
             )
             logger.info(f"Connected to VectorchordDocumentStore: {settings.PGVECTOR_TABLE}")
             
