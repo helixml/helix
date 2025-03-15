@@ -7,6 +7,7 @@ import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import JsonWindowLink from '../widgets/JsonWindowLink';
+import Link from '@mui/material/Link';
 
 interface IdeIntegrationSectionProps {
   appId: string;
@@ -42,7 +43,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
         return (
           <>
             <Typography variant="body1" sx={{ mb: 2 }}>
-              Follow these steps to configure Cline:
+              Follow these steps to configure <Link href="https://cline.bot/" target="_blank" rel="noopener noreferrer">Cline</Link>:
             </Typography>
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" sx={{ mb: 1 }}>1. Open the command palette (CMD+Shift+P)</Typography>
