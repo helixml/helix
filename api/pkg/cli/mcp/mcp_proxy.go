@@ -1,8 +1,8 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -402,13 +402,7 @@ func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID stri
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resultsJSON, err := json.Marshal(results)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to marshal knowledge search results")
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		return mcp.NewToolResultText(string(resultsJSON)), nil
+		return mcp.NewToolResultText(formatKnowledgeSearchResponse(results)), nil
 	}
 }
 
@@ -425,4 +419,26 @@ func (mcps *ModelContextProtocolServer) getKnowledgePromptHandler(appID string, 
 
 		return nil, nil
 	}
+}
+
+// formatKnowledgeSearchResponse formats the results into a text with just Source and Content fields. Each section is separated by an empty line
+//
+// Source: <URL>
+// Content: <Content>
+// ...
+// Source: <URL>
+// Content: <Content>
+
+func formatKnowledgeSearchResponse(results []*types.KnowledgeSearchResult) string {
+	if len(results) == 0 {
+		return "No results found"
+	}
+	var buf bytes.Buffer
+	for _, result := range results {
+		for _, r := range result.Results {
+			buf.WriteString(fmt.Sprintf("Source: %s\nContent: %s\n\n", r.Source, r.Content))
+		}
+	}
+
+	return buf.String()
 }
