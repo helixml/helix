@@ -61,7 +61,6 @@ const App: FC = () => {
   const endpointProviders = useEndpointProviders()
   const api = useApi()
   const snackbar = useSnackbar()
-  const session = useSession()
   const filestore = useFilestore()
   const themeConfig = useThemeConfig()
   const {
@@ -118,41 +117,6 @@ const App: FC = () => {
     navigate('new', { app_id: appTools.id })
   }
 
-  const isGithubApp = useMemo(() => {
-    if(!appTools.app) return true
-    return appTools.app?.app_source === APP_SOURCE_GITHUB
-  }, [appTools.app])
-
-  const isReadOnly = useMemo(() => {
-    if(!appTools.app) return true
-    return isGithubApp
-  }, [appTools.app, isGithubApp])
-
-  const sessionID = useMemo(() => {
-    return session.data?.id || ''
-  }, [
-    session.data,
-  ])
-
-  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
-  useWebsocket(sessionID, (parsedData) => {
-    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      const newSession: ISession = parsedData.session
-      console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
-        sessionId: newSession.id,
-        documentIds: newSession.config.document_ids,
-        documentGroupId: newSession.config.document_group_id,
-        parentApp: newSession.parent_app,
-        hasDocumentIds: newSession.config.document_ids !== null && 
-                      Object.keys(newSession.config.document_ids || {}).length > 0,
-        documentIdKeys: Object.keys(newSession.config.document_ids || {}),
-        documentIdValues: Object.values(newSession.config.document_ids || {}),
-        sessionData: JSON.stringify(newSession)
-      })
-      session.setData(newSession)
-    }
-  })
-
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
       // TODO: remove model from embed code
@@ -203,7 +167,7 @@ const App: FC = () => {
             variant="outlined"
             onClick={handleCopyEmbedCode}
             startIcon={<ContentCopyIcon />}
-            disabled={account.apiKeys.length === 0 || isReadOnly}
+            disabled={account.apiKeys.length === 0 || appTools.isReadOnly}
           >
             Embed
           </Button>
@@ -249,7 +213,7 @@ const App: FC = () => {
                     <AppSettings
                       app={appTools.flatApp}
                       onUpdate={appTools.saveFlatApp}
-                      readOnly={isReadOnly}
+                      readOnly={appTools.isReadOnly}
                       showErrors={appTools.showErrors}
                       isAdmin={account.admin}
                       providerEndpoints={endpointProviders.data}
@@ -269,12 +233,16 @@ const App: FC = () => {
                         onUpload={appTools.handleFileUpload}
                         loadFiles={appTools.handleLoadFiles}
                         uploadProgress={filestore.uploadProgress}
-                        disabled={isReadOnly}
-                        knowledgeList={appTools.knowledge}
+                        disabled={appTools.isReadOnly}
                         appId={appTools.id}
                         onRequestSave={async () => {
-                          console.log('--------------------------------------------')
-                          console.log('run onSave()')
+                          console.log('Saving app state after file upload to trigger indexing');
+                          // Save the current app state to ensure all knowledge changes are persisted
+                          if (!appTools.app) {
+                            console.warn('Cannot save app - app is null');
+                            return;
+                          }
+                          return await appTools.saveApp(appTools.app);
                         }}
                       />
                       {appTools.knowledgeErrors && appTools.showErrors && (
@@ -291,14 +259,14 @@ const App: FC = () => {
                         apis={appTools.apiAssistants}
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
-                        isReadOnly={isReadOnly}
+                        isReadOnly={appTools.isReadOnly}
                       />
 
                       <ZapierIntegrations
                         zapier={appTools.zapierAssistants}
                         onSaveZapierTool={appTools.onSaveZapierTool}
                         onDeleteZapierTool={appTools.onDeleteZapierTool}
-                        isReadOnly={isReadOnly}
+                        isReadOnly={appTools.isReadOnly}
                       />
                     </>
                   )}
@@ -319,8 +287,8 @@ const App: FC = () => {
                       }}
                       onEdit={(tool, index) => setEditingGptScript({tool, index})}
                       onDeleteGptScript={appTools.onDeleteGptScript}
-                      isReadOnly={isReadOnly}
-                      isGithubApp={isGithubApp}
+                      isReadOnly={appTools.isReadOnly}
+                      isGithubApp={appTools.isGithubApp}
                     />
                   )}
 
@@ -331,7 +299,7 @@ const App: FC = () => {
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={appTools.flatApp.allowedDomains || []}
                       setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({allowedDomains})}
-                      isReadOnly={isReadOnly}
+                      isReadOnly={appTools.isReadOnly}
                     />
                   )}
 
@@ -473,7 +441,7 @@ const App: FC = () => {
                   fullWidth
                   error={appTools.showErrors && !editingGptScript.tool.name}
                   helperText={appTools.showErrors && !editingGptScript.tool.name ? 'Please enter a name' : ''}
-                  disabled={isReadOnly}
+                  disabled={appTools.isReadOnly}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -487,7 +455,7 @@ const App: FC = () => {
                   fullWidth
                   error={appTools.showErrors && !editingGptScript.tool.description}
                   helperText={appTools.showErrors && !editingGptScript.tool.description ? "Description is required" : ""}
-                  disabled={isReadOnly}
+                  disabled={appTools.isReadOnly}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -503,7 +471,7 @@ const App: FC = () => {
                   rows={10}
                   error={appTools.showErrors && !editingGptScript.tool.content}
                   helperText={appTools.showErrors && !editingGptScript.tool.content ? "Script content is required" : ""}
-                  disabled={isReadOnly}
+                  disabled={appTools.isReadOnly}
                 />
               </Grid>
             </Grid>
