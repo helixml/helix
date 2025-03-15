@@ -22,6 +22,11 @@ type GetClientRequest struct {
 	Owner    string
 }
 
+// RunnerControllerStatus defines the minimum interface needed to check runner status
+type RunnerControllerStatus interface {
+	RunnerIDs() []string
+}
+
 //go:generate mockgen -source $GOFILE -destination manager_mocks.go -package $GOPACKAGE
 
 // ProviderManager returns an OpenAI compatible client based on provider
@@ -30,6 +35,8 @@ type ProviderManager interface {
 	GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error)
 	// ListProviders returns a list of providers that are available
 	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
+	// SetRunnerController sets the runner controller for checking runner availability
+	SetRunnerController(controller RunnerControllerStatus)
 }
 
 type providerClient struct {
@@ -37,12 +44,13 @@ type providerClient struct {
 }
 
 type MultiClientManager struct {
-	cfg             *config.ServerConfig
-	store           store.Store
-	logStores       []logger.LogStore
-	globalClients   map[types.Provider]*providerClient
-	globalClientsMu *sync.RWMutex
-	wg              sync.WaitGroup
+	cfg              *config.ServerConfig
+	store            store.Store
+	logStores        []logger.LogStore
+	globalClients    map[types.Provider]*providerClient
+	globalClientsMu  *sync.RWMutex
+	wg               sync.WaitGroup
+	runnerController RunnerControllerStatus
 }
 
 func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
@@ -210,12 +218,27 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	return nil
 }
 
+// SetRunnerController implements ProviderManager.SetRunnerController
+func (m *MultiClientManager) SetRunnerController(controller RunnerControllerStatus) {
+	m.runnerController = controller
+}
+
 func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
 	m.globalClientsMu.RLock()
 	defer m.globalClientsMu.RUnlock()
 
 	providers := make([]types.Provider, 0, len(m.globalClients))
 	for provider := range m.globalClients {
+		// Skip the Helix provider if there are no runners
+		if provider == types.ProviderHelix && m.runnerController != nil {
+			runnerIDs := m.runnerController.RunnerIDs()
+			if len(runnerIDs) == 0 {
+				// No runners available, skip adding Helix provider
+				log.Debug().Msg("Helix provider hidden because no runners are available")
+				continue
+			}
+		}
+
 		providers = append(providers, provider)
 	}
 
