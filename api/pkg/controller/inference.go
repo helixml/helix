@@ -837,12 +837,14 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	// Add or update document IDs
 	for _, result := range ragResults {
 		if result.DocumentID != "" {
+			// First, determine the key to use in the DocumentIDs map
 			key := result.Source
 			if key == "" && result.Filename != "" {
 				key = result.Filename
 			}
+
 			if key != "" {
-				// If this is an app session, ensure we use the full filestore path
+				// Handle app session path prefix
 				if session.ParentApp != "" {
 					// For app sessions, we need the full filestore path for the document
 					// Check if we already have a full path
@@ -872,7 +874,20 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 						key = fullPath
 					}
 				}
-				session.Metadata.DocumentIDs[key] = result.DocumentID
+
+				// If the result has metadata with source_url, also store it directly
+				if result.Metadata != nil && result.Metadata["source_url"] != "" {
+					// Use the source_url as a key directly to allow frontend to find it
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("document_id", result.DocumentID).
+						Str("source_url", result.Metadata["source_url"]).
+						Msg("adding source_url mapping for document ID")
+					session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
+				} else {
+					// Store the document ID mapping
+					session.Metadata.DocumentIDs[key] = result.DocumentID
+				}
 			}
 		}
 	}

@@ -80,10 +80,10 @@ func (suite *HaystackRAGSuite) TestQuery() {
 					{
 						Content: "test content",
 						Metadata: ResultMetadata{
-							DocumentID:      "doc1",
-							DocumentGroupID: "group1",
-							Source:          "test.txt",
-							ContentOffset:   0,
+							"document_id":       "doc1",
+							"document_group_id": "group1",
+							"source":            "test.txt",
+							"content_offset":    "0",
 						},
 						Score: 0.95,
 					},
@@ -97,6 +97,12 @@ func (suite *HaystackRAGSuite) TestQuery() {
 					DocumentGroupID: "group1",
 					Source:          "test.txt",
 					ContentOffset:   0,
+					Metadata: map[string]string{
+						"document_id":       "doc1",
+						"document_group_id": "group1",
+						"source":            "test.txt",
+						"content_offset":    "0",
+					},
 				},
 			},
 		},
@@ -142,20 +148,20 @@ func (suite *HaystackRAGSuite) TestQuery() {
 					{
 						Content: "test content 1",
 						Metadata: ResultMetadata{
-							DocumentID:      "doc1",
-							DocumentGroupID: "group1",
-							Source:          "test1.txt",
-							ContentOffset:   0,
+							"document_id":       "doc1",
+							"document_group_id": "group1",
+							"source":            "test1.txt",
+							"content_offset":    "0",
 						},
 						Score: 0.95,
 					},
 					{
 						Content: "test content 2",
 						Metadata: ResultMetadata{
-							DocumentID:      "doc2",
-							DocumentGroupID: "group1",
-							Source:          "test2.txt",
-							ContentOffset:   0,
+							"document_id":       "doc2",
+							"document_group_id": "group1",
+							"source":            "test2.txt",
+							"content_offset":    "0",
 						},
 						Score: 0.85,
 					},
@@ -169,6 +175,12 @@ func (suite *HaystackRAGSuite) TestQuery() {
 					DocumentGroupID: "group1",
 					Source:          "test1.txt",
 					ContentOffset:   0,
+					Metadata: map[string]string{
+						"document_id":       "doc1",
+						"document_group_id": "group1",
+						"source":            "test1.txt",
+						"content_offset":    "0",
+					},
 				},
 				{
 					Content:         "test content 2",
@@ -177,6 +189,12 @@ func (suite *HaystackRAGSuite) TestQuery() {
 					DocumentGroupID: "group1",
 					Source:          "test2.txt",
 					ContentOffset:   0,
+					Metadata: map[string]string{
+						"document_id":       "doc2",
+						"document_group_id": "group1",
+						"source":            "test2.txt",
+						"content_offset":    "0",
+					},
 				},
 			},
 		},
@@ -206,6 +224,161 @@ func (suite *HaystackRAGSuite) TestQuery() {
 				Results: []QueryResult{},
 			},
 			expectedResult: []*types.SessionRAGResult{},
+		},
+		{
+			name: "single document ID filter with numeric content_offset",
+			query: &types.SessionRAGQuery{
+				Prompt:         "test query",
+				DataEntityID:   "entity1",
+				DocumentIDList: []string{"doc1"},
+				MaxResults:     5,
+			},
+			expectedQuery: QueryRequest{
+				Query: "test query",
+				Filters: QueryFilter{
+					Operator: "AND",
+					Conditions: []Condition{
+						{
+							Field:    "meta.data_entity_id",
+							Operator: "==",
+							Value:    "entity1",
+						},
+						{
+							Operator: "OR",
+							Conditions: []Condition{
+								{
+									Field:    "meta.document_id",
+									Operator: "==",
+									Value:    "doc1",
+								},
+							},
+						},
+					},
+				},
+				TopK: 5,
+			},
+			mockResponse: QueryResponse{
+				Results: []QueryResult{
+					{
+						Content: "test content",
+						Metadata: ResultMetadata{
+							"document_id":       "doc1",
+							"document_group_id": "group1",
+							"source":            "test.txt",
+							"content_offset":    0,
+						},
+						Score: 0.95,
+					},
+				},
+			},
+			expectedResult: []*types.SessionRAGResult{
+				{
+					Content:         "test content",
+					Distance:        0.95,
+					DocumentID:      "doc1",
+					DocumentGroupID: "group1",
+					Source:          "test.txt",
+					ContentOffset:   0,
+					Metadata: map[string]string{
+						"document_id":       "doc1",
+						"document_group_id": "group1",
+						"source":            "test.txt",
+						"content_offset":    "0",
+					},
+				},
+			},
+		},
+		{
+			name: "multiple document ID filter with numeric content_offset",
+			query: &types.SessionRAGQuery{
+				Prompt:         "test query",
+				DataEntityID:   "entity1",
+				DocumentIDList: []string{"doc1", "doc2"},
+				MaxResults:     5,
+			},
+			expectedQuery: QueryRequest{
+				Query: "test query",
+				Filters: QueryFilter{
+					Operator: "AND",
+					Conditions: []Condition{
+						{
+							Field:    "meta.data_entity_id",
+							Operator: "==",
+							Value:    "entity1",
+						},
+						{
+							Operator: "OR",
+							Conditions: []Condition{
+								{
+									Field:    "meta.document_id",
+									Operator: "==",
+									Value:    "doc1",
+								},
+								{
+									Field:    "meta.document_id",
+									Operator: "==",
+									Value:    "doc2",
+								},
+							},
+						},
+					},
+				},
+				TopK: 5,
+			},
+			mockResponse: QueryResponse{
+				Results: []QueryResult{
+					{
+						Content: "test content 1",
+						Metadata: ResultMetadata{
+							"document_id":       "doc1",
+							"document_group_id": "group1",
+							"source":            "test1.txt",
+							"content_offset":    0,
+						},
+						Score: 0.95,
+					},
+					{
+						Content: "test content 2",
+						Metadata: ResultMetadata{
+							"document_id":       "doc2",
+							"document_group_id": "group1",
+							"source":            "test2.txt",
+							"content_offset":    0,
+						},
+						Score: 0.85,
+					},
+				},
+			},
+			expectedResult: []*types.SessionRAGResult{
+				{
+					Content:         "test content 1",
+					Distance:        0.95,
+					DocumentID:      "doc1",
+					DocumentGroupID: "group1",
+					Source:          "test1.txt",
+					ContentOffset:   0,
+					Metadata: map[string]string{
+						"document_id":       "doc1",
+						"document_group_id": "group1",
+						"source":            "test1.txt",
+						"content_offset":    "0",
+					},
+				},
+				{
+					Content:         "test content 2",
+					Distance:        0.85,
+					DocumentID:      "doc2",
+					DocumentGroupID: "group1",
+					Source:          "test2.txt",
+					ContentOffset:   0,
+					Metadata: map[string]string{
+						"document_id":       "doc2",
+						"document_group_id": "group1",
+						"source":            "test2.txt",
+						"content_offset":    "0",
+					},
+				},
+			},
 		},
 	}
 

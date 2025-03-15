@@ -83,9 +83,6 @@ async def process_file(
             logger.error("Invalid metadata JSON")
             raise HTTPException(status_code=400, detail="Invalid metadata JSON")
     
-    # Add filename to metadata
-    meta_dict["filename"] = file.filename
-    
     # Get file extension
     _, ext = os.path.splitext(file.filename)
     
@@ -96,6 +93,9 @@ async def process_file(
         temp_path = temp.name
     
     try:
+        # Set the original filename in metadata - this is the only field we need
+        meta_dict["filename"] = file.filename
+        
         # Process and index
         result = await service.process_and_index(temp_path, meta_dict)
         
@@ -132,7 +132,7 @@ async def extract_text(
         temp_path = temp.name
     
     try:
-        # Extract text
+        # Extract text 
         text = await service.extract_text(temp_path)
         return {"text": text}
     except Exception as e:

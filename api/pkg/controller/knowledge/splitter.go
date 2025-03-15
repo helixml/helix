@@ -28,7 +28,9 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 		}
 
 		for _, d := range data {
-			_, err := splitter.AddDocument(d.Source, string(d.Data), d.DocumentGroupID)
+			metadata := convertMetadataToStringMap(d.Metadata)
+
+			_, err := splitter.AddDocumentWithMetadata(d.Source, string(d.Data), d.DocumentGroupID, metadata)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split %s, error %w", d.Source, err)
 			}
@@ -54,6 +56,8 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 				return nil, fmt.Errorf("failed to split %s, error %w", d.Source, err)
 			}
 
+			metadata := convertMetadataToStringMap(d.Metadata)
+
 			for idx, part := range parts {
 				chunks = append(chunks, &text.DataPrepTextSplitterChunk{
 					Filename:        d.Source,
@@ -61,6 +65,7 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 					Text:            part,
 					DocumentID:      getDocumentID(d.Data),
 					DocumentGroupID: d.DocumentGroupID,
+					Metadata:        metadata,
 				})
 			}
 		}
