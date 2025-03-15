@@ -207,8 +207,7 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 			}
 
 			var (
-				mcpParams          []mcp.ToolOption   // Tool parameters
-				mcpPromptArguments []mcp.PromptOption // Prompt arguments (for MCP prompts)
+				mcpParams []mcp.ToolOption // Tool parameters
 			)
 
 			mcpParams = append(mcpParams, mcp.WithDescription(action.Description))
@@ -219,16 +218,9 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 						mcp.Required(),
 						mcp.Description(param.Description),
 					))
-					mcpPromptArguments = append(mcpPromptArguments, mcp.WithArgument(param.Name,
-						mcp.ArgumentDescription(param.Description),
-						mcp.RequiredArgument(),
-					))
 				} else {
 					mcpParams = append(mcpParams, mcp.WithString(param.Name,
 						mcp.Description(param.Description),
-					))
-					mcpPromptArguments = append(mcpPromptArguments, mcp.WithArgument(param.Name,
-						mcp.ArgumentDescription(param.Description),
 					))
 				}
 			}
@@ -237,15 +229,11 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 				mcpParams...,
 			)
 
-			mcpPrompt := mcp.NewPrompt(tool.Name, append(mcpPromptArguments, mcp.WithPromptDescription(action.Description))...)
-
 			log.Info().Any("tool", action).Msg("adding tool")
 
 			mcpTools = append(mcpTools, &helixMCPTool{
-				prompt:        mcpPrompt,
-				promptHandler: mcps.getToolPromptHandler(mcps.appID, tool, action.Name),
-				tool:          mcpTool,
-				toolHandler:   mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
+				tool:        mcpTool,
+				toolHandler: mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
 			})
 		}
 	}
@@ -282,57 +270,28 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		return nil, err
 	}
 
-	log.Info().Any("knowledges", knowledges).Msg("knowledges")
-
 	for _, knowledge := range knowledges {
+		knowledgeDescription :=
+			`Performs a search using the Helix knowledge base, ideal for finding information on a specific topic.	
+		`
+		if knowledge.Description != "" {
+			knowledgeDescription += fmt.Sprintf("This tool contains information on: %s", knowledge.Description)
+		}
 		mcpTool := mcp.NewTool(knowledge.Name,
-			mcp.WithDescription(fmt.Sprintf("Knowledge tool to search for: '%s'. Returns fragments from the database", knowledge.Description)),
-			mcp.WithString("prompt",
+			mcp.WithDescription(knowledgeDescription),
+			mcp.WithString("query",
 				mcp.Required(),
-				mcp.Description("The prompt to search knowledge with, use concise, main keywords as the engine is performing both semantic and full text search"),
+				mcp.Description("For query use concise, main keywords as the engine is performing both semantic and full text search"),
 			),
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			prompt: mcp.NewPrompt(knowledge.Name,
-				mcp.WithPromptDescription(knowledge.Description),
-				mcp.WithArgument("prompt", mcp.RequiredArgument(),
-					mcp.ArgumentDescription("The prompt to search knowledge with, use concise, main keywords as the engine is performing both semantic and full text search")),
-			),
-			promptHandler: mcps.getKnowledgePromptHandler(mcps.appID, knowledge),
-			tool:          mcpTool,
-			toolHandler:   mcps.getKnowledgeToolHandler(knowledge.ID),
+			tool:        mcpTool,
+			toolHandler: mcps.getKnowledgeToolHandler(knowledge.ID),
 		})
 	}
 
 	return mcpTools, nil
-}
-
-func (mcps *ModelContextProtocolServer) getToolPromptHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	return func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		log.Info().
-			Str("tool", tool.Name).
-			Str("action", action).
-			Msg("api tool handler")
-
-		params := make(map[string]string)
-
-		for k, v := range request.Params.Arguments {
-			params[k] = v
-		}
-
-		textContent := fmt.Sprintf("Here is the response from the API action that used parameters %v: 'example response based on API'", params)
-
-		return mcp.NewGetPromptResult(
-			tool.Name,
-			[]mcp.PromptMessage{
-				mcp.NewPromptMessage(
-					mcp.RoleAssistant,
-					mcp.NewTextContent(textContent),
-				),
-			},
-		), nil
-	}
 }
 
 func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *types.Tool, action string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -403,21 +362,6 @@ func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID stri
 		}
 
 		return mcp.NewToolResultText(formatKnowledgeSearchResponse(results)), nil
-	}
-}
-
-func (mcps *ModelContextProtocolServer) getKnowledgePromptHandler(appID string, knowledge *types.Knowledge) func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	return func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		log.Info().
-			Str("knowledge", knowledge.Name).
-			Msg("knowledge tool handler")
-
-		prompt := request.Params.Arguments["prompt"]
-		if prompt == "" {
-			prompt = ""
-		}
-
-		return nil, nil
 	}
 }
 
