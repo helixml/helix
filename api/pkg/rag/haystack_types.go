@@ -34,10 +34,4 @@ type QueryResult struct {
 }
 
 // ResultMetadata represents the metadata of a Haystack query result
-type ResultMetadata struct {
-	DocumentID      string            `json:"document_id"`
-	DocumentGroupID string            `json:"document_group_id"`
-	Source          string            `json:"source"`
-	ContentOffset   string            `json:"content_offset"`
-	CustomMetadata  map[string]string `json:"custom_metadata,omitempty"`
-}
+type ResultMetadata map[string]interface{}

@@ -271,41 +271,54 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	results := make([]*types.SessionRAGResult, len(queryResp.Results))
 	for i, r := range queryResp.Results {
 		// Use the source from metadata, falling back to filename if needed
-		source := r.Metadata.Source
+		var source string
+		if sourceVal, ok := r.Metadata["source"]; ok {
+			source = toString(sourceVal)
+		}
+
 		if source == "" {
 			// If source is empty, try to get it from the filename in metadata
-			if filename, ok := r.Metadata.CustomMetadata["filename"]; ok && filename != "" {
-				source = filename
+			if filenameVal, ok := r.Metadata["filename"]; ok {
+				source = toString(filenameVal)
 			}
 		}
 
 		// Add debug logging to see what metadata we're getting back
 		logger.Info().
-			Str("document_id", r.Metadata.DocumentID).
-			Interface("custom_metadata", r.Metadata.CustomMetadata).
+			Str("document_id", toString(r.Metadata["document_id"])).
+			Interface("metadata", r.Metadata).
 			Msg("Retrieved document with metadata")
+
+		// Get document ID and group ID from metadata
+		documentID := toString(r.Metadata["document_id"])
+		documentGroupID := toString(r.Metadata["document_group_id"])
+
+		// Convert metadata to string values for SessionRAGResult
+		metadata := make(map[string]string)
+		for k, v := range r.Metadata {
+			metadata[k] = toString(v)
+		}
 
 		// Create result with all metadata fields
 		results[i] = &types.SessionRAGResult{
 			Content:         r.Content,
 			Distance:        r.Score,
-			DocumentID:      r.Metadata.DocumentID,
-			DocumentGroupID: r.Metadata.DocumentGroupID,
+			DocumentID:      documentID,
+			DocumentGroupID: documentGroupID,
 			Source:          source,
-			ContentOffset:   parseContentOffset(r.Metadata.ContentOffset),
-			Metadata:        r.Metadata.CustomMetadata,
+			ContentOffset:   parseContentOffset(toString(r.Metadata["content_offset"])),
+			Metadata:        metadata,
 		}
 
-		// Check for source_url in metadata and ensure it's added to the result
-		if sourceURL, ok := r.Metadata.CustomMetadata["source_url"]; ok && sourceURL != "" {
-			if results[i].Metadata == nil {
-				results[i].Metadata = make(map[string]string)
+		// Check for source_url in metadata
+		if sourceURLVal, ok := r.Metadata["source_url"]; ok {
+			sourceURL := toString(sourceURLVal)
+			if sourceURL != "" {
+				logger.Info().
+					Str("document_id", documentID).
+					Str("source_url", sourceURL).
+					Msg("Found source_url in document metadata")
 			}
-			results[i].Metadata["source_url"] = sourceURL
-			logger.Info().
-				Str("document_id", r.Metadata.DocumentID).
-				Str("source_url", sourceURL).
-				Msg("Found source_url in document metadata")
 		}
 	}
 
@@ -384,4 +397,27 @@ func parseContentOffset(offset string) int {
 	}
 
 	return intOffset
+}
+
+// toString safely converts an interface{} value to a string
+func toString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+
+	switch v := value.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(v)
+	default:
+		// For any other type, try to use fmt.Sprint
+		return fmt.Sprint(v)
+	}
 }
