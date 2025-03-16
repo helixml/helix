@@ -9,7 +9,7 @@ import { IAssistantGPTScript, ITool } from '../../types';
 interface GPTScriptsSectionProps {
   app: any;
   onAddGptScript: () => void;
-  onDeleteGptScript: (scriptId: string) => void;
+  onDeleteGptScript: (scriptIndex: number) => void;
   isReadOnly: boolean;
   isGithubApp: boolean;
   onEdit: (script: IAssistantGPTScript, index: number) => void;
@@ -41,7 +41,7 @@ const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
       <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
         {gptScripts.map((script: IAssistantGPTScript, index: number) => (
           <Box
-            key={script.file}
+            key={`script${index}`}
             sx={{
               p: 2,
               border: '1px solid #303047',
@@ -62,7 +62,7 @@ const GPTScriptsSection: React.FC<GPTScriptsSectionProps> = ({
               <Button
                 variant="outlined"
                 color="error"
-                onClick={() => onDeleteGptScript(script.file || '')}
+                onClick={() => onDeleteGptScript(index)}
                 disabled={isReadOnly || isGithubApp}
                 startIcon={<DeleteIcon />}
               >
