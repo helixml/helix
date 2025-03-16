@@ -552,6 +552,12 @@ func (c *Controller) PrepareSession(ctx context.Context, session *types.Session)
 			if err != nil {
 				return nil, err
 			}
+
+			// Update session metadata with document IDs from RAG results
+			if err := c.UpdateSessionWithKnowledgeResults(ctx, session, ragResults); err != nil {
+				log.Error().Err(err).Str("session_id", session.ID).Msg("failed to update session with knowledge results")
+				// We don't return an error here to allow the session to continue
+			}
 		}
 	}
 

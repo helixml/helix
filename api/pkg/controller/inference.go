@@ -537,12 +537,20 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
 	}
 
+	prompt := getLastMessage(req)
+
+	// Parse document IDs from the completion request
+	documentIDs := rag.ParseDocumentIDs(prompt)
+
+	log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
+
 	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
-		Prompt:            getLastMessage(req),
+		Prompt:            prompt,
 		DataEntityID:      entity.ID,
 		DistanceThreshold: entity.Config.RAGSettings.Threshold,
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
+		DocumentIDList:    documentIDs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error querying RAG: %w", err)
@@ -603,12 +611,18 @@ func (c *Controller) evaluateKnowledge(
 				log.Debug().Err(err).Msg("failed to emit step info")
 			}
 
+			// Parse document IDs from the completion request
+			documentIDs := rag.ParseDocumentIDs(prompt)
+
+			log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
+
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
+				DocumentIDList:    documentIDs,
 			})
 			if err != nil {
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
@@ -823,12 +837,14 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	// Add or update document IDs
 	for _, result := range ragResults {
 		if result.DocumentID != "" {
+			// First, determine the key to use in the DocumentIDs map
 			key := result.Source
 			if key == "" && result.Filename != "" {
 				key = result.Filename
 			}
+
 			if key != "" {
-				// If this is an app session, ensure we use the full filestore path
+				// Handle app session path prefix
 				if session.ParentApp != "" {
 					// For app sessions, we need the full filestore path for the document
 					// Check if we already have a full path
@@ -858,7 +874,20 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 						key = fullPath
 					}
 				}
-				session.Metadata.DocumentIDs[key] = result.DocumentID
+
+				// If the result has metadata with source_url, also store it directly
+				if result.Metadata != nil && result.Metadata["source_url"] != "" {
+					// Use the source_url as a key directly to allow frontend to find it
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("document_id", result.DocumentID).
+						Str("source_url", result.Metadata["source_url"]).
+						Msg("adding source_url mapping for document ID")
+					session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
+				} else {
+					// Store the document ID mapping
+					session.Metadata.DocumentIDs[key] = result.DocumentID
+				}
 			}
 		}
 	}

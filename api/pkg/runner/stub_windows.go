@@ -106,7 +106,8 @@ func (d *DiffusersRuntime) Status(_ context.Context) string {
 type OllamaRuntime struct{}
 
 type OllamaRuntimeParams struct {
-	CacheDir *string
+	CacheDir      *string
+	ContextLength *int64 // Optional: Context length to use for the model
 }
 
 var _ Runtime = &OllamaRuntime{}

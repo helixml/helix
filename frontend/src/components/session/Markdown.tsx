@@ -345,6 +345,14 @@ class MessageProcessor {
           // First try direct document_id match
           for (const [fname, id] of Object.entries(document_ids)) {
             if (id === docId) {
+              // If the filename is a URL, use it directly
+              if (fname.startsWith('http')) {
+                fileUrl = fname; // Use the URL directly
+                filename = fname.split('/').pop() || fname;
+                fileFound = true;
+                break;
+              }
+              
               filename = fname.split('/').pop() || fname;
               
               // Create the file URL
@@ -361,7 +369,7 @@ class MessageProcessor {
             }
           }
           
-          // If no direct match was found, try to extract from the document_id if it contains a URL
+          // If still no match found, try to extract from the document_id if it contains a URL
           if (!fileFound && docId.includes('http')) {
             const urlFilenameMatch = docId.match(/\/([^\/]+\.[^\/\.]+)($|\?)/);
             if (urlFilenameMatch) {
@@ -493,8 +501,12 @@ class MessageProcessor {
       let link: string;
       const allNonTextFiles = this.getAllNonTextFiles();
       
-      if (this.session.parent_app) {
-        // For app sessions
+      // If the filename is a URL, use it directly regardless of session type
+      if (filename.startsWith('http')) {
+        const displayName = filename.split('/').pop() || filename;
+        link = `<a target="_blank" style="color: white;" href="${filename}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
+      } else if (this.session.parent_app) {
+        // For app sessions with non-URL files
         const displayName = filename.split('/').pop() || filename;
         link = `<a target="_blank" style="color: white;" href="${this.getFileURL(filename)}" class="doc-link">[${this.documentReferenceCounter}]</a>`;
       } else {

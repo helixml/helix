@@ -38,7 +38,7 @@ class HaystackService:
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
                 search_strategy="vchordrq", # Enable for faster vector search
-                recreate_table=True # XXX disable to avoid data loss?
+                recreate_table=False
             )
             logger.info(f"Connected to VectorchordDocumentStore: {settings.PGVECTOR_TABLE}")
             
@@ -87,7 +87,7 @@ class HaystackService:
         splitter = DocumentSplitter(
             split_length=settings.CHUNK_SIZE,
             split_overlap=settings.CHUNK_OVERLAP,
-            split_by="word",
+            split_by=settings.CHUNK_UNIT,
             respect_sentence_boundary=True
         )
         splitter.warm_up()
@@ -284,11 +284,16 @@ class HaystackService:
         """
         if metadata is None:
             metadata = {}
-            
-        logger.info(f"Processing and indexing {os.path.basename(file_path)} with metadata: {metadata}")
         
-        # Add the file path to metadata
-        metadata["source"] = os.path.basename(file_path)
+        # Get the original filename from metadata
+        original_filename = metadata.get("filename")
+        if not original_filename:
+            raise ValueError("Original filename must be provided in metadata for process_and_index")
+        
+        logger.info(f"Processing and indexing {original_filename} with metadata: {metadata}")
+        
+        # Use the original filename as the source, never the temp path
+        metadata["source"] = original_filename
         
         # Set up the parameters for the indexing pipeline
         params = {
@@ -303,7 +308,7 @@ class HaystackService:
             
             # Return stats
             return {
-                "filename": os.path.basename(file_path),
+                "filename": original_filename,
                 "indexed": True,
                 "chunks": num_chunks,
                 "metadata": metadata,

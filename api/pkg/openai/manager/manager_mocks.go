@@ -71,3 +71,15 @@ func (mr *MockProviderManagerMockRecorder) ListProviders(ctx, owner any) *gomock
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviders", reflect.TypeOf((*MockProviderManager)(nil).ListProviders), ctx, owner)
 }
+
+// SetRunnerController mocks base method.
+func (m *MockProviderManager) SetRunnerController(controller RunnerControllerStatus) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetRunnerController", controller)
+}
+
+// SetRunnerController indicates an expected call of SetRunnerController.
+func (mr *MockProviderManagerMockRecorder) SetRunnerController(controller any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunnerController", reflect.TypeOf((*MockProviderManager)(nil).SetRunnerController), controller)
+}

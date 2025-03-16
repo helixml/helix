@@ -3,10 +3,10 @@ We have found the following context you may refer to in your answer:
 {{- range .RagResults }}
 <article>
 <document_id>
-DocumentID: {{ .DocumentID }}
+{{ .DocumentID }}
 </document_id>
 <content>
-Content: {{ .Content }}
+{{ .Content }}
 </content>
 </article>
 {{- end }}
@@ -15,7 +15,7 @@ Always provide references in the body of your answer in the format '[DOC_ID:Docu
 
 Always provide references in the body of your answer!
 
-After your answer, include excerpts in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide EXACT QUOTES from the content. Do not include any other text inside the --- markers.
+After your answer, include one excerpt per document_id in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide one EXACT QUOTE per document. Do not include any other text inside the --- markers.
 
 ---
 <excerpts>
@@ -33,22 +33,22 @@ We have found the following context you may refer to in your answer:
 {{- range .KnowledgeResults }}
 {{- if .DocumentID }}
 <document_id>
-DocumentID: {{ .DocumentID }}
+{{ .DocumentID }}
 </document_id>
 {{- end }}
 <article>
 {{- if .Source }}
 <source>
-Source URL: {{ .Source }}
+{{ .Source }}
 </source>
 {{- end }}
 {{- if .Description }}
 <description>
-Description: {{ .Description }}
+{{ .Description }}
 </description>
 {{- end }}
 <content>
-Content: {{ .Content }}
+{{ .Content }}
 </content>
 </article>
 {{- end }}
@@ -57,7 +57,7 @@ Always provide references in the body of your answer in the format '[DOC_ID:Docu
 
 Always provide references in the body of your answer!
 
-After your answer, include excerpts in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide EXACT QUOTES from the content. Do not include any other text inside the --- markers.
+After your answer, include one excerpt per document_id in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide one EXACT QUOTE per document. Do not include any other text inside the --- markers.
 
 ---
 <excerpts>

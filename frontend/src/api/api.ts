@@ -525,6 +525,7 @@ export interface TypesCrawledSources {
 }
 
 export interface TypesCrawledURL {
+  document_id?: string;
   duration_ms?: number;
   message?: string;
   status_code?: number;
@@ -766,6 +767,7 @@ export interface TypesKnowledgeSourceWebAuth {
 }
 
 export enum TypesKnowledgeState {
+  KnowledgeStatePreparing = "preparing",
   KnowledgeStatePending = "pending",
   KnowledgeStateIndexing = "indexing",
   KnowledgeStateReady = "ready",
@@ -1281,6 +1283,7 @@ export enum TypesTokenType {
   TokenTypeNone = "",
   TokenTypeRunner = "runner",
   TokenTypeKeycloak = "keycloak",
+  TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
 }
@@ -1333,6 +1336,15 @@ export interface TypesToolZapierConfig {
 export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
+}
+
+export interface TypesUIAtData {
+  label?: string;
+  value?: string;
+}
+
+export interface TypesUIAtResponse {
+  data?: TypesUIAtData[];
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -1853,6 +1865,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesKnowledge, any>({
         path: `/api/v1/knowledge/${id}`,
         method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description Complete knowledge preparation and move to pending state for indexing
+     *
+     * @tags knowledge
+     * @name V1KnowledgeCompleteCreate
+     * @summary Complete knowledge preparation
+     * @request POST:/api/v1/knowledge/{id}/complete
+     * @secure
+     */
+    v1KnowledgeCompleteCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledge, any>({
+        path: `/api/v1/knowledge/${id}/complete`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 
@@ -2395,6 +2424,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description uiAt
+     *
+     * @tags ui
+     * @name V1UiAtList
+     * @summary uiAt
+     * @request GET:/api/v1/ui/at
+     */
+    v1UiAtList: (
+      query: {
+        /** Query string */
+        q: string;
+        /** App ID */
+        app_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesUIAtResponse, any>({
+        path: `/api/v1/ui/at`,
+        method: "GET",
+        query: query,
         ...params,
       }),
   };

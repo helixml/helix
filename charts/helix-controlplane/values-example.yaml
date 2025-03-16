@@ -29,6 +29,7 @@ controlplane:
     embeddingsDim: "3584"
     chunkSize: "1000"
     chunkOverlap: "50"
+    chunkUnit: "word"
 
   # RAG configuration
   rag:

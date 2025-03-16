@@ -385,8 +385,8 @@ var htmlTemplate = `
                                 <td>{{.Model}}</td>
                                 <td>{{printf "%.2f" .InferenceTime.Seconds}}s</td>
                                 <td>{{printf "%.2f" .EvaluationTime.Seconds}}s</td>
-                                <td><a href="#" onclick="openLink('{{$.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
-                                <td><a href="#" onclick="openLink('{{$.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
+                                <td><a href="{{$.HelixURL}}/session/{{.SessionID}}" onclick="openLink('{{$.HelixURL}}/session/{{.SessionID}}'); return false;">Session</a></td>
+                                <td><a href="{{$.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}" onclick="openLink('{{$.HelixURL}}/dashboard?tab=llm_calls&filter_sessions={{.SessionID}}'); return false;">Debug</a></td>
                             </tr>
                             {{end}}
                         </tbody>
