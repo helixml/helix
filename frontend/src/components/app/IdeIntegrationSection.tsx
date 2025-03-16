@@ -24,24 +24,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   const [selectedIde, setSelectedIde] = useState<string>('cline');
   const { success: snackbarSuccess } = useSnackbar();
 
-  const getClineConfig = () => {
-    return `{
-  "mcpServers": {
-    "helix-mcp": {
-      "command": "/usr/local/bin/helix",
-      "args": [
-        "mcp",
-        "run",
-        "--app-id", "${appId}",
-        "--api-key", "${apiKey}",
-        "--url", "http://localhost:8080"
-      ]
-    }
-  }
-}`;
-  };
-
-  const getClaudeDesktopConfig = () => {
+  const getGenericMCPConfig = () => {
     return `{
   "mcpServers": {
     "helix-mcp": {
@@ -72,7 +55,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               <Typography variant="body2" sx={{ mb: 1 }}>3. Add the following configuration:</Typography>
             </Box>
             <TextField
-              value={getClineConfig()}
+              value={getGenericMCPConfig()}
               fullWidth
               multiline
               
@@ -87,7 +70,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
                 size="small"
                 startIcon={<ContentCopyIcon />}
                 onClick={() => {
-                  navigator.clipboard.writeText(getClineConfig());
+                  navigator.clipboard.writeText(getGenericMCPConfig());
                   snackbarSuccess('Configuration copied to clipboard');
                 }}
                 sx={{ textTransform: 'none' }}
@@ -116,7 +99,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               <Typography variant="body2" sx={{ mb: 1 }}>4. Add the following configuration:</Typography>
             </Box>
             <TextField
-              value={getClaudeDesktopConfig()}
+              value={getGenericMCPConfig()}
               fullWidth
               multiline
               disabled
@@ -130,7 +113,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
                 size="small"
                 startIcon={<ContentCopyIcon />}
                 onClick={() => {
-                  navigator.clipboard.writeText(getClaudeDesktopConfig());
+                  navigator.clipboard.writeText(getGenericMCPConfig());
                   snackbarSuccess('Configuration copied to clipboard');
                 }}
                 sx={{ textTransform: 'none' }}
