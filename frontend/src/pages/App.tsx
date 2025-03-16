@@ -34,6 +34,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
+import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 
 import {
   APP_SOURCE_GITHUB,
@@ -388,10 +389,7 @@ const App: FC = () => {
     })
     if(!res) return
     snackbar.success('API Key added')
-    account.loadApiKeys({
-      types: 'app',
-      app_id: params.app_id,
-    })
+    account.loadAppApiKeys(params.app_id)
   }
   
   const validate = useCallback(() => {
@@ -673,10 +671,7 @@ const App: FC = () => {
     if (params.app_id === "new") return; // Don't load data for new app
     if(!params.app_id) return
     apps.loadData()
-    account.loadApiKeys({
-      types: 'app',
-      app_id: params.app_id,
-    })
+    account.loadAppApiKeys(params.app_id)
   }, [
     params,
     account.user,
@@ -1058,6 +1053,7 @@ const App: FC = () => {
               <Tab label="GPTScripts" value="gptscripts" />
               <Tab label="API Keys" value="apikeys" />
               <Tab label="Developers" value="developers" />
+              <Tab label="IDE" value="ide" />
               <Tab label="Logs" value="logs" />
             </Tabs>
           </Box>
@@ -1165,7 +1161,7 @@ const App: FC = () => {
 
                   {tabValue === 'apikeys' && (
                     <APIKeysSection
-                      apiKeys={account.apiKeys}
+                      apiKeys={account.appApiKeys}
                       onAddAPIKey={onAddAPIKey}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={allowedDomains}
@@ -1189,6 +1185,12 @@ const App: FC = () => {
                     <Box sx={{ mt: 2 }}>
                       <AppLogsTable appId={app.id} />
                     </Box>
+                  )}
+
+                  {tabValue === 'ide' && (
+                    <IdeIntegrationSection
+                      appId={app.id}
+                    />
                   )}
                 </Box>
               </Grid>
@@ -1221,7 +1223,7 @@ const App: FC = () => {
       </Container>
 
       {/* Fixed bottom bar with save button */}
-      {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+      {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && tabValue !== 'ide' && (
         <Box sx={{
           position: 'fixed',
           bottom: 0,
@@ -1293,10 +1295,7 @@ const App: FC = () => {
               })
               if(!res) return
               snackbar.success('API Key deleted')
-              account.loadApiKeys({
-                types: 'app',
-                app_id: params.app_id,
-              })
+              account.loadAppApiKeys(params.app_id)
               setDeletingAPIKey('')
             }}
             onCancel={() => {
