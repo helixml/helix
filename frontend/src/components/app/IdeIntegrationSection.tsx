@@ -26,13 +26,14 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   const { success: snackbarSuccess } = useSnackbar();
 
   useEffect(() => {
-    account.loadAppApiKeys(appId)
+    account.loadApiKeys({
+      types: 'api',
+    })
   }, [
     account.token,
-    appId,
   ])
 
-  const apiKey = account.appApiKeys.length > 0 ? account.appApiKeys[0].key : ''
+  const apiKey = account.apiKeys.length > 0 ? account.apiKeys[0].key : ''
 
 
   const getGenericMCPConfig = () => {
