@@ -5,22 +5,6 @@ import {
   APP_SOURCE_GITHUB,
 } from '../types'
 
-
-export const removeEmptyValues = (obj: any): any => {
-  if (Array.isArray(obj)) {
-    const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null)
-    return filtered.length ? filtered : undefined
-  } else if (typeof obj === 'object' && obj !== null) {
-    const filtered = Object.fromEntries(
-      Object.entries(obj)
-        .map(([k, v]) => [k, removeEmptyValues(v)])
-        .filter(([_, v]) => v !== undefined && v !== null && v !== '')
-    )
-    return Object.keys(filtered).length ? filtered : undefined
-  }
-  return obj === '' ? undefined : obj
-}
-
 /**
  * Extracts properties from an IApp object and flattens them into an IAppFlatState object
  * Works with both GitHub and Helix app configurations
