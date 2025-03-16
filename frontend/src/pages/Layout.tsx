@@ -146,7 +146,7 @@ const Layout: FC = ({
               minHeight: '100%',
             }}
           >
-            { account.loggingOut ? null : children }
+            { account.loggingOut ? <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><Typography>Logging out...</Typography></Box> : children }
           </Box>
         </Box>
         <Snackbar />

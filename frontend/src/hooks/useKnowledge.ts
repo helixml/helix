@@ -16,7 +16,7 @@ export const useKnowledge = (
   opts: {
     showErrors?: boolean
   } = {
-    showErrors: true,
+    showErrors: true, 
   },
 ) => {
   const api = useApi()
@@ -200,7 +200,7 @@ export const useKnowledge = (
   
   /**
    * The main loading that will trigger when the page loads
-   */
+   */ 
   useEffect(() => {
     if (!appId) return
     loadKnowledge()
