@@ -110,15 +110,30 @@ export const useApp = (appId: string) => {
   }, [app, getDefaultAssistant])
 
   const apiTools = useMemo(() => {
-    return assistants.length > 0 ? assistants[0].apis || [] : []
+    // Get the tools array and sort by name alphabetically, ignoring case
+    return assistants.length > 0 
+      ? [...(assistants[0].apis || [])].sort((a, b) => 
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        ) 
+      : []
   }, [assistants])
 
   const zapierTools = useMemo(() => {
-    return assistants.length > 0 ? assistants[0].zapier || [] : []
+    // Get the tools array and sort by name alphabetically, ignoring case
+    return assistants.length > 0 
+      ? [...(assistants[0].zapier || [])].sort((a, b) => 
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        ) 
+      : []
   }, [assistants])
 
   const gptscriptsTools = useMemo(() => {
-    return assistants.length > 0 ? assistants[0].gptscripts || [] : []
+    // Get the tools array and sort by name alphabetically, ignoring case
+    return assistants.length > 0 
+      ? [...(assistants[0].gptscripts || [])].sort((a, b) => 
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        ) 
+      : []
   }, [assistants])
 
   const sessionID = useMemo(() => {
@@ -444,21 +459,24 @@ export const useApp = (appId: string) => {
     setEditingGptScript(null)
   }, [saveFlatApp, flatApp])
     
-  const onDeleteApiTool = useCallback((toolId: string) => {
+  const onDeleteApiTool = useCallback((toolIndex: number) => {
     if(!flatApp) return
-    const newTools = (flatApp.apiTools || []).filter(app => app.name !== toolId)
+    // Filter out the tool at the specified index
+    const newTools = (flatApp.apiTools || []).filter((_, index) => index !== toolIndex)
     saveFlatApp({apiTools: newTools})
   }, [saveFlatApp, flatApp])
 
-  const onDeleteZapierTool = useCallback((toolId: string) => {
+  const onDeleteZapierTool = useCallback((toolIndex: number) => {
     if(!flatApp) return
-    const newTools = (flatApp.zapierTools || []).filter(app => app.name !== toolId)
+    // Filter out the tool at the specified index
+    const newTools = (flatApp.zapierTools || []).filter((_, index) => index !== toolIndex)
     saveFlatApp({zapierTools: newTools})
   }, [saveFlatApp, flatApp])
 
-  const onDeleteGptScript = useCallback((toolId: string) => {
+  const onDeleteGptScript = useCallback((toolIndex: number) => {
     if(!flatApp) return
-    const newTools = (flatApp.gptscriptTools || []).filter(app => app.name !== toolId)
+    // Filter out the tool at the specified index
+    const newTools = (flatApp.gptscriptTools || []).filter((_, index) => index !== toolIndex)
     saveFlatApp({gptscriptTools: newTools})
   }, [saveFlatApp, flatApp])
   
