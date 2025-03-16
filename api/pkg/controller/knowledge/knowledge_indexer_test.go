@@ -119,6 +119,10 @@ func (suite *IndexerSuite) TestIndex() {
 
 	var version string
 
+	// The metadata lookup is bypassed because the crawler data already has metadata
+	// Remove this expectation to fix the test
+	// suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
+
 	// Then it will index it
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, chunk *types.SessionRAGIndexChunk) error {
@@ -335,6 +339,10 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	)
 
 	var version string
+
+	// The metadata lookup is bypassed because the crawler data already has metadata
+	// Remove this expectation to fix the test
+	// suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
 
 	// Then it will index it
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(

@@ -281,7 +281,9 @@ const Create: FC = () => {
       setIsLoadingApp(false)
     })
     return () => apps.setApp(undefined)
-  }, [account.user, appID])
+    // we include the user's id in the dependency array to filter out changes to
+    // the user token which refreshes regularly (to avoid flickering the page)
+  }, [account.user?.id, appID])
 
   // Reset focusInput after it's been used
   useEffect(() => {

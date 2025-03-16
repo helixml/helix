@@ -9,7 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
-	"strings"
+	"strconv"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -34,75 +34,132 @@ func NewHaystackRAG(endpoint string) *HaystackRAG {
 // Files are sent here NOT chunked, despite the type.
 func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGIndexChunk) error {
 	logger := log.With().
-		Str("component", "HaystackRAG").
-		Str("method", "Index").
+		Str("component", "haystack_rag").
+		Int("chunk_count", len(chunks)).
 		Logger()
 
-	logger.Debug().Int("chunks", len(chunks)).Msg("Indexing chunks")
+	logger.Debug().Msg("Indexing documents")
 
-	// For each chunk, create a multipart request with the content
 	for _, chunk := range chunks {
-		// Add debug logging to see the actual values of Source and Filename
 		logger.Debug().
-			Str("source", chunk.Source).
-			Str("filename", chunk.Filename).
+			Str("data_entity_id", chunk.DataEntityID).
 			Str("document_id", chunk.DocumentID).
-			Str("document_group_id", chunk.DocumentGroupID).
-			Int("content_offset", chunk.ContentOffset).
-			Msg("Chunk details for indexing")
+			Msg("indexing chunk")
 
-		// Create multipart form
+		// Metadata check before processing
+		if chunk.Metadata != nil {
+			logger.Info().
+				Str("document_id", chunk.DocumentID).
+				Interface("chunk_metadata", chunk.Metadata).
+				Msg("Chunk contains metadata")
+		} else {
+			logger.Info().
+				Str("document_id", chunk.DocumentID).
+				Msg("Chunk does NOT contain metadata")
+		}
+
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
 
-		// Split filename into base and extension
-		base, ext := strings.TrimSuffix(
-			filepath.Base(chunk.Filename),
-			filepath.Ext(chunk.Filename)), strings.TrimPrefix(filepath.Ext(chunk.Filename), ".")
-		filename := fmt.Sprintf("%s_%d.%s", base, chunk.ContentOffset, ext)
+		// Use the original filename without adding content offset suffix
+		// This prevents temporary/modified filenames from leaking into user-facing code
+		filename := filepath.Base(chunk.Filename)
 
 		logger.Debug().Str("filename", filename).Msg("Indexing file")
 
-		fw, err := w.CreateFormFile("file", filename)
+		// Add the file as a part
+		part, err := w.CreateFormFile("file", filename)
 		if err != nil {
 			return fmt.Errorf("creating form file: %w", err)
 		}
-		_, err = fw.Write([]byte(chunk.Content))
+
+		_, err = part.Write([]byte(chunk.Content))
 		if err != nil {
-			return fmt.Errorf("writing chunk text: %w", err)
+			return fmt.Errorf("writing file content: %w", err)
 		}
 
-		// Add metadata
-		metadata := map[string]interface{}{
-			"data_entity_id":    chunk.DataEntityID,
+		// Add metadata for the document
+		metadata := map[string]string{
 			"document_id":       chunk.DocumentID,
 			"document_group_id": chunk.DocumentGroupID,
-			"content_offset":    chunk.ContentOffset,
 			"source":            chunk.Source,
+			"content_offset":    fmt.Sprintf("%d", chunk.ContentOffset),
+			"filename":          filename,
 			"original_filename": filepath.Base(chunk.Source),
+			"data_entity_id":    chunk.DataEntityID,
 			// Add other metadata as needed
 		}
+
+		// Add any custom metadata from the chunk
+		if chunk.Metadata != nil {
+			logger.Info().
+				Str("document_id", chunk.DocumentID).
+				Interface("chunk_metadata", chunk.Metadata).
+				Msg("Adding metadata to document during indexing")
+
+			// First add all user metadata
+			for k, v := range chunk.Metadata {
+				// Skip if it's a critical system field to prevent overriding
+				if k == "document_id" || k == "document_group_id" || k == "source" ||
+					k == "content_offset" || k == "filename" || k == "original_filename" ||
+					k == "data_entity_id" {
+					logger.Info().
+						Str("document_id", chunk.DocumentID).
+						Str("key", k).
+						Str("value", v).
+						Msg("Skipping user metadata key - system field takes precedence")
+					continue
+				}
+
+				logger.Info().
+					Str("document_id", chunk.DocumentID).
+					Str("key", k).
+					Str("value", v).
+					Msg("Adding metadata key-value to document")
+				metadata[k] = v
+			}
+		}
+
 		metadataJSON, err := json.Marshal(metadata)
 		if err != nil {
 			return fmt.Errorf("marshaling metadata: %w", err)
 		}
 
-		err = w.WriteField("metadata", string(metadataJSON))
+		logger.Info().
+			Str("document_id", chunk.DocumentID).
+			Str("metadataJSON", string(metadataJSON)).
+			Msg("Metadata being sent to Haystack")
+
+		metadataPart, err := w.CreateFormField("metadata")
 		if err != nil {
-			return fmt.Errorf("writing metadata field: %w", err)
+			return fmt.Errorf("creating metadata field: %w", err)
 		}
 
-		// Close multipart writer
+		_, err = metadataPart.Write(metadataJSON)
+		if err != nil {
+			return fmt.Errorf("writing metadata: %w", err)
+		}
+
+		// Create the form field for data_entity_id
+		dataEntityPart, err := w.CreateFormField("data_entity_id")
+		if err != nil {
+			return fmt.Errorf("creating data_entity_id field: %w", err)
+		}
+		_, err = dataEntityPart.Write([]byte(chunk.DataEntityID))
+		if err != nil {
+			return fmt.Errorf("writing data_entity_id: %w", err)
+		}
+
 		w.Close()
 
-		// Create request
+		// Create the request
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.endpoint+"/process", &b)
 		if err != nil {
 			return fmt.Errorf("creating request: %w", err)
 		}
 		req.Header.Set("Content-Type", w.FormDataContentType())
 
-		// Send request
+		// Send the request
 		resp, err := h.client.Do(req)
 		if err != nil {
 			logger.Err(err).Msg("error making request to Haystack service")
@@ -110,22 +167,23 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		}
 		defer resp.Body.Close()
 
-		// Check response
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			logger.Error().
-				Int("status_code", resp.StatusCode).
-				Str("response", string(body)).
-				Msg("bad response from Haystack service")
-			return fmt.Errorf("bad response: %s (%s)", resp.Status, string(body))
+		// Check the response
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading response: %w", err)
+		}
+
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
 		}
 
 		logger.Debug().
 			Str("document_id", chunk.DocumentID).
-			Str("data_entity_id", chunk.DataEntityID).
-			Msg("Successfully indexed chunk")
+			Str("response", string(body)).
+			Msg("document indexed successfully")
 	}
 
+	logger.Debug().Msg("All documents indexed successfully")
 	return nil
 }
 
@@ -135,17 +193,41 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 		Str("component", "HaystackRAG").
 		Str("method", "Query").
 		Str("data_entity_id", q.DataEntityID).
+		Interface("document_id_list", q.DocumentIDList).
 		Logger()
 
-	logger.Debug().Str("query", q.Prompt).Msg("Querying Haystack")
+	// Build document ID conditions
+	documentIDConditions := make([]Condition, len(q.DocumentIDList))
+	for i, documentID := range q.DocumentIDList {
+		documentIDConditions[i] = Condition{
+			Field:    "meta.document_id",
+			Operator: "==",
+			Value:    documentID,
+		}
+	}
 
-	// Create query request
-	queryReq := map[string]interface{}{
-		"query": q.Prompt,
-		"filters": map[string]interface{}{
-			"data_entity_id": q.DataEntityID,
+	// Build the complete query request
+	queryReq := QueryRequest{
+		Query: q.Prompt,
+		TopK:  q.MaxResults,
+		Filters: QueryFilter{
+			Operator: "AND",
+			Conditions: []Condition{
+				{
+					Field:    "meta.data_entity_id",
+					Operator: "==",
+					Value:    q.DataEntityID,
+				},
+			},
 		},
-		"top_k": q.MaxResults,
+	}
+
+	// Add document ID filter if there are any document IDs
+	if len(documentIDConditions) > 0 {
+		queryReq.Filters.Conditions = append(queryReq.Filters.Conditions, Condition{
+			Operator:   "OR",
+			Conditions: documentIDConditions,
+		})
 	}
 
 	bts, err := json.Marshal(queryReq)
@@ -179,15 +261,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	}
 
 	// Parse response
-	var queryResp struct {
-		Results []struct {
-			Content  string                 `json:"content"`
-			Metadata map[string]interface{} `json:"metadata"`
-			Meta     map[string]interface{} `json:"meta,omitempty"`
-			Score    float64                `json:"score"`
-		} `json:"results"`
-	}
-
+	var queryResp QueryResponse
 	err = json.NewDecoder(resp.Body).Decode(&queryResp)
 	if err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
@@ -196,47 +270,55 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	// Convert to SessionRAGResult
 	results := make([]*types.SessionRAGResult, len(queryResp.Results))
 	for i, r := range queryResp.Results {
-		// Extract document_id and document_group_id from metadata
-		documentID, _ := r.Metadata["document_id"].(string)
-		documentGroupID, _ := r.Metadata["document_group_id"].(string)
-
-		// Try to get the source from metadata with fallbacks
+		// Use the source from metadata, falling back to filename if needed
 		var source string
-
-		// First check meta field if it exists (Haystack stores original metadata here)
-		if r.Meta != nil {
-			if metaSource, ok := r.Meta["source"].(string); ok && metaSource != "" && !strings.HasPrefix(metaSource, "tmp") {
-				source = metaSource
-			}
+		if sourceVal, ok := r.Metadata["source"]; ok {
+			source = toString(sourceVal)
 		}
 
-		// If we still don't have a source, try our other options
 		if source == "" {
-			// Next try original_filename which we explicitly added
-			if origFilename, ok := r.Metadata["original_filename"].(string); ok && origFilename != "" {
-				source = origFilename
-			} else if metaSource, ok := r.Metadata["source"].(string); ok && metaSource != "" && !strings.HasPrefix(metaSource, "tmp") {
-				// Then try the source from metadata if it's not a tmp file
-				source = metaSource
-			} else {
-				// Finally fall back to regular source
-				source, _ = r.Metadata["source"].(string)
+			// If source is empty, try to get it from the filename in metadata
+			if filenameVal, ok := r.Metadata["filename"]; ok {
+				source = toString(filenameVal)
 			}
 		}
 
-		// Convert content_offset from float64 to int if present
-		var contentOffset int
-		if co, ok := r.Metadata["content_offset"].(float64); ok {
-			contentOffset = int(co)
+		// Add debug logging to see what metadata we're getting back
+		logger.Info().
+			Str("document_id", toString(r.Metadata["document_id"])).
+			Interface("metadata", r.Metadata).
+			Msg("Retrieved document with metadata")
+
+		// Get document ID and group ID from metadata
+		documentID := toString(r.Metadata["document_id"])
+		documentGroupID := toString(r.Metadata["document_group_id"])
+
+		// Convert metadata to string values for SessionRAGResult
+		metadata := make(map[string]string)
+		for k, v := range r.Metadata {
+			metadata[k] = toString(v)
 		}
 
+		// Create result with all metadata fields
 		results[i] = &types.SessionRAGResult{
 			Content:         r.Content,
 			Distance:        r.Score,
 			DocumentID:      documentID,
 			DocumentGroupID: documentGroupID,
 			Source:          source,
-			ContentOffset:   contentOffset,
+			ContentOffset:   parseContentOffset(toString(r.Metadata["content_offset"])),
+			Metadata:        metadata,
+		}
+
+		// Check for source_url in metadata
+		if sourceURLVal, ok := r.Metadata["source_url"]; ok {
+			sourceURL := toString(sourceURLVal)
+			if sourceURL != "" {
+				logger.Info().
+					Str("document_id", documentID).
+					Str("source_url", sourceURL).
+					Msg("Found source_url in document metadata")
+			}
 		}
 	}
 
@@ -297,4 +379,45 @@ func (h *HaystackRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest)
 	logger.Debug().Msg("Successfully deleted documents from Haystack")
 
 	return nil
+}
+
+// parseContentOffset safely converts a string contentOffset to an integer
+func parseContentOffset(offset string) int {
+	if offset == "" {
+		return 0
+	}
+
+	intOffset, err := strconv.Atoi(offset)
+	if err != nil {
+		log.Warn().
+			Str("offset", offset).
+			Err(err).
+			Msg("Failed to parse ContentOffset as integer, using 0")
+		return 0
+	}
+
+	return intOffset
+}
+
+// toString safely converts an interface{} value to a string
+func toString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+
+	switch v := value.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(v)
+	default:
+		// For any other type, try to use fmt.Sprint
+		return fmt.Sprint(v)
+	}
 }

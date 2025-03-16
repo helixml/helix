@@ -85,6 +85,7 @@ type KnowledgeSearchQuery struct {
 	AppID       string
 	KnowledgeID string
 	Prompt      string
+	DocumentID  string
 }
 
 func (c *HelixClient) SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error) {
@@ -95,6 +96,9 @@ func (c *HelixClient) SearchKnowledge(ctx context.Context, f *KnowledgeSearchQue
 	params.Add("prompt", f.Prompt)
 	if f.KnowledgeID != "" {
 		params.Add("knowledge_id", f.KnowledgeID)
+	}
+	if f.DocumentID != "" {
+		params.Add("document_id", f.DocumentID)
 	}
 
 	path := "/search?" + params.Encode()

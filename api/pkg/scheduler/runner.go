@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/nats-io/nats.go"
@@ -297,11 +298,28 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Str("model", slot.InitialWork().ModelName().String()).
 		Str("runtime", string(slot.InitialWork().Runtime())).
 		Msg("creating slot")
+
+	// Get the context length from the model
+	modelName := slot.InitialWork().ModelName().String()
+
+	// Get the model's context length
+	var contextLength int64
+	modelObj, err := model.GetModel(modelName)
+	if err == nil {
+		contextLength = modelObj.GetContextLength()
+		if contextLength > 0 {
+			log.Debug().Str("model", modelName).Int64("context_length", contextLength).Msg("Using context length from model")
+		}
+	} else {
+		log.Warn().Str("model", modelName).Err(err).Msg("Could not get model, using default context length")
+	}
+
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
-			Runtime: slot.InitialWork().Runtime(),
-			Model:   slot.InitialWork().ModelName().String(),
+			Runtime:       slot.InitialWork().Runtime(),
+			Model:         slot.InitialWork().ModelName().String(),
+			ContextLength: contextLength,
 		},
 	}
 	body, err := json.Marshal(req)

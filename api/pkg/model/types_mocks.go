@@ -57,6 +57,20 @@ func (mr *MockModelMockRecorder) GetCommand(ctx, sessionFilter, config any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCommand", reflect.TypeOf((*MockModel)(nil).GetCommand), ctx, sessionFilter, config)
 }
 
+// GetContextLength mocks base method.
+func (m *MockModel) GetContextLength() int64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetContextLength")
+	ret0, _ := ret[0].(int64)
+	return ret0
+}
+
+// GetContextLength indicates an expected call of GetContextLength.
+func (mr *MockModelMockRecorder) GetContextLength() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContextLength", reflect.TypeOf((*MockModel)(nil).GetContextLength))
+}
+
 // GetMemoryRequirements mocks base method.
 func (m *MockModel) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	m.ctrl.T.Helper()

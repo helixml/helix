@@ -61,6 +61,9 @@ type Model interface {
 	// tells you if this model is text or image based
 	GetType() types.SessionType
 
+	// returns the maximum context length for this model (0 means use default)
+	GetContextLength() int64
+
 	// the function we call to get the python process booted and
 	// asking us for work
 	// this relies on the axotl and sd-script repos existing
