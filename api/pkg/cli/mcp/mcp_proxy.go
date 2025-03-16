@@ -160,7 +160,7 @@ func (mcps *ModelContextProtocolServer) Start() error {
 
 	// Start the server
 	if err := server.ServeStdio(s); err != nil {
-		fmt.Printf("Server error: %v\n", err)
+		log.Err(err).Msg("Server error")
 	}
 
 	return nil
