@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
@@ -11,18 +11,29 @@ import Link from '@mui/material/Link';
 import Button from '@mui/material/Button';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import useSnackbar from '../../hooks/useSnackbar';
+import useAccount from '../../hooks/useAccount'
 
 interface IdeIntegrationSectionProps {
-  appId: string;
-  apiKey: string;
+  appId: string;  
 }
 
 const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   appId,
-  apiKey,
 }) => {
+  const account = useAccount()
+
   const [selectedIde, setSelectedIde] = useState<string>('cline');
   const { success: snackbarSuccess } = useSnackbar();
+
+  useEffect(() => {
+    account.loadAppApiKeys(appId)
+  }, [
+    account.token,
+    appId,
+  ])
+
+  const apiKey = account.appApiKeys.length > 0 ? account.appApiKeys[0].key : ''
+
 
   const getGenericMCPConfig = () => {
     return `{
