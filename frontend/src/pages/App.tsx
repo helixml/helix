@@ -184,6 +184,7 @@ const App: FC = () => {
                 <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                   {tabValue === 'settings' && appTools.flatApp && (
                     <AppSettings
+                      id={appTools.id}
                       app={appTools.flatApp}
                       onUpdate={appTools.saveFlatApp}
                       readOnly={appTools.isReadOnly}
