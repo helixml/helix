@@ -389,10 +389,7 @@ const App: FC = () => {
     })
     if(!res) return
     snackbar.success('API Key added')
-    account.loadApiKeys({
-      types: 'app',
-      app_id: params.app_id,
-    })
+    account.loadAppApiKeys(params.app_id)
   }
   
   const validate = useCallback(() => {
@@ -674,10 +671,7 @@ const App: FC = () => {
     if (params.app_id === "new") return; // Don't load data for new app
     if(!params.app_id) return
     apps.loadData()
-    account.loadApiKeys({
-      types: 'app',
-      app_id: params.app_id,
-    })
+    account.loadAppApiKeys(params.app_id)
   }, [
     params,
     account.user,
@@ -1167,7 +1161,7 @@ const App: FC = () => {
 
                   {tabValue === 'apikeys' && (
                     <APIKeysSection
-                      apiKeys={account.apiKeys}
+                      apiKeys={account.appApiKeys}
                       onAddAPIKey={onAddAPIKey}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={allowedDomains}
@@ -1196,7 +1190,6 @@ const App: FC = () => {
                   {tabValue === 'ide' && (
                     <IdeIntegrationSection
                       appId={app.id}
-                      apiKey={account.apiKeys[0]?.key || ''}
                     />
                   )}
                 </Box>
@@ -1302,10 +1295,7 @@ const App: FC = () => {
               })
               if(!res) return
               snackbar.success('API Key deleted')
-              account.loadApiKeys({
-                types: 'app',
-                app_id: params.app_id,
-              })
+              account.loadAppApiKeys(params.app_id)
               setDeletingAPIKey('')
             }}
             onCancel={() => {
