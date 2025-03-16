@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,15 @@ func NewGCSStorage(ctx context.Context, bucketName, serviceAccountKeyFile string
 }
 
 func (s *GCSStorage) List(ctx context.Context, prefix string) ([]Item, error) {
+	// First check if the prefix exists as an object
+	if prefix != "" {
+		_, err := s.Get(ctx, prefix)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			// If there's an error other than not found, return it
+			return nil, err
+		}
+	}
+
 	it := s.bucket.Objects(ctx, &storage.Query{Prefix: prefix})
 	items := []Item{}
 
@@ -43,7 +53,7 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]Item, error) {
 			break
 		}
 		if err != nil {
-			return []Item{}, nil
+			return nil, fmt.Errorf("error listing GCS objects: %w", err)
 		}
 
 		item := Item{
@@ -57,12 +67,22 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]Item, error) {
 		items = append(items, item)
 	}
 
+	// If we didn't find any items and the prefix is not empty,
+	// it means the directory doesn't exist
+	if len(items) == 0 && prefix != "" {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, prefix)
+	}
+
 	return items, nil
 }
 
 func (s *GCSStorage) Get(ctx context.Context, path string) (Item, error) {
 	attrs, err := s.bucket.Object(path).Attrs(ctx)
 	if err != nil {
+		// Check for 404 not found responses from GCS
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			return Item{}, fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
 		return Item{}, fmt.Errorf("error fetching GCS object attributes: %w", err)
 	}
 
@@ -110,6 +130,9 @@ func (s *GCSStorage) OpenFile(ctx context.Context, path string) (io.ReadCloser, 
 	obj := s.bucket.Object(path)
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
 		return nil, fmt.Errorf("failed to create GCS object reader: %w", err)
 	}
 	return reader, nil
@@ -293,7 +316,9 @@ func (s *GCSStorage) CopyFile(ctx context.Context, fromPath string, toPath strin
 	// Check if the fromPath exists
 	_, err := s.Get(ctx, fromPath)
 	if err != nil {
-		return fmt.Errorf("failed to get source file: %w", err)
+		// If the source file doesn't exist, return the error directly
+		// It will already be wrapped with ErrNotFound if that's the case
+		return err
 	}
 
 	// Create the folder for the toPath if it doesn't exist
