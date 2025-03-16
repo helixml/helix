@@ -1230,7 +1230,7 @@ const App: FC = () => {
       </Container>
 
       {/* Fixed bottom bar with save button */}
-      {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && (
+      {tabValue !== 'developers' && tabValue !== 'apikeys' && tabValue !== 'logs' && tabValue !== 'ide' && (
         <Box sx={{
           position: 'fixed',
           bottom: 0,
