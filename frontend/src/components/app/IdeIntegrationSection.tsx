@@ -126,6 +126,44 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
             </Typography>
           </>
         );
+      case 'cursor':
+        return (
+          <>
+            <Typography variant="body1" sx={{ mb: 2 }}>
+              Follow these steps to configure <Link href="https://www.cursor.com/" target="_blank" rel="noopener noreferrer">Cursor</Link>:
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>1. For a specific project open `.cursor/mcp.json` file, for global configuration open `~/.cursor/mcp.json`</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>2. Add the following configuration:</Typography>
+            </Box>
+            <TextField
+              value={getGenericMCPConfig()}
+              fullWidth
+              multiline
+              disabled
+              InputProps={{
+                style: { fontFamily: 'monospace' }
+              }}
+            />
+            <Box sx={{ textAlign: 'right', mb: 1 }}>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<ContentCopyIcon />}
+                onClick={() => {
+                  navigator.clipboard.writeText(getGenericMCPConfig());
+                  snackbarSuccess('Configuration copied to clipboard');
+                }}
+                sx={{ textTransform: 'none' }}
+              >
+                Copy
+              </Button>
+            </Box>            
+            <Typography variant="body1" sx={{ mb: 2 }}>
+              You can find additional information in the official <Link href="https://docs.cursor.com/context/model-context-protocol" target="_blank" rel="noopener noreferrer">Model Context Protocol</Link> documentation.
+            </Typography>
+          </>
+        );
       default:
         return null;
     }
@@ -149,6 +187,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
           <MenuItem value="cline">Cline</MenuItem>
           <MenuItem value="continue">Continue.dev</MenuItem>
           <MenuItem value="claude">Claude Desktop</MenuItem>
+          <MenuItem value="cursor">Cursor</MenuItem>
         </Select>
       </FormControl>
       {renderIdeInstructions()}
