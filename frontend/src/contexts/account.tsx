@@ -155,12 +155,17 @@ export const useAccountContext = (): IAccountContext => {
   }, [token]);
 
   const loadStatus = useCallback(async () => {
-    const statusResult = await api.get('/api/v1/status')
-    if (!statusResult) return
-    setCredits(statusResult.credits)
-    setAdmin(statusResult.admin)
-    setUserConfig(statusResult.config)
-    await organizationTools.loadOrganizations()
+    try {
+      const statusResult = await api.get('/api/v1/status')
+      if (!statusResult) return
+      setCredits(statusResult.credits)
+      setAdmin(statusResult.admin)
+      setUserConfig(statusResult.config)
+      await organizationTools.loadOrganizations()
+    } catch (error) {
+      console.error('Error loading status:', error)
+      // Don't propagate error - allow app to continue functioning
+    }
   }, [])
 
   const loadServerConfig = useCallback(async () => {
@@ -217,11 +222,16 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const loadAll = useCallback(async () => {
-    await bluebird.all([
-      loadStatus(),
-      loadServerConfig(),
-      fetchProviderEndpoints(),
-    ])
+    try {
+      await bluebird.all([
+        loadStatus(),
+        loadServerConfig(),
+        fetchProviderEndpoints(),
+      ])
+    } catch (error) {
+      console.error('Error loading data:', error)
+      // Don't crash the app on data loading errors
+    }
   }, [
     loadStatus,
     loadServerConfig,
@@ -293,8 +303,9 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
-        // Set up token refresh interval
-        setInterval(async () => {
+        // Set up token refresh interval - using 30 seconds instead of 10
+        // to reduce server load and prevent potential race conditions
+        const refreshInterval = setInterval(async () => {
           try {
             const innerClient = api.getApiClient()
             await innerClient.v1AuthRefreshCreate()
@@ -309,21 +320,32 @@ export const useAccountContext = (): IAccountContext => {
             }
           } catch (e) {
             console.error('Error refreshing token:', e)
-            onLogin()
+            // Instead of immediately calling onLogin, clear interval and try one more time
+            clearInterval(refreshInterval)
+            // Only call onLogin if we're really unauthorized, not for network issues
+            if ((e as any).response && (e as any).response.status === 401) {
+              onLogin()
+            }
           }
-        }, 10 * 1000)
+        }, 30 * 1000) // 30 seconds instead of 10
+        
+        // Clean up interval on component unmount
+        return () => clearInterval(refreshInterval)
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       snackbar.error(errorMessage)
+    } finally {
+      loading.setLoading(false)
+      setInitialized(true)
     }
-    loading.setLoading(false)
-    setInitialized(true)
   }, [])
 
   const fetchModels = useCallback(async (provider?: string) => {
+    let loadingModels = false;
     try {
+      loadingModels = true;
       const url = provider ? `/v1/models?provider=${encodeURIComponent(provider)}` : '/v1/models'
       const response = await api.get(url)
 
@@ -351,6 +373,8 @@ export const useAccountContext = (): IAccountContext => {
     } catch (error) {
       console.error('Error fetching models:', error)
       setModels([])
+    } finally {
+      loadingModels = false;
     }
   }, [api])
 
@@ -359,11 +383,20 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   useEffect(() => {
-    fetchModels()
-    if (user) {
-      loadAll()
-    } else {
-      loadServerConfig()
+    try {
+      // Only fetch models if we haven't already done so
+      if (models.length === 0) {
+        fetchModels()
+      }
+      
+      if (user) {
+        loadAll()
+      } else {
+        loadServerConfig()
+      }
+    } catch (error) {
+      console.error('Error in data loading useEffect:', error)
+      // Ensure any loading states are cleared even on error
     }
   }, [user])
 
