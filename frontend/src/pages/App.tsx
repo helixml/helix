@@ -71,7 +71,6 @@ const App: FC = () => {
 
   const appTools = useApp(params.app_id)
 
-  const [ schema, setSchema ] = useState('')
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
 
@@ -278,8 +277,8 @@ const App: FC = () => {
 
                   {tabValue === 'developers' && (
                     <DevelopersSection
-                      schema={schema}
-                      setSchema={setSchema}
+                      schema={appTools.appSchema}
+                      setSchema={appTools.setAppSchema}
                       showErrors={appTools.showErrors}
                       appId={appTools.id}
                       navigate={navigate}
@@ -323,39 +322,6 @@ const App: FC = () => {
 
       {/* Toast notification for app saving */}
       <SavingToast isSaving={appTools.isAppSaving} />
-
-      {
-        showBigSchema && (
-          <Window
-            title="Schema"
-            fullHeight
-            size="lg"
-            open
-            withCancel
-            cancelTitle="Close"
-            onCancel={() => setShowBigSchema(false)}
-          >
-            <Box
-              sx={{
-                p: 2,
-                height: '100%',
-              }}
-            >
-              <TextField
-                error={appTools.showErrors && !schema}
-                value={schema}
-                onChange={(e) => setSchema(e.target.value)}
-                fullWidth
-                multiline
-                disabled
-                label="App Configuration"
-                helperText={appTools.showErrors && !schema ? "Please enter a schema" : ""}
-                sx={{ height: '100%' }} // Set the height to '100%'
-              />
-            </Box>
-          </Window>
-        )
-      }
 
       {
         deletingAPIKey && (

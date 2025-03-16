@@ -1,4 +1,5 @@
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
+import { stringify as stringifyYaml } from 'yaml'
 import {
   IApp,
   IAppFlatState,
@@ -11,6 +12,9 @@ import {
   IFileStoreItem,
   APP_SOURCE_GITHUB,
 } from '../types'
+import {
+  removeEmptyValues,
+} from '../utils/data'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
@@ -50,6 +54,7 @@ export const useApp = (appId: string) => {
    * 
    */
   const [app, setApp] = useState<IApp | null>(null)
+  const [appSchema, setAppSchema] = useState<string>('')
   const [isAppLoading, setIsAppLoading] = useState(true)
   const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
@@ -510,8 +515,6 @@ export const useApp = (appId: string) => {
     // TODO: support multiple knowledge sources
     const knowledgeId = app?.config.helix.assistants?.[0]?.knowledge?.[0]?.id
 
-    console.log(JSON.stringify(app, null, 4))
-    
     if (!knowledgeId) {
       snackbar.error('No knowledge sources available')
       return
@@ -609,6 +612,25 @@ export const useApp = (appId: string) => {
     account.user,
   ])
 
+  useEffect(() => {
+    if (!app) return
+    const currentConfig = JSON.parse(JSON.stringify(app.config.helix))
+    // Remove empty values and format as YAML
+    const cleanedConfig = removeEmptyValues(currentConfig)
+    const yamlString = {
+      "apiVersion": "app.aispec.org/v1alpha1",
+      "kind": "AIApp",
+      "metadata": {
+        "name": cleanedConfig.name,
+      },
+      "spec": cleanedConfig
+    }
+    const finalYamlString = stringifyYaml(yamlString, { indent: 2 })
+    setAppSchema(finalYamlString)
+  }, [
+    app,
+  ])
+
   return {
 
     session,
@@ -616,6 +638,8 @@ export const useApp = (appId: string) => {
     // App state
     id: appId,
     app,
+    appSchema,
+    setAppSchema,
     flatApp,
     assistants,
     apiTools,
