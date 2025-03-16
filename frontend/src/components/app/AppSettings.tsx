@@ -16,6 +16,7 @@ import {
 } from '../../types'
 
 interface AppSettingsProps {
+  id: string,
   app: IAppFlatState,
   onUpdate: (updates: IAppFlatState) => Promise<void>,
   readOnly?: boolean,
@@ -25,6 +26,7 @@ interface AppSettingsProps {
 }
 
 const AppSettings: FC<AppSettingsProps> = ({
+  id,
   app,
   onUpdate,
   readOnly = false,
@@ -48,9 +50,15 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Update local state ONLY on initial mount, not when app prop changes
   useEffect(() => {
+
+    let useAppName = app.name || ''
+    if(app.name && app.name == id) {
+      useAppName = ''
+    }
+
     // Only initialize values if not already initialized
     if (!isInitialized.current) {
-      setName(app.name || '')
+      setName(useAppName)
       setDescription(app.description || '')
       setSystemPrompt(app.systemPrompt || '')
       setAvatar(app.avatar || '')
