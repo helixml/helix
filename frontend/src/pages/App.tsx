@@ -97,6 +97,7 @@ const App: FC = () => {
   return (
     <Page
       showDrawerButton={false}
+      orgBreadcrumbs={true}
       breadcrumbs={[
         {
           title: 'Apps',
