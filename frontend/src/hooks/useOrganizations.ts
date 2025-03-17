@@ -113,7 +113,6 @@ export default function useOrganizations(): IOrganizationTools {
   // Load a single organization with all its details
   const loadOrganization = async (id: string) => {
     try {
-      setLoading(true)
       // Fetch the organization details
       const orgResult = await api.getApiClient().v1OrganizationsDetail(id)
 
@@ -203,7 +202,7 @@ export default function useOrganizations(): IOrganizationTools {
   // so - we can know that when 'initialized' is true, we have a user
   const loadOrganizations = useCallback(async () => {
     try {
-      setLoading(true)
+      // setLoading(true)
       const result = await api.getApiClient().v1OrganizationsList()
 
       // Fetch members for each organization in parallel

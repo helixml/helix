@@ -33,17 +33,75 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   render: () => <div>Page Not Found</div>,
 }
 
-const routes: IApplicationRoute[] = [{
-  name: 'home',
-  path: '/',
-  meta: {
-    title: 'Home',
-    drawer: true,
-  },
-  render: () => (
-      <Home />
-  ),
-}, {
+
+// some routes work for both the `/org/:org_id/` prefix and also for the root prefix
+// so rather than duplicate these routes let's return them from this utility function
+const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] => {
+  return [{
+    name: namePrefix + 'home',
+    path: routePrefix + (routePrefix ? '' : '/'),
+    meta: {
+      title: 'Home',
+      drawer: true,
+    },
+    render: () => (
+        <Home />
+    ),
+  }, {
+    name: namePrefix + 'new',
+    path: routePrefix + '/new',
+    meta: {
+      title: 'New Session',
+      drawer: true,
+    },
+    render: () => (
+        <Create />
+    ),
+  }, {
+    name: namePrefix + 'apps',
+    path: routePrefix + '/apps',
+    meta: {
+      drawer: true,
+    },
+    render: () => (
+      <Apps />
+    ),
+  }, {
+    name: namePrefix + 'app',
+    path: routePrefix + '/app/:app_id',
+    meta: {
+      drawer: false,
+    },
+    render: () => (
+      <App />
+    ),
+  }, {
+    name: namePrefix + 'session',
+    path: routePrefix + '/session/:session_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+    },
+    render: () => (
+      <Session />
+    ),
+  }, {
+    name: namePrefix + 'dashboard',
+    path: routePrefix + '/dashboard',
+    meta: {
+      drawer: true,
+      background: '#ffffff'
+    },
+    render: () => (
+      <Dashboard />
+    ),
+  }]
+}
+
+const routes: IApplicationRoute[] = [
+  ...getOrgRoutes(),
+  ...getOrgRoutes('orgs_', '/orgs/:org_id'),
+{
   name: 'orgs',
   path: '/orgs',
   meta: {
@@ -104,16 +162,6 @@ const routes: IApplicationRoute[] = [{
       <AppStore />
   ),
 }, {
-  name: 'new',
-  path: '/new',
-  meta: {
-    title: 'New Session',
-    drawer: true,
-  },
-  render: () => (
-      <Create />
-  ),
-}, {
   name: 'files',
   path: '/files',
   meta: {
@@ -125,15 +173,6 @@ const routes: IApplicationRoute[] = [{
     </FilestoreContextProvider>
   ),
 }, {
-  name: 'apps',
-  path: '/apps',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <Apps />
-  ),
-}, {
   name: 'secrets',
   path: '/secrets',
   meta: {
@@ -141,35 +180,6 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
     <Secrets />
-  ),
-}, {
-  name: 'app',
-  path: '/app/:app_id',
-  meta: {
-    drawer: false,
-  },
-  render: () => (
-    <App />
-  ),
-}, {
-  name: 'session',
-  path: '/session/:session_id',
-  meta: {
-    drawer: true,
-    topbar: false,
-  },
-  render: () => (
-    <Session />
-  ),
-}, {
-  name: 'dashboard',
-  path: '/dashboard',
-  meta: {
-    drawer: true,
-    background: '#ffffff'
-  },
-  render: () => (
-    <Dashboard />
   ),
 }, {
   name: 'account',
