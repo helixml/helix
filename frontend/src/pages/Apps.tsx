@@ -31,19 +31,6 @@ const Apps: FC = () => {
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
-  const onCreateNewApp = useCallback(async () => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-    const newApp = await apps.createEmptyHelixApp()
-    if(!newApp) return false
-    apps.loadApps()
-    navigate('app', {
-      app_id: newApp.id,
-    })
-  }, [account.user, account.setShowLoginWindow, navigate])
-
   const onConnectRepo = useCallback(async (repo: string) => {
     if (!account.user) {
       account.setShowLoginWindow(true)
@@ -62,11 +49,13 @@ const Apps: FC = () => {
     apps.createApp,
   ])
 
-  const onEditApp = useCallback((app: IApp) => {
-    navigate('app', {
+  const onEditApp = (app: IApp) => {
+    console.log('--------------------------------------------')
+    console.log('here')
+    account.orgNavigate('app', {
       app_id: app.id,
     })
-  }, [])
+  }
 
   const onDeleteApp = useCallback(async () => {
     if(!deletingApp) return
@@ -124,7 +113,7 @@ const Apps: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
-            onClick={onCreateNewApp}
+            onClick={apps.createOrgApp}
             sx={{ mr: 2 }}
           >
             New App

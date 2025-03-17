@@ -10,6 +10,7 @@ import Collapse from '@mui/material/Collapse'
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import OrgsSidebarMenu from '../components/orgs/OrgsSidebarMenu'
+import AppsMenu from '../components/apps/AppsMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -49,12 +50,20 @@ const Layout: FC = ({
 
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
+  const resourceType = router.params.resource_type || 'chat'
 
   if(router.meta.drawer) {
     if(router.meta.menu == 'orgs') {
       sidebarMenu = (
         <OrgsSidebarMenu
-
+        />
+      )
+    } else if(resourceType === 'app') {
+      sidebarMenu = (
+        <AppsMenu
+          onOpenApp={ () => {
+            account.setMobileMenuOpen(false)
+          }}
         />
       )
     } else {

@@ -108,18 +108,6 @@ const Home: FC = () => {
     router.navigate('new', { app_id: appId });
   }
 
-  const onCreateNewApp = async () => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-    const newApp = await apps.createEmptyHelixApp()
-    if(!newApp) return false
-    router.navigate('app', {
-      app_id: newApp.id,
-    })
-  }
-
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -457,7 +445,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={() => onCreateNewApp()}
+                        onClick={() => apps.createOrgApp()}
                       >
                         <Box
                           sx={{
