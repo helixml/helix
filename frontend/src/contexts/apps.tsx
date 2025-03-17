@@ -86,15 +86,26 @@ export const useAppsContext = (): IAppsContext => {
     const {
       org_id,
     } = query
+    
+    // Determine the organization_id parameter value
+    let organizationIdParam = '';
+    if (org_id) {
+      // If specific org_id is provided, use it
+      organizationIdParam = org_id;
+    } else if (account.organizationTools.orgID === '') {
+      // If we're in the default (no org) context, use "default"
+      organizationIdParam = 'default';
+    }
+    
     const result = await api.get<IApp[]>(`/api/v1/apps`, {
       params: {
-        organization_id: org_id || '',
+        organization_id: organizationIdParam,
       }
     }, {
       snackbar: true,
     })
     setApps(result || [])
-  }, [])
+  }, [account.organizationTools.orgID])
 
   const helixApps = useMemo(() => {
     return apps.filter(app => app.app_source == APP_SOURCE_HELIX)

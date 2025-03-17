@@ -94,6 +94,11 @@ const Sidebar: React.FC<{
     postNavigateTo()
   }
 
+  const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
+    account.orgNavigate(path, params)
+    postNavigateTo()
+  }
+
   // Handle tab change between CHATS and APPS
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     router.mergeParams({
@@ -307,7 +312,7 @@ const Sidebar: React.FC<{
                     >
 
                     <MenuItem onClick={ () => {
-                      navigateTo('new')
+                      orgNavigateTo('home')
                     }}>
                       <ListItemIcon>
                         <HomeIcon fontSize="small" />
@@ -316,7 +321,7 @@ const Sidebar: React.FC<{
                     </MenuItem>
 
                     <MenuItem onClick={ () => {
-                      navigateTo('appstore')
+                      orgNavigateTo('appstore')
                     }}>
                       <ListItemIcon>
                         <AppsIcon fontSize="small" />
@@ -340,7 +345,7 @@ const Sidebar: React.FC<{
                     {
                       account.serverConfig.apps_enabled && (
                         <MenuItem onClick={ () => {
-                          navigateTo('apps')
+                          orgNavigateTo('apps')
                         }}>
                           <ListItemIcon>
                             <WebhookIcon fontSize="small" />
@@ -351,7 +356,7 @@ const Sidebar: React.FC<{
                     }
 
                     <MenuItem onClick={ () => {
-                      navigateTo('new', {
+                      orgNavigateTo('new', {
                         model: defaultModel,
                         mode: SESSION_MODE_FINETUNE,
                         rag: true,

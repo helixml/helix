@@ -30,6 +30,7 @@ export interface ISessionsContext {
 
 export interface ISessionsQuery {
   org_id?: string,
+  search_filter?: string,
 }
 
 export const SessionsContext = createContext<ISessionsContext>({
@@ -66,42 +67,48 @@ export const useSessionsContext = (): ISessionsContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ sessions, setSessions ] = useState<ISessionSummary[]>([])
 
-  const loadSessions = useCallback(async (query: ISessionsQuery = {
-    org_id: '',
-  }) => {
-    const {
-      org_id,
-    } = query
-    const limit = page * SESSION_PAGINATION_PAGE_LIMIT
-    // console.dir({
-    //   page,
-    //   limit,
-    //   pagination,
-    // })
-    // this means we have already loaded all the sessions
-    // if(limit > pagination.total && pagination.total > 0 && !reload) return
+  const loadSessions = useCallback(async (query: ISessionsQuery = {}) => {
+    // default query params
+    const params: Record<string, any> = {
+      offset: (page - 1) * SESSION_PAGINATION_PAGE_LIMIT,
+      limit: SESSION_PAGINATION_PAGE_LIMIT,
+    }
+
+    // if we have a search filter - apply it
+    if(query.search_filter) {
+      params.search_filter = query.search_filter
+    }
+
+    // Determine the organization_id parameter value
+    if (query.org_id) {
+      // If specific org_id is provided, use it
+      params.organization_id = query.org_id;
+    } else if (account.organizationTools.orgID === '') {
+      // If we're in the default (no org) context, use "default"
+      params.organization_id = 'default';
+    } else if (account.organizationTools.organization) {
+      // If we're in an org context, use the org ID
+      params.organization_id = account.organizationTools.organization.id;
+    }
+
     setLoading(true)
     const result = await api.get<ISessionsList>('/api/v1/sessions', {
-      params: {
-        limit,
-        offset: 0,
-        organization_id: org_id || '',
-      }
-    })
-    if(!result) {
-      setLoading(false)
-      return
-    }
-    setSessions(result.sessions)
-    setPagination({
-      total: result.counter.count,
-      limit,
-      offset: 0,
+      params,
     })
     setLoading(false)
+    if(!result) return
+    setSessions(result.sessions || [])
+    setPagination({
+      total: result.counter.count,
+      limit: SESSION_PAGINATION_PAGE_LIMIT,
+      offset: (page - 1) * SESSION_PAGINATION_PAGE_LIMIT,
+    })
   }, [
+    api,
+    setLoading,
     page,
-    pagination,
+    account.organizationTools.orgID,
+    account.organizationTools.organization,
   ])
 
   const hasMoreSessions = useMemo(() => {
