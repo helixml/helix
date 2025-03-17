@@ -30,7 +30,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const isBigScreen = useIsBigScreen()
   
   // Get the current organization from the URL or context
-  const currentOrgId = router.params.org_id || 'default'
+  const defaultOrgName = `${account.user?.name} (Personal Account)`
+  const currentOrg = account.organizationTools.organization
+  const currentOrgId = account.organizationTools.organization?.id || 'default'
   const organizations = account.organizationTools.organizations
   
   const listOrgs = useMemo(() => {
@@ -43,15 +45,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
 
     return [{
       id: 'default',
-      name: `${account.user.name} (Personal Account)`,
-      display_name: `${account.user.name} (Personal Account)`,
+      name: 'default',
+      display_name: defaultOrgName,
     }, ...loadedOrgs]
   }, [
     organizations,
     account.user,
   ])
-
-  const currentOrg = listOrgs.find((org) => org.id === currentOrgId) || listOrgs[0]
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget)
@@ -174,8 +174,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             key={org.id}
           >
             <MenuItem 
-              onClick={() => handleOrgSelect(org.id)}
-              selected={org.id === currentOrgId}
+              onClick={() => handleOrgSelect(org.name)}
+              selected={org.name === currentOrgId}
               sx={{ 
                 display: 'flex', 
                 alignItems: 'center',
