@@ -1,8 +1,8 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +24,10 @@ import (
 
 func init() {
 	rootCmd.AddCommand(runProxyCmd)
+
+	runProxyCmd.Flags().StringP("app-id", "a", "", "the app id to run the proxy for")
+	runProxyCmd.Flags().StringP("api-key", "k", "", "the api key to use for the proxy")
+	runProxyCmd.Flags().StringP("url", "u", "", "the url to use for the proxy")
 }
 
 func setup() {
@@ -52,7 +56,7 @@ var runProxyCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run Helix mpc (model context protocol) proxy",
 	Long:  `TODO`,
-	RunE: func(_ *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		setup()
 
 		cfg, err := config.LoadCliConfig()
@@ -61,12 +65,38 @@ var runProxyCmd = &cobra.Command{
 			return err
 		}
 
+		url, err := cmd.Flags().GetString("url")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get url")
+			return err
+		}
+		if url != "" {
+			cfg.URL = url
+		}
+
+		apiKey, err := cmd.Flags().GetString("api-key")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get api key")
+			return err
+		}
+		if apiKey != "" {
+			cfg.APIKey = apiKey
+		}
+
 		helixAppID := os.Getenv("HELIX_APP_ID")
+
+		appID, err := cmd.Flags().GetString("app-id")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get app id")
+			return err
+		}
+		if appID != "" {
+			helixAppID = appID
+		}
 
 		log.Trace().
 			Str("app_id", helixAppID).
 			Str("helix_url", cfg.URL).
-			Str("helix_api_key", cfg.APIKey).
 			Msg("starting mcp proxy")
 
 		if helixAppID == "" {
@@ -119,23 +149,36 @@ func (mcps *ModelContextProtocolServer) Start() error {
 		return err
 	}
 
-	log.Info().Any("mcpTools", mcpTools).Msg("adding tools")
+	log.Info().
+		Any("mcp_tools", mcpTools).
+		Msg("adding tools")
 
 	for _, mt := range mcpTools {
-		s.AddTool(mt.tool, mt.handler)
+		s.AddTool(mt.tool, mt.toolHandler)
+		s.AddPrompt(mt.prompt, mt.promptHandler)
 	}
 
 	// Start the server
 	if err := server.ServeStdio(s); err != nil {
-		fmt.Printf("Server error: %v\n", err)
+		log.Err(err).Msg("Server error")
 	}
 
 	return nil
 }
 
 type helixMCPTool struct {
-	tool    mcp.Tool
-	handler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	// Prompts: https://modelcontextprotocol.io/docs/concepts/prompts
+	// Prompts enable servers to define reusable prompt templates and workflows that clients
+	// can easily surface to users and LLMs. They provide a powerful way to standardize and
+	//share common LLM interactions.
+	prompt        mcp.Prompt
+	promptHandler func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error)
+
+	// Tools: https://modelcontextprotocol.io/docs/concepts/roots
+	// Roots are a concept in MCP that define the boundaries where servers can operate.
+	// They provide a way for clients to inform servers about relevant resources and their locations
+	tool        mcp.Tool
+	toolHandler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
 // TODO: load gptscript, zapier tools as well
@@ -163,7 +206,9 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 				continue
 			}
 
-			var mcpParams []mcp.ToolOption
+			var (
+				mcpParams []mcp.ToolOption // Tool parameters
+			)
 
 			mcpParams = append(mcpParams, mcp.WithDescription(action.Description))
 
@@ -187,8 +232,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 			log.Info().Any("tool", action).Msg("adding tool")
 
 			mcpTools = append(mcpTools, &helixMCPTool{
-				tool:    mcpTool,
-				handler: mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
+				tool:        mcpTool,
+				toolHandler: mcps.getAPIToolHandler(mcps.appID, tool, action.Name),
 			})
 		}
 	}
@@ -199,8 +244,8 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:    mcpTool,
-			handler: mcps.gptScriptToolHandler,
+			tool:        mcpTool,
+			toolHandler: mcps.gptScriptToolHandler,
 		})
 	}
 
@@ -210,10 +255,12 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:    mcpTool,
-			handler: mcps.zapierToolHandler,
+			tool:        mcpTool,
+			toolHandler: mcps.zapierToolHandler,
 		})
 	}
+
+	log.Info().Msg("listing knowledges")
 
 	knowledges, err := mcps.apiClient.ListKnowledge(context.Background(), &client.KnowledgeFilter{
 		AppID: mcps.appID,
@@ -224,17 +271,23 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 	}
 
 	for _, knowledge := range knowledges {
+		knowledgeDescription :=
+			`Performs a search using the Helix knowledge base, ideal for finding information on a specific topic.	
+		`
+		if knowledge.Description != "" {
+			knowledgeDescription += fmt.Sprintf("This tool contains information on: %s", knowledge.Description)
+		}
 		mcpTool := mcp.NewTool(knowledge.Name,
-			mcp.WithDescription(fmt.Sprintf("Knowledge tool to search for: '%s'. Returns fragments from the database", knowledge.Description)),
-			mcp.WithString("prompt",
+			mcp.WithDescription(knowledgeDescription),
+			mcp.WithString("query",
 				mcp.Required(),
-				mcp.Description("The prompt to search knowledge with, use concise, main keywords as the engine is performing both semantic and full text search"),
+				mcp.Description("For query use concise, main keywords as the engine is performing both semantic and full text search"),
 			),
 		)
 
 		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:    mcpTool,
-			handler: mcps.getKnowledgeToolHandler(knowledge.ID),
+			tool:        mcpTool,
+			toolHandler: mcps.getKnowledgeToolHandler(knowledge.ID),
 		})
 	}
 
@@ -286,12 +339,14 @@ func (mcps *ModelContextProtocolServer) zapierToolHandler(_ context.Context, _ m
 
 func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		prompt, ok := request.Params.Arguments["prompt"]
+		query, ok := request.Params.Arguments["query"]
 		if !ok {
 			return mcp.NewToolResultError("prompt is required"), nil
 		}
 
-		promptStr, ok := prompt.(string)
+		log.Info().Str("knowledge_id", knowledgeID).Str("query", query.(string)).Msg("searching knowledge")
+
+		queryStr, ok := query.(string)
 		if !ok {
 			return mcp.NewToolResultError("prompt must be a string"), nil
 		}
@@ -299,19 +354,35 @@ func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID stri
 		results, err := mcps.apiClient.SearchKnowledge(ctx, &client.KnowledgeSearchQuery{
 			AppID:       mcps.appID,
 			KnowledgeID: knowledgeID,
-			Prompt:      promptStr,
+			Prompt:      queryStr,
 		})
 		if err != nil {
 			log.Error().Err(err).Msg("failed to search knowledge")
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resultsJSON, err := json.Marshal(results)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to marshal knowledge search results")
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		return mcp.NewToolResultText(string(resultsJSON)), nil
+		return mcp.NewToolResultText(formatKnowledgeSearchResponse(results)), nil
 	}
+}
+
+// formatKnowledgeSearchResponse formats the results into a text with just Source and Content fields. Each section is separated by an empty line
+//
+// Source: <URL>
+// Content: <Content>
+// ...
+// Source: <URL>
+// Content: <Content>
+
+func formatKnowledgeSearchResponse(results []*types.KnowledgeSearchResult) string {
+	if len(results) == 0 {
+		return "No results found"
+	}
+	var buf bytes.Buffer
+	for _, result := range results {
+		for _, r := range result.Results {
+			buf.WriteString(fmt.Sprintf("Source: %s\nContent: %s\n\n", r.Source, r.Content))
+		}
+	}
+
+	return buf.String()
 }

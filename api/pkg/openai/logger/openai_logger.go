@@ -167,10 +167,11 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 	}
 
 	// Append the usage
-	// TODO: need to update the fork
-	// resp.Usage.PromptTokens += chunk.Usage.PromptTokens
-	// resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
-	// resp.Usage.TotalTokens += chunk.Usage.TotalTokens
+	if chunk.Usage != nil {
+		resp.Usage.PromptTokens += chunk.Usage.PromptTokens
+		resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
+		resp.Usage.TotalTokens += chunk.Usage.TotalTokens
+	}
 }
 
 func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {

@@ -30,6 +30,7 @@ export interface IAccountContext {
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
   apiKeys: IApiKey[],
+  appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
   setMobileMenuOpen: (val: boolean) => void,
   showLoginWindow: boolean,
@@ -38,6 +39,7 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   addAppAPIKey: (appId: string) => Promise<void>,
+  loadAppApiKeys: (appId: string) => void,
   models: IHelixModel[],
   hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
@@ -64,6 +66,7 @@ export const AccountContext = createContext<IAccountContext>({
   },
   userConfig: {},
   apiKeys: [],
+  appApiKeys: [],
   mobileMenuOpen: false,
   setMobileMenuOpen: () => { },
   showLoginWindow: false,
@@ -72,6 +75,7 @@ export const AccountContext = createContext<IAccountContext>({
   onLogout: () => { },
   loadApiKeys: () => { },
   addAppAPIKey: async () => { },
+  loadAppApiKeys: () => { },
   models: [],
   fetchModels: async () => { },
   providerEndpoints: [],
@@ -107,6 +111,7 @@ export const useAccountContext = (): IAccountContext => {
     apps_enabled: true,
   })
   const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
+  const [appApiKeys, setAppApiKeys] = useState<IApiKey[]>([])
   const [models, setModels] = useState<IHelixModel[]>([])
   const [providerEndpoints, setProviderEndpoints] = useState<IProviderEndpoint[]>([])
   const [hasImageModels, setHasImageModels] = useState(false)
@@ -214,6 +219,17 @@ export const useAccountContext = (): IAccountContext => {
     snackbar,
     apiKeys,
   ])
+  
+  const loadAppApiKeys = useCallback(async (appId: string) => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
+      params: {
+        types: 'app',
+        app_id: appId,
+      },
+    })
+    if (!result) return
+    setAppApiKeys(result)
+  }, [])
 
   const fetchProviderEndpoints = useCallback(async () => {
     const response = await api.get('/api/v1/provider-endpoints')
@@ -415,10 +431,12 @@ export const useAccountContext = (): IAccountContext => {
     setShowLoginWindow,
     credits,
     apiKeys,
+    appApiKeys,
     onLogin,
     onLogout,
     loadApiKeys,
     addAppAPIKey,
+    loadAppApiKeys,
     models,
     fetchModels,
     fetchProviderEndpoints,
