@@ -725,6 +725,7 @@ export interface IAppConfig {
 
 export interface IApp {
   id: string,
+  organization_id?: string,
   config: IAppConfig;
   shared: boolean;
   global: boolean;

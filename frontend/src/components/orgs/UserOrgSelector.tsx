@@ -68,7 +68,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       if(orgId == 'default') {
         router.navigate('home')
       } else {
-        router.navigate('orgs_home', {
+        router.navigate('org_home', {
           org_id: orgId,
         })
       }
