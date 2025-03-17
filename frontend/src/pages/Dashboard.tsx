@@ -104,13 +104,13 @@ const Dashboard: FC = () => {
       case 'llm_calls':
         setActiveTab(0)
         break
-      case 'runners':
+      case 'providers':
         setActiveTab(1)
         break
-      case 'providers':
+      case 'oauth_providers':
         setActiveTab(2)
         break
-      case 'oauth_providers':
+      case 'runners':
         setActiveTab(3)
         break
       default:
@@ -131,13 +131,13 @@ const Dashboard: FC = () => {
         router.setParams({ tab: 'llm_calls' })
         break
       case 1:
-        router.setParams({ tab: 'runners' })
-        break
-      case 2:
         router.setParams({ tab: 'providers' })
         break
-      case 3:
+      case 2:
         router.setParams({ tab: 'oauth_providers' })
+        break
+      case 3:
+        router.setParams({ tab: 'runners' })
         break
       default:
         router.removeParams(['tab'])
@@ -189,9 +189,9 @@ const Dashboard: FC = () => {
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="LLM Calls" />
-            <Tab label="Runners" />
             <Tab label="Inference Providers" />
             <Tab label="OAuth Providers" />
+            <Tab label="Runners" />
           </Tabs>
         </Box>
 
@@ -222,6 +222,31 @@ const Dashboard: FC = () => {
         )}
 
         {activeTab === 1 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <ProviderEndpointsTable />
+          </Box>
+        )}
+
+        {activeTab === 2 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+              p: 2,
+            }}
+          >
+            <OAuthProvidersTable />
+          </Box>
+        )}
+
+        {activeTab === 3 && (
           <Box
             sx={{
               width: '100%',
@@ -358,31 +383,6 @@ const Dashboard: FC = () => {
                 </Grid>
               </Box>
             </Box>
-          </Box>
-        )}
-
-        {activeTab === 2 && (
-          <Box
-            sx={{
-              width: '100%',
-              height: 'calc(100vh - 200px)',
-              overflow: 'auto',
-            }}
-          >
-            <ProviderEndpointsTable />
-          </Box>
-        )}
-
-        {activeTab === 3 && (
-          <Box
-            sx={{
-              width: '100%',
-              height: 'calc(100vh - 200px)',
-              overflow: 'auto',
-              p: 2,
-            }}
-          >
-            <OAuthProvidersTable />
           </Box>
         )}
 
