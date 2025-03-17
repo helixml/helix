@@ -1,6 +1,7 @@
 import React from 'react';
-import { Box, Button } from '@mui/material';
+import { Box, Button, Container } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
+import { FilterAlt } from '@mui/icons-material';
 
 // Reuse the same animations from the Markdown component
 const pulseFade = keyframes`
@@ -265,31 +266,54 @@ const Citation: React.FC<CitationProps> = ({
                             </Box>
                         ) : (
                             <div>
-                                <Box
-                                    component="a"
-                                    href={excerpt.fileUrl}
-                                    target="_blank"
+                                <Container
                                     sx={{
-                                        color: '#58a6ff',
-                                        textDecoration: 'none',
-                                        fontWeight: 500,
-                                        opacity: 0.85,
-                                        transition: 'all 0.2s ease',
-                                        padding: '3px 8px',
-                                        borderRadius: '4px',
-                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                                        '&:hover': {
-                                            opacity: 1,
-                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                            textDecoration: 'underline',
-                                        }
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'flex-end',
+                                        gap: '0.4em',
                                     }}
                                 >
-                                    {excerpt.filename}
-                                </Box>
-                                <Box>
-                                    <Button onClick={() => onFilterDocument?.(excerpt.docId)}>Filter Results for this Document</Button>
-                                </Box>
+                                    <Box
+                                        component="a"
+                                        href={excerpt.fileUrl}
+                                        target="_blank"
+                                        sx={{
+                                            color: '#58a6ff',
+                                            textDecoration: 'none',
+                                            fontWeight: 500,
+                                            opacity: 0.85,
+                                            transition: 'all 0.2s ease',
+                                            padding: '3px 8px',
+                                            borderRadius: '4px',
+                                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                            '&:hover': {
+                                                opacity: 1,
+                                                backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                                textDecoration: 'underline',
+                                            }
+                                        }}
+                                    >
+                                        {excerpt.filename}
+                                    </Box>
+                                    <FilterAlt
+                                        sx={{
+                                            cursor: 'pointer',
+                                            color: '#58a6ff',
+                                            textDecoration: 'none',
+                                            fontWeight: 500,
+                                            opacity: 0.85,
+                                            transition: 'all 0.2s ease',
+                                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                            '&:hover': {
+                                                opacity: 1,
+                                                backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                                textDecoration: 'underline',
+                                            }
+                                        }}
+                                        titleAccess="Add this document to filter over on the next search"
+                                        onClick={() => onFilterDocument?.(excerpt.docId)} />
+                                </Container>
                             </div>
                         )}
                     </Box>

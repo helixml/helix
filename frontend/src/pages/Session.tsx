@@ -588,6 +588,10 @@ const Session: FC = () => {
     onSend,
   ])
 
+  const onHandleFilterDocument = useCallback((docId: string) => {
+    setInputValue(current => current + `[DOC_ID:${docId}] `);
+  }, [setInputValue]);
+
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
     if (!session.data) return null;
@@ -824,6 +828,7 @@ const Session: FC = () => {
               onClone={onClone}
               onAddDocuments={undefined}
               onRestart={undefined}
+              onFilterDocument={onHandleFilterDocument}
             />
           ))}
 
@@ -838,6 +843,7 @@ const Session: FC = () => {
             onClone={onClone}
             onAddDocuments={onAddDocuments}
             onRestart={onRestart}
+            onFilterDocument={onHandleFilterDocument}
           >
             <InteractionLiveStream
               session_id={sessionData.id}
@@ -846,6 +852,7 @@ const Session: FC = () => {
               serverConfig={account.serverConfig}
               hasSubscription={account.userConfig.stripe_subscription_active || false}
               onMessageUpdate={scrollToBottom}
+              onFilterDocument={onHandleFilterDocument}
             />
           </Interaction>
         </Container>
@@ -914,6 +921,7 @@ const Session: FC = () => {
                     onClone={onClone}
                     onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
                     onRestart={isLastInteraction ? onRestart : undefined}
+                    onFilterDocument={onHandleFilterDocument}
                     headerButtons={isLastInteraction ? (
                       <Tooltip title="Restart Session">
                         <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
@@ -968,7 +976,8 @@ const Session: FC = () => {
     getBlockKey,
     isLoadingBlock,
     isStreaming,
-    scrollToBottom
+    scrollToBottom,
+    onHandleFilterDocument,
   ])
 
   useEffect(() => {
