@@ -430,8 +430,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
-	// Initialize OAuth manager
-	oauthManager := oauth.NewManager(postgresStore, nil)
+	// Create the OAuth manager
+	oauthManager := oauth.NewManager(postgresStore)
+	if err := oauthManager.LoadProviders(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to load oauth providers")
+	}
 
 	server, err := server.NewServer(
 		cfg,

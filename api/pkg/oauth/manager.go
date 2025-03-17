@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -29,21 +29,19 @@ type Manager struct {
 	store     store.Store
 	providers map[string]Provider
 	mutex     sync.RWMutex
-	log       *logrus.Entry
 }
 
 // NewManager creates a new OAuth manager
-func NewManager(store store.Store, log *logrus.Entry) *Manager {
+func NewManager(store store.Store) *Manager {
 	return &Manager{
 		store:     store,
 		providers: make(map[string]Provider),
-		log:       log.WithField("component", "oauth_manager"),
 	}
 }
 
 // LoadProviders loads all enabled OAuth providers from the database
 func (m *Manager) LoadProviders(ctx context.Context) error {
-	m.log.Info("Loading OAuth providers")
+	log.Info().Msg("Loading OAuth providers")
 
 	// Load all enabled providers
 	providers, err := m.store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
@@ -56,13 +54,13 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 	// Initialize providers
 	for _, config := range providers {
 		if err := m.InitProvider(ctx, config); err != nil {
-			m.log.WithError(err).Errorf("Failed to initialize provider: %s", config.ID)
+			log.Error().Err(err).Str("provider_id", config.ID).Msg("Failed to initialize provider")
 			// Continue with other providers
 			continue
 		}
 	}
 
-	m.log.Infof("Loaded %d OAuth providers", len(providers))
+	log.Info().Int("count", len(providers)).Msg("Loaded OAuth providers")
 	return nil
 }
 
@@ -98,7 +96,7 @@ func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider)
 	}
 
 	m.providers[config.ID] = provider
-	m.log.Infof("Initialized provider: %s (%s)", config.Name, config.ID)
+	log.Info().Str("provider", config.Name).Str("id", config.ID).Msg("Initialized provider")
 	return nil
 }
 
@@ -129,7 +127,7 @@ func (m *Manager) GetProviderByType(providerType types.OAuthProviderType) (Provi
 
 // RefreshExpiredTokens refreshes tokens that are about to expire
 func (m *Manager) RefreshExpiredTokens(ctx context.Context, threshold time.Duration) error {
-	m.log.Debug("Checking for expired tokens")
+	log.Debug().Msg("Checking for expired tokens")
 
 	// Get connections that are about to expire
 	connections, err := m.store.GetOAuthConnectionsNearExpiry(ctx, time.Now().Add(threshold))
@@ -141,12 +139,12 @@ func (m *Manager) RefreshExpiredTokens(ctx context.Context, threshold time.Durat
 		return nil
 	}
 
-	m.log.Infof("Found %d connections with tokens to refresh", len(connections))
+	log.Info().Int("count", len(connections)).Msg("Found connections with tokens to refresh")
 
 	// Refresh each connection
 	for _, connection := range connections {
 		if err := m.RefreshConnection(ctx, connection); err != nil {
-			m.log.WithError(err).Errorf("Failed to refresh token for connection %s", connection.ID)
+			log.Error().Err(err).Str("connection_id", connection.ID).Msg("Failed to refresh token")
 			// Continue with other connections
 			continue
 		}
