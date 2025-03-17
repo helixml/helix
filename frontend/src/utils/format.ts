@@ -18,3 +18,25 @@ export const prettyBytes = (a: number): string => {
   // 1032192 → ['1,008', 'KiB', 'kibibytes']
   return `${bs[0]} ${bs[1]}`
 }
+
+/**
+ * Format a date string to a human-readable format
+ * @param dateString ISO date string
+ * @returns Formatted date string
+ */
+export const formatDate = (dateString: string): string => {
+  if (!dateString) return '';
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
+  
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  };
+  
+  return new Intl.DateTimeFormat('en-US', options).format(date);
+};
