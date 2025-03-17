@@ -63,6 +63,8 @@ const Citation: React.FC<CitationProps> = ({
                 clear: 'right',
                 transition: 'opacity 0.3s ease',
                 animation: `${fadeIn} 0.4s ease-out`,
+
+                // Loading indicator for streaming
                 '&.streaming::after': {
                     content: '""',
                     display: 'block',
@@ -73,15 +75,91 @@ const Citation: React.FC<CitationProps> = ({
                     marginTop: '8px',
                     animation: `${shimmer} 2s infinite linear`,
                 },
-                // Responsive adjustments for smaller screens
+
+                // Responsive styles
                 '@media (max-width: 768px)': {
                     width: '100%',
                     maxWidth: '100%',
                     float: 'none',
                     margin: '24px 0 28px 0',
-                    '& .citation-header': {
-                        textAlign: 'left',
+                },
+
+                // Quote styling
+                '& .start-quote, & .end-quote': {
+                    color: 'rgba(88, 166, 255, 1.0)',
+                    fontFamily: 'Georgia, serif',
+                    fontSize: '1.5em',
+                    fontWeight: 'bold',
+                    lineHeight: 0,
+                    position: 'relative',
+                },
+
+                '& .start-quote': {
+                    marginRight: '0.15em',
+                    top: '0.1em',
+                },
+
+                '& .end-quote': {
+                    marginLeft: '0.15em',
+                    top: '0.1em',
+                },
+
+                // Loading states
+                '& .loading-full': {
+                    color: '#aaa',
+                    fontStyle: 'italic',
+                    animation: `${subtleBounce} 1.2s infinite ease-in-out`,
+                },
+
+                '& .loading-content': {
+                    color: '#aaa',
+                    fontStyle: 'italic',
+                    '&::after': {
+                        content: '"..."',
+                        animation: `${subtleBounce} 1.2s infinite ease-in-out`,
+                        display: 'inline-block',
                     }
+                },
+
+                '& .loading-search': {
+                    color: '#aaa',
+                    fontStyle: 'italic',
+                    display: 'inline-block',
+                    position: 'relative',
+                    paddingRight: '20px',
+                    '&::after': {
+                        content: '""',
+                        position: 'absolute',
+                        right: 0,
+                        top: '50%',
+                        width: '12px',
+                        height: '12px',
+                        marginTop: '-6px',
+                        borderRadius: '50%',
+                        border: '2px solid rgba(88, 166, 255, 0.4)',
+                        borderTopColor: 'rgba(88, 166, 255, 0.8)',
+                        animation: 'spin 1s linear infinite',
+                    }
+                },
+
+                // Loading item styles
+                '& .loading-item': {
+                    position: 'relative',
+                    '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        left: '-5px',
+                        top: 0,
+                        bottom: 0,
+                        width: '5px',
+                        background: 'rgba(88, 166, 255, 0.5)',
+                        animation: `${pulseFade} 1.5s infinite ease-in-out`,
+                    }
+                },
+
+                '@keyframes spin': {
+                    '0%': { transform: 'rotate(0deg)' },
+                    '100%': { transform: 'rotate(360deg)' },
                 }
             }}
         >
