@@ -22,10 +22,14 @@ export interface ISessionsContext {
   sessions: ISessionSummary[],
   hasMoreSessions: boolean,
   advancePage: () => void,
-  loadSessions: (reload?: boolean) => Promise<void>,
+  loadSessions: (query?: ISessionsQuery) => Promise<void>,
   addSesssion: (session: ISession) => void,
   deleteSession: (id: string) => Promise<boolean>,
   renameSession: (id: string, name: string) => Promise<boolean>,
+}
+
+export interface ISessionsQuery {
+  org_id?: string,
 }
 
 export const SessionsContext = createContext<ISessionsContext>({
@@ -62,7 +66,12 @@ export const useSessionsContext = (): ISessionsContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ sessions, setSessions ] = useState<ISessionSummary[]>([])
 
-  const loadSessions = useCallback(async (reload = false) => {
+  const loadSessions = useCallback(async (query: ISessionsQuery = {
+    org_id: '',
+  }) => {
+    const {
+      org_id,
+    } = query
     const limit = page * SESSION_PAGINATION_PAGE_LIMIT
     // console.dir({
     //   page,
@@ -76,6 +85,7 @@ export const useSessionsContext = (): ISessionsContext => {
       params: {
         limit,
         offset: 0,
+        organization_id: org_id || '',
       }
     })
     if(!result) {
@@ -137,13 +147,18 @@ export const useSessionsContext = (): ISessionsContext => {
 
   useEffect(() => {
     if(!account.user) return
-    loadSessions()
+    // we wait until we have loaded the organization before we load the apps
+    if(account.organizationTools.orgID && !account.organizationTools.organization) return
+    loadSessions({
+      org_id: account.organizationTools.organization?.id || '',
+    })
     if(!initialized) {
       setInitialized(true)
     }
   }, [
     account.user,
-    page,
+    account.organizationTools.orgID,
+    account.organizationTools.organization,
   ])
 
   return {
