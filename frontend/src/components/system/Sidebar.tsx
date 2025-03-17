@@ -8,6 +8,8 @@ import Divider from '@mui/material/Divider'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
 
 import WebhookIcon from '@mui/icons-material/Webhook'
 import HomeIcon from '@mui/icons-material/Home'
@@ -34,6 +36,11 @@ import {
   SESSION_MODE_FINETUNE,
 } from '../../types'
 
+const RESOURCE_TYPES = [
+  'chat',
+  'app',
+]
+
 const Sidebar: React.FC<{
   showTopLinks?: boolean,
 }> = ({
@@ -46,6 +53,9 @@ const Sidebar: React.FC<{
   const router = useRouter()
   const account = useAccount()
   const { models } = useContext(AccountContext)
+  
+  // Tab state to track active tab (0 for CHATS, 1 for APPS)
+  const [activeTab, setActiveTab] = useState(0)
 
   const filteredModels = useMemo(() => {
     return models.filter(m => m.type === "text" || m.type === "chat")
@@ -72,6 +82,14 @@ const Sidebar: React.FC<{
     router.navigate(path, params)
     account.setMobileMenuOpen(false)
     setAccountMenuAnchorEl(null)
+  }
+
+  // Handle tab change between CHATS and APPS
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue)
+    router.mergeParams({
+      resource_type: RESOURCE_TYPES[newValue],
+    })
   }
 
   return (
@@ -106,13 +124,35 @@ const Sidebar: React.FC<{
                 icon={ <HomeIcon/> }
               />
               
-              {/* <Divider />
-              <SidebarMainLink
-                routeName="new"
-                id="new-session-link"
-                title="New Session"
-                icon={ <AddIcon/> }
-              /> */}
+              {/* Tabs for CHATS and APPS */}
+              <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs 
+                  value={activeTab} 
+                  onChange={handleTabChange}
+                  aria-label="content tabs"
+                  sx={{ 
+                    '& .MuiTab-root': {
+                      minWidth: 'auto',
+                      flex: 1,
+                      color: lightTheme.textColorFaded,
+                    },
+                    '& .Mui-selected': {
+                      color: lightTheme.textColor,
+                      fontWeight: 'bold',
+                    },
+                    '& .MuiTabs-indicator': {
+                      backgroundColor: lightTheme.textColor,
+                    },
+                  }}
+                >
+                  {
+                    RESOURCE_TYPES.map((type) => (
+                      <Tab key={type} label={type.charAt(0).toUpperCase() + type.slice(1)} />
+                    ))
+                  }
+                </Tabs>
+              </Box>
+              
               <Divider />
             </List>
           )
