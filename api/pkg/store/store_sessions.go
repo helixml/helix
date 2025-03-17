@@ -12,30 +12,31 @@ import (
 	"gorm.io/gorm"
 )
 
-// parent session and parent tool are part of this query because then we can say
-// "all top level sessions" or
-// "all sessions belonging to this top level session"
-func getSessionsQuery(query GetSessionsQuery) (*types.Session, []interface{}) {
-	fields := []interface{}{
-		"Owner", "OwnerType", "ParentSession", "OrganizationID",
-	}
-	session := &types.Session{
-		Owner:          query.Owner,
-		OwnerType:      query.OwnerType,
-		ParentSession:  query.ParentSession,
-		OrganizationID: query.OrganizationID,
-	}
-	return session, fields
-}
-
 func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
+	// Start with the basic query builder
+	q := s.gdb.WithContext(ctx).Model(&types.Session{})
 
-	whereQuery, fields := getSessionsQuery(query)
+	// Add owner and owner type conditions
+	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
 
-	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(whereQuery, fields...)
+	// Add parent session condition if specified
+	if query.ParentSession != "" {
+		q = q.Where("parent_session = ?", query.ParentSession)
+	}
 
+	// Handle organization_id differently depending on whether it's specified
+	if query.OrganizationID != "" {
+		// Filter for sessions with this specific organization
+		q = q.Where("organization_id = ?", query.OrganizationID)
+	} else {
+		// Filter for sessions with no organization (personal sessions)
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
+	}
+
+	// Add ordering
 	q = q.Order("created DESC")
 
+	// Add pagination
 	if query.Limit > 0 {
 		q = q.Limit(query.Limit)
 	}
@@ -44,6 +45,7 @@ func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery)
 		q = q.Offset(query.Offset)
 	}
 
+	// Execute query and return results
 	var sessions []*types.Session
 	err := q.Find(&sessions).Error
 	if err != nil {
@@ -54,9 +56,25 @@ func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery)
 }
 
 func (s *PostgresStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
-	whereQuery, fields := getSessionsQuery(query)
+	// Start with the basic query builder
+	q := s.gdb.WithContext(ctx).Model(&types.Session{})
 
-	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(whereQuery, fields...)
+	// Add owner and owner type conditions
+	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+
+	// Add parent session condition if specified
+	if query.ParentSession != "" {
+		q = q.Where("parent_session = ?", query.ParentSession)
+	}
+
+	// Handle organization_id differently depending on whether it's specified
+	if query.OrganizationID != "" {
+		// Count sessions with this specific organization
+		q = q.Where("organization_id = ?", query.OrganizationID)
+	} else {
+		// Count sessions with no organization (personal sessions)
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
+	}
 
 	var counter int64
 	err := q.Count(&counter).Error

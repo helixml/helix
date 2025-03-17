@@ -89,6 +89,10 @@ func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Re
 		}
 
 		query.OrganizationID = organizationID
+	} else {
+		// When no organization is specified, we only want personal sessions
+		// Setting empty string explicitly ensures we only get sessions with no organization
+		query.OrganizationID = ""
 	}
 
 	// Extract offset and limit values from query parameters

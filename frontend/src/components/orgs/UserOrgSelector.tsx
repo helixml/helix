@@ -34,6 +34,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const currentOrg = account.organizationTools.organization
   const currentOrgId = account.organizationTools.organization?.id || 'default'
   const organizations = account.organizationTools.organizations
+  const displayOrgName = currentOrg?.display_name || currentOrg?.name || defaultOrgName
   
   const listOrgs = useMemo(() => {
     if(!account.user) return []
@@ -102,7 +103,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           },
           '& .MuiButton-endIcon': {
             position: 'absolute',
-            right: 16,
+            right: 52,
           },
         }}
       >
@@ -134,7 +135,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               textOverflow: 'ellipsis',
             }}
           >
-            {currentOrg?.display_name || currentOrg?.name || 'Select Organization'}
+            {displayOrgName}
           </Typography>
         </Box>
       </Button>

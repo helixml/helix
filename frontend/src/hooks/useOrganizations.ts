@@ -649,10 +649,19 @@ export default function useOrganizations(): IOrganizationTools {
 
   // Effect to load organization when orgIdParam changes
   useEffect(() => {
-    if (orgIdParam && initialized) {
+    if(!orgIdParam) {
+      setOrganization(undefined)
+      return
+    }
+
+    if (orgIdParam && initialized) {  
       const useOrg = organizations.find((org) => org.id === orgIdParam || org.name === orgIdParam)
-      if (!useOrg || !useOrg.id) return
-      loadOrganization(useOrg.id)
+      if (!useOrg || !useOrg.id) {
+        setOrganization(undefined)
+        return
+      } else {
+        loadOrganization(useOrg.id)
+      }
     }
   }, [orgIdParam, initialized])
 
