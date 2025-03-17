@@ -17,6 +17,16 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// knowledgeSearch godoc
+// @Summary Search knowledges
+// @Description Search knowledges for a given app and prompt
+// @Tags knowledge
+// @Param app_id query string true "App ID"
+// @Param knowledge_id query string false "Knowledge ID"
+// @Param prompt query string true "Search prompt"
+// @Success 200 {array} types.KnowledgeSearchResult
+// @Router /api/v1/search [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request) ([]*types.KnowledgeSearchResult, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
