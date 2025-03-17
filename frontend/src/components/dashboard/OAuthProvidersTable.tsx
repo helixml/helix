@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   Box,
   Button,
@@ -38,6 +38,7 @@ import AppleIcon from '@mui/icons-material/Apple'
 import CloudIcon from '@mui/icons-material/Cloud'
 import SettingsIcon from '@mui/icons-material/Settings'
 import CodeIcon from '@mui/icons-material/Code'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import { SvgIconComponent } from '@mui/icons-material'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -86,6 +87,8 @@ interface OAuthProvider {
   created_at: string
   isTemplate?: boolean
   isAddCard?: boolean
+  isConfigured: boolean
+  fromApi: boolean
 }
 
 const PROVIDER_TYPES = {
@@ -119,7 +122,7 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
 }
 
 const PROVIDER_COLORS: Record<string, string> = {
-  github: '#ffffff',
+  github: '#333333',
   google: '#4285F4',
   microsoft: '#00a1f1',
   atlassian: '#0052CC',
@@ -219,58 +222,96 @@ const OAuthProvidersTable: React.FC = () => {
   const [openDialog, setOpenDialog] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [currentProvider, setCurrentProvider] = useState<OAuthProvider | null>(null)
+  const [renderCount, setRenderCount] = useState(0)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({})
   
-  useEffect(() => {
-    loadProviders()
-  }, [])
-  
-  const loadProviders = async () => {
-    try {
-      setLoading(true)
-      const response = await api.get('/api/v1/oauth/providers')
-      console.log('Providers API response:', response)
-      
-      if (Array.isArray(response.data)) {
-        console.log(`Retrieved ${response.data.length} OAuth providers from the server`)
-        
-        // Log details of each provider for debugging
-        response.data.forEach((provider: OAuthProvider, index: number) => {
-          console.log(`Provider ${index + 1}:`, {
-            id: provider.id,
-            name: provider.name,
-            type: provider.type,
-            enabled: provider.enabled,
-            isTemplate: !!provider.isTemplate,
-            client_id: provider.client_id ? '(set)' : '(not set)',
-            client_secret: provider.client_secret ? '(set)' : '(not set)'
-          })
-        })
-        
-        setProviders(response.data || [])
-      } else {
-        console.warn('Unexpected providers API response format:', response.data)
-        setProviders([])
-      }
-    } catch (err) {
-      error('Failed to load OAuth providers')
-      console.error('Error loading providers:', err)
-      setProviders([])
-    } finally {
-      setLoading(false)
+  // Function to validate a single field
+  const validateField = (name: string, value: string) => {
+    if (name === 'name' || name === 'client_id' || name === 'client_secret') {
+      return !!value.trim();
     }
-  }
+    return true;
+  };
+  
+  // Reset field errors when opening dialog
+  const resetFieldErrors = () => {
+    setFieldErrors({});
+  };
+  
+  // Function to fetch providers
+  const fetchProvidersManually = async () => {
+    try {
+      setLoading(true);
+      
+      // Get providers from API
+      const providers = await api.get('/api/v1/oauth/providers');
+      
+      if (!Array.isArray(providers)) {
+        console.error("Error: API did not return an array of providers");
+        setProviders([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Process each provider
+      const processedProviders = providers.map((provider: any) => {
+        const clientId = provider.client_id || '';
+        const clientSecret = provider.client_secret || '';
+        
+        const hasClientId = typeof clientId === 'string' && clientId.trim() !== '';
+        const hasClientSecret = typeof clientSecret === 'string' && clientSecret.trim() !== '';
+        const hasCredentials = hasClientId && hasClientSecret;
+        
+        return {
+          id: provider.id,
+          name: provider.name,
+          description: provider.description || '',
+          type: provider.type,
+          client_id: clientId,
+          client_secret: clientSecret,
+          auth_url: provider.auth_url || '',
+          token_url: provider.token_url || '',
+          user_info_url: provider.user_info_url || '',
+          callback_url: provider.callback_url || '',
+          scopes: provider.scopes || [],
+          enabled: provider.enabled === true,
+          created_at: provider.created_at || new Date().toISOString(),
+          isTemplate: false, // Never a template if it came from the API
+          isConfigured: hasCredentials, // But we still track if it has credentials
+          fromApi: true // Flag to indicate this came from the API
+        } as OAuthProvider;
+      });
+      
+      // Update state
+      setProviders(processedProviders);
+      setLoading(false);
+      
+      // Force rerender to ensure UI updates
+      setTimeout(() => {
+        setRenderCount(prev => prev + 1);
+      }, 100);
+    } catch (err) {
+      console.error("Error fetching providers:", err);
+      setProviders([]);
+      setLoading(false);
+    }
+  };
+
+  // Load providers on component mount
+  useEffect(() => {
+    fetchProvidersManually();
+  }, []);
   
   const handleOpenDialog = (provider?: OAuthProvider) => {
-    console.log('handleOpenDialog called with provider:', provider ? `${provider.name} (${provider.id})` : 'none');
+    resetFieldErrors();
     
     if (provider && !provider.isTemplate) {
-      console.log('Editing existing provider:', provider);
+      // Editing an existing provider
       setCurrentProvider({...provider});
       setIsEditing(true);
     } else {
-      // Check if we're coming from a template click
+      // Creating a new provider
       const templateType = provider?.type || 'custom';
-      console.log('Creating new provider based on template type:', templateType);
       
       // Get default URLs if this is a known provider type
       const defaults = templateType !== 'custom' && PROVIDER_DEFAULTS[templateType as keyof typeof PROVIDER_DEFAULTS]
@@ -281,8 +322,6 @@ const OAuthProvidersTable: React.FC = () => {
             user_info_url: '',
             scopes: [] as string[]
           };
-      
-      console.log('Using defaults:', defaults);
       
       setCurrentProvider({
         id: '',
@@ -298,6 +337,9 @@ const OAuthProvidersTable: React.FC = () => {
         scopes: defaults.scopes,
         enabled: true,
         created_at: new Date().toISOString(),
+        isConfigured: false,
+        fromApi: false,
+        isTemplate: false
       });
       setIsEditing(false);
     }
@@ -317,7 +359,7 @@ const OAuthProvidersTable: React.FC = () => {
     try {
       await api.delete(`/api/v1/oauth/providers/${id}`)
       success('Provider deleted')
-      loadProviders()
+      fetchProvidersManually()
     } catch (err) {
       error('Failed to delete provider')
       console.error(err)
@@ -329,6 +371,14 @@ const OAuthProvidersTable: React.FC = () => {
     
     const { name, value } = e.target
     setCurrentProvider(prev => prev ? { ...prev, [name]: value } : null)
+    
+    // Validate field as user types
+    if (name === 'name' || name === 'client_id' || name === 'client_secret') {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: !validateField(name, value)
+      }));
+    }
   }
   
   const handleSwitchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -358,35 +408,44 @@ const OAuthProvidersTable: React.FC = () => {
     if (!currentProvider) return
     
     try {
+      // Validate all required fields at once
+      const errors: Record<string, boolean> = {};
+      
+      if (!currentProvider.name || currentProvider.name.trim() === '') {
+        errors.name = true;
+      }
+      
+      if (!currentProvider.client_id || currentProvider.client_id.trim() === '') {
+        errors.client_id = true;
+      }
+      
+      if (!currentProvider.client_secret || currentProvider.client_secret.trim() === '') {
+        errors.client_secret = true;
+      }
+      
+      // If there are any errors, show them and stop
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        error('Please fill in all required fields');
+        return;
+      }
+      
       // Ensure type is preserved and not empty
       const providerToSave = {
         ...currentProvider,
         type: currentProvider.type || 'custom', // Default to custom if no type
       };
       
-      console.log(`${isEditing ? 'Updating' : 'Creating'} OAuth provider:`, {
-        id: providerToSave.id,
-        name: providerToSave.name,
-        type: providerToSave.type,
-        client_id: providerToSave.client_id ? '(set)' : '(not set)',
-        client_secret: providerToSave.client_secret ? '(set)' : '(not set)',
-        enabled: providerToSave.enabled,
-        isEditing: isEditing
-      });
-      
       if (isEditing) {
         const response = await api.put(`/api/v1/oauth/providers/${providerToSave.id}`, providerToSave)
-        console.log('Provider update response:', response.data);
         success('Provider updated')
       } else {
         const response = await api.post('/api/v1/oauth/providers', providerToSave)
-        console.log('Provider creation response:', response.data);
         success('Provider created')
       }
       
       handleCloseDialog()
-      await loadProviders() // Added await to ensure providers are loaded before continuing
-      console.log('Providers reloaded after save');
+      await fetchProvidersManually() // Added await to ensure providers are loaded before continuing
     } catch (err) {
       error('Failed to save provider')
       console.error('Error saving provider:', err)
@@ -403,25 +462,34 @@ const OAuthProvidersTable: React.FC = () => {
   
   // Get all providers including built-in ones that are not yet configured
   const getAllProviders = () => {
-    // Create a copy of the existing providers
-    const result = [...providers];
-    console.log('Starting with configured providers:', result.length);
+    // Safety check for providers being undefined
+    if (!Array.isArray(providers)) {
+      console.warn('🚨 CRITICAL: Providers is not an array');
+      return createTemplateProviders();
+    }
     
-    // Add built-in providers that aren't already configured
+    // Check if we have any providers with credentials in state
+    const configuredProviders = providers.filter(p => {
+      const hasClientId = p.client_id && p.client_id.trim() !== '';
+      const hasClientSecret = p.client_secret && p.client_secret.trim() !== '';
+      return hasClientId && hasClientSecret;
+    });
+    
+    // Get unique provider types that already exist
+    const existingTypes = new Set(providers.map(p => p.type));
+    
+    // Create a copy of the providers
+    const result = [...providers];
+    
+    // Add missing built-in providers as templates
     BUILT_IN_PROVIDERS.forEach(builtIn => {
-      // Check if this built-in provider type already exists
-      // We need to check explicitly by type (not by ID) since configured providers have real IDs
-      const alreadyConfigured = result.some(p => p.type === builtIn.type);
-      
-      console.log(`Built-in provider ${builtIn.type} already configured: ${alreadyConfigured}`);
-      
-      if (!alreadyConfigured) {
-        // Add a template for this built-in provider
-        const templateProvider = {
-          id: `template-${builtIn.type}`,
-          name: builtIn.name || PROVIDER_TYPES[builtIn.type as keyof typeof PROVIDER_TYPES] || builtIn.type,
-          description: builtIn.description || `Connect to ${builtIn.name || builtIn.type} to enable integration`,
-          type: builtIn.type as string,
+      const providerType = builtIn.type as string;
+      if (!existingTypes.has(providerType)) {
+        result.push({
+          id: `template-${providerType}`,
+          name: builtIn.name || PROVIDER_TYPES[providerType as keyof typeof PROVIDER_TYPES] || providerType,
+          description: builtIn.description || '',
+          type: providerType,
           client_id: '',
           client_secret: '',
           auth_url: '',
@@ -432,10 +500,9 @@ const OAuthProvidersTable: React.FC = () => {
           enabled: false,
           created_at: new Date().toISOString(),
           isTemplate: true,
-        } as OAuthProvider;
-        
-        console.log(`Adding template for ${builtIn.type}`);
-        result.push(templateProvider);
+          isConfigured: false,
+          fromApi: false
+        } as OAuthProvider);
       }
     });
     
@@ -455,30 +522,74 @@ const OAuthProvidersTable: React.FC = () => {
       enabled: false,
       created_at: '',
       isAddCard: true,
+      isTemplate: false,
+      isConfigured: false,
+      fromApi: false
     } as OAuthProvider);
     
-    // Sort providers: enabled first, then disabled, then templates
+    // Sort providers - Always put configured providers first
     const sortedResult = result.sort((a, b) => {
       // Add card is always last
       if (a.isAddCard) return 1;
       if (b.isAddCard) return -1;
       
-      // Sort by template status
-      if (a.isTemplate && !b.isTemplate) return 1;
-      if (!a.isTemplate && b.isTemplate) return -1;
+      // Check isConfigured flag first
+      if (a.isConfigured && !b.isConfigured) return -1;
+      if (!a.isConfigured && b.isConfigured) return 1;
       
-      // Sort by enabled status for non-templates
-      if (!a.isTemplate && !b.isTemplate) {
-        if (a.enabled && !b.enabled) return -1;
-        if (!a.enabled && b.enabled) return 1;
-      }
-      
-      // If all else is equal, sort alphabetically
+      // Then sort by name
       return a.name.localeCompare(b.name);
     });
     
-    console.log('Final provider list:', sortedResult.length, 'items');
     return sortedResult;
+  };
+  
+  // Helper function to create template providers if nothing is in state
+  const createTemplateProviders = () => {
+    const templates = BUILT_IN_PROVIDERS.map(builtIn => {
+      const providerType = builtIn.type as string;
+      return {
+        id: `template-${providerType}`,
+        name: builtIn.name || PROVIDER_TYPES[providerType as keyof typeof PROVIDER_TYPES] || providerType,
+        description: builtIn.description || '',
+        type: providerType,
+        client_id: '',
+        client_secret: '',
+        auth_url: '',
+        token_url: '',
+        user_info_url: '',
+        callback_url: window.location.origin + '/oauth/flow/callback',
+        scopes: [],
+        enabled: false,
+        created_at: new Date().toISOString(),
+        isTemplate: true,
+        isConfigured: false,
+        fromApi: false
+      } as OAuthProvider;
+    });
+    
+    // Add the "Add Custom Provider" card
+    const result = [...templates, {
+      id: 'add-card',
+      name: 'Add Custom Provider',
+      description: 'Configure a new OAuth integration with any provider',
+      type: 'custom',
+      client_id: '',
+      client_secret: '',
+      auth_url: '',
+      token_url: '',
+      user_info_url: '',
+      callback_url: '',
+      scopes: [],
+      enabled: false,
+      created_at: '',
+      isAddCard: true,
+      isTemplate: false,
+      isConfigured: false,
+      fromApi: false
+    } as OAuthProvider];
+    
+    return result;
   }
   
   const renderProviderCard = (provider: OAuthProvider) => {
@@ -488,16 +599,12 @@ const OAuthProvidersTable: React.FC = () => {
     
     const icon = getProviderIcon(provider.type);
     const color = getProviderColor(provider.type);
-    const isTemplate = provider.isTemplate;
-    const isAtlassian = provider.type === 'atlassian';
     
-    console.log('Rendering provider card:', {
-      id: provider.id,
-      name: provider.name,
-      type: provider.type,
-      isTemplate: isTemplate,
-      enabled: provider.enabled,
-    });
+    // Check if this is a template - explicit isTemplate flag or not from API and missing credentials
+    const isTemplate = provider.isTemplate === true || 
+      (!provider.fromApi && !provider.isConfigured);
+    
+    const isAtlassian = provider.type === 'atlassian';
     
     return (
       <Card sx={{ 
@@ -511,7 +618,7 @@ const OAuthProvidersTable: React.FC = () => {
           borderColor: 'divider',
           backgroundColor: isTemplate ? 'transparent' : 'background.paper',
           cursor: 'pointer',
-          position: 'relative', // Added for debugging overlay
+          position: 'relative',
           '&:hover': {
             transform: 'translateY(-4px)',
             boxShadow: 4,
@@ -528,8 +635,6 @@ const OAuthProvidersTable: React.FC = () => {
               scopes: [] as string[]
             };
             
-            console.log('Configuring template provider:', provider.type);
-            
             setCurrentProvider({
               id: '',
               name: provider.name,
@@ -544,11 +649,13 @@ const OAuthProvidersTable: React.FC = () => {
               scopes: defaults.scopes,
               enabled: true,
               created_at: new Date().toISOString(),
+              isConfigured: false,
+              fromApi: false,
+              isTemplate: false
             });
             setIsEditing(false);
             setOpenDialog(true);
           } else {
-            console.log('Editing existing provider:', provider.id);
             handleOpenDialog(provider);
           }
         }}
@@ -701,18 +808,36 @@ const OAuthProvidersTable: React.FC = () => {
         </Box>
       </Box>
       
-      {loading ? (
-        <Typography>Loading providers...</Typography>
+      {loading && providers.length === 0 ? (
+        <>
+          <Typography>Loading providers...</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Debug: renderCount={renderCount}, providersLength={providers.length}
+          </Typography>
+        </>
       ) : (
         <>
           <Typography variant="h5" sx={{ mb: 3 }}>Provider Catalog</Typography>
+          {loading && <Typography variant="caption" color="text.secondary">Refreshing...</Typography>}
+          
+          <Button 
+            variant="outlined" 
+            size="small" 
+            sx={{ mb: 2 }}
+            onClick={() => fetchProvidersManually()}
+            startIcon={<RefreshIcon />}
+          >
+            Refresh
+          </Button>
           
           <Grid container spacing={3}>
-            {getAllProviders().map((provider) => (
-              <Grid item xs={12} sm={6} md={4} key={provider.id}>
-                {renderProviderCard(provider)}
-              </Grid>
-            ))}
+            {getAllProviders().map((provider) => {
+              return (
+                <Grid item xs={12} sm={6} md={4} key={provider.id}>
+                  {renderProviderCard(provider)}
+                </Grid>
+              );
+            })}
           </Grid>
         </>
       )}
@@ -737,6 +862,8 @@ const OAuthProvidersTable: React.FC = () => {
                   value={currentProvider.name}
                   onChange={handleInputChange}
                   required
+                  error={fieldErrors['name']}
+                  helperText={fieldErrors['name'] ? 'Name is required' : ''}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -776,6 +903,8 @@ const OAuthProvidersTable: React.FC = () => {
                   value={currentProvider.client_id}
                   onChange={handleInputChange}
                   required
+                  error={fieldErrors['client_id']}
+                  helperText={fieldErrors['client_id'] ? 'Client ID is required' : ''}
                 />
               </Grid>
               
@@ -788,6 +917,8 @@ const OAuthProvidersTable: React.FC = () => {
                   onChange={handleInputChange}
                   type="password"
                   required
+                  error={fieldErrors['client_secret']}
+                  helperText={fieldErrors['client_secret'] ? 'Client Secret is required' : ''}
                 />
               </Grid>
               
@@ -802,7 +933,6 @@ const OAuthProvidersTable: React.FC = () => {
                 />
               </Grid>
               
-              {/* Only show URL fields for custom providers */}
               {currentProvider.type === 'custom' && (
                 <>
                   <Grid item xs={12}>
