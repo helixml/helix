@@ -93,6 +93,7 @@ class HaystackService:
         splitter.warm_up()
         
         # Writer for the vector store (which now handles both embeddings and BM25)
+        # NUL bytes are filtered out in VectorchordDocumentStore.write_documents method
         vector_writer = DocumentWriter(
             document_store=self.document_store,
             policy=DuplicatePolicy.OVERWRITE  # Use overwrite policy to handle duplicate documents
@@ -330,6 +331,16 @@ class HaystackService:
         Returns:
             List of dictionaries with document data
         """
+        # Remove NUL bytes from query if present
+        if "\x00" in query_text:
+            logger.warning("Query contained NUL bytes that will be removed")
+            query_text = query_text.replace("\x00", "")
+        
+        # Validate query text after sanitizing
+        if not query_text or query_text.strip() == "":
+            logger.error("Empty query text received or contained only NUL bytes")
+            raise ValueError("Query text cannot be empty")
+            
         logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
         
         # Format filters correctly if they're provided
@@ -521,6 +532,12 @@ class HaystackService:
                 # Get the results from the document joiner
                 documents = output.get("document_joiner", {}).get("documents", [])
                 logger.info(f"Document joiner returned {len(documents)} documents")
+                
+                # Filter out NUL bytes from document content
+                for doc in documents:
+                    if doc.content and '\x00' in doc.content:
+                        logger.warning(f"Filtering NUL bytes from retrieval result document: {doc.id}")
+                        doc.content = doc.content.replace('\x00', '')
                 
                 # Debug the joined results
                 for i, doc in enumerate(documents):
