@@ -15,17 +15,11 @@ export interface GithubComHelixmlHelixApiPkgTypesConfig {
 
 export interface GithubComHelixmlHelixApiPkgTypesTool {
   config?: TypesToolConfig;
-  created?: string;
   description?: string;
   global?: boolean;
   id?: string;
   name?: string;
-  /** uuid of owner entity */
-  owner?: string;
-  /** e.g. user, system, org */
-  owner_type?: TypesOwnerType;
   tool_type?: GithubComHelixmlHelixApiPkgTypesToolType;
-  updated?: string;
 }
 
 export enum GithubComHelixmlHelixApiPkgTypesToolType {
@@ -329,6 +323,10 @@ export interface OpenaiEmbeddingResponse {
   model?: OpenaiEmbeddingModel;
   object?: string;
   usage?: GithubComSashabaranovGoOpenaiUsage;
+}
+
+export interface ServerLicenseKeyRequest {
+  license_key?: string;
 }
 
 export interface TypesAccessGrant {
@@ -729,6 +727,12 @@ export interface TypesKnowledgeProgress {
   progress?: number;
   started_at?: string;
   step?: string;
+}
+
+export interface TypesKnowledgeSearchResult {
+  duration_ms?: number;
+  knowledge?: TypesKnowledge;
+  results?: TypesSessionRAGResult[];
 }
 
 export interface TypesKnowledgeSource {
@@ -1225,6 +1229,7 @@ export interface TypesSessionRAGResult {
   filename?: string;
   id?: string;
   interaction_id?: string;
+  metadata?: Record<string, string>;
   session_id?: string;
   source?: string;
 }
@@ -1920,6 +1925,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the license key for the current user
+     *
+     * @name V1LicenseList
+     * @summary Get license key
+     * @request GET:/api/v1/license
+     * @secure
+     */
+    v1LicenseList: (params: RequestParams = {}) =>
+      this.request<ServerLicenseKeyRequest, any>({
+        path: `/api/v1/license`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the license key for the current user
+     *
+     * @name V1LicenseCreate
+     * @summary Set license key
+     * @request POST:/api/v1/license
+     * @secure
+     */
+    v1LicenseCreate: (params: RequestParams = {}) =>
+      this.request<ServerLicenseKeyRequest, any>({
+        path: `/api/v1/license`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List user's LLM calls with pagination and optional session filtering for a specific app
      *
      * @tags llm_calls
@@ -2317,6 +2358,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUpdateProviderEndpoint, any>({
         path: `/api/v1/providers-endpoints/${id}`,
         method: "PUT",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Search knowledges for a given app and prompt
+     *
+     * @tags knowledge
+     * @name V1SearchList
+     * @summary Search knowledges
+     * @request GET:/api/v1/search
+     * @secure
+     */
+    v1SearchList: (
+      query: {
+        /** App ID */
+        app_id: string;
+        /** Knowledge ID */
+        knowledge_id?: string;
+        /** Search prompt */
+        prompt: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesKnowledgeSearchResult[], any>({
+        path: `/api/v1/search`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

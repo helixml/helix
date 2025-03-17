@@ -1,8 +1,0 @@
----
-description: Use authorization functions for apps
-globs: api/pkg/server/*.go
-alwaysApply: false
----
-Act as a security conscious senior software developer. When implementing handlers think about whether handlers need authentication and authorization. 
-- Do not reimplement logic that is in the authz.go
-- When editing or adding new handlers, use existing functions such as `authorizeUserToApp` or `authorizeUserToResource`

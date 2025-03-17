@@ -542,6 +542,54 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/license": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the license key for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get license key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LicenseKeyRequest"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the license key for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Set license key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LicenseKeyRequest"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/llm_calls": {
             "get": {
                 "security": [
@@ -1091,6 +1139,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search knowledges for a given app and prompt",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Search knowledges",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Knowledge ID",
+                        "name": "knowledge_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search prompt",
+                        "name": "prompt",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.KnowledgeSearchResult"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/secrets": {
             "get": {
                 "security": [
@@ -1390,9 +1485,6 @@ const docTemplate = `{
                 "config": {
                     "$ref": "#/definitions/types.ToolConfig"
                 },
-                "created": {
-                    "type": "string"
-                },
                 "description": {
                     "type": "string"
                 },
@@ -1405,23 +1497,8 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "owner": {
-                    "description": "uuid of owner entity",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
                 "tool_type": {
                     "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ToolType"
-                },
-                "updated": {
-                    "type": "string"
                 }
             }
         },
@@ -2028,6 +2105,14 @@ const docTemplate = `{
                 },
                 "usage": {
                     "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
+                }
+            }
+        },
+        "server.LicenseKeyRequest": {
+            "type": "object",
+            "properties": {
+                "license_key": {
+                    "type": "string"
                 }
             }
         },
@@ -2977,6 +3062,23 @@ const docTemplate = `{
                 },
                 "step": {
                     "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSearchResult": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "knowledge": {
+                    "$ref": "#/definitions/types.Knowledge"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
                 }
             }
         },
@@ -4142,6 +4244,12 @@ const docTemplate = `{
                 },
                 "interaction_id": {
                     "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "session_id": {
                     "type": "string"
