@@ -931,15 +931,6 @@ ${trimmedContent}
 
   return (
     <>
-      {/* Render Citation component if we have data */}
-      {citationData && citationData.excerpts && citationData.excerpts.length > 0 && (
-        <Citation
-          excerpts={citationData.excerpts}
-          isStreaming={citationData.isStreaming}
-          onFilterDocument={onFilterDocument}
-        />
-      )}
-
       <Box
         sx={{
           '& pre': {
@@ -1047,8 +1038,17 @@ ${trimmedContent}
             paddingLeft: '2em',
             marginBottom: '1.2em',
           },
+          display: 'flow-root',
         }}
       >
+        {/* Render Citation component if we have data */}
+        {citationData && citationData.excerpts && citationData.excerpts.length > 0 && (
+          <Citation
+            excerpts={citationData.excerpts}
+            isStreaming={citationData.isStreaming}
+            onFilterDocument={onFilterDocument}
+          />
+        )}
         <Markdown
           children={processedContent}
           remarkPlugins={[remarkGfm]}
