@@ -86,7 +86,6 @@ const Citation: React.FC<CitationProps> = ({
             }}
         >
             <Box
-                className="citation-header"
                 sx={{
                     fontWeight: 600,
                     marginBottom: '16px',
@@ -103,7 +102,7 @@ const Citation: React.FC<CitationProps> = ({
             {excerpts.map((excerpt, index) => (
                 <Box
                     key={`${excerpt.docId}-${index}`}
-                    className={`citation-item${excerpt.isPartial ? ' loading-item' : ''}`}
+                    className={`${excerpt.isPartial ? ' loading-item' : ''}`}
                     sx={{
                         background: 'linear-gradient(to bottom, rgba(45, 48, 55, 0.7), rgba(35, 38, 45, 0.7))',
                         borderRadius: '10px',
@@ -113,12 +112,6 @@ const Citation: React.FC<CitationProps> = ({
                         position: 'relative',
                         borderLeft: '3px solid rgba(88, 166, 255, 0.6)',
                         transition: 'all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)',
-                        '&:hover': {
-                            transform: 'translateY(-3px) scale(1.01)',
-                            boxShadow: '0 5px 15px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2)',
-                            borderLeftWidth: '4px',
-                            borderLeftColor: 'rgba(88, 166, 255, 0.8)',
-                        },
                         '&.loading': {
                             animation: `${pulseFade} 2s infinite ease-in-out`,
                             borderLeftColor: 'rgba(170, 170, 170, 0.4)',
@@ -153,7 +146,7 @@ const Citation: React.FC<CitationProps> = ({
                     }}
                 >
                     <Box
-                        className={`citation-quote${excerpt.isPartial ? ' loading-content' : ''}`}
+                        className={`${excerpt.isPartial ? ' loading-content' : ''}`}
                         component="p"
                         sx={{
                             fontStyle: 'italic',
@@ -162,7 +155,6 @@ const Citation: React.FC<CitationProps> = ({
                             fontSize: '0.95em',
                             color: '#e0e0e0',
                             position: 'relative',
-                            paddingLeft: '1.8em',
                             textIndent: 0,
                             '& .loading-content': {
                                 color: '#aaa',
