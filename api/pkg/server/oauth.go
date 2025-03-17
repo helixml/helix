@@ -42,6 +42,11 @@ func (s *HelixAPIServer) handleListOAuthProviders(w http.ResponseWriter, r *http
 	var providers []*types.OAuthProvider
 	var err error
 
+	log.Debug().
+		Str("user_id", user.ID).
+		Bool("is_admin", user.Admin).
+		Msg("Listing OAuth providers")
+
 	if user.Admin {
 		providers, err = s.Store.ListOAuthProviders(r.Context(), nil)
 	} else {
@@ -52,14 +57,29 @@ func (s *HelixAPIServer) handleListOAuthProviders(w http.ResponseWriter, r *http
 	}
 
 	if err != nil {
+		log.Error().Err(err).Msg("Error listing OAuth providers")
 		return nil, fmt.Errorf("error listing providers: %w", err)
+	}
+
+	log.Info().
+		Int("count", len(providers)).
+		Bool("is_admin", user.Admin).
+		Msg("Retrieved OAuth providers")
+
+	for i, provider := range providers {
+		log.Debug().
+			Int("index", i).
+			Str("id", provider.ID).
+			Str("name", provider.Name).
+			Str("type", string(provider.Type)).
+			Bool("enabled", provider.Enabled).
+			Msg("Provider details")
 	}
 
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
 		for _, provider := range providers {
 			provider.ClientSecret = ""
-			provider.PrivateKey = ""
 		}
 	}
 
@@ -78,8 +98,15 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(w http.ResponseWriter, r *htt
 	// Parse the provider details from the request body
 	var provider types.OAuthProvider
 	if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
+		log.Error().Err(err).Msg("Failed to decode OAuth provider from request body")
 		return nil, fmt.Errorf("error decoding request: %w", err)
 	}
+
+	log.Info().
+		Str("name", provider.Name).
+		Str("type", string(provider.Type)).
+		Str("user_id", user.ID).
+		Msg("Creating new OAuth provider")
 
 	// Set the creator information
 	provider.CreatorID = user.ID
@@ -88,8 +115,19 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(w http.ResponseWriter, r *htt
 	// Create the provider
 	result, err := s.Store.CreateOAuthProvider(r.Context(), &provider)
 	if err != nil {
+		log.Error().Err(err).
+			Str("name", provider.Name).
+			Str("type", string(provider.Type)).
+			Msg("Failed to create OAuth provider")
 		return nil, fmt.Errorf("error creating provider: %w", err)
 	}
+
+	log.Info().
+		Str("id", result.ID).
+		Str("name", result.Name).
+		Str("type", string(result.Type)).
+		Bool("enabled", result.Enabled).
+		Msg("Successfully created OAuth provider")
 
 	return result, nil
 }
@@ -110,7 +148,6 @@ func (s *HelixAPIServer) handleListOAuthConnections(w http.ResponseWriter, r *ht
 	for _, connection := range connections {
 		connection.AccessToken = ""
 		connection.RefreshToken = ""
-		connection.TokenSecret = ""
 	}
 
 	return connections, nil
@@ -159,7 +196,6 @@ func (s *HelixAPIServer) handleGetOAuthProvider(w http.ResponseWriter, r *http.R
 		}
 
 		provider.ClientSecret = ""
-		provider.PrivateKey = ""
 	}
 
 	return provider, nil
@@ -254,7 +290,6 @@ func (s *HelixAPIServer) handleGetOAuthConnection(w http.ResponseWriter, r *http
 	if !user.Admin {
 		connection.AccessToken = ""
 		connection.RefreshToken = ""
-		connection.TokenSecret = ""
 	}
 
 	return connection, nil
@@ -323,7 +358,6 @@ func (s *HelixAPIServer) handleRefreshOAuthConnection(w http.ResponseWriter, r *
 	if !user.Admin {
 		connection.AccessToken = ""
 		connection.RefreshToken = ""
-		connection.TokenSecret = ""
 	}
 
 	return connection, nil

@@ -15,7 +15,6 @@ type Provider interface {
 	GetID() string
 	GetName() string
 	GetType() types.OAuthProviderType
-	GetVersion() types.OAuthVersion
 
 	// OAuth flow
 	GetAuthorizationURL(ctx context.Context, userID, redirectURL string) (string, error)
@@ -58,7 +57,6 @@ type Connection struct {
 	ProviderID    string
 	AccessToken   string
 	RefreshToken  string
-	TokenSecret   string // For OAuth 1.0a
 	ExpiresAt     time.Time
 	Scopes        []string
 	Profile       *types.OAuthUserInfo

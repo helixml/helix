@@ -290,6 +290,15 @@ const Sidebar: React.FC = ({
                     </MenuItem>
 
                     <MenuItem onClick={ () => {
+                      navigateTo('oauth-connections')
+                    }}>
+                      <ListItemIcon>
+                        <WebhookIcon fontSize="small" />
+                      </ListItemIcon> 
+                      Connected Services
+                    </MenuItem>
+
+                    <MenuItem onClick={ () => {
                       navigateTo('api-reference')
                     }}>
                       <ListItemIcon>

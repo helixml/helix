@@ -69,28 +69,8 @@ func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider)
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	var provider Provider
-	var err error
-
-	// Create the appropriate provider based on type and version
-	switch config.Type {
-	case types.OAuthProviderTypeAtlassian:
-		provider, err = NewAtlassianProvider(ctx, config, m.store)
-	case types.OAuthProviderTypeGitHub:
-		provider, err = NewGithubProvider(ctx, config, m.store)
-	case types.OAuthProviderTypeGoogle:
-		provider, err = NewGoogleProvider(ctx, config, m.store)
-	case types.OAuthProviderTypeMicrosoft:
-		provider, err = NewMicrosoftProvider(ctx, config, m.store)
-	default:
-		// Generic OAuth2 provider
-		if config.Version == types.OAuthVersion2 {
-			provider, err = NewOAuth2Provider(ctx, config, m.store)
-		} else {
-			return fmt.Errorf("unsupported provider type and version: %s %s", config.Type, config.Version)
-		}
-	}
-
+	// Create a generic OAuth2 provider for all provider types
+	provider, err := NewOAuth2Provider(ctx, config, m.store)
 	if err != nil {
 		return err
 	}
@@ -232,44 +212,8 @@ func (m *Manager) RegisterProvider(ctx context.Context, providerID string) (Prov
 		return nil, fmt.Errorf("failed to get provider from database: %w", err)
 	}
 
-	// Create provider instance based on type and version
-	var provider Provider
-
-	switch dbProvider.Type {
-	case types.OAuthProviderTypeAtlassian:
-		if dbProvider.Version == types.OAuthVersion1 {
-			provider, err = NewAtlassianProvider(ctx, dbProvider, m.store)
-		} else {
-			return nil, fmt.Errorf("unsupported OAuth version %s for Atlassian", dbProvider.Version)
-		}
-	case types.OAuthProviderTypeGitHub:
-		if dbProvider.Version == types.OAuthVersion2 {
-			provider, err = NewGithubProvider(ctx, dbProvider, m.store)
-		} else {
-			return nil, fmt.Errorf("unsupported OAuth version %s for GitHub", dbProvider.Version)
-		}
-	case types.OAuthProviderTypeGoogle:
-		if dbProvider.Version == types.OAuthVersion2 {
-			provider, err = NewGoogleProvider(ctx, dbProvider, m.store)
-		} else {
-			return nil, fmt.Errorf("unsupported OAuth version %s for Google", dbProvider.Version)
-		}
-	case types.OAuthProviderTypeMicrosoft:
-		if dbProvider.Version == types.OAuthVersion2 {
-			provider, err = NewMicrosoftProvider(ctx, dbProvider, m.store)
-		} else {
-			return nil, fmt.Errorf("unsupported OAuth version %s for Microsoft", dbProvider.Version)
-		}
-	case types.OAuthProviderTypeCustom:
-		if dbProvider.Version == types.OAuthVersion2 {
-			provider, err = NewOAuth2Provider(ctx, dbProvider, m.store)
-		} else {
-			return nil, fmt.Errorf("unsupported OAuth version %s for custom provider", dbProvider.Version)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", dbProvider.Type)
-	}
-
+	// Create a generic OAuth2 provider for all provider types
+	provider, err := NewOAuth2Provider(ctx, dbProvider, m.store)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider: %w", err)
 	}
@@ -335,14 +279,14 @@ func (m *Manager) DeleteConnection(ctx context.Context, userID, connectionID str
 	return m.store.DeleteOAuthConnection(ctx, connectionID)
 }
 
-// CreateAtlassianProvider creates a new Atlassian provider configuration
-func (m *Manager) CreateAtlassianProvider(ctx context.Context, config *types.OAuthProvider) (*types.OAuthProvider, error) {
+// CreateOAuth2Provider creates a new OAuth 2.0 provider configuration
+func (m *Manager) CreateOAuth2Provider(ctx context.Context, config *types.OAuthProvider) (*types.OAuthProvider, error) {
 	if config.ID == "" {
 		config.ID = uuid.New().String()
 	}
 
-	config.Type = types.OAuthProviderTypeAtlassian
-	config.Version = types.OAuthVersion1
+	// Always use OAuth 2.0
+	config.Version = types.OAuthVersion2
 
 	provider, err := m.store.CreateOAuthProvider(ctx, config)
 	if err != nil {
@@ -360,34 +304,72 @@ func (m *Manager) CreateAtlassianProvider(ctx context.Context, config *types.OAu
 	return provider, nil
 }
 
-// CreateOAuth2Provider creates a new OAuth 2.0 provider configuration
-func (m *Manager) CreateOAuth2Provider(ctx context.Context, config *types.OAuthProvider) (*types.OAuthProvider, error) {
-	if config.ID == "" {
-		config.ID = uuid.New().String()
+// MarkProviderAsReachable marks a provider as reachable
+func (m *Manager) MarkProviderAsReachable(ctx context.Context, providerID string) error {
+	// Get the provider
+	dbProvider, err := m.store.GetOAuthProvider(ctx, providerID)
+	if err != nil {
+		return fmt.Errorf("failed to get provider: %w", err)
 	}
 
-	// Make sure it's a supported OAuth 2.0 provider
-	if config.Type != types.OAuthProviderTypeGoogle &&
-		config.Type != types.OAuthProviderTypeMicrosoft &&
-		config.Type != types.OAuthProviderTypeGitHub &&
-		config.Type != types.OAuthProviderTypeCustom {
-		return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
+	// Update the provider as reachable (enabled)
+	dbProvider.Enabled = true
+
+	// Update the provider
+	_, err = m.store.UpdateOAuthProvider(ctx, dbProvider)
+	if err != nil {
+		return fmt.Errorf("failed to update provider: %w", err)
 	}
 
-	config.Version = types.OAuthVersion2
+	return nil
+}
 
-	provider, err := m.store.CreateOAuthProvider(ctx, config)
+// MarkProviderAsUnreachable marks a provider as unreachable
+func (m *Manager) MarkProviderAsUnreachable(ctx context.Context, providerID string) error {
+	// Get the provider
+	dbProvider, err := m.store.GetOAuthProvider(ctx, providerID)
+	if err != nil {
+		return fmt.Errorf("failed to get provider: %w", err)
+	}
+
+	// Update the provider as unreachable (disabled)
+	dbProvider.Enabled = false
+
+	// Update the provider
+	_, err = m.store.UpdateOAuthProvider(ctx, dbProvider)
+	if err != nil {
+		return fmt.Errorf("failed to update provider: %w", err)
+	}
+
+	return nil
+}
+
+// GetOrCreateProviderInstance gets or creates a provider instance
+func (m *Manager) GetOrCreateProviderInstance(ctx context.Context, providerID string) (Provider, error) {
+	// Check if we already have the provider in memory
+	m.mutex.RLock()
+	provider, found := m.providers[providerID]
+	m.mutex.RUnlock()
+	if found {
+		return provider, nil
+	}
+
+	// If not, get the provider config from the database
+	dbProvider, err := m.store.GetOAuthProvider(ctx, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider from database: %w", err)
+	}
+
+	// Create a generic OAuth2 provider for all provider types
+	provider, err = NewOAuth2Provider(ctx, dbProvider, m.store)
 	if err != nil {
 		return nil, err
 	}
 
-	// Register the provider
-	_, err = m.RegisterProvider(ctx, provider.ID)
-	if err != nil {
-		// If registration fails, delete the provider
-		_ = m.store.DeleteOAuthProvider(ctx, provider.ID)
-		return nil, err
-	}
+	// Store the provider in memory
+	m.mutex.Lock()
+	m.providers[providerID] = provider
+	m.mutex.Unlock()
 
 	return provider, nil
 }

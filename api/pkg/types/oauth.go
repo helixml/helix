@@ -6,15 +6,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// OAuthVersion represents the OAuth protocol version
-type OAuthVersion string
-
-const (
-	OAuthVersionUnknown OAuthVersion = ""
-	OAuthVersion1       OAuthVersion = "1.0a"
-	OAuthVersion2       OAuthVersion = "2.0"
-)
-
 // OAuthProviderType represents the type of OAuth provider
 type OAuthProviderType string
 
@@ -24,6 +15,8 @@ const (
 	OAuthProviderTypeGoogle    OAuthProviderType = "google"
 	OAuthProviderTypeMicrosoft OAuthProviderType = "microsoft"
 	OAuthProviderTypeGitHub    OAuthProviderType = "github"
+	OAuthProviderTypeSlack     OAuthProviderType = "slack"
+	OAuthProviderTypeLinkedIn  OAuthProviderType = "linkedin"
 	OAuthProviderTypeCustom    OAuthProviderType = "custom"
 )
 
@@ -36,28 +29,17 @@ type OAuthProvider struct {
 	Name        string            `json:"name" gorm:"not null"`
 	Description string            `json:"description"`
 	Type        OAuthProviderType `json:"type" gorm:"not null;type:text"`
-	Version     OAuthVersion      `json:"version" gorm:"not null;default:'2.0';type:text"`
 
 	// Common fields for all providers
 	ClientID     string `json:"client_id" gorm:"not null"`
 	ClientSecret string `json:"client_secret" gorm:"type:text"`
 
-	// OAuth 2.0 specific fields
+	// OAuth 2.0 fields
 	AuthURL      string `json:"auth_url"`
 	TokenURL     string `json:"token_url"`
 	UserInfoURL  string `json:"user_info_url"`
 	CallbackURL  string `json:"callback_url"`
 	DiscoveryURL string `json:"discovery_url"`
-
-	// OAuth 1.0a specific fields
-	RequestTokenURL string `json:"request_token_url"`
-	AccessTokenURL  string `json:"access_token_url"`
-	AuthorizeURL    string `json:"authorize_url"`
-	BaseURL         string `json:"base_url"` // For Atlassian server
-
-	// RSA keys for OAuth 1.0a
-	PublicKey  string `json:"public_key" gorm:"type:text"`
-	PrivateKey string `json:"private_key" gorm:"type:text"`
 
 	// Who created/owns this provider
 	CreatorID   string    `json:"creator_id" gorm:"not null;index"`
@@ -80,11 +62,8 @@ type OAuthConnection struct {
 	// Provider is a reference to the OAuth provider
 	Provider OAuthProvider `json:"provider" gorm:"foreignKey:ProviderID"`
 
-	// OAuth 1.0a fields
-	AccessToken string `json:"access_token" gorm:"not null;type:text"`
-	TokenSecret string `json:"token_secret" gorm:"type:text"`
-
-	// OAuth 2.0 fields
+	// OAuth token fields
+	AccessToken  string    `json:"access_token" gorm:"not null;type:text"`
 	RefreshToken string    `json:"refresh_token" gorm:"type:text"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	Scopes       []string  `json:"scopes" gorm:"type:text;serializer:json"`
@@ -100,15 +79,13 @@ type OAuthConnection struct {
 	UniqueConnection string `json:"unique_connection" gorm:"uniqueIndex"`
 }
 
-// OAuthRequestToken temporarily stores OAuth 1.0a request tokens during flow
-// or OAuth 2.0 state parameters during authorization code flow
+// OAuthRequestToken temporarily stores OAuth state parameters during authorization code flow
 type OAuthRequestToken struct {
 	ID          string    `json:"id" gorm:"primaryKey;type:uuid"`
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UserID      string    `json:"user_id" gorm:"not null;index"`
 	ProviderID  string    `json:"provider_id" gorm:"not null;index;type:uuid"`
-	Token       string    `json:"token"`
-	TokenSecret string    `json:"token_secret" gorm:"type:text"`
+	Token       string    `json:"token"` // For compatibility with existing records
 	State       string    `json:"state" gorm:"index"`
 	RedirectURL string    `json:"redirect_url" gorm:"type:text"`
 	ExpiresAt   time.Time `json:"expires_at" gorm:"not null;index"`

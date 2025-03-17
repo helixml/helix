@@ -26,9 +26,7 @@ type OAuth2Provider struct {
 
 // NewOAuth2Provider creates a new OAuth 2.0 provider
 func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store store.Store) (Provider, error) {
-	if config.Version != types.OAuthVersion2 {
-		return nil, fmt.Errorf("invalid OAuth version: %s", config.Version)
-	}
+	// Always use OAuth 2.0 regardless of what is specified in the config
 
 	var provider *oidc.Provider
 	var verifier *oidc.IDTokenVerifier
@@ -53,7 +51,7 @@ func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store s
 		RedirectURL:  config.CallbackURL,
 		Scopes:       config.Scopes,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  config.AuthorizeURL,
+			AuthURL:  config.AuthURL,
 			TokenURL: config.TokenURL,
 		},
 	}
@@ -80,11 +78,6 @@ func (p *OAuth2Provider) GetName() string {
 // GetType returns the provider type
 func (p *OAuth2Provider) GetType() types.OAuthProviderType {
 	return p.config.Type
-}
-
-// GetVersion returns the OAuth version
-func (p *OAuth2Provider) GetVersion() types.OAuthVersion {
-	return p.config.Version
 }
 
 // GetAuthorizationURL generates the authorization URL for the OAuth flow
@@ -404,63 +397,6 @@ func toJSONString(data map[string]interface{}) string {
 		return ""
 	}
 	return string(bytes)
-}
-
-// NewGithubProvider creates a GitHub OAuth 2.0 provider
-func NewGithubProvider(ctx context.Context, config *types.OAuthProvider, store store.Store) (Provider, error) {
-	// Force GitHub-specific configuration
-	config.Type = types.OAuthProviderTypeGitHub
-	config.Version = types.OAuthVersion2
-
-	if config.AuthorizeURL == "" {
-		config.AuthorizeURL = "https://github.com/login/oauth/authorize"
-	}
-	if config.TokenURL == "" {
-		config.TokenURL = "https://github.com/login/oauth/access_token"
-	}
-	if config.UserInfoURL == "" {
-		config.UserInfoURL = "https://api.github.com/user"
-	}
-
-	if len(config.Scopes) == 0 {
-		config.Scopes = []string{"read:user", "user:email"}
-	}
-
-	return NewOAuth2Provider(ctx, config, store)
-}
-
-// NewGoogleProvider creates a Google OAuth 2.0 provider
-func NewGoogleProvider(ctx context.Context, config *types.OAuthProvider, store store.Store) (Provider, error) {
-	// Force Google-specific configuration
-	config.Type = types.OAuthProviderTypeGoogle
-	config.Version = types.OAuthVersion2
-
-	if config.DiscoveryURL == "" {
-		config.DiscoveryURL = "https://accounts.google.com"
-	}
-
-	if len(config.Scopes) == 0 {
-		config.Scopes = []string{"openid", "profile", "email"}
-	}
-
-	return NewOAuth2Provider(ctx, config, store)
-}
-
-// NewMicrosoftProvider creates a Microsoft OAuth 2.0 provider
-func NewMicrosoftProvider(ctx context.Context, config *types.OAuthProvider, store store.Store) (Provider, error) {
-	// Force Microsoft-specific configuration
-	config.Type = types.OAuthProviderTypeMicrosoft
-	config.Version = types.OAuthVersion2
-
-	if config.DiscoveryURL == "" {
-		config.DiscoveryURL = "https://login.microsoftonline.com/common/v2.0"
-	}
-
-	if len(config.Scopes) == 0 {
-		config.Scopes = []string{"openid", "profile", "email", "User.Read"}
-	}
-
-	return NewOAuth2Provider(ctx, config, store)
 }
 
 // GetUserInfo gets the user information from the provider
