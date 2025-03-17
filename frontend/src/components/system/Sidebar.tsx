@@ -23,6 +23,7 @@ import SchoolIcon from '@mui/icons-material/School'
 import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
 import PeopleIcon from '@mui/icons-material/People'
+import AddIcon from '@mui/icons-material/Add'
 
 import SidebarMainLink from './SidebarMainLink'
 import UserOrgSelector from '../orgs/UserOrgSelector'
@@ -92,6 +93,16 @@ const Sidebar: React.FC<{
     })
   }
 
+  // Handle creating new chat or app based on active tab
+  const handleCreateNew = () => {
+    const resourceType = RESOURCE_TYPES[activeTab]
+    if (resourceType === 'chat') {
+      navigateTo('new')
+    } else if (resourceType === 'app') {
+      navigateTo('apps/new')
+    }
+  }
+
   return (
     <Box
       sx={{
@@ -114,7 +125,11 @@ const Sidebar: React.FC<{
             <List disablePadding>
               {
                 account.user && (
-                  <UserOrgSelector />
+                  <>
+                    <UserOrgSelector />
+                    <Divider />
+                  </>
+                  
                 )
               }
               <SidebarMainLink
@@ -124,6 +139,8 @@ const Sidebar: React.FC<{
                 icon={ <HomeIcon/> }
               />
               
+              <Divider />
+
               {/* Tabs for CHATS and APPS */}
               <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
                 <Tabs 
@@ -152,6 +169,15 @@ const Sidebar: React.FC<{
                   }
                 </Tabs>
               </Box>
+              
+              {/* New resource creation button */}
+              <SidebarMainLink
+                id="create-link"
+                routeName=""
+                title={`New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`}
+                icon={ <AddIcon/> }
+                handler={handleCreateNew}
+              />
               
               <Divider />
             </List>
