@@ -25,6 +25,7 @@ export interface SearchUsersResponse {
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
+  orgID: string,
   organization?: TypesOrganization,
   // Access grants state
   appAccessGrants: TypesAccessGrant[],
@@ -60,6 +61,8 @@ export interface IOrganizationTools {
 export const defaultOrganizationTools: IOrganizationTools = {
   organizations: [],
   loading: false,
+  orgID: '',
+  organization: undefined,
   appAccessGrants: [],
   loadingAccessGrants: false,
   loadOrganizations: async () => {},
@@ -108,7 +111,7 @@ export default function useOrganizations(): IOrganizationTools {
   const [loadingAccessGrants, setLoadingAccessGrants] = useState<boolean>(false)
 
   // Extract org_id parameter from router
-  const orgIdParam = router.params.org_id
+  const orgID = router.params.org_id || ''
 
   // Load a single organization with all its details
   const loadOrganization = async (id: string) => {
@@ -649,13 +652,13 @@ export default function useOrganizations(): IOrganizationTools {
 
   // Effect to load organization when orgIdParam changes
   useEffect(() => {
-    if(!orgIdParam) {
+    if(!orgID) {
       setOrganization(undefined)
       return
     }
 
-    if (orgIdParam && initialized) {  
-      const useOrg = organizations.find((org) => org.id === orgIdParam || org.name === orgIdParam)
+    if (orgID && initialized) {  
+      const useOrg = organizations.find((org) => org.id === orgID || org.name === orgID)
       if (!useOrg || !useOrg.id) {
         setOrganization(undefined)
         return
@@ -663,11 +666,12 @@ export default function useOrganizations(): IOrganizationTools {
         loadOrganization(useOrg.id)
       }
     }
-  }, [orgIdParam, initialized])
+  }, [orgID, initialized])
 
   return {
     organizations,
     loading,
+    orgID,
     organization,
     // Access grants state
     appAccessGrants,

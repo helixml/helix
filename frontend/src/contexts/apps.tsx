@@ -21,7 +21,7 @@ export interface IAppsContext {
   githubStatus: IGithubStatus | undefined,
   helixApps: IApp[],
   githubApps: IApp[],
-  loadApps: (force?: boolean) => Promise<void>,
+  loadApps: (query?: IAppsQuery) => Promise<void>,
   loadApp: (id: string, showErrors?: boolean) => Promise<void>,
   setApp: React.Dispatch<React.SetStateAction<IApp | undefined>>,
   loadGithubStatus: (pageURL: string) => Promise<void>,
@@ -35,6 +35,10 @@ export interface IAppsContext {
   githubReposLoading: boolean,
   connectError: string,
   connectLoading: boolean,
+}
+
+export interface IAppsQuery {
+  org_id?: string,
 }
 
 // Default context values
@@ -74,8 +78,17 @@ export const useAppsContext = (): IAppsContext => {
   const [ connectError, setConnectError ] = useState('')
   const [ connectLoading, setConectLoading ] = useState(false)
 
-  const loadApps = useCallback(async () => {
-    const result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
+  const loadApps = useCallback(async (query: IAppsQuery = {
+    org_id: '',
+  }) => {
+    const {
+      org_id,
+    } = query
+    const result = await api.get<IApp[]>(`/api/v1/apps`, {
+      params: {
+        organization_id: org_id || '',
+      }
+    }, {
       snackbar: true,
     })
     setApps(result || [])
@@ -278,9 +291,15 @@ export const useAppsContext = (): IAppsContext => {
   // Load initial data when user is available (just like in the sessions context)
   useEffect(() => {
     if(!account.user) return
-    loadApps()
+    // we wait until we have loaded the organization before we load the apps
+    if(account.organizationTools.orgID && !account.organizationTools.organization) return
+    loadApps({
+      org_id: account.organizationTools.organization?.id || '',
+    })
   }, [
     account.user,
+    account.organizationTools.orgID,
+    account.organizationTools.organization,
   ])
 
   return {
