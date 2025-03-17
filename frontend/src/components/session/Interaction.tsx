@@ -61,7 +61,8 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.onReloadSession !== nextProps.onReloadSession ||
     prevProps.onClone !== nextProps.onClone ||
     prevProps.onAddDocuments !== nextProps.onAddDocuments ||
-    prevProps.onRestart !== nextProps.onRestart) {
+    prevProps.onRestart !== nextProps.onRestart ||
+    prevProps.onFilterDocument !== nextProps.onFilterDocument) {
     return false
   }
 
