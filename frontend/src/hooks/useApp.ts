@@ -617,10 +617,7 @@ export const useApp = (appId: string) => {
         showLoading: true,
       })
       await endpointProviders.loadData()
-      account.loadApiKeys({
-        types: 'app',
-        app_id: appId,
-      })
+      await account.loadAppApiKeys(appId)
       setInitialised(true)
     }
 

@@ -39,7 +39,7 @@ export interface IAccountContext {
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
   addAppAPIKey: (appId: string) => Promise<void>,
-  loadAppApiKeys: (appId: string) => void,
+  loadAppApiKeys: (appId: string) => Promise<void>,
   models: IHelixModel[],
   hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
@@ -75,7 +75,7 @@ export const AccountContext = createContext<IAccountContext>({
   onLogout: () => { },
   loadApiKeys: () => { },
   addAppAPIKey: async () => { },
-  loadAppApiKeys: () => { },
+  loadAppApiKeys: async () => { },
   models: [],
   fetchModels: async () => { },
   providerEndpoints: [],
@@ -187,7 +187,17 @@ export const useAccountContext = (): IAccountContext => {
     setApiKeys(result)
   }, [])
 
-  
+  const loadAppApiKeys = useCallback(async (appId: string) => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
+      params: {
+        types: 'app',
+        app_id: appId,
+      },
+    })
+    if (!result) return
+    setAppApiKeys(result)
+  }, [])
+
   /**
    * Adds a new API key for the app
    */
@@ -204,12 +214,8 @@ export const useAccountContext = (): IAccountContext => {
       if (!res) return
       
       snackbar.success('API Key added')
-      
-      // Reload API keys
-      loadApiKeys({
-        types: 'app',
-        app_id: appId,
-      })
+
+      await loadAppApiKeys(appId)
     } catch (error) {
       console.error('Error adding API key:', error)
       snackbar.error('Failed to add API key')
@@ -218,18 +224,9 @@ export const useAccountContext = (): IAccountContext => {
     api,
     snackbar,
     apiKeys,
+    loadAppApiKeys,
   ])
   
-  const loadAppApiKeys = useCallback(async (appId: string) => {
-    const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
-      params: {
-        types: 'app',
-        app_id: appId,
-      },
-    })
-    if (!result) return
-    setAppApiKeys(result)
-  }, [])
 
   const fetchProviderEndpoints = useCallback(async () => {
     const response = await api.get('/api/v1/provider-endpoints')
