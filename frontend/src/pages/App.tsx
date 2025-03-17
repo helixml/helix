@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { FC, useEffect, useState } from 'react'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -7,7 +7,6 @@ import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
-import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
 import ApiIntegrations from '../components/app/ApiIntegrations'
@@ -22,41 +21,17 @@ import PreviewPanel from '../components/app/PreviewPanel'
 import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-import Window from '../components/widgets/Window'
 import SavingToast from '../components/widgets/SavingToast'
-import { useStreaming } from '../contexts/streaming'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
-import useApps from '../hooks/useApps'
 import useApp from '../hooks/useApp'
 import useRouter from '../hooks/useRouter'
-import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
-import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
-
-import {
-  APP_SOURCE_GITHUB,
-  APP_SOURCE_HELIX,
-  IApp,
-  IAppFlatState,
-  IAppUpdate,
-  IAssistantApi,
-  IAssistantGPTScript,
-  IAssistantZapier,
-  IFileStoreItem,
-  IAssistantConfig,
-  IKnowledgeSearchResult,
-  IKnowledgeSource,
-  ISession,
-  SESSION_TYPE_TEXT,
-  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
-  IOwnerType,
-} from '../types'
 
 const App: FC = () => {
   const account = useAccount()
@@ -295,7 +270,7 @@ const App: FC = () => {
 
                   {tabValue === 'ide' && (
                     <IdeIntegrationSection
-                      appId={app.id}
+                      appId={appTools.id}
                     />
                   )}
                 </Box>
@@ -345,7 +320,7 @@ const App: FC = () => {
               })
               if(!res) return
               snackbar.success('API Key deleted')
-              account.loadAppApiKeys(params.app_id)
+              await account.loadAppApiKeys(appTools.id)
               setDeletingAPIKey('')
             }}
             onCancel={() => {
@@ -363,7 +338,7 @@ const App: FC = () => {
         showErrors={appTools.showErrors}
         isReadOnly={appTools.isReadOnly}
       />
-      
+
     </Page>
   )
 }
