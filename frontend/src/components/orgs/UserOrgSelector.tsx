@@ -1,4 +1,4 @@
-import React, { FC, useState, useMemo } from 'react'
+import React, { FC, useState, useMemo, Fragment } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Menu from '@mui/material/Menu'
@@ -9,6 +9,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import SettingsIcon from '@mui/icons-material/Settings'
 import Divider from '@mui/material/Divider'
+import GroupsIcon from '@mui/icons-material/Groups'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -42,8 +43,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
 
     return [{
       id: 'default',
-      name: account.user.name,
-      display_name: account.user.name,
+      name: `${account.user.name} (Personal Account)`,
+      display_name: `${account.user.name} (Personal Account)`,
     }, ...loadedOrgs]
   }, [
     organizations,
@@ -60,10 +61,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
     setAnchorEl(null)
   }
 
-  const handleOrgSelect = (org: string) => {
+  const handleOrgSelect = (orgId: string | undefined) => {
     // Navigate to the selected organization
-    if (org.id) {
-      router.navigate(`/orgs/${org.id}`)
+    if (orgId) {
+      if(orgId == 'default') {
+        router.navigate('home')
+      } else {
+        router.navigate('orgs_home', {
+          org_id: orgId,
+        })
+      }
     }
     handleClose()
   }
@@ -81,7 +88,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           textTransform: 'none',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-start',
           minWidth: '200px',
           width: '100%',
           padding: 0,
@@ -94,12 +101,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           },
           '& .MuiButton-endIcon': {
-            marginLeft: 'auto',
-            marginRight: 2,
+            position: 'absolute',
+            right: 16,
           },
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', p: 1 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          p: 1,
+          maxWidth: 'calc(100% - 40px)', // Reserve space for the dropdown icon
+          overflow: 'hidden',
+        }}>
           <Avatar 
             sx={{ 
               width: 28, 
@@ -107,11 +120,20 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               bgcolor: theme => theme.palette.primary.main,
               fontSize: '0.8rem',
               mr: 1,
+              flexShrink: 0,
             }}
           >
             {(currentOrg?.display_name || currentOrg?.name || '?').charAt(0).toUpperCase()}
           </Avatar>
-          <Typography variant="body1" noWrap>
+          <Typography 
+            variant="body1" 
+            noWrap 
+            sx={{ 
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {currentOrg?.display_name || currentOrg?.name || 'Select Organization'}
           </Typography>
         </Box>
@@ -146,42 +168,61 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           }
         }}
       >
+
         {listOrgs.map((org) => (
-          <MenuItem 
-            key={org.id} 
-            onClick={() => handleOrgSelect(org)}
-            selected={org.id === currentOrgId}
-            sx={{ 
-              display: 'flex', 
-              alignItems: 'center',
-              py: 2,
-              width: '100%',
-              justifyContent: 'flex-start',
-            }}
+          <Fragment
+            key={org.id}
           >
-            <Avatar 
+            <MenuItem 
+              onClick={() => handleOrgSelect(org.id)}
+              selected={org.id === currentOrgId}
               sx={{ 
-                width: 28, 
-                height: 28, 
-                bgcolor: theme => theme.palette.primary.main,
-                fontSize: '0.8rem',
-                mr: 1,
-                flexShrink: 0,
+                display: 'flex', 
+                alignItems: 'center',
+                py: 2,
+                width: '100%',
+                justifyContent: 'flex-start',
               }}
             >
-              {(org?.display_name || org?.name || '?').charAt(0).toUpperCase()}
-            </Avatar>
-            <Typography variant="body1" noWrap sx={{ flex: 1 }}>
-              {org?.display_name || org?.name}
-            </Typography>
-          </MenuItem>
+              <Avatar 
+                sx={{ 
+                  width: 28, 
+                  height: 28, 
+                  bgcolor: theme => theme.palette.primary.main,
+                  fontSize: '0.8rem',
+                  mr: 1,
+                  flexShrink: 0,
+                }}
+              >
+                {(org?.display_name || org?.name || '?').charAt(0).toUpperCase()}
+              </Avatar>
+              <Typography 
+                variant="body1" 
+                noWrap 
+                sx={{ 
+                  flex: 1,
+                  maxWidth: 'calc(100% - 40px)', // Reserve space for the avatar
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {org?.display_name || org?.name}
+              </Typography>
+            </MenuItem>
+            {
+              org.id == 'default' && listOrgs.length > 1 && (
+                <Divider sx={{ my: 1 }} />
+              )        
+            }
+          </Fragment>
         ))}
         
         <Divider sx={{ my: 1 }} />
         
         <MenuItem 
           onClick={() => {
-
+            handleClose()
+            router.navigate('orgs')
           }}
           sx={{ 
             display: 'flex', 
@@ -205,10 +246,19 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               alignItems: 'center',
             }}
           >
-            <SettingsIcon sx={{ fontSize: 16 }} />
+            <GroupsIcon sx={{ fontSize: 16 }} />
           </Avatar>
-          <Typography variant="body1" noWrap sx={{ flex: 1 }}>
-            List Orgs...
+          <Typography 
+            variant="body1" 
+            noWrap 
+            sx={{ 
+              flex: 1,
+              maxWidth: 'calc(100% - 40px)', // Reserve space for the avatar
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            List Organizations...
           </Typography>
         </MenuItem>
       </Menu>
