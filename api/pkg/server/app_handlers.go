@@ -182,7 +182,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	user := getRequestUser(r)
 	ctx := r.Context()
 
-	var app types.App
+	var app *types.App
 	body, err := io.ReadAll(r.Body)
 
 	if err != nil {
@@ -216,7 +216,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
 
-	err = s.validateProviderAndModel(ctx, user, &app)
+	err = s.validateProviderAndModel(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -245,6 +245,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError400(err.Error())
 		}
 
+		app, err = store.ParseAppTools(app)
+		if err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+
 		// Validate and default tools
 		for idx := range app.Config.Helix.Assistants {
 			assistant := &app.Config.Helix.Assistants[idx]
@@ -264,7 +269,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			}
 		}
 
-		created, err = s.Store.CreateApp(ctx, &app)
+		created, err = s.Store.CreateApp(ctx, app)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
@@ -274,7 +279,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		if app.Config.Github.Repo == "" {
 			return nil, system.NewHTTPError400("github repo is required")
 		}
-		created, err = s.Store.CreateApp(ctx, &app)
+		created, err = s.Store.CreateApp(ctx, app)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
@@ -620,10 +625,15 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	update.Updated = time.Now()
+	updatedWithTools, err := store.ParseAppTools(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	updatedWithTools.Updated = time.Now()
 
 	// Validate and default tools
-	for idx := range update.Config.Helix.Assistants {
+	for idx := range updatedWithTools.Config.Helix.Assistants {
 		assistant := &update.Config.Helix.Assistants[idx]
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
@@ -642,7 +652,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	// Updating the app
-	updated, err := s.Store.UpdateApp(r.Context(), &update)
+	updated, err := s.Store.UpdateApp(r.Context(), updatedWithTools)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

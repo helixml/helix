@@ -693,6 +693,12 @@ const App: FC = () => {
         model: model,
       })),
     };
+    
+    // Remove assistant tools as this is an internal field
+    currentConfig.assistants = currentConfig.assistants.map(assistant => ({
+      ...assistant,
+      tools: undefined
+    }));
 
     // Remove empty values and format as YAML
     let cleanedConfig = removeEmptyValues(currentConfig);
@@ -970,9 +976,11 @@ const App: FC = () => {
   }, []);
 
   const assistants = app?.config.helix.assistants || []
-  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
+  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []  
   const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
   const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
+
+  const apiTools = assistants.length > 0 ? (assistants[0].tools || []).filter(tool => tool.config?.api) : []
 
   if(!account.user) return null
   if(!app) return null
@@ -1124,6 +1132,7 @@ const App: FC = () => {
                     <>
                       <ApiIntegrations
                         apis={apiAssistants}
+                        tools={apiTools}
                         onSaveApiTool={onSaveApiTool}
                         onDeleteApiTool={onDeleteApiTool}
                         isReadOnly={isReadOnly}
