@@ -31,7 +31,6 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
@@ -191,11 +190,6 @@ func NewServer(
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
-	// Configure the server and migrate the OAuth tables
-	if err := apiServer.ConfigureServer(); err != nil {
-		return fmt.Errorf("failed to configure server: %w", err)
-	}
-
 	apiRouter, err := apiServer.registerRoutes(ctx)
 	if err != nil {
 		return err
@@ -745,19 +739,6 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Start the server
 	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("embeddings socket server error: %w", err)
-	}
-
-	return nil
-}
-
-func (s *HelixAPIServer) ConfigureServer() error {
-	// Auto-migrate OAuth tables using the underlying DB connection
-	if err := s.Store.DB().AutoMigrate(
-		&types.OAuthProvider{},
-		&types.OAuthConnection{},
-		&types.OAuthRequestToken{},
-	); err != nil {
-		return fmt.Errorf("failed to auto-migrate OAuth tables: %w", err)
 	}
 
 	return nil
