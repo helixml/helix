@@ -94,19 +94,18 @@ async def process_file(
         logger.error("Empty file content received")
         raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty")
     
-    # Check for NUL bytes and remove them if present
-    sanitized_content = content.replace(b'\x00', b'')
-    if len(sanitized_content) != len(content):
-        logger.warning(f"File {file.filename} contained NUL bytes that were removed")
+    # For binary files like PDFs, we should NOT sanitize content as it will corrupt the file
+    # PDF files and other binary formats may contain NUL bytes as part of their format
+    # NUL bytes will be handled after text extraction in the converter
     
-    # Check for empty content after sanitizing
-    if not sanitized_content:
+    # Only check if the content is ONLY NUL bytes (which would be invalid)
+    if content == b'\x00' * len(content):
         logger.error("File contained only NUL bytes")
         raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty (contained only NUL bytes)")
     
-    # Save file temporarily
+    # Save file temporarily with original binary content intact
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
-        temp.write(sanitized_content)
+        temp.write(content)
         temp_path = temp.name
     
     try:
@@ -142,9 +141,20 @@ async def extract_text(
     # Get file extension
     _, ext = os.path.splitext(file.filename)
     
-    # Save file temporarily
+    # Read the file content
+    content = await file.read()
+    
+    # Check for empty content
+    if not content:
+        logger.error("Empty file content received")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty")
+    
+    # For binary files like PDFs, we should NOT sanitize content as it will corrupt the file
+    # PDF files and other binary formats may contain NUL bytes as part of their format
+    # NUL bytes will be handled after text extraction in the converter
+    
+    # Save file temporarily with original binary content intact
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
-        content = await file.read()
         temp.write(content)
         temp_path = temp.name
     

@@ -56,22 +56,6 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 			continue
 		}
 
-		// Remove NUL bytes from content
-		sanitizedContent := removeNULBytes(chunk.Content)
-		if sanitizedContent != chunk.Content {
-			logger.Warn().
-				Str("document_id", chunk.DocumentID).
-				Msg("document content contained NUL bytes that were removed")
-		}
-
-		// Check for emptiness again after sanitizing NUL bytes
-		if sanitizedContent == "" {
-			logger.Warn().
-				Str("document_id", chunk.DocumentID).
-				Msg("skipping chunk with only NUL bytes")
-			continue
-		}
-
 		// Create multipart/form-data
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
@@ -88,8 +72,8 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 			return fmt.Errorf("creating form file: %w", err)
 		}
 
-		// Write the content
-		_, err = part.Write([]byte(sanitizedContent))
+		// Write the content - preserve original content including any NUL bytes
+		_, err = part.Write([]byte(chunk.Content))
 		if err != nil {
 			return fmt.Errorf("writing content: %w", err)
 		}
@@ -367,10 +351,18 @@ func (h *HaystackRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest)
 
 	logger.Debug().Msg("Deleting documents from Haystack")
 
-	// Create delete request
+	// Create delete request with properly formatted filters
+	// The Haystack service expects filters with operator and conditions
 	deleteReq := map[string]interface{}{
 		"filters": map[string]interface{}{
-			"data_entity_id": req.DataEntityID,
+			"operator": "AND",
+			"conditions": []map[string]interface{}{
+				{
+					"field":    "meta.data_entity_id",
+					"operator": "==",
+					"value":    req.DataEntityID,
+				},
+			},
 		},
 	}
 
