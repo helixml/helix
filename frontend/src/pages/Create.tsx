@@ -108,9 +108,12 @@ const Create: FC = () => {
     // Set the first model as default if current model is not set or not in the list
     if (!initialModelSetRef.current && filteredModels.length > 0 && !model) {
       initialModelSetRef.current = true
-      const newUrl = new URL(window.location.href)
-      newUrl.searchParams.set('model', filteredModels[0].id)
-      window.history.replaceState({}, '', newUrl.toString())
+      console.log('INSIDE CREATE PAGE')
+      console.trace()
+      router.mergeParams({ model: filteredModels[0].id })
+      // const newUrl = new URL(window.location.href)
+      // newUrl.searchParams.set('model', filteredModels[0].id)
+      // window.history.replaceState({}, '', newUrl.toString())
     }
   }, [filteredModels, model])
 
@@ -267,7 +270,6 @@ const Create: FC = () => {
   useEffect(() => {
     inputs.setFinetuneFiles([])
     inputs.setLabels({})
-    router.removeParams(['imageFineTuneStep'])
   }, [
     mode,
     type,
