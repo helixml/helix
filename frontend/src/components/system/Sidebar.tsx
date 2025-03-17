@@ -10,7 +10,6 @@ import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
 
 import WebhookIcon from '@mui/icons-material/Webhook'
-import AddIcon from '@mui/icons-material/Add'
 import HomeIcon from '@mui/icons-material/Home'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
@@ -24,6 +23,7 @@ import CodeIcon from '@mui/icons-material/Code'
 import PeopleIcon from '@mui/icons-material/People'
 
 import SidebarMainLink from './SidebarMainLink'
+import UserOrgSelector from '../orgs/UserOrgSelector'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
@@ -31,12 +31,7 @@ import useAccount from '../../hooks/useAccount'
 import { AccountContext } from '../../contexts/account'
 
 import {
-  ICreateSessionConfig,
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
-  ISessionType,
 } from '../../types'
 
 const Sidebar: React.FC<{
@@ -109,6 +104,9 @@ const Sidebar: React.FC<{
                   />
                 )
               }
+              <UserOrgSelector
+
+              />
               <SidebarMainLink
                 id="home-link"
                 routeName="home"
