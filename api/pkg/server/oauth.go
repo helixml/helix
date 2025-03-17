@@ -161,14 +161,24 @@ func (s *HelixAPIServer) handleStartOAuthFlow(w http.ResponseWriter, r *http.Req
 	vars := mux.Vars(r)
 	providerID := vars["provider_id"]
 
+	log.Debug().Str("provider_id", providerID).Str("user_id", user.ID).Msg("Starting OAuth flow")
+
 	// Get the redirect URL from the query parameters
 	redirectURL := r.URL.Query().Get("redirect_url")
+	if redirectURL == "" {
+		log.Debug().Msg("No redirect URL provided, using default")
+	} else {
+		log.Debug().Str("redirect_url", redirectURL).Msg("Using provided redirect URL")
+	}
 
 	// Start the OAuth flow
 	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL)
 	if err != nil {
+		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", user.ID).Msg("Failed to start OAuth flow")
 		return nil, fmt.Errorf("error starting OAuth flow: %w", err)
 	}
+
+	log.Debug().Str("provider_id", providerID).Str("user_id", user.ID).Str("auth_url", authURL).Msg("Successfully generated OAuth authorization URL")
 
 	// Return the authorization URL
 	return map[string]string{
