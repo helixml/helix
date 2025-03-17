@@ -60,10 +60,10 @@ require (
 	github.com/typesense/typesense-go/v2 v2.0.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.36.0
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
-	golang.org/x/oauth2 v0.21.0
-	golang.org/x/term v0.27.0
+	golang.org/x/oauth2 v0.28.0
+	golang.org/x/term v0.30.0
 	google.golang.org/api v0.183.0
 	gopkg.in/go-jose/go-jose.v2 v2.6.3
 	gopkg.in/rjz/githubhook.v0 v0.0.1
@@ -75,7 +75,12 @@ require (
 	gotest.tools/v3 v3.5.1
 )
 
-require github.com/pquerna/cachecontrol v0.2.0 // indirect
+require (
+	github.com/coreos/go-oidc/v3 v3.13.0 // indirect
+	github.com/dghubble/oauth1 v0.7.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
+	github.com/pquerna/cachecontrol v0.2.0 // indirect
+)
 
 require (
 	cloud.google.com/go v0.114.0 // indirect
@@ -237,10 +242,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/mod v0.22.0 // indirect
-	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sync v0.11.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.22.0
+	golang.org/x/net v0.37.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.28.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect

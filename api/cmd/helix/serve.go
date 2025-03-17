@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -429,6 +430,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
+	// Initialize OAuth manager
+	oauthManager := oauth.NewManager(postgresStore, nil)
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
@@ -443,6 +447,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		knowledgeReconciler,
 		scheduler,
 		pingService,
+		oauthManager,
 	)
 	if err != nil {
 		return err

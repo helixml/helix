@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -30,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
@@ -78,6 +80,7 @@ type HelixAPIServer struct {
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
 	oidcClient        auth.OIDC
+	oauthManager      *oauth.Manager
 }
 
 func NewServer(
@@ -94,6 +97,7 @@ func NewServer(
 	knowledgeManager knowledge.Manager,
 	scheduler *scheduler.Scheduler,
 	pingService *version.PingService,
+	oauthManager *oauth.Manager,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -182,10 +186,16 @@ func NewServer(
 		scheduler:        scheduler,
 		pingService:      pingService,
 		oidcClient:       oidcClient,
+		oauthManager:     oauthManager,
 	}, nil
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
+	// Configure the server and migrate the OAuth tables
+	if err := apiServer.ConfigureServer(); err != nil {
+		return fmt.Errorf("failed to configure server: %w", err)
+	}
+
 	apiRouter, err := apiServer.registerRoutes(ctx)
 	if err != nil {
 		return err
@@ -262,6 +272,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// admin auth requires a user with admin flag
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
+
+	// Setup OAuth routes with the auth router (except for callback)
+	apiServer.setupOAuthRoutes(authRouter)
+
+	// Setup OAuth callback route (no auth required)
+	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
 
 	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
@@ -729,6 +745,19 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Start the server
 	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("embeddings socket server error: %w", err)
+	}
+
+	return nil
+}
+
+func (s *HelixAPIServer) ConfigureServer() error {
+	// Auto-migrate OAuth tables using the underlying DB connection
+	if err := s.Store.DB().AutoMigrate(
+		&types.OAuthProvider{},
+		&types.OAuthConnection{},
+		&types.OAuthRequestToken{},
+	); err != nil {
+		return fmt.Errorf("failed to auto-migrate OAuth tables: %w", err)
 	}
 
 	return nil
