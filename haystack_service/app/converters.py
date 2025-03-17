@@ -80,7 +80,7 @@ class LocalUnstructuredConverter:
                     ]
                     text = "\n\n".join(el for el in markdown_elements if el)
                 
-                # Filter out NUL bytes from text
+                # Filter out NUL bytes from text after extraction
                 if '\x00' in text:
                     logger.warning(f"Filtered NUL bytes from document text extracted from {path}")
                     text = text.replace('\x00', '')
