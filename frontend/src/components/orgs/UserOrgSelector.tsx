@@ -7,6 +7,8 @@ import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import SettingsIcon from '@mui/icons-material/Settings'
+import Divider from '@mui/material/Divider'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -58,7 +60,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
     setAnchorEl(null)
   }
 
-  const handleOrgSelect = (org: TypesOrganization) => {
+  const handleOrgSelect = (org: string) => {
     // Navigate to the selected organization
     if (org.id) {
       router.navigate(`/orgs/${org.id}`)
@@ -83,7 +85,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           minWidth: '200px',
           width: '100%',
           padding: 0,
-          pl: 2,
+          pl: 3,
+          pr: 4,
           height: isBigScreen ? `${TOOLBAR_HEIGHT}px` : '',
           borderRadius: '4px',
           backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
@@ -120,6 +123,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         onClose={handleClose}
         MenuListProps={{
           'aria-labelledby': 'org-selector-button',
+          sx: {
+            padding: 0,
+          }
         }}
         anchorOrigin={{
           vertical: 'bottom',
@@ -134,6 +140,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             minWidth: '200px',
           },
         }}
+        sx={{
+          '& .MuiMenu-paper': {
+            width: anchorEl ? anchorEl.clientWidth : '200px',
+          }
+        }}
       >
         {listOrgs.map((org) => (
           <MenuItem 
@@ -143,7 +154,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             sx={{ 
               display: 'flex', 
               alignItems: 'center',
-              py: 1,
+              py: 2,
+              width: '100%',
+              justifyContent: 'flex-start',
             }}
           >
             <Avatar 
@@ -153,15 +166,51 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
                 bgcolor: theme => theme.palette.primary.main,
                 fontSize: '0.8rem',
                 mr: 1,
+                flexShrink: 0,
               }}
             >
               {(org?.display_name || org?.name || '?').charAt(0).toUpperCase()}
             </Avatar>
-            <Typography variant="body1" noWrap>
+            <Typography variant="body1" noWrap sx={{ flex: 1 }}>
               {org?.display_name || org?.name}
             </Typography>
           </MenuItem>
         ))}
+        
+        <Divider sx={{ my: 1 }} />
+        
+        <MenuItem 
+          onClick={() => {
+
+          }}
+          sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            py: 2,
+            width: '100%',
+            justifyContent: 'flex-start',
+          }}
+        >
+          <Avatar 
+            sx={{ 
+              width: 28, 
+              height: 28, 
+              bgcolor: theme => theme.palette.grey[400],
+              color: theme => theme.palette.getContrastText(theme.palette.grey[400]),
+              fontSize: '0.8rem',
+              mr: 1,
+              flexShrink: 0,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <SettingsIcon sx={{ fontSize: 16 }} />
+          </Avatar>
+          <Typography variant="body1" noWrap sx={{ flex: 1 }}>
+            List Orgs...
+          </Typography>
+        </MenuItem>
       </Menu>
     </Box>
   )
