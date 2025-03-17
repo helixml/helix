@@ -54,9 +54,12 @@ const Sidebar: React.FC<{
   const router = useRouter()
   const account = useAccount()
   const { models } = useContext(AccountContext)
-  
-  // Tab state to track active tab (0 for CHATS, 1 for APPS)
-  const [activeTab, setActiveTab] = useState(0)
+  const activeTab = useMemo(() => {
+    const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
+    return activeIndex >= 0 ? activeIndex : 0
+  }, [
+    router.params,
+  ])
 
   const filteredModels = useMemo(() => {
     return models.filter(m => m.type === "text" || m.type === "chat")
@@ -87,7 +90,6 @@ const Sidebar: React.FC<{
 
   // Handle tab change between CHATS and APPS
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue)
     router.mergeParams({
       resource_type: RESOURCE_TYPES[newValue],
     })
