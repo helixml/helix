@@ -11,6 +11,14 @@ type LicenseKeyRequest struct {
 	LicenseKey string `json:"license_key"`
 }
 
+// handleGetLicenseKey godoc
+// @Summary Get license key
+// @Description Get the license key for the current user
+// @Accept json
+// @Produce json
+// @Success 200 {object} LicenseKeyRequest
+// @Router /api/v1/license [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleGetLicenseKey(w http.ResponseWriter, r *http.Request) {
 	license, err := s.Store.GetLicenseKey(r.Context())
 	if err != nil {
@@ -29,6 +37,14 @@ func (s *HelixAPIServer) handleGetLicenseKey(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// handleSetLicenseKey godoc
+// @Summary Set license key
+// @Description Set the license key for the current user
+// @Accept json
+// @Produce json
+// @Success 200 {object} LicenseKeyRequest
+// @Router /api/v1/license [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleSetLicenseKey(w http.ResponseWriter, r *http.Request) {
 	var req LicenseKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
