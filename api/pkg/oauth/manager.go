@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,7 +49,17 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 		Enabled: true,
 	})
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to list OAuth providers from database")
 		return fmt.Errorf("failed to list providers: %w", err)
+	}
+
+	log.Debug().Int("total_providers", len(providers)).Msg("Found enabled providers in database")
+
+	// Log detailed provider information
+	for _, config := range providers {
+		log.Debug().Str("provider_id", config.ID).Str("provider_name", config.Name).
+			Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
+			Msg("Found enabled provider in database")
 	}
 
 	// Initialize providers
@@ -60,35 +71,102 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 		}
 	}
 
-	log.Info().Int("count", len(providers)).Msg("Loaded OAuth providers")
+	// Get all provider IDs for logging
+	var providerIDs []string
+	for id := range m.providers {
+		providerIDs = append(providerIDs, id)
+	}
+	log.Info().Int("count", len(providers)).Strs("provider_ids", providerIDs).Msg("Loaded OAuth providers")
 	return nil
 }
 
 // InitProvider initializes an OAuth provider
 func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider) error {
+	log.Debug().Str("provider_id", config.ID).Str("provider_name", config.Name).
+		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
+		Msg("Initializing OAuth provider")
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	// Create a generic OAuth2 provider for all provider types
 	provider, err := NewOAuth2Provider(ctx, config, m.store)
 	if err != nil {
+		log.Error().Err(err).Str("provider_id", config.ID).Msg("Failed to create OAuth2 provider")
 		return err
 	}
 
+	// Store with exact case from database
 	m.providers[config.ID] = provider
-	log.Info().Str("provider", config.Name).Str("id", config.ID).Msg("Initialized provider")
+	log.Info().Str("provider_name", config.Name).Str("provider_id", config.ID).
+		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
+		Msg("Initialized OAuth provider")
 	return nil
 }
 
-// GetProvider returns a provider by ID
+// GetProvider returns a provider with the given id.
 func (m *Manager) GetProvider(id string) (Provider, error) {
+	log.Debug().Str("provider_id", id).Msg("Looking up OAuth provider by ID")
+
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
+	// Log all available provider IDs for debugging
+	var availableIDs []string
+	for providerID := range m.providers {
+		availableIDs = append(availableIDs, providerID)
+	}
+	log.Debug().Strs("available_providers", availableIDs).Int("count", len(m.providers)).Msg("Available providers in memory")
+
 	provider, found := m.providers[id]
 	if !found {
-		return nil, errors.New("provider not found")
+		log.Error().Str("provider_id", id).Msg("Provider not found in memory cache")
+
+		// Case-insensitive search for debugging purposes
+		for providerID, _ := range m.providers {
+			if strings.EqualFold(providerID, id) {
+				log.Warn().Str("requested_id", id).Str("found_id", providerID).Msg("Found provider with case-insensitive match")
+				// Try returning the case-insensitive match as a temporary fix
+				return m.providers[providerID], nil
+			}
+		}
+
+		// Try to load the provider directly from the database as a fallback
+		log.Info().Str("provider_id", id).Msg("Attempting to load provider directly from database")
+		ctx := context.Background()
+		config, err := m.store.GetOAuthProvider(ctx, id)
+		if err != nil {
+			log.Error().Err(err).Str("provider_id", id).Msg("Failed to load provider from database")
+			return nil, ErrProviderNotFound
+		}
+
+		if !config.Enabled {
+			log.Warn().Str("provider_id", id).Msg("Provider found in database but is disabled")
+			return nil, errors.New("provider is disabled")
+		}
+
+		// Initialize and add the provider
+		log.Info().Str("provider_id", id).Str("provider_type", string(config.Type)).Msg("Initializing provider from database")
+		err = m.InitProvider(ctx, config)
+		if err != nil {
+			log.Error().Err(err).Str("provider_id", id).Msg("Failed to initialize provider")
+			return nil, fmt.Errorf("failed to initialize provider: %w", err)
+		}
+
+		// Add to the in-memory cache - not needed, already done in InitProvider
+		log.Info().Str("provider_id", id).Msg("Successfully loaded provider from database")
+
+		// Now get the provider from the cache
+		provider, found = m.providers[id]
+		if !found {
+			log.Error().Str("provider_id", id).Msg("Provider was initialized but not found in cache")
+			return nil, ErrProviderNotFound
+		}
+
+		return provider, nil
 	}
+
+	log.Debug().Str("provider_id", id).Str("provider_name", provider.GetName()).Msg("Found OAuth provider")
 	return provider, nil
 }
 
@@ -228,12 +306,24 @@ func (m *Manager) RegisterProvider(ctx context.Context, providerID string) (Prov
 
 // StartOAuthFlow initiates the OAuth flow for a provider
 func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL string) (string, error) {
+	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Msg("Initiating OAuth flow")
+
 	provider, err := m.GetProvider(providerID)
 	if err != nil {
+		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", userID).Msg("Failed to get provider for OAuth flow")
 		return "", err
 	}
 
-	return provider.GetAuthorizationURL(ctx, userID, redirectURL)
+	log.Debug().Str("provider_id", providerID).Str("provider_name", provider.GetName()).Str("user_id", userID).Msg("Found provider, getting authorization URL")
+
+	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL)
+	if err != nil {
+		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", userID).Msg("Failed to generate authorization URL")
+		return "", err
+	}
+
+	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Str("auth_url", authURL).Msg("Generated authorization URL")
+	return authURL, nil
 }
 
 // CompleteOAuthFlow completes the OAuth flow with the given code
