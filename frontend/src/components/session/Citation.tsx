@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 
 // Reuse the same animations from the Markdown component
@@ -37,12 +37,14 @@ interface CitationProps {
     excerpts: Excerpt[];
     isStreaming?: boolean;
     className?: string;
+    onFilterDocument?: (docId: string) => void;
 }
 
 const Citation: React.FC<CitationProps> = ({
     excerpts,
     isStreaming = false,
-    className = ''
+    className = '',
+    onFilterDocument
 }) => {
     // If there are no excerpts, return nothing
     if (!excerpts || excerpts.length === 0) {
@@ -262,28 +264,33 @@ const Citation: React.FC<CitationProps> = ({
                                 Searching documents...
                             </Box>
                         ) : (
-                            <Box
-                                component="a"
-                                href={excerpt.fileUrl}
-                                target="_blank"
-                                sx={{
-                                    color: '#58a6ff',
-                                    textDecoration: 'none',
-                                    fontWeight: 500,
-                                    opacity: 0.85,
-                                    transition: 'all 0.2s ease',
-                                    padding: '3px 8px',
-                                    borderRadius: '4px',
-                                    backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                                    '&:hover': {
-                                        opacity: 1,
-                                        backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                        textDecoration: 'underline',
-                                    }
-                                }}
-                            >
-                                {excerpt.filename}
-                            </Box>
+                            <div>
+                                <Box
+                                    component="a"
+                                    href={excerpt.fileUrl}
+                                    target="_blank"
+                                    sx={{
+                                        color: '#58a6ff',
+                                        textDecoration: 'none',
+                                        fontWeight: 500,
+                                        opacity: 0.85,
+                                        transition: 'all 0.2s ease',
+                                        padding: '3px 8px',
+                                        borderRadius: '4px',
+                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                        '&:hover': {
+                                            opacity: 1,
+                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                            textDecoration: 'underline',
+                                        }
+                                    }}
+                                >
+                                    {excerpt.filename}
+                                </Box>
+                                <Box>
+                                    <Button onClick={() => onFilterDocument?.(excerpt.docId)}>Filter Results for this Document</Button>
+                                </Box>
+                            </div>
                         )}
                     </Box>
                 </Box>
