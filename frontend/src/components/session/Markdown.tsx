@@ -64,6 +64,7 @@ interface MessageProcessorOptions {
   getFileURL: (filename: string) => string;
   showBlinker?: boolean;
   isStreaming?: boolean;
+  onFilterDocument?: (docId: string) => void;
 }
 
 /**
@@ -76,6 +77,7 @@ class MessageProcessor {
   private showBlinker: boolean;
   private isStreaming: boolean;
   private documentReferenceCounter: number = 0;
+  private onFilterDocument?: (docId: string) => void;
 
   // Placeholders for content we want to preserve
   private preservedContent: Map<string, string> = new Map();
@@ -105,6 +107,7 @@ class MessageProcessor {
     this.isStreaming = options.isStreaming || false;
     this.mainContent = message;
     this.resultContent = message;
+    this.onFilterDocument = options.onFilterDocument;
   }
 
   /**
@@ -485,235 +488,6 @@ class MessageProcessor {
   }
 
   /**
-   * Format citation XML into HTML
-   * @param citationBody The citation content to format
-   * @param isPartial Whether this is a partial (incomplete) citation during streaming
-   */
-  private formatCitation(citationBody: string, isPartial: boolean = false): string | null {
-    try {
-      // First, escape any XML tags to prevent HTML parsing issues
-      const escapedCitationsBody = citationBody.replace(
-        /<(\/?)(?!(\/)?excerpt|document_id|snippet|\/document_id|\/snippet|\/excerpt)([^>]*)>/g,
-        (match: string, p1: string, p2: string, p3: string) => `&lt;${p1}${p3}&gt;`
-      );
-
-      // Parse the individual excerpts - handle both complete and partial excerpts
-      const excerptRegex = isPartial
-        ? /<excerpt>([\s\S]*?)(?:<\/excerpt>|$)/g  // Either find closing tag or accept to end of string
-        : /<excerpt>([\s\S]*?)<\/excerpt>/g;       // Only complete excerpts
-
-      let excerptMatch;
-      type Excerpt = {
-        docId: string,
-        snippet: string,
-        filename: string,
-        fileUrl: string,
-        isPartial: boolean
-      };
-
-      let excerpts: Excerpt[] = [];
-      const document_ids = this.session.config.document_ids || {};
-      const allNonTextFiles = this.getAllNonTextFiles();
-
-      while ((excerptMatch = excerptRegex.exec(escapedCitationsBody)) !== null) {
-        try {
-          const excerptContent = excerptMatch[1];
-          const excerptIsPartial = isPartial && !excerptContent.includes('</snippet>');
-
-          // Use robust patterns to extract document_id and snippet
-          let docId = '';
-          let snippet = '';
-
-          // Extract document_id - handle various possible formats
-          const docIdRegex = isPartial
-            ? /<document_id>([\s\S]*?)(?:<\/document_id>|$)/  // Accept partial document_id
-            : /<document_id>([\s\S]*?)<\/document_id>/;       // Complete document_id only
-
-          const docIdMatch = excerptContent.match(docIdRegex);
-          if (docIdMatch) {
-            docId = docIdMatch[1].trim();
-
-            // Special handling for cases where the LLM put an HTML link inside document_id
-            if (docId.includes('<a') || docId.includes('href=')) {
-              const linkDocIdMatch = docId.match(/\/([^\/]+?)\.pdf/) ||
-                docId.match(/\/([^\/]+?)\.docx/) ||
-                docId.match(/\/(app_[a-zA-Z0-9]+)/);
-
-              if (linkDocIdMatch) {
-                docId = linkDocIdMatch[1];
-              } else {
-                // If we can't extract a proper doc ID, generate a fallback ID
-                docId = `doc_${excerpts.length + 1}`;
-              }
-            }
-          } else {
-            // If no document_id was found, create a fallback
-            docId = `doc_${excerpts.length + 1}`;
-          }
-
-          // Extract snippet - handle partial snippets during streaming
-          const snippetRegex = isPartial
-            ? /<snippet>([\s\S]*?)(?:<\/snippet>|$)/  // Accept partial snippets
-            : /<snippet>([\s\S]*?)<\/snippet>/;       // Complete snippets only
-
-          const snippetMatch = excerptContent.match(snippetRegex);
-          if (snippetMatch) {
-            snippet = snippetMatch[1].trim();
-
-            // For partial snippets in streaming, add an ellipsis indicator 
-            // BUT NO HTML - we'll style it separately using CSS classes
-            if (isPartial && !excerptContent.includes('</snippet>')) {
-              snippet += ' ...';
-            }
-
-            // Ensure we properly escape any HTML in the snippet
-            snippet = snippet
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#039;');
-
-            // Handle inline code with backticks
-            snippet = snippet.replace(/`([^`]+)`/g, '<code>$1</code>');
-          } else {
-            snippet = isPartial ? "Loading..." : "No content available";
-          }
-
-          // Find a matching document for this ID or URL
-          let filename = "";
-          let fileUrl = "";
-          let fileFound = false;
-
-          // First try direct document_id match
-          for (const [fname, id] of Object.entries(document_ids)) {
-            if (id === docId) {
-              // If the filename is a URL, use it directly
-              if (fname.startsWith('http')) {
-                fileUrl = fname; // Use the URL directly
-                filename = fname.split('/').pop() || fname;
-                fileFound = true;
-                break;
-              }
-
-              filename = fname.split('/').pop() || fname;
-
-              // Create the file URL
-              if (this.session.parent_app) {
-                fileUrl = this.getFileURL(fname);
-              } else {
-                const baseFilename = fname.replace(/\.txt$/i, '');
-                const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) === 0);
-                fileUrl = sourceFilename ? this.getFileURL(sourceFilename) : this.getFileURL(fname);
-              }
-
-              fileFound = true;
-              break;
-            }
-          }
-
-          // If still no match found, try to extract from the document_id if it contains a URL
-          if (!fileFound && docId.includes('http')) {
-            const urlFilenameMatch = docId.match(/\/([^\/]+\.[^\/\.]+)($|\?)/);
-            if (urlFilenameMatch) {
-              filename = urlFilenameMatch[1];
-              fileUrl = docId;
-              fileFound = true;
-            }
-          }
-
-          // Add this excerpt to our processed array
-          excerpts.push({
-            docId,
-            snippet,
-            filename: isPartial && !fileFound ? "Loading..." : (filename || "Unknown document"),
-            fileUrl: fileUrl || "#",
-            isPartial: excerptIsPartial
-          });
-        } catch (error) {
-          console.error("Error processing excerpt:", error);
-          // If we're streaming, add a placeholder for the failed excerpt
-          if (isPartial) {
-            excerpts.push({
-              docId: `partial_${excerpts.length + 1}`,
-              snippet: "Loading citation data...",
-              filename: "Loading...",
-              fileUrl: "#",
-              isPartial: true
-            });
-          }
-        }
-      }
-
-      // If we have no excerpts but we're processing a partial citation, create a placeholder
-      if (excerpts.length === 0 && isPartial) {
-        excerpts.push({
-          docId: "partial_1",
-          snippet: "Loading citation data...",
-          filename: "Loading...",
-          fileUrl: "#",
-          isPartial: true
-        });
-      }
-
-      // If we still have no excerpts, return null to indicate failure
-      if (excerpts.length === 0) {
-        return null;
-      }
-
-      // Build a simple citation box with minimal HTML
-      let html = '<div class="citation-box">';
-      html += '<div class="citation-header">SOURCES</div>';
-
-      // Add each excerpt with explicit quote marks to ensure they're visible
-      excerpts.forEach(excerpt => {
-        // Add loading class if this excerpt is partial
-        const loadingClass = excerpt.isPartial ? ' loading-item' : '';
-
-        html += `<div class="citation-item${loadingClass}">`;
-        // Add explicit curly quote spans for better visibility 
-        html += '<p class="citation-quote"><span class="start-quote">\u201C</span>';
-
-        // Add the snippet - if it's a loading state, add it with a dedicated class
-        if (excerpt.isPartial) {
-          html += `<span class="loading-content">${excerpt.snippet}</span>`;
-        } else {
-          html += excerpt.snippet;
-        }
-
-        html += '<span class="end-quote">\u201D</span></p>';
-
-        // Add file link or loading indicator
-        if (excerpt.isPartial && excerpt.filename === "Loading...") {
-          html += '<p class="citation-source"><span class="loading-search">Searching documents...</span></p>';
-        } else {
-          html += `<p class="citation-source"><a href="${excerpt.fileUrl}" target="_blank">${excerpt.filename}</a></p>`;
-        }
-
-        html += '</div>';
-      });
-
-      html += '</div>';
-
-      return html;
-    } catch (error) {
-      console.error("Error formatting citation:", error);
-
-      // Simple fallback citation for errors that doesn't use direct spans 
-      if (isPartial) {
-        let html = '<div class="citation-box streaming">';
-        html += '<div class="citation-header">SOURCES</div>';
-        html += '<div class="citation-item loading">';
-        html += '<p class="citation-quote loading-full"><span class="start-quote">\u201C</span>Retrieving source information...<span class="end-quote">\u201D</span></p>';
-        html += '<p class="citation-source loading-full">Searching documents</p>';
-        html += '</div></div>';
-        return html;
-      }
-      return null;
-    }
-  }
-
-  /**
    * Process document ID links in the message
    */
   private processDocumentIDLinks(): void {
@@ -1034,6 +808,7 @@ export interface InteractionMarkdownProps {
   getFileURL?: (filename: string) => string;
   showBlinker?: boolean;
   isStreaming?: boolean;
+  onFilterDocument?: (docId: string) => void;
 }
 
 // CSS for citation styling
@@ -1283,6 +1058,7 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   getFileURL = (filename) => '#',
   showBlinker = false,
   isStreaming = false,
+  onFilterDocument,
 }) => {
   const theme = useTheme()
   const [processedContent, setProcessedContent] = useState<string>('');
@@ -1303,7 +1079,8 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         session,
         getFileURL,
         showBlinker,
-        isStreaming
+        isStreaming,
+        onFilterDocument,
       });
       content = processor.process();
     } else {
@@ -1404,6 +1181,7 @@ ${trimmedContent}
         <Citation
           excerpts={citationData.excerpts}
           isStreaming={citationData.isStreaming}
+          onFilterDocument={onFilterDocument}
         />
       )}
 
