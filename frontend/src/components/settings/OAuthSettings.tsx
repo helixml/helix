@@ -10,9 +10,13 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
+  Grid,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
+  SelectChangeEvent,
   Switch,
   Table,
   TableBody,
@@ -24,8 +28,6 @@ import {
   Typography,
   Paper,
   FormGroup,
-  FormControlLabel,
-  IconButton,
   Chip,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -67,7 +69,7 @@ const PROVIDER_TYPE_LABELS: Record<OAuthProviderType, string> = {
 }
 
 const OAuthSettings: React.FC = () => {
-  const { showError, showSuccess } = useSnackbar()
+  const { error, success } = useSnackbar()
   const api = useApi()
   
   const [providers, setProviders] = useState<OAuthProvider[]>([])
@@ -85,9 +87,9 @@ const OAuthSettings: React.FC = () => {
       setLoading(true)
       const response = await api.get('/api/v1/oauth/providers')
       setProviders(response.data)
-    } catch (error) {
-      showError('Failed to load OAuth providers')
-      console.error(error)
+    } catch (err) {
+      error('Failed to load OAuth providers')
+      console.error(err)
     } finally {
       setLoading(false)
     }
@@ -116,11 +118,11 @@ const OAuthSettings: React.FC = () => {
     
     try {
       await api.delete(`/api/v1/oauth/providers/${id}`)
-      showSuccess('Provider deleted')
+      success('Provider deleted')
       loadProviders()
-    } catch (error) {
-      showError('Failed to delete provider')
-      console.error(error)
+    } catch (err) {
+      error('Failed to delete provider')
+      console.error(err)
     }
   }
   
@@ -135,17 +137,17 @@ const OAuthSettings: React.FC = () => {
     try {
       if (isEditing) {
         await api.put(`/api/v1/oauth/providers/${currentProvider.id}`, currentProvider)
-        showSuccess('Provider updated')
+        success('Provider updated')
       } else {
         await api.post('/api/v1/oauth/providers', currentProvider)
-        showSuccess('Provider created')
+        success('Provider created')
       }
       
       handleCloseDialog()
       loadProviders()
-    } catch (error) {
-      showError('Failed to save provider')
-      console.error(error)
+    } catch (err) {
+      error('Failed to save provider')
+      console.error(err)
     }
   }
   
@@ -154,9 +156,11 @@ const OAuthSettings: React.FC = () => {
     setCurrentProvider(prev => prev ? { ...prev, [name]: value } : null)
   }
   
-  const handleSelectChange = (e: React.ChangeEvent<{ name?: string; value: unknown }>) => {
-    const { name, value } = e.target
-    setCurrentProvider(prev => prev ? { ...prev, [name as string]: value } : null)
+  const handleSelectChange = (e: SelectChangeEvent) => {
+    setCurrentProvider({
+      ...currentProvider,
+      [e.target.name as string]: e.target.value,
+    })
   }
   
   const handleSwitchChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -14,6 +14,7 @@ import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
+import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -95,6 +96,16 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
     <App />
+  ),
+}, {
+  name: 'oauth-connections',
+  path: '/oauth-connections',
+  meta: {
+    drawer: true,
+    title: 'Connected Services',
+  },
+  render: () => (
+    <OAuthConnectionsPage />
   ),
 }, {
   name: 'session',

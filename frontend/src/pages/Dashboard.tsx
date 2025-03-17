@@ -32,6 +32,7 @@ import {
   ISessionSummary
 } from '../types'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
+import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
 
 const START_ACTIVE = true
 
@@ -106,6 +107,9 @@ const Dashboard: FC = () => {
       case 'providers':
         setActiveTab(2)
         break
+      case 'oauth_providers':
+        setActiveTab(3)
+        break
       default:
         setActiveTab(0)
     }
@@ -125,6 +129,9 @@ const Dashboard: FC = () => {
         break
       case 2:
         router.setParams({ tab: 'providers' })
+        break
+      case 3:
+        router.setParams({ tab: 'oauth_providers' })
         break
       default:
         router.removeParams(['tab'])
@@ -175,9 +182,10 @@ const Dashboard: FC = () => {
       >
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
+            <Tab label="Sessions" />
             <Tab label="LLM Calls" />
-            <Tab label="Dashboard" />
             <Tab label="Providers" />
+            <Tab label="OAuth Providers" />
           </Tabs>
         </Box>
 
@@ -356,6 +364,19 @@ const Dashboard: FC = () => {
             }}
           >
             <ProviderEndpointsTable />
+          </Box>
+        )}
+
+        {activeTab === 3 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+              p: 2,
+            }}
+          >
+            <OAuthProvidersTable />
           </Box>
         )}
 
