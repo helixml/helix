@@ -11,20 +11,46 @@ We have found the following context you may refer to in your answer:
 </article>
 {{- end }}
 
-Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]."
+IMPORTANT: When referencing documents, always use EXACTLY the document_id values provided above. DO NOT extract or use page IDs from URLs within the content. Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]." NOT "[DOC_ID:123456]" where 123456 might be a page ID in a URL.
 
 Always provide references in the body of your answer!
 
-After your answer, include one excerpt per document_id in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide one EXACT QUOTE per document. Do not include any other text inside the --- markers.
+After completing your answer, create an excerpt section with important quotes from each referenced document.
+
+Follow these steps:
+1. Identify each unique document_id you cited in your answer
+2. For each document, select a representative quote (1-2 sentences) that best supports your answer
+3. Include each document exactly once in the excerpt block using the format below
+
+⚠️ SYSTEM ERROR PREVENTION NOTICE ⚠️
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+The document database processes each document_id only once. Duplicate entries
+will trigger this error:
+
+ERROR: Duplicate document_id detected. Excerpt processing failed.
+Document with duplicate entries: [document_id]. Please provide exactly 
+one excerpt per document_id.
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+
+Required excerpt format:
 
 ---
 <excerpts>
 <excerpt>
-<document_id>[DocumentID]</document_id>
-<snippet>[Excerpt]</snippet>
+<document_id>document-id-you-cited</document_id>
+<snippet>A representative quote from this document that supports your answer.</snippet>
+</excerpt>
+<excerpt>
+<document_id>another-document-id-you-cited</document_id>
+<snippet>A key quote from this document that supports your answer.</snippet>
 </excerpt>
 </excerpts>
 ---
+
+FINAL CHECK:
+- Each document appears exactly once in your excerpts
+- No introductory text appears before the excerpt block
+- All document_ids match those you cited in your answer
 
 {{- end }}
 
@@ -53,20 +79,46 @@ We have found the following context you may refer to in your answer:
 </article>
 {{- end }}
 
-Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]."
+IMPORTANT: When referencing documents, always use EXACTLY the document_id values provided above. DO NOT extract or use page IDs from URLs within the content. Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]." NOT "[DOC_ID:123456]" where 123456 might be a page ID in a URL.
 
 Always provide references in the body of your answer!
 
-After your answer, include one excerpt per document_id in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide one EXACT QUOTE per document. Do not include any other text inside the --- markers.
+After completing your answer, create an excerpt section with important quotes from each referenced document.
+
+Follow these steps:
+1. Identify each unique document_id you cited in your answer
+2. For each document, select a representative quote (1-2 sentences) that best supports your answer
+3. Include each document exactly once in the excerpt block using the format below
+
+⚠️ SYSTEM ERROR PREVENTION NOTICE ⚠️
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+The document database processes each document_id only once. Duplicate entries
+will trigger this error:
+
+ERROR: Duplicate document_id detected. Excerpt processing failed.
+Document with duplicate entries: [document_id]. Please provide exactly 
+one excerpt per document_id.
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+
+Required excerpt format:
 
 ---
 <excerpts>
 <excerpt>
-<document_id>[DocumentID]</document_id>
-<snippet>[Excerpt]</snippet>
+<document_id>document-id-you-cited</document_id>
+<snippet>A representative quote from this document that supports your answer.</snippet>
+</excerpt>
+<excerpt>
+<document_id>another-document-id-you-cited</document_id>
+<snippet>A key quote from this document that supports your answer.</snippet>
 </excerpt>
 </excerpts>
 ---
+
+FINAL CHECK:
+- Each document appears exactly once in your excerpts
+- No introductory text appears before the excerpt block
+- All document_ids match those you cited in your answer
 
 {{- end }}
 
