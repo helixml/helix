@@ -37,6 +37,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 import useFilestore from '../hooks/useFilestore';
 import AppLogsTable from '../components/app/AppLogsTable'
+import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 
 import {
   APP_SOURCE_GITHUB,
@@ -169,6 +170,7 @@ const App: FC = () => {
               <Tab label="GPTScripts" value="gptscripts" />
               <Tab label="API Keys" value="apikeys" />
               <Tab label="Developers" value="developers" />
+              <Tab label="IDE" value="ide" />
               <Tab label="Logs" value="logs" />
             </Tabs>
           </Box>
@@ -266,7 +268,7 @@ const App: FC = () => {
 
                   {tabValue === 'apikeys' && (
                     <APIKeysSection
-                      apiKeys={account.apiKeys}
+                      apiKeys={account.appApiKeys}
                       onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={appTools.flatApp?.allowedDomains || []}
@@ -289,6 +291,12 @@ const App: FC = () => {
                     <Box sx={{ mt: 2 }}>
                       <AppLogsTable appId={appTools.id} />
                     </Box>
+                  )}
+
+                  {tabValue === 'ide' && (
+                    <IdeIntegrationSection
+                      appId={app.id}
+                    />
                   )}
                 </Box>
               </Grid>
@@ -337,10 +345,7 @@ const App: FC = () => {
               })
               if(!res) return
               snackbar.success('API Key deleted')
-              account.loadApiKeys({
-                types: 'app',
-                app_id: params.app_id,
-              })
+              account.loadAppApiKeys(params.app_id)
               setDeletingAPIKey('')
             }}
             onCancel={() => {
@@ -358,6 +363,7 @@ const App: FC = () => {
         showErrors={appTools.showErrors}
         isReadOnly={appTools.isReadOnly}
       />
+      
     </Page>
   )
 }

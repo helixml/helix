@@ -1,6 +1,20 @@
 import React, { useEffect } from 'react';
-import { RedocStandaloneProps } from 'redoc';
 
+// Define proper types for RedocStandaloneProps
+interface RedocStandaloneProps {
+  spec?: object;
+  specUrl?: string;
+  options?: {
+    nativeScrollbars?: boolean;
+    theme?: any;
+    hideDownloadButton?: boolean;
+    expandResponses?: string;
+    [key: string]: any;
+  };
+  onLoaded?: () => void;
+}
+
+// Local path for Redoc that won't be ignored by git
 declare const Redoc: any;
 
 async function loadScript(scriptSrc: string) {
@@ -18,15 +32,16 @@ async function loadScript(scriptSrc: string) {
 function RedocStandalone({ spec, specUrl, options, onLoaded }: RedocStandaloneProps) {
   useEffect(() => {
     async function setupRedoc() {
-      if (typeof Redoc === 'undefined') await loadScript('https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js');
+      // Load from local path instead of CDN
+      if (typeof Redoc === 'undefined') await loadScript('/external-libs/redoc/redoc.standalone.js');
 
       Redoc.init(spec || specUrl, options, document.getElementById('redoc-container'), onLoaded);
     }
 
     setupRedoc();
-  });
+  }, []); // Add empty dependency array to prevent infinite re-renders
 
-  return <div id="redoc-container" data-testid="redoc-container" />;
+  return <div id="redoc-container" data-testid="redoc-container" style={{ backgroundColor: 'white' }} />;
 }
 
 const OpenAPIPage: React.FC = () => {
@@ -36,70 +51,6 @@ const OpenAPIPage: React.FC = () => {
         specUrl="/api/v1/swagger"
         options={{
           nativeScrollbars: true,
-          theme: {
-            colors: {
-              primary: { main: '#4caf50' },
-              text: {
-                primary: '#ffffff',
-                secondary: '#c0c0c0',
-              },
-              http: {
-                get: '#61affe',
-                post: '#49cc90',
-                put: '#fca130',
-                options: '#0d5aa7',
-                patch: '#50e3c2',
-                delete: '#f93e3e',
-                basic: '#999',
-                link: '#31bbb6',
-                head: '#9012fe',
-              },
-              responses: {
-                success: {
-                  color: '#ffffff',
-                  backgroundColor: '#49cc90',
-                },
-                error: {
-                  color: '#ffffff',
-                  backgroundColor: '#f93e3e',
-                },
-                redirect: {
-                  color: '#ffffff',
-                  backgroundColor: '#fca130',
-                },
-                info: {
-                  color: '#ffffff',
-                  backgroundColor: '#61affe',
-                },
-              },
-            },
-            typography: {
-              fontSize: '14px',
-              lineHeight: '1.5em',
-              fontFamily: '"Roboto", sans-serif',
-              smoothing: 'antialiased',
-              code: {
-                fontSize: '13px',
-                fontFamily: '"Roboto Mono", monospace',
-                lineHeight: '1.6em',
-                fontWeight: '400',
-                color: '#ffffff',
-                backgroundColor: '#2d3748',
-              },
-            },
-            sidebar: {
-              backgroundColor: '#1a202c',
-              textColor: '#ffffff',
-              activeTextColor: '#45a049',
-            },
-            rightPanel: {
-              backgroundColor: '#2d3748',
-              textColor: '#ffffff',
-            },
-            codeBlock: {
-              backgroundColor: '#2d3748',
-            },
-          },
           hideDownloadButton: true,
           expandResponses: "all",
         }}
