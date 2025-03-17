@@ -28,6 +28,7 @@ export interface IAppsContext {
   loadGithubRepos: () => Promise<void>,
   createGithubApp: (repo: string) => Promise<IApp | null>,
   createEmptyHelixApp: () => Promise<IApp | undefined>,
+  createOrgApp: () => Promise<IApp | undefined>,
   createApp: (app_source: IAppSource, config: IAppConfig) => Promise<IApp | undefined>,
   updateApp: (id: string, updatedApp: IAppUpdate) => Promise<IApp | undefined>,
   deleteApp: (id: string) => Promise<boolean | undefined>,
@@ -55,6 +56,7 @@ export const AppsContext = createContext<IAppsContext>({
   loadGithubRepos: async () => {},
   createGithubApp: async () => null,
   createEmptyHelixApp: async () => undefined,
+  createOrgApp: async () => undefined,
   createApp: async () => undefined,
   updateApp: async () => undefined,
   deleteApp: async () => undefined,
@@ -146,6 +148,7 @@ export const useAppsContext = (): IAppsContext => {
     setConectLoading(true)
     const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
       app_source: APP_SOURCE_GITHUB,
+      organization_id: account.organizationTools.organization?.id || '',
       config: {
         helix: {
           external_url: '',
@@ -170,7 +173,9 @@ export const useAppsContext = (): IAppsContext => {
     })
     setConectLoading(false)
     return result
-  }, [])
+  }, [
+    account.organizationTools.organization,
+  ])
 
   const createApp = useCallback(async (
     app_source: IAppSource,
@@ -208,6 +213,7 @@ export const useAppsContext = (): IAppsContext => {
 
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
         app_source: 'helix',
+        organization_id: account.organizationTools.organization?.id || '',
         config: {
           helix: {
             external_url: '',
@@ -252,7 +258,31 @@ export const useAppsContext = (): IAppsContext => {
       console.error("useApps: Error creating app:", error);
       throw error; // Re-throw the error so it can be caught in the component
     }
-  }, [api, account.models, loadApps])
+  }, [
+    api,
+    loadApps,
+    account.models,
+    account.organizationTools.organization,
+  ])
+
+  // this is aware of the current org that we are in
+  const createOrgApp = useCallback(async (): Promise<IApp | undefined> => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
+    const newApp = await createEmptyHelixApp()
+    if(!newApp) return undefined
+    account.orgNavigate('app', {
+      app_id: newApp.id,
+    })
+    return newApp
+  }, [
+    api,
+    createEmptyHelixApp,
+    account.user,
+    account.orgNavigate,
+  ])
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
     try {
@@ -315,6 +345,7 @@ export const useAppsContext = (): IAppsContext => {
     loadGithubRepos,
     createGithubApp,
     createEmptyHelixApp,
+    createOrgApp,
     createApp,
     updateApp,
     deleteApp,

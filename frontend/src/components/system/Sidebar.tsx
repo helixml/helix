@@ -31,6 +31,7 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
+import useApps from '../../hooks/useApps'
 import { AccountContext } from '../../contexts/account'
 
 import {
@@ -53,6 +54,7 @@ const Sidebar: React.FC<{
   const lightTheme = useLightTheme()
   const router = useRouter()
   const account = useAccount()
+  const apps = useApps()
   const { models } = useContext(AccountContext)
   const activeTab = useMemo(() => {
     const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
@@ -82,10 +84,14 @@ const Sidebar: React.FC<{
     window.open("https://docs.helix.ml/docs/overview", "_blank")
   }
 
-  const navigateTo = (path: string, params: Record<string, any> = {}) => {
-    router.navigate(path, params)
+  const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
     setAccountMenuAnchorEl(null)
+  }
+
+  const navigateTo = (path: string, params: Record<string, any> = {}) => {
+    router.navigate(path, params)
+    postNavigateTo()
   }
 
   // Handle tab change between CHATS and APPS
@@ -99,9 +105,9 @@ const Sidebar: React.FC<{
   const handleCreateNew = () => {
     const resourceType = RESOURCE_TYPES[activeTab]
     if (resourceType === 'chat') {
-      navigateTo('new')
+      account.orgNavigate('new')
     } else if (resourceType === 'app') {
-      navigateTo('apps/new')
+      apps.createOrgApp()
     }
   }
 

@@ -53,12 +53,12 @@ const SidebarMainLink: FC<{
           },
         }}
         onClick={ () => {
+          account.setMobileMenuOpen(false)
           if(handler) {
             handler()
           } else {
-            router.navigate(routeName)
+            account.orgNavigate(routeName)
           }
-          account.setMobileMenuOpen(false)
         }}
       >
         <ListItemText

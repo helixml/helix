@@ -45,6 +45,9 @@ export interface IAccountContext {
   fetchModels: (provider?: string) => Promise<void>,
   providerEndpoints: IProviderEndpoint[],
   fetchProviderEndpoints: () => Promise<void>,
+  // an org aware navigate function that will prepend `org_` to the route name
+  // and include the org_id in the params if we are currently looking at an org
+  orgNavigate: (routeName: string, params?: Record<string, string>) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -81,6 +84,7 @@ export const AccountContext = createContext<IAccountContext>({
   providerEndpoints: [],
   fetchProviderEndpoints: async () => {},
   hasImageModels: false,
+  orgNavigate: () => {},
 })
 
 export const useAccount = () => {
@@ -391,6 +395,20 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [api])
 
+  const orgNavigate = useCallback((routeName: string, params: Record<string, string> = {}) => {
+    if(organizationTools.organization) {
+      router.navigate(`org_${routeName}`, {
+        ...params,
+        org_id: organizationTools.organization?.name,
+      })
+    } else {
+      router.navigate(routeName, params)
+    }
+  }, [
+    organizationTools.organization,
+    router.navigate,
+  ])
+
   useEffect(() => {
     initialize()
   }, [])
@@ -442,6 +460,7 @@ export const useAccountContext = (): IAccountContext => {
     isOrgAdmin,
     isOrgMember,
     hasImageModels,
+    orgNavigate,
   }
 }
 

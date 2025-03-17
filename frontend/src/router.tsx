@@ -110,7 +110,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
 
 const routes: IApplicationRoute[] = [
   ...getOrgRoutes(),
-  ...getOrgRoutes('orgs_', '/orgs/:org_id'),
+  ...getOrgRoutes('org_', '/org/:org_id'),
 {
   name: 'orgs',
   path: '/orgs',
