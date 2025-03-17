@@ -655,6 +655,13 @@ class VectorchordDocumentStore:
         if not documents:
             return 0
 
+        # Filter out any NUL bytes in document content before writing to PostgreSQL
+        logger = logging.getLogger(__name__)
+        for doc in documents:
+            if doc.content and '\x00' in doc.content:
+                logger.warning(f"Document store: removing NUL bytes from document content before database write: {doc.id}")
+                doc.content = doc.content.replace('\x00', '')
+
         # Convert Document objects to Postgres compatible format
         pg_documents = self._from_haystack_to_pg_documents(documents)
 

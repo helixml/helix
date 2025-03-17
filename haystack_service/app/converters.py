@@ -80,6 +80,11 @@ class LocalUnstructuredConverter:
                     ]
                     text = "\n\n".join(el for el in markdown_elements if el)
                 
+                # Filter out NUL bytes from text
+                if '\x00' in text:
+                    logger.warning(f"Filtered NUL bytes from document text extracted from {path}")
+                    text = text.replace('\x00', '')
+                
                 if text.strip():
                     # Create document with metadata
                     doc_meta = meta.copy()

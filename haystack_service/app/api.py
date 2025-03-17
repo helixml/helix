@@ -86,10 +86,27 @@ async def process_file(
     # Get file extension
     _, ext = os.path.splitext(file.filename)
     
+    # Read the file content
+    content = await file.read()
+    
+    # Check for empty content
+    if not content:
+        logger.error("Empty file content received")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty")
+    
+    # Check for NUL bytes and remove them if present
+    sanitized_content = content.replace(b'\x00', b'')
+    if len(sanitized_content) != len(content):
+        logger.warning(f"File {file.filename} contained NUL bytes that were removed")
+    
+    # Check for empty content after sanitizing
+    if not sanitized_content:
+        logger.error("File contained only NUL bytes")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty (contained only NUL bytes)")
+    
     # Save file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
-        content = await file.read()
-        temp.write(content)
+        temp.write(sanitized_content)
         temp_path = temp.name
     
     try:
@@ -150,12 +167,29 @@ async def query(
     """Query for relevant documents"""
     
     try:
+        # Check for empty query text
+        if not request.query or request.query.strip() == "":
+            raise HTTPException(status_code=422, detail="Input validation error: `query` cannot be empty")
+        
+        # Remove NUL bytes from query if present
+        sanitized_query = request.query.replace('\x00', '')
+        if sanitized_query != request.query:
+            logger.warning("Query contained NUL bytes that were removed")
+        
+        # Check again for emptiness after sanitizing
+        if not sanitized_query or sanitized_query.strip() == "":
+            logger.error("Query contained only NUL bytes")
+            raise HTTPException(status_code=422, detail="Input validation error: `query` cannot be empty (contained only NUL bytes)")
+            
         results = await service.query(
-            query_text=request.query,
+            query_text=sanitized_query,
             filters=request.filters,
             top_k=request.top_k
         )
         return {"results": results}
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error querying: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error querying: {str(e)}")
