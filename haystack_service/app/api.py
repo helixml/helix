@@ -86,9 +86,25 @@ async def process_file(
     # Get file extension
     _, ext = os.path.splitext(file.filename)
     
-    # Save file temporarily
+    # Read the file content
+    content = await file.read()
+    
+    # Check for empty content
+    if not content:
+        logger.error("Empty file content received")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty")
+    
+    # For binary files like PDFs, we should NOT sanitize content as it will corrupt the file
+    # PDF files and other binary formats may contain NUL bytes as part of their format
+    # NUL bytes will be handled after text extraction in the converter
+    
+    # Only check if the content is ONLY NUL bytes (which would be invalid)
+    if content == b'\x00' * len(content):
+        logger.error("File contained only NUL bytes")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty (contained only NUL bytes)")
+    
+    # Save file temporarily with original binary content intact
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
-        content = await file.read()
         temp.write(content)
         temp_path = temp.name
     
@@ -125,9 +141,20 @@ async def extract_text(
     # Get file extension
     _, ext = os.path.splitext(file.filename)
     
-    # Save file temporarily
+    # Read the file content
+    content = await file.read()
+    
+    # Check for empty content
+    if not content:
+        logger.error("Empty file content received")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty")
+    
+    # For binary files like PDFs, we should NOT sanitize content as it will corrupt the file
+    # PDF files and other binary formats may contain NUL bytes as part of their format
+    # NUL bytes will be handled after text extraction in the converter
+    
+    # Save file temporarily with original binary content intact
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
-        content = await file.read()
         temp.write(content)
         temp_path = temp.name
     
@@ -150,12 +177,29 @@ async def query(
     """Query for relevant documents"""
     
     try:
+        # Check for empty query text
+        if not request.query or request.query.strip() == "":
+            raise HTTPException(status_code=422, detail="Input validation error: `query` cannot be empty")
+        
+        # Remove NUL bytes from query if present
+        sanitized_query = request.query.replace('\x00', '')
+        if sanitized_query != request.query:
+            logger.warning("Query contained NUL bytes that were removed")
+        
+        # Check again for emptiness after sanitizing
+        if not sanitized_query or sanitized_query.strip() == "":
+            logger.error("Query contained only NUL bytes")
+            raise HTTPException(status_code=422, detail="Input validation error: `query` cannot be empty (contained only NUL bytes)")
+            
         results = await service.query(
-            query_text=request.query,
+            query_text=sanitized_query,
             filters=request.filters,
             top_k=request.top_k
         )
         return {"results": results}
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error querying: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error querying: {str(e)}")
