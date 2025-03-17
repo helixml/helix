@@ -102,6 +102,9 @@ const Dashboard: FC = () => {
   useEffect(() => {
     switch (tab) {
       case 'llm_calls':
+        setActiveTab(0)
+        break
+      case 'runners':
         setActiveTab(1)
         break
       case 'providers':
@@ -124,8 +127,11 @@ const Dashboard: FC = () => {
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
     switch (newValue) {
-      case 1:
+      case 0:
         router.setParams({ tab: 'llm_calls' })
+        break
+      case 1:
+        router.setParams({ tab: 'runners' })
         break
       case 2:
         router.setParams({ tab: 'providers' })
@@ -182,12 +188,38 @@ const Dashboard: FC = () => {
       >
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="Sessions" />
             <Tab label="LLM Calls" />
-            <Tab label="Providers" />
+            <Tab label="Runners" />
+            <Tab label="Inference Providers" />
             <Tab label="OAuth Providers" />
           </Tabs>
         </Box>
+
+        {activeTab === 0 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(200vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+              <TextField
+                label="Filter by Session ID"
+                variant="outlined"
+                value={sessionFilter}
+                onChange={handleFilterChange}
+                sx={{ flexGrow: 1, mr: 1 }}
+              />
+              {sessionFilter && (
+                <IconButton onClick={clearFilter} size="small">
+                  <ClearIcon />
+                </IconButton>
+              )}
+            </Box>
+            <LLMCallsTable sessionFilter={sessionFilter} />
+          </Box>
+        )}
 
         {activeTab === 1 && (
           <Box
@@ -326,32 +358,6 @@ const Dashboard: FC = () => {
                 </Grid>
               </Box>
             </Box>
-          </Box>
-        )}
-
-        {activeTab === 0 && (
-          <Box
-            sx={{
-              width: '100%',
-              height: 'calc(200vh - 200px)',
-              overflow: 'auto',
-            }}
-          >
-            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-              <TextField
-                label="Filter by Session ID"
-                variant="outlined"
-                value={sessionFilter}
-                onChange={handleFilterChange}
-                sx={{ flexGrow: 1, mr: 1 }}
-              />
-              {sessionFilter && (
-                <IconButton onClick={clearFilter} size="small">
-                  <ClearIcon />
-                </IconButton>
-              )}
-            </Box>
-            <LLMCallsTable sessionFilter={sessionFilter} />
           </Box>
         )}
 
