@@ -26,7 +26,7 @@ import InteractionLiveStream from '../session/InteractionLiveStream';
 
 import { ISession, ISessionRAGResult, IKnowledgeSearchResult } from '../../types';
 
-interface PreviewPanelProps { 
+interface PreviewPanelProps {
   loading: boolean;
   name: string;
   avatar: string;
@@ -75,6 +75,10 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       }
       event.preventDefault();
     }
+  };
+
+  const handleFilterDocument = (docId: string) => {
+    setInputValue(`[DOC_ID:${docId}] `);
   };
 
   const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,7 +145,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
         }}
       >
-        <Typography variant="h6" sx={{mb: 2, color: 'white'}}>
+        <Typography variant="h6" sx={{ mb: 2, color: 'white' }}>
           Preview
         </Typography>
         <Avatar
@@ -288,26 +292,28 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                   const isLastInteraction = i == interactionsLength - 1;
                   const isLive = isLastInteraction && !interaction.finished;
 
-                  if(!session) return null;
+                  if (!session) return null;
                   return (
                     <Interaction
-                      key={ i }
-                      serverConfig={ serverConfig }
-                      interaction={ interaction }
-                      session={ session }
+                      key={i}
+                      serverConfig={serverConfig}
+                      interaction={interaction}
+                      session={session}
+                      onFilterDocument={handleFilterDocument}
                     >
                       {
                         isLive && (
                           <InteractionLiveStream
-                            session_id={ session.id }
-                            interaction={ interaction }
-                            session={ session }
-                            serverConfig={ serverConfig }
+                            session_id={session.id}
+                            interaction={interaction}
+                            session={session}
+                            serverConfig={serverConfig}
+                            onFilterDocument={handleFilterDocument}
                           />
                         )
                       }
                     </Interaction>
-                  );   
+                  );
                 })
               }
             </>
@@ -357,15 +363,15 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
               <Typography variant="h6" gutterBottom>
                 Chunk content:
               </Typography>
-              <TextField                
-                value={ selectedChunk.content }                
+              <TextField
+                value={selectedChunk.content}
                 disabled={true}
                 fullWidth
                 multiline
                 rows={10}
                 id="content-details"
                 name="content-details"
-                label="Content Details"                
+                label="Content Details"
                 InputProps={{
                   style: { fontFamily: 'monospace' }
                 }}
