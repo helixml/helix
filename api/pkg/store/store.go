@@ -7,7 +7,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/types"
-	"gorm.io/gorm"
 )
 
 type GetJobsQuery struct {
@@ -95,9 +94,6 @@ var (
 )
 
 type Store interface {
-	// Database method to access underlying gorm.DB
-	DB() *gorm.DB
-
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)

@@ -17,7 +17,6 @@ import (
 	license "github.com/helixml/helix/api/pkg/license"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
-	gorm "gorm.io/gorm"
 )
 
 // MockStore is a mock of Store interface.
@@ -402,20 +401,6 @@ func (m *MockStore) CreateUserMeta(ctx context.Context, UserMeta types.UserMeta)
 func (mr *MockStoreMockRecorder) CreateUserMeta(ctx, UserMeta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserMeta", reflect.TypeOf((*MockStore)(nil).CreateUserMeta), ctx, UserMeta)
-}
-
-// DB mocks base method.
-func (m *MockStore) DB() *gorm.DB {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DB")
-	ret0, _ := ret[0].(*gorm.DB)
-	return ret0
-}
-
-// DB indicates an expected call of DB.
-func (mr *MockStoreMockRecorder) DB() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DB", reflect.TypeOf((*MockStore)(nil).DB))
 }
 
 // DeleteAPIKey mocks base method.
