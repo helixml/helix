@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Button, Container } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import { FilterAlt } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles'
 
 // Reuse the same animations from the Markdown component
 const pulseFade = keyframes`
@@ -47,6 +48,7 @@ const Citation: React.FC<CitationProps> = ({
     className = '',
     onFilterDocument
 }) => {
+    const theme = useTheme()
     // If there are no excerpts, return nothing
     if (!excerpts || excerpts.length === 0) {
         return null;
@@ -349,7 +351,7 @@ const Citation: React.FC<CitationProps> = ({
                                         href={excerpt.fileUrl}
                                         target="_blank"
                                         sx={{
-                                            color: '#58a6ff',
+                                            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
                                             textDecoration: 'none',
                                             fontWeight: 500,
                                             opacity: 0.85,
@@ -369,7 +371,7 @@ const Citation: React.FC<CitationProps> = ({
                                     <FilterAlt
                                         sx={{
                                             cursor: 'pointer',
-                                            color: '#58a6ff',
+                                            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
                                             textDecoration: 'none',
                                             fontWeight: 500,
                                             opacity: 0.85,
