@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, ReactElement, useState, useEffect } from 'react'
 import { useTheme } from '@mui/material/styles'
 import Box from '@mui/material/Box'
 import Markdown from 'react-markdown'
@@ -13,6 +13,9 @@ import { ISession } from '../../types'
 // Import the escapeRegExp helper from session.ts
 import { escapeRegExp } from '../../utils/session'
 import DOMPurify from 'dompurify'
+
+// Import the new Citation component
+import Citation, { Excerpt } from './Citation'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
@@ -81,7 +84,12 @@ class MessageProcessor {
   // Elements we want to preserve during processing
   private documentLinks: string[] = [];
   private groupLinks: string[] = [];
-  private citations: Array<{ html: string, placeholder?: string, safeMarker?: string, tempMarker?: string }> = [];
+  private citations: Array<{
+    excerpts: Excerpt[],
+    placeholder?: string,
+    tempMarker?: string,
+    isStreaming?: boolean
+  }> = [];
   private blinker: string | null = null;
 
   // Input/output content
@@ -164,10 +172,12 @@ class MessageProcessor {
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
 
-      // Create a placeholder for the citation HTML to preserve it during processing
-      const placeholder = this.createPlaceholder(citationContent, 'CITATION');
-      // Store both the original citation and the placeholder
-      this.citations.push({ html: citationContent, placeholder });
+      // Parse the HTML to extract excerpts
+      const excerpts = this.parseDirectCitationHtml(citationContent);
+      // Create a placeholder for the citation
+      const placeholder = this.createPlaceholder(JSON.stringify(excerpts), 'CITATION');
+      // Store the excerpts and placeholder
+      this.citations.push({ excerpts, placeholder, isStreaming: false });
     }
     // Handle complete excerpts XML
     else if (ragMatch) {
@@ -178,16 +188,11 @@ class MessageProcessor {
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
 
-      const formattedCitation = this.formatCitation(citationBody, false);
-      if (formattedCitation) {
-        // Create a placeholder for the formatted citation
-        const placeholder = this.createPlaceholder(formattedCitation, 'CITATION');
-        // Store both the formatted citation and the placeholder
-        this.citations.push({ html: formattedCitation, placeholder });
-      } else {
-        // If formatting failed, preserve the original citation
-        const placeholder = this.createPlaceholder(citationContent, 'CITATION');
-        this.citations.push({ html: citationContent, placeholder });
+      // Extract excerpts from XML
+      const excerpts = this.extractExcerptsFromXml(citationBody, false);
+      if (excerpts && excerpts.length > 0) {
+        const placeholder = this.createPlaceholder(JSON.stringify(excerpts), 'CITATION');
+        this.citations.push({ excerpts, placeholder, isStreaming: false });
       }
     }
     // Handle partial citation HTML during streaming
@@ -199,17 +204,16 @@ class MessageProcessor {
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
 
-      // Create a temporary container that indicates streaming status with CSS classes
-      // instead of inline HTML spans that might get escaped
-      let wrappedPartialCitation = '<div class="citation-box streaming">';
-      wrappedPartialCitation += '<div class="citation-header">SOURCES</div>';
-      wrappedPartialCitation += '<div class="citation-item loading">';
-      wrappedPartialCitation += '<p class="citation-quote loading-full"><span class="start-quote">\u201C</span>Retrieving source information...<span class="end-quote">\u201D</span></p>';
-      wrappedPartialCitation += '<p class="citation-source loading-full">Searching documents</p>';
-      wrappedPartialCitation += '</div></div>';
-
-      const placeholder = this.createPlaceholder(wrappedPartialCitation, 'CITATION');
-      this.citations.push({ html: wrappedPartialCitation, placeholder });
+      // Create a placeholder loading excerpt
+      const excerpts: Excerpt[] = [{
+        docId: 'loading_1',
+        snippet: 'Retrieving source information...',
+        filename: 'Loading...',
+        fileUrl: '#',
+        isPartial: true
+      }];
+      const placeholder = this.createPlaceholder(JSON.stringify(excerpts), 'CITATION');
+      this.citations.push({ excerpts, placeholder, isStreaming: true });
     }
     // Handle partial excerpts XML during streaming
     else if (this.isStreaming && partialRagMatch) {
@@ -221,23 +225,262 @@ class MessageProcessor {
       this.mainContent = this.message.replace(citationContent, '');
       this.resultContent = this.mainContent;
 
-      // Format what we have so far, with special handling for partial data
-      const formattedPartialCitation = this.formatCitation(partialCitationBody, true);
-      if (formattedPartialCitation) {
-        const placeholder = this.createPlaceholder(formattedPartialCitation, 'CITATION');
-        this.citations.push({ html: formattedPartialCitation, placeholder });
+      // Extract excerpts from the XML instead of formatted HTML
+      const excerpts = this.extractExcerptsFromXml(partialCitationBody, true);
+      if (excerpts && excerpts.length > 0) {
+        // Create a placeholder for the excerpts
+        const placeholder = this.createPlaceholder(JSON.stringify(excerpts), 'CITATION');
+        // Store the excerpts and placeholder
+        this.citations.push({ excerpts, placeholder, isStreaming: true });
       } else {
-        // Create a placeholder citation with CSS classes for loading state
-        let partialCitation = '<div class="citation-box streaming">';
-        partialCitation += '<div class="citation-header">SOURCES</div>';
-        partialCitation += '<div class="citation-item loading">';
-        partialCitation += '<p class="citation-quote loading-full"><span class="start-quote">\u201C</span>Retrieving source information...<span class="end-quote">\u201D</span></p>';
-        partialCitation += '<p class="citation-source loading-full">Searching documents</p>';
-        partialCitation += '</div></div>';
-
-        const placeholder = this.createPlaceholder(partialCitation, 'CITATION');
-        this.citations.push({ html: partialCitation, placeholder });
+        // Fallback with a loading excerpt
+        const loadingExcerpts: Excerpt[] = [{
+          docId: "partial_1",
+          snippet: "Retrieving source information...",
+          filename: "Loading...",
+          fileUrl: "#",
+          isPartial: true
+        }];
+        const placeholder = this.createPlaceholder(JSON.stringify(loadingExcerpts), 'CITATION');
+        this.citations.push({ excerpts: loadingExcerpts, placeholder, isStreaming: true });
       }
+    }
+  }
+
+  /**
+   * Parse direct citation HTML to extract excerpts
+   * This is a helper method to extract data from HTML citations
+   */
+  private parseDirectCitationHtml(html: string): Excerpt[] {
+    const excerpts: Excerpt[] = [];
+    try {
+      // Create a temporary DOM element to parse the HTML
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+
+      // Find all citation items
+      const citationItems = tempDiv.querySelectorAll('.citation-item');
+      citationItems.forEach((item, index) => {
+        const quoteElement = item.querySelector('.citation-quote');
+        const sourceElement = item.querySelector('.citation-source a');
+
+        if (quoteElement && sourceElement) {
+          const snippet = quoteElement.textContent?.replace(/[""]/g, '') || '';
+          const filename = sourceElement.textContent || '';
+          const fileUrl = sourceElement.getAttribute('href') || '#';
+          const isPartial = item.classList.contains('loading-item');
+
+          excerpts.push({
+            docId: `doc_${index + 1}`,
+            snippet,
+            filename,
+            fileUrl,
+            isPartial
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Error parsing citation HTML:', error);
+    }
+
+    // Return at least one excerpt even if parsing failed
+    if (excerpts.length === 0) {
+      excerpts.push({
+        docId: 'error_1',
+        snippet: 'Error parsing citation.',
+        filename: 'Unknown source',
+        fileUrl: '#',
+        isPartial: false
+      });
+    }
+
+    return excerpts;
+  }
+
+  /**
+   * Extract excerpts from XML format
+   * @param citationBody The XML citation content
+   * @param isPartial Whether this is a partial citation during streaming
+   */
+  private extractExcerptsFromXml(citationBody: string, isPartial: boolean = false): Excerpt[] {
+    try {
+      // Escape any XML tags to prevent HTML parsing issues
+      const escapedCitationsBody = citationBody.replace(
+        /<(\/?)(?!(\/)?excerpt|document_id|snippet|\/document_id|\/snippet|\/excerpt)([^>]*)>/g,
+        (match: string, p1: string, p2: string, p3: string) => `&lt;${p1}${p3}&gt;`
+      );
+
+      // Parse the individual excerpts - handle both complete and partial excerpts
+      const excerptRegex = isPartial
+        ? /<excerpt>([\s\S]*?)(?:<\/excerpt>|$)/g  // Either find closing tag or accept to end of string
+        : /<excerpt>([\s\S]*?)<\/excerpt>/g;       // Only complete excerpts
+
+      let excerptMatch;
+      const document_ids = this.session.config.document_ids || {};
+      const allNonTextFiles = this.getAllNonTextFiles();
+
+      let excerpts: Excerpt[] = [];
+
+      while ((excerptMatch = excerptRegex.exec(escapedCitationsBody)) !== null) {
+        try {
+          const excerptContent = excerptMatch[1];
+          const excerptIsPartial = isPartial && !excerptContent.includes('</snippet>');
+
+          // Use robust patterns to extract document_id and snippet
+          let docId = '';
+          let snippet = '';
+
+          // Extract document_id - handle various possible formats
+          const docIdRegex = isPartial
+            ? /<document_id>([\s\S]*?)(?:<\/document_id>|$)/  // Accept partial document_id
+            : /<document_id>([\s\S]*?)<\/document_id>/;       // Complete document_id only
+
+          const docIdMatch = excerptContent.match(docIdRegex);
+          if (docIdMatch) {
+            docId = docIdMatch[1].trim();
+
+            // Special handling for cases where the LLM put an HTML link inside document_id
+            if (docId.includes('<a') || docId.includes('href=')) {
+              const linkDocIdMatch = docId.match(/\/([^\/]+?)\.pdf/) ||
+                docId.match(/\/([^\/]+?)\.docx/) ||
+                docId.match(/\/(app_[a-zA-Z0-9]+)/);
+
+              if (linkDocIdMatch) {
+                docId = linkDocIdMatch[1];
+              } else {
+                // If we can't extract a proper doc ID, generate a fallback ID
+                docId = `doc_${excerpts.length + 1}`;
+              }
+            }
+          } else {
+            // If no document_id was found, create a fallback
+            docId = `doc_${excerpts.length + 1}`;
+          }
+
+          // Extract snippet - handle partial snippets during streaming
+          const snippetRegex = isPartial
+            ? /<snippet>([\s\S]*?)(?:<\/snippet>|$)/  // Accept partial snippets
+            : /<snippet>([\s\S]*?)<\/snippet>/;       // Complete snippets only
+
+          const snippetMatch = excerptContent.match(snippetRegex);
+          if (snippetMatch) {
+            snippet = snippetMatch[1].trim();
+
+            // For partial snippets in streaming, add an ellipsis indicator 
+            // BUT NO HTML - we'll style it separately using CSS classes
+            if (isPartial && !excerptContent.includes('</snippet>')) {
+              snippet += ' ...';
+            }
+
+            // Ensure we properly escape any HTML in the snippet
+            snippet = snippet
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+
+            // Handle inline code with backticks
+            snippet = snippet.replace(/`([^`]+)`/g, '<code>$1</code>');
+          } else {
+            snippet = isPartial ? "Loading..." : "No content available";
+          }
+
+          // Find a matching document for this ID or URL
+          let filename = "";
+          let fileUrl = "";
+          let fileFound = false;
+
+          // First try direct document_id match
+          for (const [fname, id] of Object.entries(document_ids)) {
+            if (id === docId) {
+              // If the filename is a URL, use it directly
+              if (fname.startsWith('http')) {
+                fileUrl = fname; // Use the URL directly
+                filename = fname.split('/').pop() || fname;
+                fileFound = true;
+                break;
+              }
+
+              filename = fname.split('/').pop() || fname;
+
+              // Create the file URL
+              if (this.session.parent_app) {
+                fileUrl = this.getFileURL(fname);
+              } else {
+                const baseFilename = fname.replace(/\.txt$/i, '');
+                const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) === 0);
+                fileUrl = sourceFilename ? this.getFileURL(sourceFilename) : this.getFileURL(fname);
+              }
+
+              fileFound = true;
+              break;
+            }
+          }
+
+          // If still no match found, try to extract from the document_id if it contains a URL
+          if (!fileFound && docId.includes('http')) {
+            const urlFilenameMatch = docId.match(/\/([^\/]+\.[^\/\.]+)($|\?)/);
+            if (urlFilenameMatch) {
+              filename = urlFilenameMatch[1];
+              fileUrl = docId;
+              fileFound = true;
+            }
+          }
+
+          // Add this excerpt to our processed array
+          excerpts.push({
+            docId,
+            snippet,
+            filename: isPartial && !fileFound ? "Loading..." : (filename || "Unknown document"),
+            fileUrl: fileUrl || "#",
+            isPartial: excerptIsPartial
+          });
+        } catch (error) {
+          console.error("Error processing excerpt:", error);
+          // If we're streaming, add a placeholder for the failed excerpt
+          if (isPartial) {
+            excerpts.push({
+              docId: `partial_${excerpts.length + 1}`,
+              snippet: "Loading citation data...",
+              filename: "Loading...",
+              fileUrl: "#",
+              isPartial: true
+            });
+          }
+        }
+      }
+
+      // If we have no excerpts but we're processing a partial citation, create a placeholder
+      if (excerpts.length === 0 && isPartial) {
+        excerpts.push({
+          docId: "partial_1",
+          snippet: "Loading citation data...",
+          filename: "Loading...",
+          fileUrl: "#",
+          isPartial: true
+        });
+      }
+
+      // If we still have no excerpts, return null to indicate failure
+      if (excerpts.length === 0) {
+        return [];
+      }
+
+      return excerpts;
+    } catch (error) {
+      console.error("Error extracting excerpts:", error);
+      // Return a fallback excerpt
+      if (isPartial) {
+        return [{
+          docId: "error_1",
+          snippet: "Retrieving source information...",
+          filename: "Loading...",
+          fileUrl: "#",
+          isPartial: true
+        }];
+      }
+      return [];
     }
   }
 
@@ -730,34 +973,20 @@ ${trimmedContent}
    * This is the final step where we replace citation placeholders with the actual HTML
    */
   private restorePreservedContent(): void {
-    // Replace citation placeholders with the actual formatted HTML
+    // Prepare citation data for React component
     if (this.citations.length > 0) {
       console.debug(`Processing ${this.citations.length} citations for final display`);
 
-      // Create a wrapper for citations to ensure proper layout and spacing
-      let citationsHtml = `<div class="citation-box${this.isStreaming ? ' streaming' : ''}">
-                            <div class="citation-header">SOURCES</div>`;
+      // Collect all excerpts from citations
+      let allExcerpts: Excerpt[] = [];
+      let isStreamingAny = false;
 
-      // For each citation, add it to our container
       this.citations.forEach(citation => {
-        if (citation.html) {
-          // Extract just the citation items from the HTML
-          // This helps avoid nested citation-box containers
-          const itemMatches = citation.html.match(/<div class="citation-item[^>]*>[\s\S]*?<\/div>/g);
-
-          if (itemMatches && itemMatches.length > 0) {
-            // Add each citation item to our container
-            itemMatches.forEach(item => {
-              citationsHtml += item;
-            });
-          } else {
-            // Fallback - use the entire citation HTML if we couldn't extract items
-            // But remove any outer citation-box wrappers first
-            let cleanedHtml = citation.html
-              .replace(/<div class="citation-box[^>]*>[\s\S]*?<div class="citation-header[^>]*>[\s\S]*?<\/div>/g, '')
-              .replace(/<\/div>$/, '');
-
-            citationsHtml += cleanedHtml;
+        // Add excerpts to our collection
+        if (citation.excerpts && citation.excerpts.length > 0) {
+          allExcerpts = [...allExcerpts, ...citation.excerpts];
+          if (citation.isStreaming) {
+            isStreamingAny = true;
           }
         }
 
@@ -767,18 +996,23 @@ ${trimmedContent}
         }
       });
 
-      // Close the citations wrapper
-      citationsHtml += `</div>`;
-
-      // Add citations at the beginning of the content for proper float positioning
-      this.resultContent = citationsHtml + this.resultContent;
-
-      console.debug('Citations injected at the beginning of content');
+      // Create citation data marker
+      // This approach uses a special marker that will be recognized by the React component
+      if (allExcerpts.length > 0) {
+        const citationData = {
+          excerpts: allExcerpts,
+          isStreaming: isStreamingAny
+        };
+        // Store citation data in a special JSON format that can be recognized by the component
+        const citationMarker = `__CITATION_DATA__${JSON.stringify(citationData)}__CITATION_DATA__`;
+        // Add the marker at the beginning of the content
+        this.resultContent = citationMarker + this.resultContent;
+        console.debug('Citation data marker added to content');
+      }
     }
 
     // Now restore any other preserved HTML elements (like doc links, etc.)
-    this.preservedContent.forEach((html, index) => {
-      const placeholder = `__HTML_PLACEHOLDER_${index}__`;
+    this.preservedContent.forEach((html, placeholder) => {
       this.resultContent = this.resultContent.replace(placeholder, html);
     });
   }
@@ -892,24 +1126,25 @@ const citationStyles = `
   text-indent: 0; /* Remove hanging indent since it may cause issues */
 }
 
+/* Remove these pseudo-elements that add quotes */
 .citation-quote::before {
-  content: '\u201C'; /* Left curly quote mark */
+  content: ''; /* Previously was '\u201C' - now empty */
   position: absolute;
   left: 0;
-  top: -0.15em; /* Better positioning */
-  font-size: 2.2em; /* Slightly smaller but still prominent */
+  top: -0.15em;
+  font-size: 2.2em;
   font-family: Georgia, serif;
-  color: rgba(88, 166, 255, 0.8); /* Much brighter blue for visibility */
+  color: rgba(88, 166, 255, 0.8);
   line-height: 1;
-  opacity: 1; /* Full opacity */
+  opacity: 1;
 }
 
 .citation-quote::after {
-  content: '\u201D'; /* Right curly quote mark */
+  content: ''; /* Previously was '\u201D' - now empty */
   display: inline;
   font-size: 1.2em;
   font-family: Georgia, serif;
-  color: rgba(88, 166, 255, 0.8); /* Matching color */
+  color: rgba(88, 166, 255, 0.8);
   margin-left: 0.05em;
   line-height: 0;
 }
@@ -1050,26 +1285,52 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   isStreaming = false,
 }) => {
   const theme = useTheme()
-  if (!text) return null
+  const [processedContent, setProcessedContent] = useState<string>('');
+  const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
 
-  // Process the message content
-  const processContent = (content: string): string => {
-    // If we have session info, process with full functionality
+  useEffect(() => {
+    if (!text) {
+      setProcessedContent('');
+      setCitationData(null);
+      return;
+    }
+
+    // Process the message content
+    let content: string;
     if (session) {
       console.debug(`Markdown: Processing message for session ${session.id} with MessageProcessor`);
-      const processor = new MessageProcessor(content, {
+      const processor = new MessageProcessor(text, {
         session,
         getFileURL,
         showBlinker,
         isStreaming
       });
-      return processor.process();
+      content = processor.process();
+    } else {
+      console.debug(`Markdown: Processing message without session context (basic processing)`);
+      content = processBasicContent(text);
     }
 
-    console.debug(`Markdown: Processing message without session context (basic processing)`);
-    // Basic processing without session-specific features
-    return processBasicContent(content);
-  };
+    // Extract citation data if present
+    const citationPattern = /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/;
+    const citationDataMatch = content.match(citationPattern);
+    if (citationDataMatch) {
+      try {
+        const citationDataJson = citationDataMatch[1];
+        const data = JSON.parse(citationDataJson);
+        setCitationData(data);
+        // Replace using the same pattern
+        content = content.replace(/__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/, '');
+      } catch (error) {
+        console.error('Error parsing citation data:', error);
+        setCitationData(null);
+      }
+    } else {
+      setCitationData(null);
+    }
+
+    setProcessedContent(content);
+  }, [text, session, getFileURL, showBlinker, isStreaming]);
 
   // Process content without session-specific features
   const processBasicContent = (content: string): string => {
@@ -1137,6 +1398,15 @@ ${trimmedContent}
       <style>
         {citationStyles}
       </style>
+
+      {/* Render Citation component if we have data */}
+      {citationData && citationData.excerpts && citationData.excerpts.length > 0 && (
+        <Citation
+          excerpts={citationData.excerpts}
+          isStreaming={citationData.isStreaming}
+        />
+      )}
+
       <Box
         sx={{
           '& pre': {
@@ -1247,7 +1517,7 @@ ${trimmedContent}
         }}
       >
         <Markdown
-          children={processContent(text)}
+          children={processedContent}
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]}
           className="interactionMessage"
