@@ -79,13 +79,6 @@ const Home: FC = () => {
     currentModel
   ])
 
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
-  ])
-
   const submitPrompt = async () => {
     if (!currentPrompt.trim()) return
     if (!account.user) {
@@ -122,7 +115,6 @@ const Home: FC = () => {
     }
     const newApp = await apps.createEmptyHelixApp()
     if(!newApp) return false
-    apps.loadData()
     router.navigate('app', {
       app_id: newApp.id,
     })
@@ -385,7 +377,7 @@ const Home: FC = () => {
                 >
                   <Grid container spacing={1} justifyContent="left">
                     {
-                      [...apps.data]
+                      [...apps.apps]
                         .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
                         .slice(0, 5)
                         .map((app) => (

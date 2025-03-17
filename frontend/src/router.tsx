@@ -95,6 +95,16 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <Dashboard />
     ),
+  }, {
+    name: namePrefix + 'appstore',
+    path: routePrefix + '/appstore',
+    meta: {
+      title: 'App Store',
+      drawer: true,
+    },
+    render: () => (
+        <AppStore />
+    ),
   }]
 }
 
@@ -150,16 +160,6 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <TeamPeople />
-  ),
-}, {
-  name: 'appstore',
-  path: '/appstore',
-  meta: {
-    title: 'App Store',
-    drawer: true,
-  },
-  render: () => (
-      <AppStore />
   ),
 }, {
   name: 'files',

@@ -124,7 +124,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               flexShrink: 0,
             }}
           >
-            {(currentOrg?.display_name || currentOrg?.name || '?').charAt(0).toUpperCase()}
+            {displayOrgName.charAt(0).toUpperCase()}
           </Avatar>
           <Typography 
             variant="body1" 

@@ -38,7 +38,7 @@ const Apps: FC = () => {
     }
     const newApp = await apps.createEmptyHelixApp()
     if(!newApp) return false
-    apps.loadData()
+    apps.loadApps()
     navigate('app', {
       app_id: newApp.id,
     })
@@ -53,7 +53,7 @@ const Apps: FC = () => {
     if(!newApp) return false
     removeParams(['add_app'])
     snackbar.success('app created')
-    apps.loadData()
+    apps.loadApps()
     navigate('app', {
       app_id: newApp.id,
     })
@@ -73,18 +73,11 @@ const Apps: FC = () => {
     const result = await apps.deleteApp(deletingApp.id)
     if(!result) return
     setDeletingApp(undefined)
-    apps.loadData()
+    apps.loadApps()
     snackbar.success('app deleted')
   }, [
     deletingApp,
     apps.deleteApp,
-  ])
-
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
   ])
 
   useEffect(() => {
@@ -161,7 +154,7 @@ const Apps: FC = () => {
         }}
       >
         <AppsTable
-          data={ apps.data }
+          data={ apps.apps }
           onEdit={ onEditApp }
           onDelete={ setDeletingApp }
         />

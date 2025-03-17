@@ -16,12 +16,12 @@ import {
 
 // Apps context interface that mirrors the return value of the useApps hook
 export interface IAppsContext {
-  data: IApp[],
+  apps: IApp[],
   app: IApp | undefined,
   githubStatus: IGithubStatus | undefined,
   helixApps: IApp[],
   githubApps: IApp[],
-  loadData: (force?: boolean) => Promise<void>,
+  loadApps: (force?: boolean) => Promise<void>,
   loadApp: (id: string, showErrors?: boolean) => Promise<void>,
   setApp: React.Dispatch<React.SetStateAction<IApp | undefined>>,
   loadGithubStatus: (pageURL: string) => Promise<void>,
@@ -35,17 +35,16 @@ export interface IAppsContext {
   githubReposLoading: boolean,
   connectError: string,
   connectLoading: boolean,
-  isLoading: boolean,
 }
 
 // Default context values
 export const AppsContext = createContext<IAppsContext>({
-  data: [],
+  apps: [],
   app: undefined,
   githubStatus: undefined,
   helixApps: [],
   githubApps: [],
-  loadData: async () => {},
+  loadApps: async () => {},
   loadApp: async () => {},
   setApp: () => {},
   loadGithubStatus: async () => {},
@@ -59,7 +58,6 @@ export const AppsContext = createContext<IAppsContext>({
   githubReposLoading: false,
   connectError: '',
   connectLoading: false,
-  isLoading: false,
 })
 
 // Hook that contains all the logic from the useApps hook
@@ -67,9 +65,8 @@ export const useAppsContext = (): IAppsContext => {
   const api = useApi()
   const account = useAccount()
   const mountedRef = useRef(true)
-  const [isLoading, setIsLoading] = useState(false)
   
-  const [ data, setData ] = useState<IApp[]>([])
+  const [ apps, setApps ] = useState<IApp[]>([])
   const [ app, setApp ] = useState<IApp>()
   const [ githubRepos, setGithubRepos ] = useState<string[]>([])
   const [ githubStatus, setGithubStatus ] = useState<IGithubStatus>()
@@ -77,55 +74,23 @@ export const useAppsContext = (): IAppsContext => {
   const [ connectError, setConnectError ] = useState('')
   const [ connectLoading, setConectLoading ] = useState(false)
 
-  // Create a ref for the throttled function
-  const throttledLoadRef = useRef<any>(null)
-  
-  // Initialize the throttled function once
-  useEffect(() => {
-    throttledLoadRef.current = throttle(async (force = false) => {
-      if (isLoading) return
-      setIsLoading(true)
-      
-      try {
-        let result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
-          snackbar: true,
-        })
-        if(result === null) result = []  
-        if(!mountedRef.current) return
-        setData(result)
-      } finally {
-        if(mountedRef.current) {
-          setIsLoading(false)
-        }
-      }
-    }, 1000, { leading: true, trailing: false })
-
-    // Cleanup
-    return () => {
-      if (throttledLoadRef.current?.cancel) {
-        throttledLoadRef.current.cancel()
-      }
-      mountedRef.current = false
-    }
-  }, [])
-
-  // Expose loadData as a wrapper around the throttled function
-  const loadData = useCallback(async (force = false) => {
-    if (throttledLoadRef.current) {
-      await throttledLoadRef.current(force)
-    }
+  const loadApps = useCallback(async () => {
+    const result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
+      snackbar: true,
+    })
+    setApps(result || [])
   }, [])
 
   const helixApps = useMemo(() => {
-    return data.filter(app => app.app_source == APP_SOURCE_HELIX)
+    return apps.filter(app => app.app_source == APP_SOURCE_HELIX)
   }, [
-    data,
+    apps,
   ])
 
   const githubApps = useMemo(() => {
-    return data.filter(app => app.app_source == APP_SOURCE_GITHUB)
+    return apps.filter(app => app.app_source == APP_SOURCE_GITHUB)
   }, [
-    data,
+    apps,
   ])
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
@@ -135,7 +100,7 @@ export const useAppsContext = (): IAppsContext => {
     })
     if(!result || !mountedRef.current) return
     setApp(result)
-    setData(prevData => prevData.map(a => a.id === id ? result : a))
+    setApps(prevData => prevData.map(a => a.id === id ? result : a))
   }, [api])
 
   const loadGithubStatus = useCallback(async (pageURL: string) => {
@@ -212,13 +177,13 @@ export const useAppsContext = (): IAppsContext => {
         console.log("useApps: No result returned from create");
         return undefined;
       }
-      await loadData();
+      await loadApps();
       return result;
     } catch (error) {
       console.error("useApps: Error creating app:", error);
       throw error; // Re-throw the error so it can be caught in the component
     }
-  }, [api, loadData])
+  }, [api, loadApps])
 
   // helper function to create a new empty helix app without any config
   // this is so we can get a UUID from the server before we start to mess with the app form
@@ -268,13 +233,13 @@ export const useAppsContext = (): IAppsContext => {
         console.log("useApps: No result returned from create empty app");
         return undefined;
       }
-      await loadData();
+      await loadApps();
       return result;
     } catch (error) {
       console.error("useApps: Error creating app:", error);
       throw error; // Re-throw the error so it can be caught in the component
     }
-  }, [api, account.models])
+  }, [api, account.models, loadApps])
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
     try {
@@ -287,7 +252,7 @@ export const useAppsContext = (): IAppsContext => {
         console.log("useApps: No result returned from update");
         return undefined;
       }
-      loadData();
+      loadApps();
       return result;
     } catch (error) {
       console.error("useApps: Error updating app:", error);
@@ -297,38 +262,34 @@ export const useAppsContext = (): IAppsContext => {
       }
       throw error;
     }
-  }, [api, loadData]);
+  }, [api, loadApps]);
 
   const deleteApp = useCallback(async (id: string): Promise<boolean | undefined> => {
     await api.delete(`/api/v1/apps/${id}`, {}, {
       snackbar: true,
     })
-    await loadData()
+    await loadApps()
     return true
   }, [
     api,
-    loadData,
+    loadApps,
   ])
 
   // Load initial data when user is available (just like in the sessions context)
   useEffect(() => {
     if(!account.user) return
-    loadData()
-
-    return () => {
-      mountedRef.current = false
-    }
+    loadApps()
   }, [
     account.user,
   ])
 
   return {
-    data,
+    apps,
     app,
     githubStatus,
     helixApps,
     githubApps,
-    loadData,
+    loadApps,
     loadApp,
     setApp,
     loadGithubStatus,
@@ -342,7 +303,6 @@ export const useAppsContext = (): IAppsContext => {
     githubReposLoading,
     connectError,
     connectLoading,
-    isLoading,
   }
 }
 
