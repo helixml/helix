@@ -693,6 +693,12 @@ const App: FC = () => {
         model: model,
       })),
     };
+    
+    // Remove assistant tools as this is an internal field
+    currentConfig.assistants = currentConfig.assistants.map(assistant => ({
+      ...assistant,
+      tools: undefined
+    }));
 
     // Remove empty values and format as YAML
     let cleanedConfig = removeEmptyValues(currentConfig);
