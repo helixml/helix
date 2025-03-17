@@ -73,11 +73,6 @@ func (s *PostgresStore) Close() error {
 	return sqlDB.Close()
 }
 
-// DB returns the underlying gorm.DB instance
-func (s *PostgresStore) DB() *gorm.DB {
-	return s.gdb
-}
-
 type MigrationScript struct {
 	Name   string `gorm:"primaryKey"`
 	HasRun bool
