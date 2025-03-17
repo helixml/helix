@@ -19,11 +19,12 @@ type OwnerQuery struct {
 }
 
 type GetSessionsQuery struct {
-	Owner         string          `json:"owner"`
-	OwnerType     types.OwnerType `json:"owner_type"`
-	ParentSession string          `json:"parent_session"`
-	Offset        int             `json:"offset"`
-	Limit         int             `json:"limit"`
+	Owner          string          `json:"owner"`
+	OwnerType      types.OwnerType `json:"owner_type"`
+	ParentSession  string          `json:"parent_session"`
+	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
+	Offset         int             `json:"offset"`
+	Limit          int             `json:"limit"`
 }
 
 type ListAPIKeysQuery struct {

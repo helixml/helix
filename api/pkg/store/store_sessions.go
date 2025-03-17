@@ -17,12 +17,13 @@ import (
 // "all sessions belonging to this top level session"
 func getSessionsQuery(query GetSessionsQuery) (*types.Session, []interface{}) {
 	fields := []interface{}{
-		"Owner", "OwnerType", "ParentSession",
+		"Owner", "OwnerType", "ParentSession", "OrganizationID",
 	}
 	session := &types.Session{
-		Owner:         query.Owner,
-		OwnerType:     query.OwnerType,
-		ParentSession: query.ParentSession,
+		Owner:          query.Owner,
+		OwnerType:      query.OwnerType,
+		ParentSession:  query.ParentSession,
+		OrganizationID: query.OrganizationID,
 	}
 	return session, fields
 }

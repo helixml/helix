@@ -172,16 +172,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Create session
 		newSession = true
 		session = &types.Session{
-			ID:        system.GenerateSessionID(),
-			Name:      s.getTemporarySessionName(message),
-			Created:   time.Now(),
-			Updated:   time.Now(),
-			Mode:      types.SessionModeInference,
-			Type:      types.SessionTypeText,
-			ModelName: startReq.Model,
-			ParentApp: startReq.AppID,
-			Owner:     user.ID,
-			OwnerType: user.Type,
+			ID:             system.GenerateSessionID(),
+			Name:           s.getTemporarySessionName(message),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			ModelName:      startReq.Model,
+			ParentApp:      startReq.AppID,
+			OrganizationID: startReq.OrganizationID,
+			Owner:          user.ID,
+			OwnerType:      user.Type,
 			Metadata: types.SessionMetadata{
 				Stream:       startReq.Stream,
 				SystemPrompt: startReq.SystemPrompt,

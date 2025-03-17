@@ -22,6 +22,9 @@ type Client interface {
 	DeleteApp(ctx context.Context, appID string, deleteKnowledge bool) error
 	ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error)
 
+	// Sessions
+	ListSessions(ctx context.Context, f *SessionFilter) (*types.SessionsList, error)
+
 	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]string) (*types.RunAPIActionResponse, error)
 
 	ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error)
@@ -64,6 +67,12 @@ type Client interface {
 	ListAppAccessGrants(ctx context.Context, f *AppAccessGrantsFilter) ([]*types.AccessGrant, error)
 	CreateAppAccessGrant(ctx context.Context, appID string, grant *types.CreateAccessGrantRequest) (*types.AccessGrant, error)
 	DeleteAppAccessGrant(ctx context.Context, appID, grantID string) error
+}
+
+type SessionFilter struct {
+	OrganizationID string
+	Offset         int
+	Limit          int
 }
 
 // HelixClient is the client for the helix api
