@@ -7,7 +7,7 @@ import (
 
 // Extract document IDs from the prompt
 func ParseDocumentIDs(prompt string) []string {
-	re := regexp.MustCompile(`\[DOC_ID:(\d+)\]`)
+	re := regexp.MustCompile(`\[DOC_ID:([0-9a-f]+)\]`)
 	matches := re.FindAllStringSubmatch(prompt, -1)
 
 	// Convert matches to slice of strings
