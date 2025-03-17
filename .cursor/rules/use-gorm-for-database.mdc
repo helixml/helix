@@ -1,0 +1,7 @@
+---
+description: Database interactions should be using Gorm
+globs: api/pkg/store/*.go
+alwaysApply: false
+---
+- When adding methods to interact with Postgres database, use Gorm client `s.gdb.WithContext(ctx).Where(xx).First(xx)`, etc.
+- If a query is more complex where joins are needed, then use the "Raw" feature of gorm client such as `s.gdb.WithContext(ctx).Raw("some query").Scan(&result)`
