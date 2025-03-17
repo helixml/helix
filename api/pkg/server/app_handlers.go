@@ -169,9 +169,9 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 	return authorizedApps, nil
 }
 
-// createTool godoc
+// createApp godoc
 // @Summary Create new app
-// @Description Create new app. Apps are pre-configured to spawn sessions with specific tools and config.
+// @Description Create new app. Helix apps are configured with tools and knowledge.
 // @Tags    apps
 
 // @Success 200 {object} types.App
