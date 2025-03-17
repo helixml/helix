@@ -285,9 +285,6 @@ func (m *Manager) CreateOAuth2Provider(ctx context.Context, config *types.OAuthP
 		config.ID = uuid.New().String()
 	}
 
-	// Always use OAuth 2.0
-	config.Version = types.OAuthVersion2
-
 	provider, err := m.store.CreateOAuthProvider(ctx, config)
 	if err != nil {
 		return nil, err
