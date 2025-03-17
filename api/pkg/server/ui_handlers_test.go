@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -46,6 +47,7 @@ func (suite *UIHandlerSuite) createMockUser() *types.User {
 		Email:    "test@example.com",
 		Username: "test@example.com",
 		FullName: "Test User",
+		Type:     types.OwnerTypeUser,
 	}
 }
 
@@ -77,6 +79,17 @@ func (suite *UIHandlerSuite) TestUIAt() {
 				return req
 			},
 			setupMocks: func() {
+				// First expect GetApp to check authorization
+				suite.store.EXPECT().
+					GetApp(gomock.Any(), "app123").
+					Return(&types.App{
+						ID:             "app123",
+						Owner:          "user123", // Same owner as the test user
+						OwnerType:      types.OwnerTypeUser,
+						Shared:         false,
+						OrganizationID: "",
+					}, nil)
+
 				suite.store.EXPECT().
 					ListKnowledge(gomock.Any(), &store.ListKnowledgeQuery{
 						AppID: "app123",
@@ -107,6 +120,16 @@ func (suite *UIHandlerSuite) TestUIAt() {
 				return req
 			},
 			setupMocks: func() {
+				// First expect GetApp to check authorization
+				suite.store.EXPECT().
+					GetApp(gomock.Any(), "app123").
+					Return(&types.App{
+						ID:        "app123",
+						Owner:     "user123", // Same owner as the test user
+						OwnerType: types.OwnerTypeUser,
+						Shared:    false,
+					}, nil)
+
 				suite.store.EXPECT().
 					ListKnowledge(gomock.Any(), &store.ListKnowledgeQuery{
 						AppID: "app123",
@@ -138,6 +161,17 @@ func (suite *UIHandlerSuite) TestUIAt() {
 				return req
 			},
 			setupMocks: func() {
+				// First expect GetApp to check authorization
+				suite.store.EXPECT().
+					GetApp(gomock.Any(), "app123").
+					Return(&types.App{
+						ID:             "app123",
+						Owner:          "user123", // Same owner as the test user
+						OwnerType:      types.OwnerTypeUser,
+						Shared:         false,
+						OrganizationID: "",
+					}, nil)
+
 				suite.store.EXPECT().
 					ListKnowledge(gomock.Any(), gomock.Any()).
 					Return(nil, context.DeadlineExceeded)
@@ -146,6 +180,82 @@ func (suite *UIHandlerSuite) TestUIAt() {
 			checkResponse: func(resp *types.UIAtResponse, err error) {
 				suite.NotNil(err)
 				suite.Nil(resp)
+			},
+		},
+		{
+			name: "User without app read access gets empty results",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=app123")
+				return req
+			},
+			setupMocks: func() {
+				// First the server will try to get the app
+				suite.store.EXPECT().
+					GetApp(gomock.Any(), "app123").
+					Return(&types.App{
+						ID:        "app123",
+						Owner:     "different_user",
+						OwnerType: types.OwnerTypeUser,
+						Shared:    false,
+					}, nil)
+
+				// We should not see any calls to ListKnowledge since authorization will fail
+			},
+			expectedStatus: http.StatusOK,
+			checkResponse: func(resp *types.UIAtResponse, err error) {
+				suite.Nil(err)
+				suite.NotNil(resp)
+				suite.Empty(resp.Data, "User without read access should get empty results")
+			},
+		},
+		{
+			name: "Non-existent app returns 404",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=nonexistent")
+				return req
+			},
+			setupMocks: func() {
+				suite.store.EXPECT().
+					GetApp(gomock.Any(), "nonexistent").
+					Return(nil, store.ErrNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
+			checkResponse: func(resp *types.UIAtResponse, err error) {
+				suite.NotNil(err)
+				suite.Nil(resp)
+				httpErr, ok := err.(*system.HTTPError)
+				suite.True(ok, "Expected error to be *system.HTTPError")
+				suite.Equal(http.StatusNotFound, httpErr.StatusCode)
+			},
+		},
+		{
+			name: "User is allowed to access global app",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=global")
+				return req
+			},
+			setupMocks: func() {
+				suite.store.EXPECT().
+					GetApp(gomock.Any(), "global").
+					Return(&types.App{
+						ID:        "global",
+						Owner:     "another-user",
+						OwnerType: types.OwnerTypeUser,
+						Global:    true,
+					}, nil)
+
+				suite.store.EXPECT().
+					ListKnowledge(gomock.Any(), &store.ListKnowledgeQuery{
+						AppID: "global",
+						Owner: "user123",
+					}).
+					Return([]*types.Knowledge{}, nil)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponse: func(resp *types.UIAtResponse, err error) {
+				suite.Nil(err)
+				suite.NotNil(resp)
+				suite.Len(resp.Data, 0)
 			},
 		},
 	}
