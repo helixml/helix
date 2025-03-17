@@ -42,6 +42,7 @@ import { SvgIconComponent } from '@mui/icons-material'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
+import atlassianLogo from '../../../assets/img/atlassian-logo.png'
 
 // Microsoft Logo SVG
 const MicrosoftLogo = (props: any) => (
@@ -67,27 +68,22 @@ const LinkedInLogo = (props: any) => (
   </SvgIcon>
 );
 
-// Atlassian Logo SVG
-const AtlassianLogo = (props: any) => (
-  <SvgIcon {...props} viewBox="0 0 24 24">
-    <path fill="#0052CC" d="M7.12 11.084c-.294-.486-.891-.642-1.37-.347-.479.294-.628.891-.347 1.37l4.723 8.25c.294.487.89.636 1.37.347.48-.294.629-.89.347-1.377l-4.723-8.243z"/>
-  </SvgIcon>
-);
+// Atlassian Logo Component
 
 interface OAuthProvider {
   id: string
   name: string
   description: string
   type: string
-  clientId: string
-  clientSecret: string
-  authUrl: string
-  tokenUrl: string
-  userInfoUrl: string
-  callbackUrl: string
+  client_id: string
+  client_secret: string
+  auth_url: string
+  token_url: string
+  user_info_url: string
+  callback_url: string
   scopes: string[]
   enabled: boolean
-  createdAt: string
+  created_at: string
   isTemplate?: boolean
   isAddCard?: boolean
 }
@@ -109,7 +105,7 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   github: <GitHubIcon sx={{ fontSize: 30 }} />,
   google: <GoogleIcon sx={{ fontSize: 30 }} />,
   microsoft: <MicrosoftLogo sx={{ fontSize: 30 }} />,
-  atlassian: <AtlassianLogo sx={{ fontSize: 30 }} />,
+  atlassian: <img src={atlassianLogo} style={{ width: 30, height: 30 }} alt="Atlassian" />,
   slack: <SlackLogo sx={{ fontSize: 30 }} />,
   linkedin: <LinkedInLogo sx={{ fontSize: 30 }} />,
   facebook: <SvgIcon sx={{ fontSize: 30 }} viewBox="0 0 24 24">
@@ -123,7 +119,7 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
 }
 
 const PROVIDER_COLORS: Record<string, string> = {
-  github: '#24292e',
+  github: '#ffffff',
   google: '#4285F4',
   microsoft: '#00a1f1',
   atlassian: '#0052CC',
@@ -171,45 +167,45 @@ const BUILT_IN_PROVIDERS: Partial<OAuthProvider>[] = [
 
 // Add provider URL defaults for built-in providers
 const PROVIDER_DEFAULTS: Record<string, {
-  authUrl: string;
-  tokenUrl: string;
-  userInfoUrl: string;
+  auth_url: string;
+  token_url: string;
+  user_info_url: string;
   scopes: string[];
 }> = {
   github: {
-    authUrl: 'https://github.com/login/oauth/authorize',
-    tokenUrl: 'https://github.com/login/oauth/access_token',
-    userInfoUrl: 'https://api.github.com/user',
+    auth_url: 'https://github.com/login/oauth/authorize',
+    token_url: 'https://github.com/login/oauth/access_token',
+    user_info_url: 'https://api.github.com/user',
     scopes: ['read:user', 'user:email']
   },
   google: {
-    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenUrl: 'https://oauth2.googleapis.com/token',
-    userInfoUrl: 'https://www.googleapis.com/oauth2/v3/userinfo',
+    auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
+    token_url: 'https://oauth2.googleapis.com/token',
+    user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
     scopes: ['email', 'profile']
   },
   microsoft: {
-    authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
-    tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-    userInfoUrl: 'https://graph.microsoft.com/v1.0/me',
+    auth_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+    user_info_url: 'https://graph.microsoft.com/v1.0/me',
     scopes: ['openid', 'profile', 'email', 'offline_access']
   },
   slack: {
-    authUrl: 'https://slack.com/oauth/v2/authorize',
-    tokenUrl: 'https://slack.com/api/oauth.v2.access',
-    userInfoUrl: 'https://slack.com/api/users.identity',
+    auth_url: 'https://slack.com/oauth/v2/authorize',
+    token_url: 'https://slack.com/api/oauth.v2.access',
+    user_info_url: 'https://slack.com/api/users.identity',
     scopes: ['identity.basic', 'identity.email', 'identity.avatar']
   },
   linkedin: {
-    authUrl: 'https://www.linkedin.com/oauth/v2/authorization',
-    tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
-    userInfoUrl: 'https://api.linkedin.com/v2/me',
+    auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
+    token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
+    user_info_url: 'https://api.linkedin.com/v2/me',
     scopes: ['r_liteprofile', 'r_emailaddress']
   },
   atlassian: {
-    authUrl: 'https://auth.atlassian.com/authorize',
-    tokenUrl: 'https://auth.atlassian.com/oauth/token',
-    userInfoUrl: 'https://api.atlassian.com/me',
+    auth_url: 'https://auth.atlassian.com/authorize',
+    token_url: 'https://auth.atlassian.com/oauth/token',
+    user_info_url: 'https://api.atlassian.com/me',
     scopes: ['read:me']
   }
 }
@@ -244,7 +240,9 @@ const OAuthProvidersTable: React.FC = () => {
             name: provider.name,
             type: provider.type,
             enabled: provider.enabled,
-            isTemplate: !!provider.isTemplate
+            isTemplate: !!provider.isTemplate,
+            client_id: provider.client_id ? '(set)' : '(not set)',
+            client_secret: provider.client_secret ? '(set)' : '(not set)'
           })
         })
         
@@ -278,9 +276,9 @@ const OAuthProvidersTable: React.FC = () => {
       const defaults = templateType !== 'custom' && PROVIDER_DEFAULTS[templateType as keyof typeof PROVIDER_DEFAULTS]
         ? PROVIDER_DEFAULTS[templateType as keyof typeof PROVIDER_DEFAULTS]
         : {
-            authUrl: '',
-            tokenUrl: '',
-            userInfoUrl: '',
+            auth_url: '',
+            token_url: '',
+            user_info_url: '',
             scopes: [] as string[]
           };
       
@@ -291,15 +289,15 @@ const OAuthProvidersTable: React.FC = () => {
         name: provider?.name || '',
         description: provider?.description || '',
         type: templateType,
-        clientId: '',
-        clientSecret: '',
-        authUrl: defaults.authUrl,
-        tokenUrl: defaults.tokenUrl,
-        userInfoUrl: defaults.userInfoUrl,
-        callbackUrl: window.location.origin + '/oauth/flow/callback',
+        client_id: '',
+        client_secret: '',
+        auth_url: defaults.auth_url,
+        token_url: defaults.token_url,
+        user_info_url: defaults.user_info_url,
+        callback_url: window.location.origin + '/oauth/flow/callback',
         scopes: defaults.scopes,
         enabled: true,
-        createdAt: new Date().toISOString(),
+        created_at: new Date().toISOString(),
       });
       setIsEditing(false);
     }
@@ -370,12 +368,15 @@ const OAuthProvidersTable: React.FC = () => {
         id: providerToSave.id,
         name: providerToSave.name,
         type: providerToSave.type,
+        client_id: providerToSave.client_id ? '(set)' : '(not set)',
+        client_secret: providerToSave.client_secret ? '(set)' : '(not set)',
         enabled: providerToSave.enabled,
         isEditing: isEditing
       });
       
       if (isEditing) {
-        await api.put(`/api/v1/oauth/providers/${providerToSave.id}`, providerToSave)
+        const response = await api.put(`/api/v1/oauth/providers/${providerToSave.id}`, providerToSave)
+        console.log('Provider update response:', response.data);
         success('Provider updated')
       } else {
         const response = await api.post('/api/v1/oauth/providers', providerToSave)
@@ -421,15 +422,15 @@ const OAuthProvidersTable: React.FC = () => {
           name: builtIn.name || PROVIDER_TYPES[builtIn.type as keyof typeof PROVIDER_TYPES] || builtIn.type,
           description: builtIn.description || `Connect to ${builtIn.name || builtIn.type} to enable integration`,
           type: builtIn.type as string,
-          clientId: '',
-          clientSecret: '',
-          authUrl: '',
-          tokenUrl: '',
-          userInfoUrl: '',
-          callbackUrl: window.location.origin + '/oauth/flow/callback',
+          client_id: '',
+          client_secret: '',
+          auth_url: '',
+          token_url: '',
+          user_info_url: '',
+          callback_url: window.location.origin + '/oauth/flow/callback',
           scopes: [],
           enabled: false,
-          createdAt: new Date().toISOString(),
+          created_at: new Date().toISOString(),
           isTemplate: true,
         } as OAuthProvider;
         
@@ -444,15 +445,15 @@ const OAuthProvidersTable: React.FC = () => {
       name: 'Add Custom Provider',
       description: 'Configure a new OAuth integration with any provider',
       type: 'custom',
-      clientId: '',
-      clientSecret: '',
-      authUrl: '',
-      tokenUrl: '',
-      userInfoUrl: '',
-      callbackUrl: '',
+      client_id: '',
+      client_secret: '',
+      auth_url: '',
+      token_url: '',
+      user_info_url: '',
+      callback_url: '',
       scopes: [],
       enabled: false,
-      createdAt: '',
+      created_at: '',
       isAddCard: true,
     } as OAuthProvider);
     
@@ -488,6 +489,7 @@ const OAuthProvidersTable: React.FC = () => {
     const icon = getProviderIcon(provider.type);
     const color = getProviderColor(provider.type);
     const isTemplate = provider.isTemplate;
+    const isAtlassian = provider.type === 'atlassian';
     
     console.log('Rendering provider card:', {
       id: provider.id,
@@ -520,9 +522,9 @@ const OAuthProvidersTable: React.FC = () => {
           if (isTemplate) {
             // For templates, pre-set the provider type and URLs before opening the dialog
             const defaults = PROVIDER_DEFAULTS[provider.type as keyof typeof PROVIDER_DEFAULTS] || {
-              authUrl: '',
-              tokenUrl: '',
-              userInfoUrl: '',
+              auth_url: '',
+              token_url: '',
+              user_info_url: '',
               scopes: [] as string[]
             };
             
@@ -533,15 +535,15 @@ const OAuthProvidersTable: React.FC = () => {
               name: provider.name,
               description: provider.description,
               type: provider.type,
-              clientId: '',
-              clientSecret: '',
-              authUrl: defaults.authUrl,
-              tokenUrl: defaults.tokenUrl,
-              userInfoUrl: defaults.userInfoUrl,
-              callbackUrl: window.location.origin + '/oauth/flow/callback',
+              client_id: '',
+              client_secret: '',
+              auth_url: defaults.auth_url,
+              token_url: defaults.token_url,
+              user_info_url: defaults.user_info_url,
+              callback_url: window.location.origin + '/oauth/flow/callback',
               scopes: defaults.scopes,
               enabled: true,
-              createdAt: new Date().toISOString(),
+              created_at: new Date().toISOString(),
             });
             setIsEditing(false);
             setOpenDialog(true);
@@ -553,6 +555,19 @@ const OAuthProvidersTable: React.FC = () => {
       >
         <CardHeader
           avatar={
+            isAtlassian ? 
+            // For Atlassian, use the image directly 
+            <Avatar 
+              src={atlassianLogo}
+              sx={{ 
+                opacity: isTemplate ? 0.7 : 1,
+                bgcolor: 'transparent',
+                border: isTemplate ? `1px solid ${color}` : 'none',
+                width: 40,
+                height: 40
+              }}
+            /> :
+            // For other providers, use the standard approach
             <Avatar 
               sx={{ 
                 bgcolor: isTemplate ? 'transparent' : color,
@@ -584,7 +599,7 @@ const OAuthProvidersTable: React.FC = () => {
           {!isTemplate && (
             <>
               <Typography variant="caption" display="block" color="text.secondary">
-                Created: {formatDate(provider.createdAt)}
+                Created: {formatDate(provider.created_at)}
               </Typography>
             </>
           )}
@@ -757,8 +772,8 @@ const OAuthProvidersTable: React.FC = () => {
                 <TextField
                   fullWidth
                   label="Client ID"
-                  name="clientId"
-                  value={currentProvider.clientId}
+                  name="client_id"
+                  value={currentProvider.client_id}
                   onChange={handleInputChange}
                   required
                 />
@@ -768,8 +783,8 @@ const OAuthProvidersTable: React.FC = () => {
                 <TextField
                   fullWidth
                   label="Client Secret"
-                  name="clientSecret"
-                  value={currentProvider.clientSecret}
+                  name="client_secret"
+                  value={currentProvider.client_secret}
                   onChange={handleInputChange}
                   type="password"
                   required
@@ -780,8 +795,8 @@ const OAuthProvidersTable: React.FC = () => {
                 <TextField
                   fullWidth
                   label="Callback URL"
-                  name="callbackUrl"
-                  value={currentProvider.callbackUrl}
+                  name="callback_url"
+                  value={currentProvider.callback_url}
                   onChange={handleInputChange}
                   helperText="This URL should be configured in your OAuth provider's settings"
                 />
@@ -794,8 +809,8 @@ const OAuthProvidersTable: React.FC = () => {
                     <TextField
                       fullWidth
                       label="Authorization URL"
-                      name="authUrl"
-                      value={currentProvider.authUrl}
+                      name="auth_url"
+                      value={currentProvider.auth_url}
                       onChange={handleInputChange}
                       helperText="The URL to redirect users for authorization"
                     />
@@ -804,8 +819,8 @@ const OAuthProvidersTable: React.FC = () => {
                     <TextField
                       fullWidth
                       label="Token URL"
-                      name="tokenUrl"
-                      value={currentProvider.tokenUrl}
+                      name="token_url"
+                      value={currentProvider.token_url}
                       onChange={handleInputChange}
                       helperText="The URL to exchange authorization code for access token"
                     />
@@ -814,8 +829,8 @@ const OAuthProvidersTable: React.FC = () => {
                     <TextField
                       fullWidth
                       label="User Info URL"
-                      name="userInfoUrl"
-                      value={currentProvider.userInfoUrl}
+                      name="user_info_url"
+                      value={currentProvider.user_info_url}
                       onChange={handleInputChange}
                       helperText="The URL to fetch user information"
                     />
