@@ -26,7 +26,12 @@ import {
   SessionsContextProvider,
 } from './sessions'
 
-// Import the new StreamingProvider
+// Import the new AppsContextProvider
+import {
+  AppsContextProvider,
+} from './apps'
+
+// Import the StreamingProvider
 import {
   StreamingContextProvider,
 } from './streaming'
@@ -39,9 +44,11 @@ const AllContextProvider: FC = ({ children }) => {
           <ThemeProviderWrapper>
             <AccountContextProvider>
               <SessionsContextProvider>
-                <StreamingContextProvider>
-                  {children}
-                </StreamingContextProvider>
+                <AppsContextProvider>
+                  <StreamingContextProvider>
+                    {children}
+                  </StreamingContextProvider>
+                </AppsContextProvider>
               </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>
