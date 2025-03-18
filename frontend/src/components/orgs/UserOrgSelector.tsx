@@ -355,6 +355,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               alignItems: 'center',
               py: 2,
               width: '100%',
+              marginTop: '-1px',
               justifyContent: 'space-between',
               background: 'transparent',
             }}
