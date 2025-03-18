@@ -62,7 +62,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       setSystemPrompt(app.systemPrompt || '')
       setAvatar(app.avatar || '')
       setImage(app.image || '')
-      setShared(app.shared || false)
       setGlobal(app.global || false)
       setModel(app.model || '')
       setProvider(app.provider || '')
@@ -96,7 +95,6 @@ const AppSettings: FC<AppSettingsProps> = ({
         systemPrompt,
         avatar,
         image,
-        shared,
         global,
         model,
         provider,
@@ -108,10 +106,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   }
 
   // Handle checkbox changes - these update immediately since they're not typing events
-  const handleCheckboxChange = (field: 'shared' | 'global', value: boolean) => {
-    if (field === 'shared') {
-      setShared(value)
-    } else {
+  const handleCheckboxChange = (field: 'global', value: boolean) => {
+    if (field === 'global') {
       setGlobal(value)
     }
     
@@ -123,7 +119,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       systemPrompt,
       avatar,
       image,
-      shared: field === 'shared' ? value : shared,
       global: field === 'global' ? value : global,
       model,
       provider,
@@ -148,7 +143,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       systemPrompt,
       avatar,
       image,
-      shared,
       global,
       model: field === 'model' ? value : model,
       provider: field === 'provider' ? value : provider,
