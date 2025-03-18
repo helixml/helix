@@ -585,9 +585,14 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			return nil, fmt.Errorf("error getting app: %w", err)
 		}
 
-		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
-		if !app.Global && app.Owner != session.Owner {
-			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
+		// Create a user object from the session owner
+		user := &types.User{
+			ID: session.Owner,
+		}
+
+		// Use AuthorizeUserToApp instead of direct check
+		if err := c.AuthorizeUserToApp(ctx, user, app); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
 		}
 
 		if len(app.Config.Helix.Assistants) > 0 {
