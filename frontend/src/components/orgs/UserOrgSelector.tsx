@@ -151,6 +151,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               ml: 1,
+              color: '#FFFFFF',
+              fontWeight: 'medium',
             }}
           >
             {displayOrgName}
@@ -248,8 +250,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               noWrap 
               sx={{ 
                 flex: 1,
-                color: 'white',
+                color: '#FFFFFF',
                 maxWidth: 'calc(100% - 40px)',
+                fontWeight: 'medium',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
               }}
