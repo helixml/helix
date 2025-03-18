@@ -54,11 +54,11 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 	user := getRequestUser(r)
 	orgID := mux.Vars(r)["id"]
 
-	// Check if user has access to view members
-	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	// Check if user has owner permissions (not just membership)
+	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		http.Error(rw, "Only organization owners can add members: "+err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -117,11 +117,11 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 	orgID := mux.Vars(r)["id"]
 	userIDToRemove := mux.Vars(r)["user_id"]
 
-	// Check if user has access to modify members
-	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	// Check if user has owner permissions (not just membership)
+	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		http.Error(rw, "Only organization owners can remove members: "+err.Error(), http.StatusForbidden)
 		return
 	}
 
