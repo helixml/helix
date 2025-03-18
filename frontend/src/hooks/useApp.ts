@@ -645,6 +645,7 @@ export const useApp = (appId: string) => {
     if (!appId) return null
     
     try {
+      setIsAppSaving(true)
       // Explicitly specify both the request and response types
       const newGrant = await api.post<CreateAccessGrantRequest, IAccessGrant>(`/api/v1/apps/${appId}/access-grants`, request)
       
@@ -660,6 +661,8 @@ export const useApp = (appId: string) => {
       console.error('Failed to create access grant:', error)
       snackbar.error('Failed to create access grant')
       return null
+    } finally {
+      setIsAppSaving(false)
     }
   }
   
@@ -672,6 +675,8 @@ export const useApp = (appId: string) => {
     if (!appId) return false
     
     try {
+      setIsAppSaving(true)
+
       await api.delete(`/api/v1/apps/${appId}/access-grants/${grantId}`)
       
       // Refresh the list of access grants
@@ -682,6 +687,8 @@ export const useApp = (appId: string) => {
       console.error('Failed to delete access grant:', error)
       snackbar.error('Failed to delete access grant')
       return false
+    } finally {
+      setIsAppSaving(false)
     }
   }
 
