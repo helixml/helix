@@ -87,16 +87,21 @@ const Home: FC = () => {
       return
     }
     setLoading(true)
+    let orgId = ''
+    if(account.organizationTools.organization?.id) {
+      orgId = account.organizationTools.organization.id
+    }
     try {
       const session = await NewInference({
         type: currentType,
         message: currentPrompt,
         modelName: currentModel,
+        orgId,
       })
       if (!session) return
       await sessions.loadSessions()
       setLoading(false)
-      router.navigate('session', { session_id: session.id })
+      account.orgNavigate('session', { session_id: session.id })
     } catch (error) {
       console.error('Error in submitPrompt:', error)
       snackbar.error('Failed to start inference')
