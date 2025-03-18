@@ -9,6 +9,8 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+import OrgsSidebarMenu from '../components/orgs/OrgsSidebarMenu'
+import AppsMenu from '../components/apps/AppsMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -29,7 +31,6 @@ const Layout: FC = ({
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
-
   const [showVersionBanner, setShowVersionBanner] = useState(true)
 
   const hasNewVersion = useMemo(() => {
@@ -46,6 +47,35 @@ const Layout: FC = ({
     }
     return account.serverConfig.version !== account.serverConfig.latest_version
   }, [account.serverConfig?.version, account.serverConfig?.latest_version])
+
+  let sidebarMenu = null
+  const isOrgMenu = router.meta.menu == 'orgs'
+  const resourceType = router.params.resource_type || 'chat'
+
+  if(router.meta.drawer) {
+    if(router.meta.menu == 'orgs') {
+      sidebarMenu = (
+        <OrgsSidebarMenu
+        />
+      )
+    } else if(resourceType === 'app') {
+      sidebarMenu = (
+        <AppsMenu
+          onOpenApp={ () => {
+            account.setMobileMenuOpen(false)
+          }}
+        />
+      )
+    } else {
+      sidebarMenu = (
+        <SessionsMenu
+          onOpenSession={ () => {
+            account.setMobileMenuOpen(false)
+          }}
+        />
+      )
+    }
+  }
 
   return (
     <>
@@ -93,12 +123,10 @@ const Layout: FC = ({
                 },
               }}
             >
-              <Sidebar>
-                <SessionsMenu
-                  onOpenSession={ () => {
-                    account.setMobileMenuOpen(false)
-                  }}
-                />
+              <Sidebar
+                showTopLinks={ !isOrgMenu }
+              >
+                { sidebarMenu }
               </Sidebar>
             </Drawer>
           )
@@ -125,7 +153,7 @@ const Layout: FC = ({
               minHeight: '100%',
             }}
           >
-            { account.loggingOut ? null : children }
+            { account.loggingOut ? <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><Typography>Logging out...</Typography></Box> : children }
           </Box>
         </Box>
         <Snackbar />

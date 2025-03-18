@@ -79,6 +79,22 @@ func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Re
 	query.Owner = user.ID
 	query.OwnerType = user.Type
 
+	// Extract organization_id query parameter if present
+	organizationID := req.URL.Query().Get("organization_id")
+	if organizationID != "" {
+		// Verify the user has access to the organization
+		_, err := apiServer.authorizeOrgMember(ctx, user, organizationID)
+		if err != nil {
+			return nil, fmt.Errorf("unauthorized: %w", err)
+		}
+
+		query.OrganizationID = organizationID
+	} else {
+		// When no organization is specified, we only want personal sessions
+		// Setting empty string explicitly ensures we only get sessions with no organization
+		query.OrganizationID = ""
+	}
+
 	// Extract offset and limit values from query parameters
 	offsetStr := req.URL.Query().Get("offset")
 	limitStr := req.URL.Query().Get("limit")

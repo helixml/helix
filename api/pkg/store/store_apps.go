@@ -207,12 +207,33 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 
 func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
 	var apps []*types.App
-	err := s.gdb.WithContext(ctx).Where(&types.App{
-		Owner:          q.Owner,
-		OwnerType:      q.OwnerType,
-		Global:         q.Global,
-		OrganizationID: q.OrganizationID,
-	}).Order("id DESC").Find(&apps).Error
+
+	// Build the query conditionally based on the query parameters
+	query := s.gdb.WithContext(ctx)
+
+	// Add owner and owner type conditions if provided
+	if q.Owner != "" {
+		query = query.Where("owner = ?", q.Owner)
+	}
+
+	if q.OwnerType != "" {
+		query = query.Where("owner_type = ?", q.OwnerType)
+	}
+
+	// Handle global flag
+	if q.Global {
+		query = query.Where("global = ?", q.Global)
+	}
+
+	// Handle organization_id based on specific conditions
+	if q.OrganizationID != "" {
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	} else {
+		query = query.Where("organization_id IS NULL OR organization_id = ''")
+	}
+
+	// Execute the query
+	err := query.Order("id DESC").Find(&apps).Error
 	if err != nil {
 		return nil, err
 	}

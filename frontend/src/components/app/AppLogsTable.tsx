@@ -163,7 +163,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           transform: 'translate(-50%, -50%)',
           width: '80%',
           maxHeight: '80%',
-          bgcolor: 'transparent',          
+          bgcolor: '#070714',
           border: '2px solid #000',
           boxShadow: 24,
           p: 4,

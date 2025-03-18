@@ -19,6 +19,7 @@ import {
   FormLabel,
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
+import { TypesProviderEndpointType } from '../../api/api'
 import useEndpointProviders from '../../hooks/useEndpointProviders';
 import useAccount from '../../hooks/useAccount';
 
@@ -140,7 +141,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         base_url: formData.base_url,
         api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
         api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
-        endpoint_type: formData.endpoint_type as 'global' | 'user',
+        endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
       });
       await account.fetchProviderEndpoints();
       onClose();

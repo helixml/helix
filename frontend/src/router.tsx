@@ -5,6 +5,11 @@ import browserPlugin from 'router5-plugin-browser'
 import Session from './pages/Session'
 import Account from './pages/Account'
 import Apps from './pages/Apps'
+import Orgs from './pages/Orgs'
+import OrgSettings from './pages/OrgSettings'
+import OrgTeams from './pages/OrgTeams'
+import OrgPeople from './pages/OrgPeople'
+import TeamPeople from './pages/TeamPeople'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
@@ -28,35 +33,127 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   render: () => <div>Page Not Found</div>,
 }
 
-const routes: IApplicationRoute[] = [{
-  name: 'home',
-  path: '/',
+
+// some routes work for both the `/org/:org_id/` prefix and also for the root prefix
+// so rather than duplicate these routes let's return them from this utility function
+const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] => {
+  return [{
+    name: namePrefix + 'home',
+    path: routePrefix + (routePrefix ? '' : '/'),
+    meta: {
+      title: 'Home',
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+        <Home />
+    ),
+  }, {
+    name: namePrefix + 'new',
+    path: routePrefix + '/new',
+    meta: {
+      title: 'New Session',
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+        <Create />
+    ),
+  }, {
+    name: namePrefix + 'apps',
+    path: routePrefix + '/apps',
+    meta: {
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+      <Apps />
+    ),
+  }, {
+    name: namePrefix + 'app',
+    path: routePrefix + '/app/:app_id',
+    meta: {
+      drawer: false,
+    },
+    render: () => (
+      <App />
+    ),
+  }, {
+    name: namePrefix + 'session',
+    path: routePrefix + '/session/:session_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+    },
+    render: () => (
+      <Session />
+    ),
+  }, {
+    name: namePrefix + 'appstore',
+    path: routePrefix + '/appstore',
+    meta: {
+      title: 'App Store',
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+        <AppStore />
+    ),
+  }]
+}
+
+const routes: IApplicationRoute[] = [
+  ...getOrgRoutes(),
+  ...getOrgRoutes('org_', '/org/:org_id'),
+{
+  name: 'orgs',
+  path: '/orgs',
   meta: {
-    title: 'Home',
     drawer: true,
   },
   render: () => (
-      <Home />
+    <Orgs />
   ),
 }, {
-  name: 'appstore',
-  path: '/appstore',
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
   meta: {
-    title: 'App Store',
     drawer: true,
+    menu: 'orgs',
   },
   render: () => (
-      <AppStore />
+    <OrgSettings />
   ),
 }, {
-  name: 'new',
-  path: '/new',
+  name: 'org_people',
+  path: '/orgs/:org_id/people',
   meta: {
-    title: 'New Session',
     drawer: true,
+    menu: 'orgs',
   },
   render: () => (
-      <Create />
+    <OrgPeople />
+  ),
+}, {
+  name: 'org_teams',
+  path: '/orgs/:org_id/teams',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgTeams />
+  ),
+}, {
+  name: 'team_people',
+  path: '/orgs/:org_id/teams/:team_id/people',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+    orgRouteName: 'org_teams',
+  },
+  render: () => (
+    <TeamPeople />
   ),
 }, {
   name: 'files',
@@ -70,15 +167,6 @@ const routes: IApplicationRoute[] = [{
     </FilestoreContextProvider>
   ),
 }, {
-  name: 'apps',
-  path: '/apps',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <Apps />
-  ),
-}, {
   name: 'secrets',
   path: '/secrets',
   meta: {
@@ -86,35 +174,6 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
     <Secrets />
-  ),
-}, {
-  name: 'app',
-  path: '/app/:app_id',
-  meta: {
-    drawer: false,
-  },
-  render: () => (
-    <App />
-  ),
-}, {
-  name: 'session',
-  path: '/session/:session_id',
-  meta: {
-    drawer: true,
-    topbar: false,
-  },
-  render: () => (
-    <Session />
-  ),
-}, {
-  name: 'dashboard',
-  path: '/dashboard',
-  meta: {
-    drawer: true,
-    background: '#ffffff'
-  },
-  render: () => (
-    <Dashboard />
   ),
 }, {
   name: 'account',
@@ -130,6 +189,17 @@ const routes: IApplicationRoute[] = [{
     drawer: false,
   },
   render: () => <OpenAPI />,
+}, {
+  name: 'dashboard',
+  path: '/dashboard',
+  meta: {
+    drawer: true,
+    background: '#ffffff',
+    orgAware: true,
+  },
+  render: () => (
+    <Dashboard />
+  ),
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

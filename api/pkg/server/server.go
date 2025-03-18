@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -301,6 +302,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
+
+	// User search endpoint
+	authRouter.HandleFunc("/users/search", system.DefaultWrapper(apiServer.searchUsers)).Methods(http.MethodGet)
 
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		// disable directory listings
@@ -668,13 +672,61 @@ func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
 
 func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 	rw.Header().Set("Content-Type", "application/json")
-
 	rw.WriteHeader(statusCode)
 
 	_ = json.NewEncoder(rw).Encode(&system.HTTPError{
 		StatusCode: statusCode,
 		Message:    err.Error(),
 	})
+}
+
+// searchUsers handles the API endpoint for searching users by email, name, or username patterns
+func (apiServer *HelixAPIServer) searchUsers(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
+	// Parse query parameters
+	query := &store.SearchUsersQuery{
+		EmailPattern:    r.URL.Query().Get("email"),
+		NamePattern:     r.URL.Query().Get("name"),
+		UsernamePattern: r.URL.Query().Get("username"),
+		OrganizationID:  r.URL.Query().Get("organization_id"),
+	}
+
+	// Parse pagination parameters
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid limit parameter: %w", err)
+		}
+		query.Limit = limit
+	} else {
+		// Default limit
+		query.Limit = 20
+	}
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid offset parameter: %w", err)
+		}
+		query.Offset = offset
+	}
+
+	// Execute the search
+	users, total, err := apiServer.Store.SearchUsers(r.Context(), query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return results with pagination metadata
+	response := map[string]interface{}{
+		"users": users,
+		"pagination": map[string]interface{}{
+			"total":  total,
+			"limit":  query.Limit,
+			"offset": query.Offset,
+		},
+	}
+
+	return response, nil
 }
 
 // startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth

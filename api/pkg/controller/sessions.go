@@ -55,19 +55,20 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 	}
 
 	newSession := types.Session{
-		ID:            req.ID,
-		Name:          system.GenerateAmusingName(),
-		ModelName:     req.ModelName,
-		Type:          req.Type,
-		Mode:          req.Mode,
-		ParentSession: req.ParentSession,
-		ParentApp:     req.ParentApp,
-		LoraDir:       req.LoraDir,
-		Owner:         req.Owner,
-		OwnerType:     req.OwnerType,
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Interactions:  append(req.UserInteractions, assistantInteraction),
+		ID:             req.ID,
+		Name:           system.GenerateAmusingName(),
+		ModelName:      req.ModelName,
+		Type:           req.Type,
+		Mode:           req.Mode,
+		ParentSession:  req.ParentSession,
+		ParentApp:      req.ParentApp,
+		OrganizationID: req.OrganizationID,
+		LoraDir:        req.LoraDir,
+		Owner:          req.Owner,
+		OwnerType:      req.OwnerType,
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Interactions:   append(req.UserInteractions, assistantInteraction),
 		Metadata: types.SessionMetadata{
 			Stream:       req.Stream,
 			OriginalMode: req.Mode,
@@ -584,9 +585,14 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			return nil, fmt.Errorf("error getting app: %w", err)
 		}
 
-		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
-		if !app.Global && app.Owner != session.Owner {
-			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
+		// Create a user object from the session owner
+		user := &types.User{
+			ID: session.Owner,
+		}
+
+		// Use AuthorizeUserToApp instead of direct check
+		if err := c.AuthorizeUserToApp(ctx, user, app); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
 		}
 
 		if len(app.Config.Helix.Assistants) > 0 {

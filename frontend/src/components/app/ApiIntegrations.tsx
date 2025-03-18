@@ -33,7 +33,7 @@ interface ApiIntegrationsProps {
   apis: IAssistantApi[];
   tools: ITool[];
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
-  onDeleteApiTool: (toolId: string) => void;
+  onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
 }
 
@@ -202,7 +202,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => onDeleteApiTool(apiTool.name)}
+                  onClick={() => onDeleteApiTool(index)}
                   disabled={isReadOnly}
                   startIcon={<DeleteIcon />}
                 >

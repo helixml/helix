@@ -45,6 +45,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
         <JsonWindowLink
           sx={{textDecoration: 'underline'}}
           data={schema}
+          withFancyRenderingControls={false}
         >
           expand
         </JsonWindowLink>

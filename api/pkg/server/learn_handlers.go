@@ -94,6 +94,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		Mode:                types.SessionModeFinetune,
 		ModelName:           model,
 		Type:                startReq.Type,
+		OrganizationID:      startReq.OrganizationID,
 		Stream:              true,
 		Owner:               user.ID,
 		OwnerType:           user.Type,

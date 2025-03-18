@@ -428,8 +428,8 @@ const Session: FC = () => {
     const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
       loading: true,
     })
-    if (!newSession) return false
-    await sessions.loadSessions(true)
+    if(!newSession) return false
+    await sessions.loadSessions()
     snackbar.success('Session cloned...')
     router.navigate('session', { session_id: newSession.id })
     return true
@@ -465,7 +465,7 @@ const Session: FC = () => {
         if (!newSession) return false
         setInputValue("")
       }
-      await sessions.loadSessions(true)
+      await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
         session_id: newSession.id
@@ -504,8 +504,8 @@ const Session: FC = () => {
           clone_into_eval_user: withEvalUser ? 'yes' : '',
         }
       })
-      if (!newSession) return false
-      await sessions.loadSessions(true)
+      if(!newSession) return false
+      await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
         session_id: newSession.id
