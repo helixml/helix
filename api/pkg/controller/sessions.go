@@ -585,16 +585,6 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			return nil, fmt.Errorf("error getting app: %w", err)
 		}
 
-		// Create a user object from the session owner
-		user := &types.User{
-			ID: session.Owner,
-		}
-
-		// Use AuthorizeUserToApp instead of direct check
-		if err := c.AuthorizeUserToApp(ctx, user, app); err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-
 		if len(app.Config.Helix.Assistants) > 0 {
 			assistantID := session.Metadata.AssistantID
 			if assistantID == "" {
