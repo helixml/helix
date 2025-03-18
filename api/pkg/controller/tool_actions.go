@@ -48,11 +48,6 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 				tool = appTool
 			}
 		}
-	} else {
-		tool, err = c.Options.Store.GetTool(ctx, toolID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get tool %s: %w", toolID, err)
-		}
 	}
 
 	// Override query parameters if the user has specified them

@@ -34,34 +34,35 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
 
   // Compare interaction
   if (prevProps.interaction?.id !== nextProps.interaction?.id ||
-      prevProps.interaction?.finished !== nextProps.interaction?.finished ||
-      prevProps.interaction?.message !== nextProps.interaction?.message ||
-      prevProps.interaction?.display_message !== nextProps.interaction?.display_message ||
-      prevProps.interaction?.error !== nextProps.interaction?.error ||
-      prevProps.interaction?.state !== nextProps.interaction?.state) {
+    prevProps.interaction?.finished !== nextProps.interaction?.finished ||
+    prevProps.interaction?.message !== nextProps.interaction?.message ||
+    prevProps.interaction?.display_message !== nextProps.interaction?.display_message ||
+    prevProps.interaction?.error !== nextProps.interaction?.error ||
+    prevProps.interaction?.state !== nextProps.interaction?.state) {
     return false
   }
 
   // Compare session
   if (prevProps.session?.id !== nextProps.session?.id ||
-      prevProps.session?.type !== nextProps.session?.type ||
-      prevProps.session?.mode !== nextProps.session?.mode ||
-      prevProps.session?.config?.shared !== nextProps.session?.config?.shared) {
+    prevProps.session?.type !== nextProps.session?.type ||
+    prevProps.session?.mode !== nextProps.session?.mode ||
+    prevProps.session?.config?.shared !== nextProps.session?.config?.shared) {
     return false
   }
 
   // Compare other props
   if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles ||
-      prevProps.showFinetuning !== nextProps.showFinetuning) {
+    prevProps.showFinetuning !== nextProps.showFinetuning) {
     return false
   }
 
   // Compare function references
   if (prevProps.retryFinetuneErrors !== nextProps.retryFinetuneErrors ||
-      prevProps.onReloadSession !== nextProps.onReloadSession ||
-      prevProps.onClone !== nextProps.onClone ||
-      prevProps.onAddDocuments !== nextProps.onAddDocuments ||
-      prevProps.onRestart !== nextProps.onRestart) {
+    prevProps.onReloadSession !== nextProps.onReloadSession ||
+    prevProps.onClone !== nextProps.onClone ||
+    prevProps.onAddDocuments !== nextProps.onAddDocuments ||
+    prevProps.onRestart !== nextProps.onRestart ||
+    prevProps.onFilterDocument !== nextProps.onFilterDocument) {
     return false
   }
 
@@ -81,6 +82,7 @@ interface InteractionProps {
   onAddDocuments?: () => void,
   onRestart?: () => void,
   children?: React.ReactNode,
+  onFilterDocument?: (docId: string) => void,
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -96,6 +98,7 @@ export const Interaction: FC<InteractionProps> = ({
   onAddDocuments,
   onRestart,
   children,
+  onFilterDocument,
 }) => {
   const account = useAccount()
 
@@ -106,21 +109,21 @@ export const Interaction: FC<InteractionProps> = ({
     let isLoading = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
     let useMessageText = interaction ? (interaction.display_message || interaction.message || '') : ''
 
-    if(!isLoading) {
-      if(session.type == SESSION_TYPE_TEXT) {
-        if(!interaction?.lora_dir) {
+    if (!isLoading) {
+      if (session.type == SESSION_TYPE_TEXT) {
+        if (!interaction?.lora_dir) {
           if (interaction?.message) {
             displayMessage = useMessageText
           } else {
             displayMessage = interaction.status || ''
-          }        
+          }
         }
-      } else if(session.type == SESSION_TYPE_IMAGE) {
-        if(interaction?.creator == SESSION_CREATOR_USER) {
+      } else if (session.type == SESSION_TYPE_IMAGE) {
+        if (interaction?.creator == SESSION_CREATOR_USER) {
           displayMessage = useMessageText || ''
         }
         else {
-          if(session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {
+          if (session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {
             imageURLs = interaction.files.filter(isImage)
           }
         }
@@ -138,9 +141,9 @@ export const Interaction: FC<InteractionProps> = ({
 
   const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
   const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
-  const useBadge = isAssistant ? 'AI' : ''  
+  const useBadge = isAssistant ? 'AI' : ''
 
-  if(!serverConfig || !serverConfig.filestore_prefix) return null
+  if (!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
     <Box
@@ -149,44 +152,45 @@ export const Interaction: FC<InteractionProps> = ({
       }}
     >
       <InteractionContainer
-        name={ useName }
-        badge={ useBadge }
-        buttons={ headerButtons }
-        background={ isAssistant }
+        name={useName}
+        badge={useBadge}
+        buttons={headerButtons}
+        background={isAssistant}
       >
-          {
-            showFinetuning && (
-              <InteractionFinetune
-                serverConfig={ serverConfig }
-                interaction={ interaction }
-                session={ session }
-                highlightAllFiles={ highlightAllFiles }
-                retryFinetuneErrors={ retryFinetuneErrors }
-                onReloadSession={ onReloadSession }
-                onClone={ onClone }
-                onAddDocuments={ onAddDocuments }
-              />
-            )
-          }
+        {
+          showFinetuning && (
+            <InteractionFinetune
+              serverConfig={serverConfig}
+              interaction={interaction}
+              session={session}
+              highlightAllFiles={highlightAllFiles}
+              retryFinetuneErrors={retryFinetuneErrors}
+              onReloadSession={onReloadSession}
+              onClone={onClone}
+              onAddDocuments={onAddDocuments}
+            />
+          )
+        }
 
-          <InteractionInference
-            serverConfig={ serverConfig }
-            session={ session }
-            imageURLs={ imageURLs }
-            message={ displayMessage }
-            error={ interaction?.error }
-            isShared={ session.config.shared }
-            onRestart={ onRestart }
-            upgrade={ interaction.data_prep_limited }
-            isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
-          />
-          
-          {
-            children
-          }
+        <InteractionInference
+          serverConfig={serverConfig}
+          session={session}
+          imageURLs={imageURLs}
+          message={displayMessage}
+          error={interaction?.error}
+          isShared={session.config.shared}
+          onRestart={onRestart}
+          upgrade={interaction.data_prep_limited}
+          isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
+          onFilterDocument={onFilterDocument}
+        />
+
+        {
+          children
+        }
       </InteractionContainer>
     </Box>
-  )   
+  )
 }
 
 export default React.memo(Interaction, areEqual)

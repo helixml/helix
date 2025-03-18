@@ -208,6 +208,7 @@ const App: FC = () => {
                     <>
                       <ApiIntegrations
                         apis={appTools.apiTools}
+                        tools={appTools.apiToolsFromTools}
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
                         isReadOnly={appTools.isReadOnly}
