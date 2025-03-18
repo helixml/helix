@@ -104,22 +104,8 @@ const Create: FC = () => {
     return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
   }, [models, type])
 
-  useEffect(() => {
-    // Set the first model as default if current model is not set or not in the list
-    if (!initialModelSetRef.current && filteredModels.length > 0 && !model) {
-      initialModelSetRef.current = true
-      console.log('INSIDE CREATE PAGE')
-      console.trace()
-      router.mergeParams({ model: filteredModels[0].id })
-      // const newUrl = new URL(window.location.href)
-      // newUrl.searchParams.set('model', filteredModels[0].id)
-      // window.history.replaceState({}, '', newUrl.toString())
-    }
-  }, [filteredModels, model])
-
   // Then, in the Create component, we'll add a check to see if the current user owns the app
   // This should be added near the top of the component, after the existing useEffect hooks
-
   const userOwnsApp = useMemo(() => {
     if (!apps.app || !account.user) return false
     return apps.app.owner === account.user.id
@@ -567,7 +553,7 @@ const Create: FC = () => {
         >
           <Tooltip title="Edit App">
             <IconButton
-              onClick={() => router.navigate('app', { app_id: apps.app?.id })}
+              onClick={() => account.orgNavigate('app', { app_id: apps.app?.id })}
               sx={{
                 color: 'white',
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',

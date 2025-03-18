@@ -76,25 +76,24 @@ export const useCreateInputs = () => {
   const {
     navigate,
     params,
+    replaceParams,
   } = useRouter()
 
+  // add or remove the rag and finetune params based on the session config
   useEffect(() => {
-    const queryParams = new URLSearchParams(window.location.search);
+    const newParams = Object.assign({}, params)
     if (sessionConfig.ragEnabled) {
-      queryParams.set('rag', 'true');
+      newParams.rag = 'true'
     } else {
-      queryParams.delete('rag');
+      delete newParams.rag
     }
     if (sessionConfig.finetuneEnabled) {
-      queryParams.set('finetune', 'true');
+      newParams.finetune = 'true'
     } else {
-      queryParams.delete('finetune');
+      delete newParams.finetune
     }
-    const qp = Object.fromEntries(queryParams);
-    if (JSON.stringify(qp) !== JSON.stringify(params)) {
-      navigate("new", qp)
-    }
-  }, [sessionConfig]);
+    replaceParams(newParams)
+  }, [sessionConfig])
 
   const serializePage = useCallback(async () => {
     const drawerLabels: Record<string, string> = {}
