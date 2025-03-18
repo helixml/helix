@@ -80,23 +80,12 @@ export const useAppsContext = (): IAppsContext => {
   const [ connectError, setConnectError ] = useState('')
   const [ connectLoading, setConectLoading ] = useState(false)
 
-  const loadApps = useCallback(async (query: IAppsQuery = {
-    org_id: '',
-  }) => {
-    const {
-      org_id,
-    } = query
+  const loadApps = useCallback(async () => {
     
     // Determine the organization_id parameter value
-    let organizationIdParam = '';
-    if (org_id) {
-      // If specific org_id is provided, use it
-      organizationIdParam = org_id;
-    } else if (account.organizationTools.orgID === '') {
-      // If we're in the default (no org) context, use "default"
-      organizationIdParam = 'default';
-    }
-    
+    let organizationIdParam = account.organizationTools.organization?.id || ''
+    if(!organizationIdParam) organizationIdParam = 'default'
+
     const result = await api.get<IApp[]>(`/api/v1/apps`, {
       params: {
         organization_id: organizationIdParam,
@@ -104,8 +93,9 @@ export const useAppsContext = (): IAppsContext => {
     }, {
       snackbar: true,
     })
+
     setApps(result || [])
-  }, [account.organizationTools.orgID])
+  }, [account.organizationTools.organization])
 
   const helixApps = useMemo(() => {
     return apps.filter(app => app.app_source == APP_SOURCE_HELIX)
@@ -332,14 +322,9 @@ export const useAppsContext = (): IAppsContext => {
   // Load initial data when user is available (just like in the sessions context)
   useEffect(() => {
     if(!account.user) return
-    // we wait until we have loaded the organization before we load the apps
-    if(account.organizationTools.orgID && !account.organizationTools.organization) return
-    loadApps({
-      org_id: account.organizationTools.organization?.id || '',
-    })
+    loadApps()
   }, [
     account.user,
-    account.organizationTools.orgID,
     account.organizationTools.organization,
   ])
 
