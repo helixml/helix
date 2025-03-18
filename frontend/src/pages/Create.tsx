@@ -269,15 +269,23 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (!account.user) return
-    if (!appID) return
+    
+    // Clear the app state if there's no appID
+    if (!appID) {
+      apps.setApp(undefined)
+      return
+    }
+    
     setIsLoadingApp(true)
     apps.loadApp(appID).finally(() => {
       setIsLoadingApp(false)
     })
+    
     return () => apps.setApp(undefined)
     // we include the user's id in the dependency array to filter out changes to
     // the user token which refreshes regularly (to avoid flickering the page)
-  }, [account.user?.id, appID])
+    // we also include organization ID to ensure app state is reset when switching orgs
+  }, [account.user?.id, appID, account.organizationTools.organization?.id])
 
   // Reset focusInput after it's been used
   useEffect(() => {
