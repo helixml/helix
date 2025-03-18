@@ -28,6 +28,7 @@ const AppStore: FC = () => {
     <Page
       showTopbar={ true }
       breadcrumbTitle='App Store'
+      orgBreadcrumbs={ true }
     >
       <Container
         maxWidth="xl"

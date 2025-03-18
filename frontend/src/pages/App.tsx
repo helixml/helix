@@ -48,7 +48,6 @@ const App: FC = () => {
 
   const appTools = useApp(params.app_id)
 
-  const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
@@ -142,11 +141,6 @@ const App: FC = () => {
           <Box>
             <Tabs value={tabValue} onChange={handleTabChange}>
               <Tab label="Settings" value="settings" />
-              {
-                appTools.app?.organization_id && (
-                  <Tab label="Access" value="access" />
-                )
-              }
               <Tab label="Knowledge" value="knowledge" />
               <Tab label="Integrations" value="integrations" />
               <Tab label="GPTScripts" value="gptscripts" />
@@ -154,6 +148,11 @@ const App: FC = () => {
               <Tab label="Developers" value="developers" />
               <Tab label="IDE" value="ide" />
               <Tab label="Logs" value="logs" />
+              {
+                appTools.app?.organization_id && (
+                  <Tab label="Access" value="access" />
+                )
+              }
             </Tabs>
           </Box>
           <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
