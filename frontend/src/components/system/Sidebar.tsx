@@ -60,12 +60,15 @@ const Sidebar: React.FC<{
   const apps = useApps()
   const { models } = useContext(AccountContext)
   const activeTab = useMemo(() => {
-    // If app_id is present in the URL, default to the apps tab (index 1)
-    if (router.params.app_id) {
-      return RESOURCE_TYPES.findIndex(type => type === 'apps');
-    }
+    // Always respect resource_type if it's present
     const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
-    return activeIndex >= 0 ? activeIndex : 0
+    if (activeIndex >= 0) return activeIndex
+    // If no resource_type specified but app_id is present, default to apps tab
+    if (router.params.app_id) {
+      return RESOURCE_TYPES.findIndex(type => type === 'apps')
+    }
+    // Default to first tab (chats)
+    return 0
   }, [
     router.params,
   ])
