@@ -71,7 +71,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         delete useParams.org_id
         router.navigate(useRouteName, useParams)
       } else {
-        const useRouteName = 'org_' + router.name
+        const useRouteName = 'org_' + router.name.replace(/^org_/i, '')
         const useParams = Object.assign({}, router.params, {
           org_id: orgId,
         })
