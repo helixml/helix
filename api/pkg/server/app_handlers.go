@@ -145,7 +145,7 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 
 	// Authorize the user to each app
 	for _, app := range apps {
-		err := s.AuthorizeUserToApp(ctx, user, app, types.ActionGet)
+		err := s.authorizeUserToApp(ctx, user, app, types.ActionGet)
 		if err != nil {
 			log.Debug().
 				Str("user_id", user.ID).
@@ -534,7 +534,7 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	err = s.AuthorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -580,7 +580,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
 
-	err = s.AuthorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
+	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -753,7 +753,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	err = s.AuthorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
+	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}

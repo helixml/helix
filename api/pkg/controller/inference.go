@@ -425,11 +425,6 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 		return nil, fmt.Errorf("error getting app: %w", err)
 	}
 
-	// Check if user is authorized to access this app by using the authz.go function
-	if authzErr := c.Options.AuthzApp(ctx, user, app, types.ActionGet); authzErr != nil {
-		return nil, fmt.Errorf("not authorized to access this app: %w", authzErr)
-	}
-
 	// Load secrets into the app
 	app, err = c.evaluateSecrets(ctx, user, app)
 	if err != nil {

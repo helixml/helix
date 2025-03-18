@@ -381,7 +381,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		DataprepOpenAIClient: dataprepOpenAIClient,
 		Scheduler:            scheduler,
 		RunnerController:     runnerController,
-		AuthzApp:             nil,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
@@ -448,9 +447,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if err != nil {
 		return err
 	}
-
-	// Now we can set the AuthzApp function on the controller to use the server's authorization function
-	appController.Options.AuthzApp = server.AuthorizeUserToApp
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 
