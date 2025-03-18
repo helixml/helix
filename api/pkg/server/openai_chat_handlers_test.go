@@ -777,6 +777,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 
 	app := &types.App{
 		Global: true,
+		Owner:  suite.userID,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Assistants: []types.AssistantConfig{
@@ -788,6 +789,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 		},
 	}
 
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
 	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
