@@ -945,3 +945,53 @@ export interface IProviderEndpoint {
   api_key_file?: string
   default: boolean
 }
+
+// Resource type for access grants
+export enum Resource {
+  Application = "application",
+  Dataset = "dataset",
+  ProviderEndpoint = "provider_endpoint",
+  Knowledge = "knowledge",
+}
+
+// User type used in access grants
+export interface IUser {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  token_type?: string;
+  email?: string;
+  username?: string;
+  full_name?: string;
+}
+
+// Role type used in access grants
+export interface IRole {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  organization_id: string;
+  name: string;
+  description: string;
+}
+
+// Access grant for apps to users or teams
+export interface IAccessGrant {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  resource_type: Resource;
+  resource_id: string;
+  organization_id: string;
+  team_id?: string;
+  user_id?: string;
+  user?: IUser;
+  roles?: IRole[];
+}
+
+// Request to create a new access grant
+export interface CreateAccessGrantRequest {
+  user_reference?: string; // User ID or email
+  team_id?: string;        // Team ID
+  roles: string[];         // Role names
+}

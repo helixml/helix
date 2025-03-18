@@ -12,6 +12,7 @@ import Typography from '@mui/material/Typography'
 import ApiIntegrations from '../components/app/ApiIntegrations'
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
+import AccessManagement from '../components/app/AccessManagement'
 import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import GPTScriptsSection from '../components/app/GPTScriptsSection'
@@ -141,6 +142,11 @@ const App: FC = () => {
           <Box>
             <Tabs value={tabValue} onChange={handleTabChange}>
               <Tab label="Settings" value="settings" />
+              {
+                appTools.app?.organization_id && (
+                  <Tab label="Access" value="access" />
+                )
+              }
               <Tab label="Knowledge" value="knowledge" />
               <Tab label="Integrations" value="integrations" />
               <Tab label="GPTScripts" value="gptscripts" />
@@ -169,6 +175,19 @@ const App: FC = () => {
                       isAdmin={account.admin}
                       providerEndpoints={endpointProviders.data}
                     />
+                  )}
+
+                  {tabValue === 'access' && (
+                    <Box sx={{ mt: 2 }}>
+                      <AccessManagement
+                        appId={appTools.id}
+                        accessGrants={appTools.accessGrants}
+                        isLoading={false}
+                        isReadOnly={false}
+                        onCreateGrant={appTools.createAccessGrant}
+                        onDeleteGrant={appTools.deleteAccessGrant}
+                      />
+                    </Box>
                   )}
 
                   {tabValue === 'knowledge' && (

@@ -11,6 +11,8 @@ import {
   IAssistantZapier,
   IFileStoreItem,
   APP_SOURCE_GITHUB,
+  IAccessGrant,
+  CreateAccessGrantRequest,
 } from '../types'
 import {
   removeEmptyValues,
@@ -61,6 +63,9 @@ export const useApp = (appId: string) => {
   const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
   
+  // Access grant state
+  const [accessGrants, setAccessGrants] = useState<IAccessGrant[]>([])
+  const [isAccessGrantsLoading, setIsAccessGrantsLoading] = useState(false)
 
   // App validation states
   const [showErrors, setShowErrors] = useState(false)
@@ -181,7 +186,7 @@ export const useApp = (appId: string) => {
   } = {
     showErrors: true,
     showLoading: true,
-  }) => {
+  }): Promise<IApp | null> => {
     // Early return - the finally block will still be executed even with this return
     if (!id) return null
     
@@ -204,6 +209,7 @@ export const useApp = (appId: string) => {
       }
 
       setApp(loadedApp)
+      return loadedApp
     } catch (error) {
       console.error('Failed to load app:', error)
       return null
@@ -614,6 +620,99 @@ export const useApp = (appId: string) => {
   })
 
   /**
+   * 
+   * 
+   * access grant handlers
+   * 
+   * 
+   */
+  
+  /**
+   * Loads access grants for the current app
+   * @returns Promise<IAccessGrant[] | null> - The list of access grants
+   */
+  const loadAccessGrants = useCallback(async (): Promise<IAccessGrant[] | null> => {
+    if (!appId) return null
+    
+    // Check if app is part of an organization before attempting to load access grants
+    if (!app || !('organization_id' in app) || !app.organization_id) {
+      console.log('App is not part of an organization, skipping access grants load')
+      return null
+    }
+    
+    setIsAccessGrantsLoading(true)
+    
+    try {
+      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`)
+      
+      if (!grants) {
+        return null
+      }
+      
+      setAccessGrants(grants)
+      return grants
+    } catch (error) {
+      console.error('Failed to load access grants:', error)
+      // Only show error if not a 400 error (which likely means the app is not part of an org)
+      if (!(error instanceof Error && error.message.includes('400'))) {
+        snackbar.error('Failed to load access grants')
+      }
+      return null
+    } finally {
+      setIsAccessGrantsLoading(false)
+    }
+  }, [api, appId, snackbar, app])
+  
+  /**
+   * Creates a new access grant for the current app
+   * @param request - The access grant request data
+   * @returns Promise<IAccessGrant | null> - The created access grant or null if there was an error
+   */
+  const createAccessGrant = useCallback(async (request: CreateAccessGrantRequest): Promise<IAccessGrant | null> => {
+    if (!appId) return null
+    
+    try {
+      // Explicitly specify both the request and response types
+      const newGrant = await api.post<CreateAccessGrantRequest, IAccessGrant>(`/api/v1/apps/${appId}/access-grants`, request)
+      
+      if (!newGrant) {
+        return null
+      }
+      
+      // Refresh the list of access grants
+      await loadAccessGrants()
+      
+      return newGrant
+    } catch (error) {
+      console.error('Failed to create access grant:', error)
+      snackbar.error('Failed to create access grant')
+      return null
+    }
+  }, [api, appId, loadAccessGrants, snackbar])
+  
+  /**
+   * Deletes an access grant for the current app
+   * @param grantId - The ID of the access grant to delete
+   * @returns Promise<boolean> - Whether the deletion was successful
+   */
+  const deleteAccessGrant = useCallback(async (grantId: string): Promise<boolean> => {
+    if (!appId) return false
+    
+    try {
+      await api.delete(`/api/v1/apps/${appId}/access-grants/${grantId}`)
+      
+      // Refresh the list of access grants
+      await loadAccessGrants()
+      
+      return true
+    } catch (error) {
+      console.error('Failed to delete access grant:', error)
+      snackbar.error('Failed to delete access grant')
+      return false
+    }
+  }, [api, appId, loadAccessGrants, snackbar])
+
+  /**
    * The main loading that will trigger when the page loads
    */
   useEffect(() => {
@@ -621,12 +720,21 @@ export const useApp = (appId: string) => {
     if (!account.user) return
 
     const handleLoading = async () => {
-      await loadApp(appId, {
+      // First load the app
+      const loadedApp = await loadApp(appId, {
         showErrors: true,
         showLoading: true,
       })
+      
+      // Load other data that doesn't depend on the app's organization status
       await endpointProviders.loadData()
       await account.loadAppApiKeys(appId)
+      
+      // Only load access grants if app was loaded and has an organization_id
+      if (loadedApp && 'organization_id' in loadedApp && loadedApp.organization_id) {
+        await loadAccessGrants()
+      }
+      
       setInitialised(true)
     }
 
@@ -722,6 +830,13 @@ export const useApp = (appId: string) => {
 
     // Embed code
     handleCopyEmbedCode,
+
+    // Access grant state and methods
+    accessGrants,
+    isAccessGrantsLoading,
+    loadAccessGrants,
+    createAccessGrant,
+    deleteAccessGrant,
   }
 }
 
