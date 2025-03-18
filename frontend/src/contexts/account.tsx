@@ -47,7 +47,7 @@ export interface IAccountContext {
   fetchProviderEndpoints: () => Promise<void>,
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
-  orgNavigate: (routeName: string, params?: Record<string, string>) => void,
+  orgNavigate: (routeName: string, params?: Record<string, string | undefined>) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -395,7 +395,7 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [api])
 
-  const orgNavigate = useCallback((routeName: string, params: Record<string, string> = {}) => {
+  const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}) => {
     if(organizationTools.organization || params.org_id) {
       const useOrgID = organizationTools.organization?.name || params.org_id
       router.navigate(`org_${routeName}`, {
@@ -405,10 +405,7 @@ export const useAccountContext = (): IAccountContext => {
     } else {
       router.navigate(routeName, params)
     }
-  }, [
-    organizationTools.organization,
-    router.navigate,
-  ])
+  }
 
   useEffect(() => {
     initialize()

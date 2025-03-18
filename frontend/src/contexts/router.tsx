@@ -20,6 +20,9 @@ export interface IRouterContext {
   mergeParams: {
     (params: Record<string, string>): void,
   },
+  replaceParams: {
+    (params: Record<string, string>): void,
+  },
   removeParams: {
     (params: string[]): void,
   },
@@ -34,6 +37,7 @@ export const RouterContext = createContext<IRouterContext>({
   navigateReplace: () => {},
   setParams: () => {},
   mergeParams: () => {},
+  replaceParams: () => {},
   removeParams: () => {},
 })
 
@@ -71,6 +75,13 @@ export const useRouterContext = (): IRouterContext => {
     route.params,
   ])
 
+  const replaceParams = useCallback((params: Record<string, string>) => {
+    router.navigate(route.name, params, { replace: true })
+  }, [
+    route.name,
+    route.params,
+  ])
+
   const removeParams = useCallback((params: string[]) => {
     // reduce the current params and remove the parans list
     const newParams = Object.keys(route.params).reduce((acc: Record<string, string>, key) => {
@@ -98,6 +109,7 @@ export const useRouterContext = (): IRouterContext => {
     navigateReplace,
     setParams,
     mergeParams,
+    replaceParams,
     removeParams,
     render,
   }), [

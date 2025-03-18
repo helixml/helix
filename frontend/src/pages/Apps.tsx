@@ -99,6 +99,7 @@ const Apps: FC = () => {
   return (
     <Page
       breadcrumbTitle="Apps"
+      orgBreadcrumbs={ true }
       topbarContent={(
         <div>
           <Button
