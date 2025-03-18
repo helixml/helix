@@ -16,7 +16,6 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
   
   // Create a default flat state with app-level properties
   const flatState: IAppFlatState = {
-    shared: app.shared,
     global: app.global,
     secrets: app.config.secrets,
     allowedDomains: app.config.allowed_domains,

@@ -243,36 +243,39 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                     </TableCell>
                   </TableRow>
                 ) : (
-                  userGrants.map((grant) => (
-                    <TableRow key={grant.id}>
-                      <TableCell>{grant.user?.full_name || 'Unknown'}</TableCell>
-                      <TableCell>{grant.user?.email || 'No email'}</TableCell>
-                      <TableCell>
-                        {grant.roles && grant.roles.map(role => (
-                          <Chip 
-                            key={role.id} 
-                            label={getRoleDisplayName(role.name)}
-                            icon={getRoleIcon(role.name)} 
-                            size="small" 
-                            sx={{ mr: 0.5 }} 
-                          />
-                        ))}
-                      </TableCell>
-                      {!isReadOnly && (
+                  userGrants.map((grant) => {
+                    const user = (grant.user || {}) as any
+                    return (
+                      <TableRow key={grant.id}>
+                        <TableCell>{user.FullName || 'Unknown'}</TableCell>
+                        <TableCell>{user.Email || 'No email'}</TableCell>
                         <TableCell>
-                          <Tooltip title="Remove access">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleDeleteClick(grant.id)}
-                              color="error"
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          {grant.roles && grant.roles.map(role => (
+                            <Chip 
+                              key={role.id} 
+                              label={getRoleDisplayName(role.name)}
+                              icon={getRoleIcon(role.name)} 
+                              size="small" 
+                              sx={{ mr: 0.5 }} 
+                            />
+                          ))}
                         </TableCell>
-                      )}
-                    </TableRow>
-                  ))
+                        {!isReadOnly && (
+                          <TableCell>
+                            <Tooltip title="Remove access">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleDeleteClick(grant.id)}
+                                color="error"
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
