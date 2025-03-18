@@ -171,6 +171,21 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	} else {
 		// Create session
 		newSession = true
+
+		// Check if this session is being created from an app that belongs to an organization
+		// If so, inherit the organization ID from the app (if not already specified)
+		if startReq.AppID != "" && startReq.OrganizationID == "" {
+			app, err := s.Store.GetApp(req.Context(), startReq.AppID)
+			if err == nil && app.OrganizationID != "" {
+				// Found the app and it belongs to an organization, use its organization ID
+				startReq.OrganizationID = app.OrganizationID
+				log.Debug().
+					Str("app_id", startReq.AppID).
+					Str("organization_id", startReq.OrganizationID).
+					Msg("using app's organization ID for new session")
+			}
+		}
+
 		session = &types.Session{
 			ID:             system.GenerateSessionID(),
 			Name:           s.getTemporarySessionName(message),
