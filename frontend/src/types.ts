@@ -201,7 +201,6 @@ export interface ISessionOrigin {
 export interface ISessionConfig {
   original_mode: ISessionMode,
   origin: ISessionOrigin,
-  shared?: boolean,
   avatar: string,
   priority: boolean,
   document_ids: Record<string, string>,
@@ -344,7 +343,7 @@ export interface ISessionFilter {
   older?: string,
 }
 
-export interface  IGlobalSchedulingDecision {
+export interface IGlobalSchedulingDecision {
   created: string,
   runner_id: string,
   session_id: string,
@@ -513,7 +512,7 @@ export interface IToolGptScriptConfig {
 
 export interface IToolZapierConfig {
   api_key?: string,
-  model?: string, 
+  model?: string,
   max_iterations?: number,
 }
 
@@ -538,7 +537,7 @@ export interface ITool {
 }
 
 export interface IKeyPair {
-	type: string,
+  type: string,
   private_key: string,
   public_key: string,
 }
@@ -708,7 +707,7 @@ export interface IAppGithubConfigUpdate {
   hash: string,
   error: string,
 }
- 
+
 export interface IAppGithubConfig {
   repo: string,
   hash: string,
@@ -726,7 +725,6 @@ export interface IAppConfig {
 export interface IApp {
   id: string,
   config: IAppConfig;
-  shared: boolean;
   global: boolean;
   created: Date;
   updated: Date;
@@ -743,7 +741,6 @@ export interface IAppUpdate {
     allowed_domains: string[];
     github?: IAppGithubConfig;
   };
-  shared: boolean;
   global: boolean;
   owner: string;
   owner_type: IOwnerType;
@@ -773,7 +770,7 @@ export interface ICreateSessionConfig {
   activeToolIDs: string[],
   finetuneEnabled: boolean,
   ragEnabled: boolean,
-  ragDistanceFunction: IRagDistanceFunction, 
+  ragDistanceFunction: IRagDistanceFunction,
   ragThreshold: number,
   ragResultsCount: number,
   ragChunkSize: number,

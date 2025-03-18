@@ -157,14 +157,7 @@ func doesOwnSession(user *types.User, session *types.Session) bool {
 }
 
 func canSeeSession(user *types.User, session *types.Session) bool {
-	canEdit := canEditSession(user, session)
-	if canEdit {
-		return true
-	}
-	if session.Metadata.Shared {
-		return true
-	}
-	return false
+	return canEditSession(user, session)
 }
 
 func canEditSession(user *types.User, session *types.Session) bool {

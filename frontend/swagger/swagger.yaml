@@ -577,8 +577,6 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: e.g. user, system, org
-      shared:
-        type: boolean
       updated:
         type: string
       user:
@@ -1941,8 +1939,6 @@ definitions:
       rag_source_data_entity_id:
         description: the RAG source data entity we produced from this session
         type: string
-      shared:
-        type: boolean
       stream:
         type: boolean
       system_prompt:
