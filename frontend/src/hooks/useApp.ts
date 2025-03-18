@@ -382,11 +382,13 @@ export const useApp = (appId: string) => {
   /**
    * Loads knowledge for the app
    */
-  const knowledgeTools = useKnowledge(appId, (updatedKnowledge: IKnowledgeSource[]) => {
+  const knowledgeUpdateCallback = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     saveFlatApp({
       knowledge: updatedKnowledge,
     })
-  })
+  }, [saveFlatApp]);
+
+  const knowledgeTools = useKnowledge(appId, knowledgeUpdateCallback)
   
 
   /**
