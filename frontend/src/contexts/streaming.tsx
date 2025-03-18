@@ -131,7 +131,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   useEffect(() => {
     const timer = setInterval(() => {
       if (currentSessionId) {
-        sessions.loadSessions(true);
+        sessions.loadSessions();
       }
     }, 2000); // Update every 2 seconds instead of on every message
 
@@ -150,7 +150,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
       // Reload all sessions to refresh the name in the sidebar
-      sessions.loadSessions(true)
+      sessions.loadSessions()
       handleWebsocketEvent(parsedData);
     };
 
