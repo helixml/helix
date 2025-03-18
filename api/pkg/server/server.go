@@ -549,6 +549,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/license", apiServer.handleGetLicenseKey).Methods("GET")
 	adminRouter.HandleFunc("/license", apiServer.handleSetLicenseKey).Methods("POST")
 
+	// OAuth routes
+	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
+
 	apiServer.router = router
 
 	return subRouter, nil

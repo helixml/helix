@@ -61,6 +61,14 @@ type RetryableClient struct {
 	apiKey     string
 }
 
+// AddOAuthToken adds an OAuth token to the client headers
+func (c *RetryableClient) AddOAuthToken(providerType string, token string) {
+	// Currently not implemented as the sashabaranov/go-openai library doesn't directly
+	// support custom headers. In the future, this could be implemented via a custom HTTP client
+	// that adds the necessary headers before requests are sent.
+	log.Debug().Str("provider", providerType).Msg("OAuth token received but not applied to OpenAI client")
+}
+
 // APIKey - returns the API key used by the client, used for testing
 func (c *RetryableClient) APIKey() string {
 	return c.apiKey

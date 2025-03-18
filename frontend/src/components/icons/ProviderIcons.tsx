@@ -137,7 +137,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     auth_url: 'https://github.com/login/oauth/authorize',
     token_url: 'https://github.com/login/oauth/access_token',
     user_info_url: 'https://api.github.com/user',
-    scopes: ['read:user', 'user:email']
+    scopes: ['read:user', 'user:email', 'repo']
   },
   google: {
     auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
