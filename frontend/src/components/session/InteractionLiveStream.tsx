@@ -82,6 +82,7 @@ export const InteractionLiveStream: FC<{
   },
   onMessageUpdate?: () => void,
   onStreamingComplete?: () => void,
+  onFilterDocument?: (docId: string) => void,
 }> = ({
   session_id,
   serverConfig,
@@ -91,101 +92,103 @@ export const InteractionLiveStream: FC<{
   onMessageChange,
   onMessageUpdate,
   onStreamingComplete,
+  onFilterDocument,
 }) => {
-  const account = useAccount()
-  const {
-    message,
-    progress,
-    status,
-    isStale,
-    stepInfos,
-    isComplete,
-  } = useLiveInteraction(session_id, interaction)
+    const account = useAccount()
+    const {
+      message,
+      progress,
+      status,
+      isStale,
+      stepInfos,
+      isComplete,
+    } = useLiveInteraction(session_id, interaction)
 
-  const showLoading = !message && progress === 0 && !status && stepInfos.length === 0
+    const showLoading = !message && progress === 0 && !status && stepInfos.length === 0
 
-  useEffect(() => {
-    if(!message) return
-    if(!onMessageChange) return
-    onMessageChange(message)
-  }, [
-    message,
-    onMessageChange,
-  ])
+    useEffect(() => {
+      if (!message) return
+      if (!onMessageChange) return
+      onMessageChange(message)
+    }, [
+      message,
+      onMessageChange,
+    ])
 
-  useEffect(() => {
-    if (!message || !onMessageUpdate) return
-    onMessageUpdate()
-  }, [message, onMessageUpdate])
+    useEffect(() => {
+      if (!message || !onMessageUpdate) return
+      onMessageUpdate()
+    }, [message, onMessageUpdate])
 
-  useEffect(() => {
-    if (!isComplete || !onStreamingComplete) return
-    const timer = setTimeout(() => {
-      onStreamingComplete()
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [isComplete, onStreamingComplete])
+    useEffect(() => {
+      if (!isComplete || !onStreamingComplete) return
+      const timer = setTimeout(() => {
+        onStreamingComplete()
+      }, 100)
+      return () => clearTimeout(timer)
+    }, [isComplete, onStreamingComplete])
 
-  const useClientURL = (url: string) => {
-    if(!url) return ''
-    if(!serverConfig) return ''
-    return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`
-  }
+    const useClientURL = (url: string) => {
+      if (!url) return ''
+      if (!serverConfig) return ''
+      return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`
+    }
 
-  if(!serverConfig || !serverConfig.filestore_prefix) return null
+    if (!serverConfig || !serverConfig.filestore_prefix) return null
 
-  const blinker = `<span class="blinker-class">┃</span>`
-  
-  return (
-    <>
-      {showLoading && <LoadingSpinner />}
-      
-      {stepInfos.length > 0 && (
-        <OrbContainer>
-          {stepInfos.map((stepInfo, index) => (
-            <OrbWrapper key={index}>
-              <Orb 
-                isPulsating={index === stepInfos.length - 1 && !message} 
-                colorIndex={index % orbColors.length}
-              />
-              <OrbTooltip>
-                <strong>{stepInfo.type}: {stepInfo.name}</strong><br/>
-                {stepInfo.message}
-              </OrbTooltip>
-            </OrbWrapper>
-          ))}
-        </OrbContainer>
-      )}
-      
-      {message && (
-        <div>
-          <Markdown
-            text={message}
-            session={session}
-            getFileURL={useClientURL}
-            showBlinker={true}
-            isStreaming={true}
+    const blinker = `<span class="blinker-class">┃</span>`
+
+    return (
+      <>
+        {showLoading && <LoadingSpinner />}
+
+        {stepInfos.length > 0 && (
+          <OrbContainer>
+            {stepInfos.map((stepInfo, index) => (
+              <OrbWrapper key={index}>
+                <Orb
+                  isPulsating={index === stepInfos.length - 1 && !message}
+                  colorIndex={index % orbColors.length}
+                />
+                <OrbTooltip>
+                  <strong>{stepInfo.type}: {stepInfo.name}</strong><br />
+                  {stepInfo.message}
+                </OrbTooltip>
+              </OrbWrapper>
+            ))}
+          </OrbContainer>
+        )}
+
+        {message && (
+          <div>
+            <Markdown
+              text={message}
+              session={session}
+              getFileURL={useClientURL}
+              showBlinker={true}
+              isStreaming={true}
+              onFilterDocument={onFilterDocument}
+            />
+          </div>
+        )}
+
+        {progress > 0 && (
+          <Progress
+            progress={progress}
           />
-        </div>
-      )}
-      
-      {progress > 0 && (
-        <Progress
-          progress={ progress }
-        />
-      )}
-      
-      {status && (
-        <Typography variant="caption">{ status }</Typography>
-      )}
-      
-      {showLoading && isStale && (
-        <WaitingInQueue
-          hasSubscription={ hasSubscription }
-        />
-      )}
-    </>
-  )   
-}
+        )}
+
+        {status && (
+          <Typography variant="caption">{status}</Typography>
+        )}
+
+        {showLoading && isStale && (
+          <WaitingInQueue
+            hasSubscription={hasSubscription}
+          />
+        )}
+      </>
+    )
+  }
 
 export default InteractionLiveStream

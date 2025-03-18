@@ -10,7 +10,7 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { IAssistantApi } from '../../types';
+import { IAssistantApi, ITool } from '../../types';
 import Window from '../widgets/Window';
 import StringMapEditor from '../widgets/StringMapEditor';
 import ClickLink from '../widgets/ClickLink';
@@ -31,6 +31,7 @@ import { exchangeratesSchema } from './exchangerates_schema';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
+  tools: ITool[];
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
   onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
@@ -38,6 +39,7 @@ interface ApiIntegrationsProps {
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   apis,
+  tools,
   onSaveApiTool,
   onDeleteApiTool,
   isReadOnly
@@ -163,6 +165,25 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           >
             <Typography variant="h6">{apiTool.name}</Typography>
             <Typography variant="subtitle2" sx={{ mt: 2 }}>Description: {apiTool.description}</Typography>
+
+            {(() => {
+              const matchingTool = tools.find(t => t.name === apiTool.name);
+              const actions = matchingTool?.config?.api?.actions;
+              if (!actions || actions.length === 0) return null;
+              
+              return (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="subtitle2">Actions:</Typography>
+                  <ul>
+                    {actions.map((action: {name: string, method: string, path: string, description: string}, index: number) => (
+                      <li key={index}>
+                        {action.name}: {action.method} {action.path} ({action.description})
+                      </li>
+                    ))}
+                  </ul>
+                </Box>
+              );
+            })()}
             
             <Box sx={{ mt: 1 }}>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>

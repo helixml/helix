@@ -10,8 +10,6 @@ definitions:
     properties:
       config:
         $ref: '#/definitions/types.ToolConfig'
-      created:
-        type: string
       description:
         type: string
       global:
@@ -20,17 +18,8 @@ definitions:
         type: string
       name:
         type: string
-      owner:
-        description: uuid of owner entity
-        type: string
-      owner_type:
-        allOf:
-        - $ref: '#/definitions/types.OwnerType'
-        description: e.g. user, system, org
       tool_type:
         $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.ToolType'
-      updated:
-        type: string
     type: object
   github_com_helixml_helix_api_pkg_types.ToolType:
     enum:
@@ -496,6 +485,11 @@ definitions:
         type: string
       usage:
         $ref: '#/definitions/github_com_sashabaranov_go-openai.Usage'
+    type: object
+  server.LicenseKeyRequest:
+    properties:
+      license_key:
+        type: string
     type: object
   types.AccessGrant:
     properties:
@@ -1162,6 +1156,17 @@ definitions:
         type: string
       step:
         type: string
+    type: object
+  types.KnowledgeSearchResult:
+    properties:
+      duration_ms:
+        type: integer
+      knowledge:
+        $ref: '#/definitions/types.Knowledge'
+      results:
+        items:
+          $ref: '#/definitions/types.SessionRAGResult'
+        type: array
     type: object
   types.KnowledgeSource:
     properties:
@@ -1987,6 +1992,10 @@ definitions:
         type: string
       interaction_id:
         type: string
+      metadata:
+        additionalProperties:
+          type: string
+        type: object
       session_id:
         type: string
       source:
@@ -2608,6 +2617,35 @@ paths:
       summary: List knowledge versions
       tags:
       - knowledge
+  /api/v1/license:
+    get:
+      consumes:
+      - application/json
+      description: Get the license key for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.LicenseKeyRequest'
+      security:
+      - BearerAuth: []
+      summary: Get license key
+    post:
+      consumes:
+      - application/json
+      description: Set the license key for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.LicenseKeyRequest'
+      security:
+      - BearerAuth: []
+      summary: Set license key
   /api/v1/llm_calls:
     get:
       description: List user's LLM calls with pagination and optional session filtering
@@ -2940,6 +2978,36 @@ paths:
             $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
+  /api/v1/search:
+    get:
+      description: Search knowledges for a given app and prompt
+      parameters:
+      - description: App ID
+        in: query
+        name: app_id
+        required: true
+        type: string
+      - description: Knowledge ID
+        in: query
+        name: knowledge_id
+        type: string
+      - description: Search prompt
+        in: query
+        name: prompt
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.KnowledgeSearchResult'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Search knowledges
+      tags:
+      - knowledge
   /api/v1/secrets:
     get:
       description: List secrets for the user.

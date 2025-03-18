@@ -138,6 +138,12 @@ export const useApp = (appId: string) => {
       : []
   }, [assistants])
 
+  // TODO: work out why this is different to the apiTools
+  // this is used in the ApiIntegrations component
+  const apiToolsFromTools = useMemo(() => {
+    return assistants.length > 0 ? (assistants[0].tools || []).filter(tool => tool.config?.api) : []
+  }, [assistants])
+
   const sessionID = useMemo(() => {
     return session.data?.id || ''
   }, [
@@ -663,6 +669,7 @@ export const useApp = (appId: string) => {
     apiTools,
     zapierTools,
     gptscriptsTools,
+    apiToolsFromTools,
     isInferenceLoading,
     isAppLoading,
     isAppSaving,

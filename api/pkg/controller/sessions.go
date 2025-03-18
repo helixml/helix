@@ -601,23 +601,6 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			}
 			activeTools = append(activeTools, assistant.Tools...)
 		}
-	} else {
-		for _, id := range session.Metadata.ActiveTools {
-			tool, err := c.Options.Store.GetTool(context.Background(), id)
-			// we might have stale tool ids in our metadata
-			// so let's not error here
-			if err != nil {
-				log.Error().Err(err).Msgf("error loading tool from session config, perhaps stale tool ID found, session: %s, tool: %s", session.ID, id)
-				continue
-			}
-
-			// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
-			if !tool.Global && tool.Owner != session.Owner {
-				return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the tool with the id: %s", tool.ID))
-			}
-
-			activeTools = append(activeTools, tool)
-		}
 	}
 
 	if len(activeTools) == 0 {

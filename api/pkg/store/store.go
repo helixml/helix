@@ -163,13 +163,6 @@ type Store interface {
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 
-	// tools
-	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	GetTool(ctx context.Context, id string) (*types.Tool, error)
-	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
-	DeleteTool(ctx context.Context, id string) error
-
 	// provider endpoints
 	CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	UpdateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
