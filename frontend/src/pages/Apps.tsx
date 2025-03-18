@@ -50,8 +50,6 @@ const Apps: FC = () => {
   ])
 
   const onEditApp = (app: IApp) => {
-    console.log('--------------------------------------------')
-    console.log('here')
     account.orgNavigate('app', {
       app_id: app.id,
     })
@@ -90,6 +88,12 @@ const Apps: FC = () => {
     snackbar.success(params.snackbar_message)
   }, [
     params.snackbar_message,
+  ])
+
+  useEffect(() => {
+    apps.loadApps()
+  }, [
+    apps.loadApps,
   ])
 
   return (
