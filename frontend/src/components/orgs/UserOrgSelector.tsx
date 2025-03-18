@@ -63,15 +63,24 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   }
 
   const handleOrgSelect = (orgId: string | undefined) => {
-    // Navigate to the selected organization
-    if (orgId) {
-      if(orgId == 'default') {
-        router.navigate('home')
+    const isDefault = orgId == 'default'
+    if(router.meta.orgRouteAware) {
+      if(isDefault) {
+        const useRouteName = router.name.replace(/^org_/i, '')
+        const useParams = Object.assign({}, router.params)
+        delete useParams.org_id
+        router.navigate(useRouteName, useParams)
       } else {
-        router.navigate('org_home', {
+        const useRouteName = 'org_' + router.name
+        const useParams = Object.assign({}, router.params, {
           org_id: orgId,
         })
+        router.navigate(useRouteName, useParams)
       }
+    } else {
+      const routeName = isDefault ? 'home' : 'org_home'
+      const useParams = isDefault ? {} : { org_id: orgId }
+      router.navigate(routeName, useParams)
     }
     handleClose()
   }
