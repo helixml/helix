@@ -58,7 +58,7 @@ const Layout: FC = ({
         <OrgsSidebarMenu
         />
       )
-    } else if(resourceType === 'app') {
+    } else if(resourceType === 'apps') {
       sidebarMenu = (
         <AppsMenu
           onOpenApp={ () => {
