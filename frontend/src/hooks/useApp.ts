@@ -18,6 +18,7 @@ import {
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
+import useApps from './useApps'
 import useSession from './useSession'
 import useKnowledge from './useKnowledge'
 import useWebsocket from './useWebsocket'
@@ -43,6 +44,7 @@ export const useApp = (appId: string) => {
   const snackbar = useSnackbar()
   const account = useAccount()
   const session = useSession()
+  const apps = useApps()
   const endpointProviders = useEndpointProviders()
   const { NewInference } = useStreaming()
   
@@ -343,6 +345,7 @@ export const useApp = (appId: string) => {
     try {
       const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
       setApp(savedApp)
+      apps.loadApps()
       return 
     } catch (error) {
       console.error('Failed to save app:', error)
