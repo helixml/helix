@@ -518,6 +518,15 @@ export interface TypesChoice {
   text?: string;
 }
 
+export interface TypesContextMenuData {
+  label?: string;
+  value?: string;
+}
+
+export interface TypesContextMenuResponse {
+  data?: TypesContextMenuData[];
+}
+
 export interface TypesCrawledSources {
   urls?: TypesCrawledURL[];
 }
@@ -1343,15 +1352,6 @@ export interface TypesTrigger {
   discord?: TypesDiscordTrigger;
 }
 
-export interface TypesUIAtData {
-  label?: string;
-  value?: string;
-}
-
-export interface TypesUIAtResponse {
-  data?: TypesUIAtData[];
-}
-
 export interface TypesUpdateOrganizationMemberRequest {
   role?: TypesOrganizationRole;
 }
@@ -1825,6 +1825,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/user`,
         method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description contextMenuHandler
+     *
+     * @tags ui
+     * @name V1ContextMenuList
+     * @summary contextMenuHandler
+     * @request GET:/api/v1/context-menu
+     */
+    v1ContextMenuList: (
+      query: {
+        /** Query string */
+        q: string;
+        /** App ID */
+        app_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesContextMenuResponse, any>({
+        path: `/api/v1/context-menu`,
+        method: "GET",
+        query: query,
         ...params,
       }),
 
@@ -2493,30 +2517,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description uiAt
-     *
-     * @tags ui
-     * @name V1UiAtList
-     * @summary uiAt
-     * @request GET:/api/v1/ui/at
-     */
-    v1UiAtList: (
-      query: {
-        /** Query string */
-        q: string;
-        /** App ID */
-        app_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesUIAtResponse, any>({
-        path: `/api/v1/ui/at`,
-        method: "GET",
-        query: query,
         ...params,
       }),
   };

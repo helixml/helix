@@ -13,19 +13,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// uiAt godoc
-// @Summary uiAt
-// @Description uiAt
+// contextMenuHandler godoc
+// @Summary contextMenuHandler
+// @Description contextMenuHandler
 // @Tags    ui
-// @Success 200 {object} types.UIAtResponse
+// @Success 200 {object} types.ContextMenuResponse
 // @Param q    query string true "Query string"
 // @Param app_id    query string true "App ID"
-// @Router /api/v1/ui/at [get]
-func (s *HelixAPIServer) uiAt(_ http.ResponseWriter, r *http.Request) (*types.UIAtResponse, *system.HTTPError) {
+// @Router /api/v1/context-menu [get]
+func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Request) (*types.ContextMenuResponse, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 
-	var data []types.UIAtData
+	var data []types.ContextMenuData
 	q := r.URL.Query().Get("q")
 
 	// In the future, there's going to be lots of different things a user can do with the @. This is
@@ -69,7 +69,7 @@ func (s *HelixAPIServer) uiAt(_ http.ResponseWriter, r *http.Request) (*types.UI
 					} else {
 						label = doc.URL
 					}
-					data = append(data, types.UIAtData{
+					data = append(data, types.ContextMenuData{
 						Label: label,
 						Value: rag.BuildDocumentID(doc.DocumentID),
 					})
@@ -79,14 +79,14 @@ func (s *HelixAPIServer) uiAt(_ http.ResponseWriter, r *http.Request) (*types.UI
 	}
 
 	// Now filter down all results to only include the ones that match the query
-	filteredData := []types.UIAtData{}
+	filteredData := []types.ContextMenuData{}
 	for _, d := range data {
 		if strings.Contains(strings.ToLower(d.Label), strings.ToLower(q)) {
 			filteredData = append(filteredData, d)
 		}
 	}
 
-	return &types.UIAtResponse{
+	return &types.ContextMenuResponse{
 		Data: filteredData,
 	}, nil
 }
