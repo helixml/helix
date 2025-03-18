@@ -27,6 +27,7 @@ steps:
 - name: run-linter
   image: golangci/golangci-lint:v1.62-alpine
   commands:
+    - golangci-lint cache clean
     - golangci-lint run
   when:
     event:

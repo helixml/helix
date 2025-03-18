@@ -32,7 +32,7 @@ export const generateFixtureInteraction = (index: number, isUser: boolean): IInt
 
 export const generateFixtureSession = (numInteractions: number = 300): ISession => {
   const interactions: IInteraction[] = []
-  
+
   // Generate alternating user and assistant interactions
   for (let i = 0; i < numInteractions; i++) {
     interactions.push(generateFixtureInteraction(i, i % 2 === 0))
@@ -50,7 +50,6 @@ export const generateFixtureSession = (numInteractions: number = 300): ISession 
       origin: {
         type: 'user_created'
       },
-      shared: false,
       avatar: '',
       priority: false,
       document_ids: {},

@@ -2244,9 +2244,6 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "shared": {
-                    "type": "boolean"
-                },
                 "updated": {
                     "type": "string"
                 },
@@ -4175,9 +4172,6 @@ const docTemplate = `{
                 "rag_source_data_entity_id": {
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
-                },
-                "shared": {
-                    "type": "boolean"
                 },
                 "stream": {
                     "type": "boolean"

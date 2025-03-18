@@ -82,19 +82,18 @@ const App: FC = () => {
     navigate,
   } = useRouter()
 
-  const [ inputValue, setInputValue ] = useState('')
-  const [ name, setName ] = useState('')
-  const [ hasInitialised, setHasInitialised ] = useState(false)
-  const [ description, setDescription ] = useState('')
-  const [ shared, setShared ] = useState(false)
-  const [ global, setGlobal ] = useState(false)
-  const [ secrets, setSecrets ] = useState<Record<string, string>>({})
-  const [ allowedDomains, setAllowedDomains ] = useState<string[]>([])
-  const [ schema, setSchema ] = useState('')
-  const [ showErrors, setShowErrors ] = useState(false)
-  const [ showBigSchema, setShowBigSchema ] = useState(false)
-  const [ hasLoaded, setHasLoaded ] = useState(false)
-  const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
+  const [inputValue, setInputValue] = useState('')
+  const [name, setName] = useState('')
+  const [hasInitialised, setHasInitialised] = useState(false)
+  const [description, setDescription] = useState('')
+  const [global, setGlobal] = useState(false)
+  const [secrets, setSecrets] = useState<Record<string, string>>({})
+  const [allowedDomains, setAllowedDomains] = useState<string[]>([])
+  const [schema, setSchema] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
+  const [showBigSchema, setShowBigSchema] = useState(false)
+  const [hasLoaded, setHasLoaded] = useState(false)
+  const [deletingAPIKey, setDeletingAPIKey] = useState('')
 
   const [app, setApp] = useState<IApp | null>(null);
   const [isNewApp, setIsNewApp] = useState(false);
@@ -116,24 +115,24 @@ const App: FC = () => {
   // - Updated when user adds/edits/deletes knowledge sources
   // - Used when saving changes to the backend
   const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
-  
+
   // knowledgeList: BACKEND STATE - Represents the knowledge sources as stored in the backend
   // - Source of truth for processing status (ready, preparing, indexing, error)
   // - Updated regularly via polling the backend API
   // - Used to display status indicators, but NOT used for saving
   // - Contains metadata like crawled URLs, progress percentage, version
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
-  
+
   // Tracks if there are any knowledge sources in the backend list
   const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
-  
+
   // References for controlling the knowledge fetch polling
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
 
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
 
-  const [model, setModel] = useState(account.models[0]?.id || '');  
+  const [model, setModel] = useState(account.models[0]?.id || '');
 
   const [providerEndpoint, setProviderEndpoint] = useState('');
 
@@ -183,7 +182,7 @@ const App: FC = () => {
     if (now - lastFetchTimeRef.current < 2000) {
       return; // Prevent fetching more than once every 2 seconds
     }
-    
+
     lastFetchTimeRef.current = now;
     try {
       const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
@@ -227,17 +226,17 @@ const App: FC = () => {
     };
   }, [app?.id, fetchKnowledge]);
 
-  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
+  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> => {
     try {
       const filesResult = await api.get('/api/v1/filestore/list', {
         params: {
           path,
         }
       })
-      if(filesResult) {
+      if (filesResult) {
         return filesResult
       }
-    } catch(e) {}
+    } catch (e) { }
     return []
   }, [api]);
 
@@ -290,16 +289,16 @@ const App: FC = () => {
   useEffect(() => {
     // Skip if no app ID or if it's a new app
     if (!params.app_id || params.app_id === "new") return;
-    
+
     // Find the app in the data
     const foundApp = apps.data.find((a) => a.id === params.app_id);
-    
+
     // If app is found and we haven't initialized yet, set it up
     if (foundApp && !hasInitialised) {
       // Set the app
       setApp(foundApp);
       setIsNewApp(false);
-      
+
       // Set knowledge sources if available
       if (foundApp.config.helix.assistants && foundApp.config.helix.assistants.length > 0) {
         const knowledge = foundApp.config.helix.assistants[0].knowledge || [];
@@ -315,7 +314,7 @@ const App: FC = () => {
   // Keep the "new" app initialization effect separate
   useEffect(() => {
     if (params.app_id !== "new") return;
-    
+
     const now = new Date();
     const newApp: IApp = {
       id: "new",
@@ -348,7 +347,6 @@ const App: FC = () => {
           }],
         },
       },
-      shared: false,
       global: false,
       created: now,
       updated: now,
@@ -356,7 +354,7 @@ const App: FC = () => {
       owner_type: "user" as IOwnerType,
       app_source: APP_SOURCE_HELIX,
     };
-    
+
     setApp(newApp);
     setIsNewApp(true);
     setKnowledgeSources([]);
@@ -367,7 +365,7 @@ const App: FC = () => {
   }, [app, isNewApp]);
 
   const readOnly = useMemo(() => {
-    if(!app) return true
+    if (!app) return true
     return false
   }, [
     app,
@@ -387,11 +385,11 @@ const App: FC = () => {
     }, {}, {
       snackbar: true,
     })
-    if(!res) return
+    if (!res) return
     snackbar.success('API Key added')
     account.loadAppApiKeys(params.app_id)
   }
-  
+
   const validate = useCallback(() => {
     if (!app) return false;
     if (!name && (!app.config.helix.name || app.config.helix.name !== app.id)) {
@@ -413,7 +411,7 @@ const App: FC = () => {
     }
     return true;
   }, [app, name]);
-  
+
   const validateApiSchemas = (app: IApp): string[] => {
     const errors: string[] = [];
     (app.config.helix.assistants || []).forEach((assistant, assistantIndex) => {
@@ -436,7 +434,7 @@ const App: FC = () => {
   };
 
   const validateKnowledge = () => {
-    const hasErrors = knowledgeSources.some(source => 
+    const hasErrors = knowledgeSources.some(source =>
       (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
     );
     setKnowledgeErrors(hasErrors);
@@ -451,7 +449,6 @@ const App: FC = () => {
       // Allow github apps to only update the shared and global flags
       updatedApp = {
         ...app,
-        shared,
         global,
       };
     } else {
@@ -471,13 +468,12 @@ const App: FC = () => {
               system_prompt: systemPrompt,
               knowledge: knowledgeSources,
               provider: providerEndpoint,
-              model: model,              
+              model: model,
             })),
           },
           secrets,
           allowed_domains: allowedDomains,
         },
-        shared,
         global,
         owner: app.owner,
         owner_type: app.owner_type,
@@ -583,7 +579,7 @@ const App: FC = () => {
       // if we don't have any assistants - create a default one
       const currentAssistants = prevApp.config.helix.assistants || [];
       let updatedAssistants = currentAssistants;
-      
+
       if (currentAssistants.length === 0) {
         // create a default assistant
         updatedAssistants = [{
@@ -608,11 +604,11 @@ const App: FC = () => {
           },
         },
       };
-      
+
       // Update local state to keep it in sync with the app state
       // This ensures both state values are always consistent
       setKnowledgeSources(updatedKnowledge);
-      
+
       return newAppState;
     });
   }
@@ -620,8 +616,8 @@ const App: FC = () => {
   const { NewInference } = useStreaming();
 
   const onInference = async () => {
-    if(!app) return
-    
+    if (!app) return
+
     // Save the app before sending the message
     const savedApp = await onSave(true);
 
@@ -630,7 +626,7 @@ const App: FC = () => {
       snackbar.error('Failed to save app before inference');
       return;
     }
-    
+
     try {
       setLoading(true);
       setInputValue('');
@@ -667,9 +663,9 @@ const App: FC = () => {
   }
 
   useEffect(() => {
-    if(!account.user) return
+    if (!account.user) return
     if (params.app_id === "new") return; // Don't load data for new app
-    if(!params.app_id) return
+    if (!params.app_id) return
     apps.loadData()
     account.loadAppApiKeys(params.app_id)
   }, [
@@ -693,7 +689,7 @@ const App: FC = () => {
         model: model,
       })),
     };
-    
+
     // Remove assistant tools as this is an internal field
     currentConfig.assistants = currentConfig.assistants.map(assistant => ({
       ...assistant,
@@ -734,13 +730,12 @@ const App: FC = () => {
   useEffect(() => {
     if (!app) return;
     if (hasInitialised) return;
-    
+
     setHasInitialised(true);
     setName(app.config.helix.name === app.id ? '' : (app.config.helix.name || ''));
     setDescription(app.config.helix.description || '');
     setSecrets(app.config.secrets || {});
     setAllowedDomains(app.config.allowed_domains || []);
-    setShared(app.shared ? true : false);
     setGlobal(app.global ? true : false);
     setSystemPrompt(app.config.helix.assistants ? app.config.helix.assistants[0]?.system_prompt || '' : '');
     setAvatar(app.config.helix.avatar || '');
@@ -763,15 +758,15 @@ const App: FC = () => {
 
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
-    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+    if (parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
       console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
         sessionId: newSession.id,
         documentIds: newSession.config.document_ids,
         documentGroupId: newSession.config.document_group_id,
         parentApp: newSession.parent_app,
-        hasDocumentIds: newSession.config.document_ids !== null && 
-                      Object.keys(newSession.config.document_ids || {}).length > 0,
+        hasDocumentIds: newSession.config.document_ids !== null &&
+          Object.keys(newSession.config.document_ids || {}).length > 0,
         documentIdKeys: Object.keys(newSession.config.document_ids || {}),
         documentIdValues: Object.values(newSession.config.document_ids || {}),
         sessionData: JSON.stringify(newSession)
@@ -782,7 +777,7 @@ const App: FC = () => {
 
   const onSaveGptScript = useCallback((script: IAssistantGPTScript, index?: number) => {
     if (!app) return;
-    
+
     setApp(prevApp => {
       if (!prevApp) return prevApp;
       const updatedAssistants = (prevApp.config.helix.assistants || []).map(assistant => {
@@ -828,7 +823,7 @@ const App: FC = () => {
     });
   }, []);
 
-  const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]); 
+  const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]);
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
@@ -850,18 +845,18 @@ const App: FC = () => {
     } else {
       snackbar.error('No API key available');
     }
-  }, [account.apiKeys, snackbar]);  
+  }, [account.apiKeys, snackbar]);
 
   const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
     if (!app) return;
     console.log('App - saving API tool:', { tool, index });
-    
+
     setApp(prevApp => {
       if (!prevApp) return prevApp;
       let assistants = prevApp.config.helix.assistants || []
       let isNew = typeof index !== 'number'
 
-      if(index === undefined) {
+      if (index === undefined) {
         assistants = [getDefaultAssistant()]
         index = 0
       }
@@ -897,13 +892,13 @@ const App: FC = () => {
   const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
     if (!app) return;
     console.log('App - saving Zapier tool:', { tool, index });
-    
+
     setApp(prevApp => {
       if (!prevApp) return prevApp;
       let assistants = prevApp.config.helix.assistants || []
       let isNew = typeof index !== 'number'
 
-      if(index === undefined) {
+      if (index === undefined) {
         assistants = [getDefaultAssistant()]
         index = 0
       }
@@ -976,16 +971,16 @@ const App: FC = () => {
   }, []);
 
   const assistants = app?.config.helix.assistants || []
-  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []  
+  const apiAssistants = assistants.length > 0 ? assistants[0].apis || [] : []
   const zapierAssistants = assistants.length > 0 ? assistants[0].zapier || [] : []
   const gptscriptsAssistants = assistants.length > 0 ? assistants[0].gptscripts || [] : []
 
   const apiTools = assistants.length > 0 ? (assistants[0].tools || []).filter(tool => tool.config?.api) : []
 
-  if(!account.user) return null
-  if(!app) return null
-  if(!hasLoaded && params.app_id !== "new") return null
-  
+  if (!account.user) return null
+  if (!app) return null
+  if (!hasLoaded && params.app_id !== "new") return null
+
   const handleLaunch = async () => {
     if (app.id === 'new') {
       snackbar.error('Please save the app before launching');
@@ -1067,7 +1062,7 @@ const App: FC = () => {
           </Box>
           <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
-              <Grid item sm={12} md={6} sx={{ 
+              <Grid item sm={12} md={6} sx={{
                 borderRight: '1px solid #303047',
                 height: '100%',
                 overflow: 'auto',
@@ -1086,8 +1081,6 @@ const App: FC = () => {
                       setAvatar={setAvatar}
                       image={image}
                       setImage={setImage}
-                      shared={shared}
-                      setShared={setShared}
                       global={global}
                       setGlobal={setGlobal}
                       model={model}
@@ -1161,7 +1154,7 @@ const App: FC = () => {
                           index: gptscriptsAssistants.length
                         });
                       }}
-                      onEdit={(tool, index) => setEditingGptScript({tool, index})}
+                      onEdit={(tool, index) => setEditingGptScript({ tool, index })}
                       onDeleteGptScript={onDeleteGptScript}
                       isReadOnly={isReadOnly}
                       isGithubApp={isGithubApp}
@@ -1208,22 +1201,22 @@ const App: FC = () => {
                 <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
               ) : (
                 <PreviewPanel
-                loading={loading}
-                name={name}
-                avatar={avatar}
-                image={image}
-                isSearchMode={isSearchMode}
-                setIsSearchMode={setIsSearchMode}
-                inputValue={inputValue}
-                setInputValue={setInputValue}
-                onInference={onInference}
-                onSearch={onSearch}
-                hasKnowledgeSources={hasKnowledgeSources}
-                searchResults={searchResults}
-                session={session.data}
-                serverConfig={account.serverConfig}
-                themeConfig={themeConfig}
-                snackbar={snackbar}
+                  loading={loading}
+                  name={name}
+                  avatar={avatar}
+                  image={image}
+                  isSearchMode={isSearchMode}
+                  setIsSearchMode={setIsSearchMode}
+                  inputValue={inputValue}
+                  setInputValue={setInputValue}
+                  onInference={onInference}
+                  onSearch={onSearch}
+                  hasKnowledgeSources={hasKnowledgeSources}
+                  searchResults={searchResults}
+                  session={session.data}
+                  serverConfig={account.serverConfig}
+                  themeConfig={themeConfig}
+                  snackbar={snackbar}
                 />
               )}
             </Grid>
@@ -1302,7 +1295,7 @@ const App: FC = () => {
               }, {
                 snackbar: true,
               })
-              if(!res) return
+              if (!res) return
               snackbar.success('API Key deleted')
               account.loadAppApiKeys(params.app_id)
               setDeletingAPIKey('')

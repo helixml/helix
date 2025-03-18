@@ -358,20 +358,6 @@ const Session: FC = () => {
     NewInference,
   ])
 
-  const onUpdateSharing = useCallback(async (value: boolean) => {
-    if (!session.data) return false
-    const latestSessionData = await session.reload()
-    if (!latestSessionData) return false
-    const result = await session.updateConfig(latestSessionData.id, Object.assign({}, latestSessionData.config, {
-      shared: value,
-    }))
-    return result ? true : false
-  }, [
-    isOwner,
-    session.data,
-    session.updateConfig,
-  ])
-
   const onRestart = useCallback(() => {
     setRestartWindowOpen(true)
   }, [])
@@ -1019,12 +1005,6 @@ const Session: FC = () => {
   }, [])
 
   useEffect(() => {
-    // we need this because if a session is not shared
-    // we need to wait for the user token to have arrived before
-    // we can ask for the session
-    // if the session IS shared but we are not logged in
-    // this just means we have waited to confirm that we are not actually logged in
-    // before then asking for the shared session
     if (!account.initialized) return
     if (sessionID) {
       if (router.params.fixturemode === 'true') {
@@ -1489,8 +1469,6 @@ const Session: FC = () => {
       {router.params.sharing && session.data && (
         <ShareSessionWindow
           session={session.data}
-          onShare={async () => true}
-          onUpdateSharing={onUpdateSharing}
           onCancel={() => {
             router.removeParams(['sharing'])
           }}

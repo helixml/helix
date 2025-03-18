@@ -379,7 +379,6 @@ export interface TypesApp {
   owner?: string;
   /** e.g. user, system, org */
   owner_type?: TypesOwnerType;
-  shared?: boolean;
   updated?: string;
   /** Owner user struct, populated by the server for organization views */
   user?: TypesUser;
@@ -1201,7 +1200,6 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
-  shared?: boolean;
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
