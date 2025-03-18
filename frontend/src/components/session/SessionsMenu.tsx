@@ -40,6 +40,7 @@ export const SessionsMenu: FC<{
 }) => {
   const sessions = useSessions()
   const lightTheme = useLightTheme()
+  const account = useAccount()
   const {
     navigate,
     params,
@@ -87,7 +88,7 @@ export const SessionsMenu: FC<{
                 }}
                 key={ session.session_id }
                 onClick={ () => {
-                  navigate("session", {session_id: session.session_id})
+                  account.orgNavigate('session', {session_id: session.session_id})
                   onOpenSession()
                 }}
               >
