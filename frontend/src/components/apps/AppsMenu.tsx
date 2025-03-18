@@ -4,15 +4,11 @@ import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import CircularProgress from '@mui/material/CircularProgress'
 import Avatar from '@mui/material/Avatar'
 import AppsIcon from '@mui/icons-material/Apps'
 
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
-import ClickLink from '../widgets/ClickLink'
-
 import useApps from '../../hooks/useApps'
+import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 
@@ -26,6 +22,7 @@ export const AppsMenu: FC<{
   onOpenApp,
 }) => {
   const { apps } = useApps()
+  const account = useAccount()
   const lightTheme = useLightTheme()
   const {
     navigate,
@@ -70,8 +67,7 @@ export const AppsMenu: FC<{
                 }}
                 key={app.id}
                 onClick={() => {
-                  navigate("app", {app_id: app.id})
-                  onOpenApp()
+                  account.orgNavigate('new', {app_id: app.id})
                 }}
               >
                 <ListItemButton
