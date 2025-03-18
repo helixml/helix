@@ -158,6 +158,56 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 	return users, nil
 }
 
+// SearchUsers searches for users with partial matching on email, name, and username
+func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
+	var users []*types.User
+	var total int64
+
+	// Start with a base query
+	db := s.gdb.WithContext(ctx).Model(&types.User{})
+
+	// Apply filters for partial matching
+	if query != nil {
+		if query.EmailPattern != "" {
+			db = db.Where("email ILIKE ?", "%"+query.EmailPattern+"%")
+		}
+		if query.NamePattern != "" {
+			db = db.Where("full_name ILIKE ?", "%"+query.NamePattern+"%")
+		}
+		if query.UsernamePattern != "" {
+			db = db.Where("username ILIKE ?", "%"+query.UsernamePattern+"%")
+		}
+
+		// Filter users by organization membership if organization ID is provided
+		if query.OrganizationID != "" {
+			db = db.Joins("JOIN organization_memberships ON organization_memberships.user_id = users.id").
+				Where("organization_memberships.organization_id = ?", query.OrganizationID)
+		}
+	}
+
+	// Count total matching records before applying pagination
+	err := db.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Apply pagination
+	if query != nil && query.Limit > 0 {
+		db = db.Limit(query.Limit)
+		if query.Offset > 0 {
+			db = db.Offset(query.Offset)
+		}
+	}
+
+	// Execute the query
+	err = db.Find(&users).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return users, total, nil
+}
+
 func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 	var count int64
 	err := s.gdb.WithContext(ctx).Model(&types.User{}).Count(&count).Error

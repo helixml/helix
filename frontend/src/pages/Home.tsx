@@ -79,13 +79,6 @@ const Home: FC = () => {
     currentModel
   ])
 
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
-  ])
-
   const submitPrompt = async () => {
     if (!currentPrompt.trim()) return
     if (!account.user) {
@@ -94,16 +87,21 @@ const Home: FC = () => {
       return
     }
     setLoading(true)
+    let orgId = ''
+    if(account.organizationTools.organization?.id) {
+      orgId = account.organizationTools.organization.id
+    }
     try {
       const session = await NewInference({
         type: currentType,
         message: currentPrompt,
         modelName: currentModel,
+        orgId,
       })
       if (!session) return
       await sessions.loadSessions()
       setLoading(false)
-      router.navigate('session', { session_id: session.id })
+      account.orgNavigate('session', { session_id: session.id })
     } catch (error) {
       console.error('Error in submitPrompt:', error)
       snackbar.error('Failed to start inference')
@@ -112,20 +110,7 @@ const Home: FC = () => {
   }
 
   const openApp = async (appId: string) => {
-    router.navigate('new', { app_id: appId });
-  }
-
-  const onCreateNewApp = async () => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-    const newApp = await apps.createEmptyHelixApp()
-    if(!newApp) return false
-    apps.loadData()
-    router.navigate('app', {
-      app_id: newApp.id,
-    })
+    account.orgNavigate('new', { app_id: appId });
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -385,7 +370,7 @@ const Home: FC = () => {
                 >
                   <Grid container spacing={1} justifyContent="left">
                     {
-                      [...apps.data]
+                      [...apps.apps]
                         .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
                         .slice(0, 5)
                         .map((app) => (
@@ -465,7 +450,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={() => onCreateNewApp()}
+                        onClick={() => apps.createOrgApp()}
                       >
                         <Box
                           sx={{

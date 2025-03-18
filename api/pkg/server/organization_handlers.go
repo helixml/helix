@@ -24,6 +24,49 @@ import (
 // @Router /api/v1/organizations [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+
+	// If user is not an admin, filter to only show organizations they're a member of
+	if !isAdmin(user) {
+		// Get memberships for the current user
+		memberships, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+			UserID: user.ID,
+		})
+		if err != nil {
+			log.Err(err).Msg("error listing organization memberships")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// If user has no memberships, return empty array
+		if len(memberships) == 0 {
+			writeResponse(rw, []*types.Organization{}, http.StatusOK)
+			return
+		}
+
+		// Get all organizations the user is a member of
+		var organizations []*types.Organization
+		for _, membership := range memberships {
+			org, err := apiServer.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{
+				ID: membership.OrganizationID,
+			})
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					// Skip if org not found
+					continue
+				}
+				log.Err(err).Msg("error getting organization")
+				http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			organizations = append(organizations, org)
+		}
+
+		writeResponse(rw, organizations, http.StatusOK)
+		return
+	}
+
+	// For admin users, get all organizations (existing behavior)
 	organizations, err := apiServer.Store.ListOrganizations(r.Context(), &store.ListOrganizationsQuery{})
 	if err != nil {
 		log.Err(err).Msg("error listing organizations")
@@ -65,7 +108,7 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 
 // createOrganization godoc
 // @Summary Create a new organization
-// @Description Create a new organization
+// @Description Create a new organization. Only admin users can create organizations.
 // @Tags    organizations
 // @Param request    body types.Organization true "Request body with organization configuration.")
 // @Success 200 {object} types.Organization
@@ -73,6 +116,12 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
+
+	// Check if user is admin
+	if !isAdmin(user) {
+		http.Error(rw, "Only admin users can create organizations", http.StatusForbidden)
+		return
+	}
 
 	organization := &types.Organization{}
 	err := json.NewDecoder(r.Body).Decode(organization)

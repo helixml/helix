@@ -20,18 +20,25 @@ const Page: React.FC<{
   showTopbar?: boolean,
   // if this is provided then we render a "Home : {title}" text in the topbar
   breadcrumbTitle?: string,
+  breadcrumbShowHome?: boolean,
   breadcrumbs?: IPageBreadcrumb[],
+  // this means to use the org router for the breadcrumbs
+  orgBreadcrumbs?: boolean,
   headerContent?: ReactNode,
   footerContent?: ReactNode,
+  showDrawerButton?: boolean,
   px?: number,
   sx?: SxProps,
 }> = ({
   topbarContent = null,
   showTopbar = false,
   breadcrumbTitle,
+  breadcrumbShowHome = true,
   breadcrumbs = [],
+  orgBreadcrumbs = false,
   headerContent = null,
   footerContent = null,
+  showDrawerButton = true,
   px = 3,
   sx = {},
   children,
@@ -51,7 +58,7 @@ const Page: React.FC<{
     })
   }
 
-  if(useBreadcrumbTitles.length > 0) {
+  if(useBreadcrumbTitles.length > 0 && breadcrumbShowHome) {
     useBreadcrumbTitles.unshift({
       title: 'Home',
       routeName: 'home',
@@ -87,7 +94,14 @@ const Page: React.FC<{
                       color: lightTheme.textColor,
                       textDecoration: 'underline',
                     }}
-                    onClick={ () => router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) }
+                    onClick={ () => {
+                      if(orgBreadcrumbs) {
+                        account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
+                      } else {
+                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) 
+                      }
+                      
+                    }}
                   >
                     { breadcrumb.title }
                   </Link>
@@ -120,7 +134,7 @@ const Page: React.FC<{
             <AppBar
               title={ useTopbarTitle }
               px={ px }
-              onOpenDrawer={ () => account.setMobileMenuOpen(true) }
+              onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
             >
               { topbarContent }
             </AppBar>

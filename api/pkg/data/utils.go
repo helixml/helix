@@ -250,21 +250,22 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		return nil, fmt.Errorf("invalid session mode")
 	}
 	return &types.SessionSummary{
-		SessionID:     session.ID,
-		Name:          session.Name,
-		InteractionID: assistantInteraction.ID,
-		Mode:          session.Mode,
-		Type:          session.Type,
-		ModelName:     session.ModelName,
-		Owner:         session.Owner,
-		LoraDir:       session.LoraDir,
-		Created:       assistantInteraction.Created,
-		Updated:       assistantInteraction.Updated,
-		Scheduled:     assistantInteraction.Scheduled,
-		Completed:     assistantInteraction.Completed,
-		Summary:       summary,
-		Priority:      session.Metadata.Priority,
-		AppID:         session.ParentApp,
+		SessionID:      session.ID,
+		Name:           session.Name,
+		InteractionID:  assistantInteraction.ID,
+		Mode:           session.Mode,
+		Type:           session.Type,
+		ModelName:      session.ModelName,
+		Owner:          session.Owner,
+		LoraDir:        session.LoraDir,
+		Created:        assistantInteraction.Created,
+		Updated:        assistantInteraction.Updated,
+		Scheduled:      assistantInteraction.Scheduled,
+		Completed:      assistantInteraction.Completed,
+		Summary:        summary,
+		Priority:       session.Metadata.Priority,
+		AppID:          session.ParentApp,
+		OrganizationID: session.OrganizationID,
 	}, nil
 }
 

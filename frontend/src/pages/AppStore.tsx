@@ -24,13 +24,6 @@ const AppStore: FC = () => {
   const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
   
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
-  ])
-  
   return (
     <Page
       showTopbar={ true }
@@ -95,7 +88,7 @@ const AppStore: FC = () => {
           </Grid>
         </Box>
         <AppStoreGrid
-          apps={ apps.data }
+          apps={ apps.apps }
           onClick={ (id) => router.navigate('new', {app_id: id}) }
         />
       </Container>
