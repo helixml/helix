@@ -443,7 +443,7 @@ const Session: FC = () => {
       loading: true,
     })
     if(!newSession) return false
-    await sessions.loadSessions(true)
+    await sessions.loadSessions()
     snackbar.success('Session cloned...')
     router.navigate('session', {session_id: newSession.id})
     return true
@@ -479,7 +479,7 @@ const Session: FC = () => {
         if(!newSession) return false
         setInputValue("")
       }
-      await sessions.loadSessions(true)
+      await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
         session_id: newSession.id
@@ -519,7 +519,7 @@ const Session: FC = () => {
         }
       })
       if(!newSession) return false
-      await sessions.loadSessions(true)
+      await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
         session_id: newSession.id
