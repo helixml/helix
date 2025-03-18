@@ -60,6 +60,10 @@ const Sidebar: React.FC<{
   const apps = useApps()
   const { models } = useContext(AccountContext)
   const activeTab = useMemo(() => {
+    // If app_id is present in the URL, default to the apps tab (index 1)
+    if (router.params.app_id) {
+      return RESOURCE_TYPES.findIndex(type => type === 'apps');
+    }
     const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
     return activeIndex >= 0 ? activeIndex : 0
   }, [
@@ -104,9 +108,18 @@ const Sidebar: React.FC<{
 
   // Handle tab change between CHATS and APPS
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    router.mergeParams({
+    // When switching to the apps tab and we have an app_id, preserve it
+    // When switching to chats tab, we can optionally remove app_id
+    const newParams: Record<string, any> = {
       resource_type: RESOURCE_TYPES[newValue],
-    })
+    };
+    
+    // If we're switching to apps tab and there's an app_id in the URL, keep it
+    if (RESOURCE_TYPES[newValue] === 'apps' && router.params.app_id) {
+      newParams.app_id = router.params.app_id;
+    }
+    
+    router.mergeParams(newParams);
   }
 
   // Handle creating new chat or app based on active tab
