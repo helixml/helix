@@ -410,7 +410,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
 
 	// UI @ functionality
-	authRouter.HandleFunc("/ui/at", system.Wrapper(apiServer.uiAt)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
 
 	// User auth, BFF
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)

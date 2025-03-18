@@ -421,6 +421,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/context-menu": {
+            "get": {
+                "description": "contextMenuHandler",
+                "tags": [
+                    "ui"
+                ],
+                "summary": "contextMenuHandler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Query string",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ContextMenuResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -1362,39 +1395,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Session"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/ui/at": {
-            "get": {
-                "description": "uiAt",
-                "tags": [
-                    "ui"
-                ],
-                "summary": "uiAt",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Query string",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.UIAtResponse"
                         }
                     }
                 }
@@ -2586,6 +2586,28 @@ const docTemplate = `{
                 },
                 "text": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuData": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContextMenuData"
+                    }
                 }
             }
         },
@@ -4512,28 +4534,6 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
-                }
-            }
-        },
-        "types.UIAtData": {
-            "type": "object",
-            "properties": {
-                "label": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.UIAtResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UIAtData"
-                    }
                 }
             }
         },

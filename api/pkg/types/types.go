@@ -1523,3 +1523,12 @@ type AuthenticatedResponse struct {
 type TokenResponse struct {
 	Token string `json:"token"`
 }
+
+type ContextMenuResponse struct {
+	Data []ContextMenuData `json:"data"`
+}
+
+type ContextMenuData struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}

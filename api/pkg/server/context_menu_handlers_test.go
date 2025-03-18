@@ -58,15 +58,15 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		setupRequest   func() *http.Request
 		setupMocks     func()
 		expectedStatus int
-		checkResponse  func(*types.UIAtResponse, error)
+		checkResponse  func(*types.ContextMenuResponse, error)
 	}{
 		{
 			name: "No app_id returns empty results",
 			setupRequest: func() *http.Request {
-				return suite.createTestRequest("GET", "/api/v1/ui/at?q=123")
+				return suite.createTestRequest("GET", "/api/v1/context-menu?q=123")
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.Nil(err)
 				suite.NotNil(resp)
 				suite.Empty(resp.Data)
@@ -75,7 +75,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		{
 			name: "Query with app_id returns all results",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=app123")
+				req := suite.createTestRequest("GET", "/api/v1/context-menu?app_id=app123")
 				return req
 			},
 			setupMocks: func() {
@@ -107,7 +107,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 					}, nil)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.Nil(err)
 				suite.NotNil(resp)
 				suite.Len(resp.Data, 2) // Should return all results
@@ -116,7 +116,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		{
 			name: "Query with app_id returns filtered results",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/ui/at?q=test&app_id=app123")
+				req := suite.createTestRequest("GET", "/api/v1/context-menu?q=test&app_id=app123")
 				return req
 			},
 			setupMocks: func() {
@@ -147,7 +147,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 					}, nil)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.Nil(err)
 				suite.NotNil(resp)
 				suite.Len(resp.Data, 1) // Only one result should match "test" in the URL
@@ -157,7 +157,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		{
 			name: "Store error returns 500",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/ui/at?q=test&app_id=app123")
+				req := suite.createTestRequest("GET", "/api/v1/context-menu?q=test&app_id=app123")
 				return req
 			},
 			setupMocks: func() {
@@ -177,7 +177,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 					Return(nil, context.DeadlineExceeded)
 			},
 			expectedStatus: http.StatusInternalServerError,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.NotNil(err)
 				suite.Nil(resp)
 			},
@@ -185,7 +185,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		{
 			name: "User without app read access gets empty results",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=app123")
+				req := suite.createTestRequest("GET", "/api/v1/context-menu?app_id=app123")
 				return req
 			},
 			setupMocks: func() {
@@ -202,7 +202,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 				// We should not see any calls to ListKnowledge since authorization will fail
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.Nil(err)
 				suite.NotNil(resp)
 				suite.Empty(resp.Data, "User without read access should get empty results")
@@ -211,7 +211,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		{
 			name: "Non-existent app returns 404",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=nonexistent")
+				req := suite.createTestRequest("GET", "/api/v1/context-menu?app_id=nonexistent")
 				return req
 			},
 			setupMocks: func() {
@@ -220,7 +220,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 					Return(nil, store.ErrNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.NotNil(err)
 				suite.Nil(resp)
 				httpErr, ok := err.(*system.HTTPError)
@@ -231,7 +231,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 		{
 			name: "User is allowed to access global app",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/ui/at?app_id=global")
+				req := suite.createTestRequest("GET", "/api/v1/context-menu?app_id=global")
 				return req
 			},
 			setupMocks: func() {
@@ -252,7 +252,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 					Return([]*types.Knowledge{}, nil)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(resp *types.UIAtResponse, err error) {
+			checkResponse: func(resp *types.ContextMenuResponse, err error) {
 				suite.Nil(err)
 				suite.NotNil(resp)
 				suite.Len(resp.Data, 0)
@@ -266,7 +266,7 @@ func (suite *UIHandlerSuite) TestUIAt() {
 				tc.setupMocks()
 			}
 
-			resp, err := suite.apiServer.uiAt(nil, tc.setupRequest())
+			resp, err := suite.apiServer.contextMenuHandler(nil, tc.setupRequest())
 			if err != nil {
 				suite.Equal(tc.expectedStatus, err.StatusCode)
 			}
