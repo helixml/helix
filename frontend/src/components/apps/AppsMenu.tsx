@@ -59,6 +59,7 @@ export const AppsMenu: FC<{
         {
           apps.map((app, i) => {
             const isActive = app.id === params["app_id"]
+            const isCurrentApp = app.id === params["app_id"]
             return (
               <ListItem
                 sx={{
@@ -67,14 +68,18 @@ export const AppsMenu: FC<{
                 }}
                 key={app.id}
                 onClick={() => {
-                  account.orgNavigate('new', {app_id: app.id})
+                  account.orgNavigate('new', {
+                    app_id: app.id,
+                    resource_type: 'apps'
+                  })
+                  onOpenApp()
                 }}
               >
                 <ListItemButton
-                  selected={isActive}
+                  selected={isCurrentApp}
                   sx={{
                     borderRadius: '4px',
-                    backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+                    backgroundColor: isCurrentApp ? '#1a1a2f' : 'transparent',
                     cursor: 'pointer',
                     '&:hover': {
                       '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
@@ -94,7 +99,7 @@ export const AppsMenu: FC<{
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      color: isActive ? '#fff' : lightTheme.textColorFaded,
+                      color: isCurrentApp ? '#fff' : lightTheme.textColorFaded,
                     }}
                     primary={app.config.helix.name || 'Unnamed App'}
                     id={app.id}

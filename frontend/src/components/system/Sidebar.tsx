@@ -10,6 +10,9 @@ import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
+import ListItem from '@mui/material/ListItem'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemText from '@mui/material/ListItemText'
 
 import WebhookIcon from '@mui/icons-material/Webhook'
 import HomeIcon from '@mui/icons-material/Home'
@@ -40,7 +43,7 @@ import {
 
 const RESOURCE_TYPES = [
   'chat',
-  'app',
+  'apps',
 ]
 
 const Sidebar: React.FC<{
@@ -57,6 +60,10 @@ const Sidebar: React.FC<{
   const apps = useApps()
   const { models } = useContext(AccountContext)
   const activeTab = useMemo(() => {
+    // If app_id is present in the URL, default to the apps tab (index 1)
+    if (router.params.app_id) {
+      return RESOURCE_TYPES.findIndex(type => type === 'apps');
+    }
     const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
     return activeIndex >= 0 ? activeIndex : 0
   }, [
@@ -101,9 +108,18 @@ const Sidebar: React.FC<{
 
   // Handle tab change between CHATS and APPS
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    router.mergeParams({
+    // When switching to the apps tab and we have an app_id, preserve it
+    // When switching to chats tab, we can optionally remove app_id
+    const newParams: Record<string, any> = {
       resource_type: RESOURCE_TYPES[newValue],
-    })
+    };
+    
+    // If we're switching to apps tab and there's an app_id in the URL, keep it
+    if (RESOURCE_TYPES[newValue] === 'apps' && router.params.app_id) {
+      newParams.app_id = router.params.app_id;
+    }
+    
+    router.mergeParams(newParams);
   }
 
   // Handle creating new chat or app based on active tab
@@ -111,7 +127,7 @@ const Sidebar: React.FC<{
     const resourceType = RESOURCE_TYPES[activeTab]
     if (resourceType === 'chat') {
       account.orgNavigate('home')
-    } else if (resourceType === 'app') {
+    } else if (resourceType === 'apps') {
       apps.createOrgApp()
     }
   }
@@ -157,13 +173,15 @@ const Sidebar: React.FC<{
                       minWidth: 'auto',
                       flex: 1,
                       color: lightTheme.textColorFaded,
+                      fontSize: '16px',
                     },
                     '& .Mui-selected': {
-                      color: lightTheme.textColor,
+                      color: '#00E5FF',
                       fontWeight: 'bold',
                     },
                     '& .MuiTabs-indicator': {
-                      backgroundColor: lightTheme.textColor,
+                      backgroundColor: '#00E5FF',
+                      height: 3,
                     },
                   }}
                 >
@@ -176,13 +194,54 @@ const Sidebar: React.FC<{
               </Box>
               
               {/* New resource creation button */}
-              <SidebarMainLink
-                id="create-link"
-                routeName=""
-                title={`New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`}
-                icon={ <AddIcon/> }
-                handler={handleCreateNew}
-              />
+              <ListItem
+                disablePadding
+                dense
+              >
+                <ListItemButton
+                  id="create-link"
+                  onClick={handleCreateNew}
+                  sx={{
+                    height: '64px',
+                    display: 'flex',
+                    '&:hover': {
+                      '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                    },
+                  }}
+                >
+                  <ListItemText
+                    sx={{
+                      ml: 2,
+                      p: 1,
+                    }}
+                    primary={
+                      RESOURCE_TYPES[activeTab] === 'apps' 
+                        ? 'New App' 
+                        : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
+                    }
+                    primaryTypographyProps={{
+                      fontWeight: 'bold',
+                      color: '#FFFFFF',
+                      fontSize: '16px',
+                    }}
+                  />
+                  <Box 
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: 'transparent',
+                      border: '2px solid #00E5FF',
+                      borderRadius: '50%',
+                      width: 32,
+                      height: 32,
+                      mr: 2,
+                    }}
+                  >
+                    <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
+                  </Box>
+                </ListItemButton>
+              </ListItem>
               
               <Divider />
             </List>

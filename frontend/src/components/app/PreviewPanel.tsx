@@ -142,6 +142,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           alignItems: 'center',
           position: 'relative',
           zIndex: 2,
+          marginLeft: "-15px",
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
         }}
       >
@@ -230,6 +231,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           flexGrow: 1,
           overflowY: 'auto',
           p: 2,
+          marginLeft: "-15px",
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
         }}
       >
