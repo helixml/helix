@@ -89,7 +89,7 @@ const AppStore: FC = () => {
         </Box>
         <AppStoreGrid
           apps={ apps.apps }
-          onClick={ (id) => router.navigate('new', {app_id: id}) }
+          onClick={ (id) => account.orgNavigate('new', {app_id: id}) }
         />
       </Container>
     </Page>

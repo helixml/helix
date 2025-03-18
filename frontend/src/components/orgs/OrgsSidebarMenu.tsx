@@ -19,7 +19,7 @@ const OrgsSidebarMenu: FC<{
         routeName="orgs"
         title="Exit"
         icon={ <ArrowBack/> }
-        includeOrgId={ false }
+        includeOrgId={ true }
       />
       <OrgSidebarMainLink
         id="settings-link"
