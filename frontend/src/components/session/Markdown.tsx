@@ -518,6 +518,16 @@ class MessageProcessor {
       let link: string;
       const allNonTextFiles = this.getAllNonTextFiles();
 
+      // Add citation number only to excerpts that match this document_id
+      if (this.citations.length > 0) {
+        this.citations.forEach(citation => {
+          citation.excerpts = citation.excerpts.map(excerpt => ({
+            ...excerpt,
+            citationNumber: excerpt.docId === document_id ? this.documentReferenceCounter : excerpt.citationNumber
+          }));
+        });
+      }
+
       // If the filename is a URL, use it directly regardless of session type
       if (filename.startsWith('http')) {
         const displayName = filename.split('/').pop() || filename;
