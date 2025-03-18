@@ -586,7 +586,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		}
 
 		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
-		if (!app.Global && !app.Shared) && app.Owner != session.Owner {
+		if !app.Global && app.Owner != session.Owner {
 			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
 		}
 

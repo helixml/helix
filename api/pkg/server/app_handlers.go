@@ -510,7 +510,6 @@ type AppUpdatePayload struct {
 	ActiveTools    []string          `json:"active_tools"`
 	Secrets        map[string]string `json:"secrets"`
 	AllowedDomains []string          `json:"allowed_domains"`
-	Shared         bool              `json:"shared"`
 	Global         bool              `json:"global"`
 }
 
@@ -535,24 +534,9 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if app.Global {
-		return app, nil
-	}
-
-	if app.Shared {
-		return app, nil
-	}
-
-	if app.OrganizationID != "" {
-		err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-		return app, nil
-	}
-
-	if app.Owner != user.ID {
-		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	return app, nil
@@ -596,23 +580,9 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
 
-	if existing.OrganizationID != "" {
-		// Org mode
-		err := s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-	} else {
-		// Single-player mode
-		if existing.Global {
-			if !isAdmin(user) {
-				return nil, system.NewHTTPError403("only admin users can update global apps")
-			}
-		} else {
-			if existing.Owner != user.ID {
-				return nil, system.NewHTTPError403("you do not have permission to update this app")
-			}
-		}
+	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	err = s.validateProviderAndModel(r.Context(), user, &update)
@@ -748,7 +718,6 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 	existing.Updated = time.Now()
 	existing.Config.Secrets = appUpdate.Secrets
 	existing.Config.AllowedDomains = appUpdate.AllowedDomains
-	existing.Shared = appUpdate.Shared
 	existing.Global = appUpdate.Global
 
 	// Updating the app
@@ -784,23 +753,9 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.OrganizationID != "" {
-		// Org mode
-		err := s.authorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-
-	} else {
-		if existing.Global {
-			if !isAdmin(user) {
-				return nil, system.NewHTTPError403("only admin users can delete global apps")
-			}
-		} else {
-			if existing.Owner != user.ID {
-				return nil, system.NewHTTPError403("you do not have permission to delete this app")
-			}
-		}
+	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	if !keepKnowledge {

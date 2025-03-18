@@ -421,6 +421,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/context-menu": {
+            "get": {
+                "description": "contextMenuHandler",
+                "tags": [
+                    "ui"
+                ],
+                "summary": "contextMenuHandler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Query string",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ContextMenuResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -1367,39 +1400,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/ui/at": {
-            "get": {
-                "description": "uiAt",
-                "tags": [
-                    "ui"
-                ],
-                "summary": "uiAt",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Query string",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.UIAtResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -2244,9 +2244,6 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "shared": {
-                    "type": "boolean"
-                },
                 "updated": {
                     "type": "string"
                 },
@@ -2586,6 +2583,28 @@ const docTemplate = `{
                 },
                 "text": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuData": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContextMenuData"
+                    }
                 }
             }
         },
@@ -4154,9 +4173,6 @@ const docTemplate = `{
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
                 },
-                "shared": {
-                    "type": "boolean"
-                },
                 "stream": {
                     "type": "boolean"
                 },
@@ -4512,28 +4528,6 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
-                }
-            }
-        },
-        "types.UIAtData": {
-            "type": "object",
-            "properties": {
-                "label": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.UIAtResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UIAtData"
-                    }
                 }
             }
         },

@@ -1443,7 +1443,6 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 	app := &types.App{
 		AppSource: types.AppSourceHelix,
 		Global:    false,
-		Shared:    false,
 		Config: types.AppConfig{
 			AllowedDomains: []string{},
 			Helix:          *parsedAppConfig,

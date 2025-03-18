@@ -188,7 +188,6 @@ type SessionRAGResult struct {
 type SessionMetadata struct {
 	OriginalMode            SessionMode       `json:"original_mode"`
 	Origin                  SessionOrigin     `json:"origin"`
-	Shared                  bool              `json:"shared"`
 	Avatar                  string            `json:"avatar"`
 	Priority                bool              `json:"priority"`
 	DocumentIDs             map[string]string `json:"document_ids"`
@@ -1123,7 +1122,6 @@ type App struct {
 	OwnerType OwnerType `json:"owner_type"`
 	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
 	Global    bool      `json:"global"`
-	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
@@ -1528,4 +1526,13 @@ type AuthenticatedResponse struct {
 
 type TokenResponse struct {
 	Token string `json:"token"`
+}
+
+type ContextMenuResponse struct {
+	Data []ContextMenuData `json:"data"`
+}
+
+type ContextMenuData struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
