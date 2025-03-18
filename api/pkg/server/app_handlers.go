@@ -510,7 +510,6 @@ type AppUpdatePayload struct {
 	ActiveTools    []string          `json:"active_tools"`
 	Secrets        map[string]string `json:"secrets"`
 	AllowedDomains []string          `json:"allowed_domains"`
-	Shared         bool              `json:"shared"`
 	Global         bool              `json:"global"`
 }
 
@@ -719,7 +718,6 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 	existing.Updated = time.Now()
 	existing.Config.Secrets = appUpdate.Secrets
 	existing.Config.AllowedDomains = appUpdate.AllowedDomains
-	existing.Shared = appUpdate.Shared
 	existing.Global = appUpdate.Global
 
 	// Updating the app

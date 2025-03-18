@@ -86,7 +86,6 @@ func (suite *UIHandlerSuite) TestUIAt() {
 						ID:             "app123",
 						Owner:          "user123", // Same owner as the test user
 						OwnerType:      types.OwnerTypeUser,
-						Shared:         false,
 						OrganizationID: "",
 					}, nil)
 
@@ -127,7 +126,6 @@ func (suite *UIHandlerSuite) TestUIAt() {
 						ID:        "app123",
 						Owner:     "user123", // Same owner as the test user
 						OwnerType: types.OwnerTypeUser,
-						Shared:    false,
 					}, nil)
 
 				suite.store.EXPECT().
@@ -168,7 +166,6 @@ func (suite *UIHandlerSuite) TestUIAt() {
 						ID:             "app123",
 						Owner:          "user123", // Same owner as the test user
 						OwnerType:      types.OwnerTypeUser,
-						Shared:         false,
 						OrganizationID: "",
 					}, nil)
 
@@ -196,7 +193,6 @@ func (suite *UIHandlerSuite) TestUIAt() {
 						ID:        "app123",
 						Owner:     "different_user",
 						OwnerType: types.OwnerTypeUser,
-						Shared:    false,
 					}, nil)
 
 				// We should not see any calls to ListKnowledge since authorization will fail

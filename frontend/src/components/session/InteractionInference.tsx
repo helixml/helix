@@ -32,8 +32,6 @@ export const InteractionInference: FC<{
   error?: string,
   serverConfig?: IServerConfig,
   session: ISession,
-  // if the session is shared then we don't enforce needing an access token to see the files
-  isShared?: boolean,
   onRestart?: () => void,
   upgrade?: boolean,
   isFromAssistant?: boolean,
@@ -44,7 +42,6 @@ export const InteractionInference: FC<{
   error,
   serverConfig,
   session,
-  isShared,
   onRestart,
   upgrade,
   isFromAssistant: isFromAssistant,
@@ -148,7 +145,7 @@ export const InteractionInference: FC<{
         {
           serverConfig?.filestore_prefix && imageURLs
             .filter(file => {
-              return isShared || account.token ? true : false
+              return account.token ? true : false
             })
             .map((imageURL: string) => {
               const useURL = getFileURL(imageURL)

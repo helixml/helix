@@ -66,16 +66,10 @@ func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Cont
 func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
 	// If the organization ID is not set and the user is not the app owner, then error
 	if app.OrganizationID == "" {
-		// This is the old style app logic, where the app is owned by a user and optionally shared
-		// or made global
+		// This is the old style app logic, where the app is owned by a user and optionally made global
 
 		// If the user is the owner of the app, they can access it
 		if user.ID == app.Owner {
-			return nil
-		}
-
-		// If the app is shared, the user can access it
-		if app.Shared {
 			return nil
 		}
 
