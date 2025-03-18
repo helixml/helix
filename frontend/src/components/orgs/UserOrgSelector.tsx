@@ -10,6 +10,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import SettingsIcon from '@mui/icons-material/Settings'
 import Divider from '@mui/material/Divider'
 import GroupsIcon from '@mui/icons-material/Groups'
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -30,7 +31,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const isBigScreen = useIsBigScreen()
   
   // Get the current organization from the URL or context
-  const defaultOrgName = `${account.user?.name} (Personal Account)`
+  const defaultOrgName = `${account.user?.name} (Personal)`
   const currentOrg = account.organizationTools.organization
   const currentOrgId = account.organizationTools.organization?.id || 'default'
   const organizations = account.organizationTools.organizations
@@ -86,7 +87,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   }
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+    <Box sx={{ 
+      display: 'flex', 
+      alignItems: 'center', 
+      width: '100%',
+      position: 'relative',
+    }}>
       <Button
         id="org-selector-button"
         aria-controls={open ? 'org-selector-menu' : undefined}
@@ -102,24 +108,26 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           minWidth: '200px',
           width: '100%',
           padding: 0,
-          pl: 3,
+          pl: 2,
           pr: 4,
           height: isBigScreen ? `${TOOLBAR_HEIGHT}px` : '',
-          borderRadius: '4px',
-          backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+          borderRadius: 0,
+          background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
           '&:hover': {
-            backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
           },
           '& .MuiButton-endIcon': {
             position: 'absolute',
-            right: 52,
+            right: 16,
           },
+          position: 'relative',
         }}
       >
         <Box sx={{ 
           display: 'flex', 
           alignItems: 'center', 
           p: 1,
+          pl: 0,
           maxWidth: 'calc(100% - 40px)', // Reserve space for the dropdown icon
           overflow: 'hidden',
         }}>
@@ -139,9 +147,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             variant="body1" 
             noWrap 
             sx={{ 
-              maxWidth: '100%',
+              maxWidth: 'calc(100% - 20px)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
+              ml: 1,
+              color: '#FFFFFF',
+              fontWeight: 'medium',
             }}
           >
             {displayOrgName}
@@ -153,124 +164,214 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         anchorEl={anchorEl}
         open={open}
         onClose={handleClose}
+        disablePortal
+        keepMounted={false}
+        container={anchorEl ? anchorEl.parentElement : undefined}
         MenuListProps={{
           'aria-labelledby': 'org-selector-button',
           sx: {
             padding: 0,
+            backgroundColor: 'transparent',
+            width: anchorEl ? `${anchorEl.offsetWidth}px` : '100%',
+            maxWidth: anchorEl ? `${anchorEl.offsetWidth}px` : '100%',
           }
         }}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'left',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'left',
-        }}
-        PaperProps={{
-          style: {
-            minWidth: '200px',
-          },
+        PopoverClasses={{
+          paper: 'org-dropdown'
         }}
         sx={{
-          '& .MuiMenu-paper': {
-            width: anchorEl ? anchorEl.clientWidth : '200px',
-          }
+          '& .org-dropdown': {
+            left: '0 !important',
+            right: 'auto !important',
+            transform: 'none !important',
+            width: anchorEl ? `${anchorEl.offsetWidth}px !important` : '100% !important',
+            maxWidth: anchorEl ? `${anchorEl.offsetWidth}px !important` : '100% !important',
+            minWidth: '200px',
+            background: 'transparent',
+            color: 'white',
+            marginTop: '-8px',
+            borderRadius: '0 0 8px 8px',
+            boxShadow: '0px 8px 10px rgba(0, 0, 0, 0.2)',
+            transition: 'none !important',
+            overflow: 'hidden',
+          },
+          '& .MuiMenuItem-root': {
+            color: 'white',
+            '&:hover': {
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            },
+            '&.Mui-selected': {
+              backgroundColor: 'rgba(255, 255, 255, 0.15)',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+              },
+            },
+          },
+          '& .MuiDivider-root': {
+            borderColor: 'rgba(255, 255, 255, 0.2)',
+            margin: 0,
+          },
         }}
       >
-
-        {listOrgs.map((org) => (
-          <Fragment
-            key={org.id}
+        {/* Settings option - same gradient as header */}
+        <Box sx={{ background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)' }}>
+          <MenuItem 
+            onClick={() => {
+              handleClose()
+              if (currentOrg && currentOrg.name) {
+                router.navigate('org_people', { org_id: currentOrg.name })
+              } else {
+                router.navigate('account')
+              }
+            }}
+            sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              py: 2,
+              width: '100%',
+              justifyContent: 'flex-start',
+              background: 'transparent',
+            }}
           >
-            <MenuItem 
-              onClick={() => handleOrgSelect(org.name)}
-              selected={org.name === currentOrgId}
+            <Avatar 
               sx={{ 
-                display: 'flex', 
-                alignItems: 'center',
-                py: 2,
-                width: '100%',
-                justifyContent: 'flex-start',
+                width: 28, 
+                height: 28, 
+                bgcolor: 'transparent',
+                mr: 1,
+                ml: 0,
+                flexShrink: 0,
               }}
             >
-              <Avatar 
-                sx={{ 
-                  width: 28, 
-                  height: 28, 
-                  bgcolor: theme => theme.palette.primary.main,
-                  fontSize: '0.8rem',
-                  mr: 1,
-                  flexShrink: 0,
-                }}
-              >
-                {(org?.display_name || org?.name || '?').charAt(0).toUpperCase()}
-              </Avatar>
-              <Typography 
-                variant="body1" 
-                noWrap 
-                sx={{ 
-                  flex: 1,
-                  maxWidth: 'calc(100% - 40px)', // Reserve space for the avatar
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {org?.display_name || org?.name}
-              </Typography>
-            </MenuItem>
-            {
-              org.id == 'default' && listOrgs.length > 1 && (
-                <Divider sx={{ my: 1 }} />
-              )        
-            }
-          </Fragment>
-        ))}
+              <SettingsIcon sx={{ color: 'white', fontSize: 20 }} />
+            </Avatar>
+            <Typography 
+              variant="body1" 
+              noWrap 
+              sx={{ 
+                flex: 1,
+                color: '#FFFFFF',
+                maxWidth: 'calc(100% - 40px)',
+                fontWeight: 'medium',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              Settings
+            </Typography>
+          </MenuItem>
+        </Box>
         
-        <Divider sx={{ my: 1 }} />
+        <Divider sx={{ my: 0 }} />
         
-        <MenuItem 
-          onClick={() => {
-            handleClose()
-            router.navigate('orgs')
-          }}
-          sx={{ 
-            display: 'flex', 
-            alignItems: 'center',
-            py: 2,
-            width: '100%',
-            justifyContent: 'flex-start',
-          }}
-        >
-          <Avatar 
-            sx={{ 
-              width: 28, 
-              height: 28, 
-              bgcolor: theme => theme.palette.grey[400],
-              color: theme => theme.palette.getContrastText(theme.palette.grey[400]),
-              fontSize: '0.8rem',
-              mr: 1,
-              flexShrink: 0,
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <GroupsIcon sx={{ fontSize: 16 }} />
-          </Avatar>
+        {/* Other orgs section - same gradient as top section */}
+        <Box sx={{ background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)' }}>
+          {/* Other orgs header */}
           <Typography 
-            variant="body1" 
-            noWrap 
+            variant="body2" 
             sx={{ 
-              flex: 1,
-              maxWidth: 'calc(100% - 40px)', // Reserve space for the avatar
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              color: 'rgba(255, 255, 255, 0.7)', 
+              px: 3,
+              pt: 1, 
+              pb: 1,
+              fontWeight: 'medium',
+              pl: 2,
+              background: 'transparent',
             }}
           >
-            List Organizations...
+            Other orgs
           </Typography>
-        </MenuItem>
+
+          {listOrgs
+            .filter(org => {
+              // For non-default orgs, compare by ID
+              if (currentOrg && currentOrg.id) {
+                return org.id !== currentOrg.id;
+              }
+              // For default (personal) org, compare by id='default'
+              return org.id !== 'default';
+            })
+            .map((org, index) => (
+            <Fragment
+              key={org.id}
+            >
+              <MenuItem 
+                onClick={() => handleOrgSelect(org.name)}
+                selected={org.name === currentOrgId}
+                sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  py: 2,
+                  width: '100%',
+                  justifyContent: 'flex-start',
+                  background: 'transparent',
+                  '&:hover': {
+                    background: 'rgba(255, 255, 255, 0.1)',
+                  },
+                }}
+              >
+                <Avatar 
+                  sx={{ 
+                    width: 28, 
+                    height: 28, 
+                    bgcolor: 'white',
+                    color: '#1A1A2F',
+                    fontSize: '0.8rem',
+                    mr: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  {(org?.display_name || org?.name || '?').charAt(0).toUpperCase()}
+                </Avatar>
+                <Typography 
+                  variant="body1" 
+                  noWrap 
+                  sx={{ 
+                    flex: 1,
+                    color: 'white',
+                    maxWidth: 'calc(100% - 40px)', // Reserve space for the avatar
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {org?.display_name || org?.name}
+                </Typography>
+              </MenuItem>
+            </Fragment>
+          ))}
+        </Box>
+        
+        <Divider sx={{ my: 0 }} />
+        
+        {/* Add new option - different gradient */}
+        <Box sx={{ background: 'linear-gradient(90deg, #520744 0%, #4d1a7c 100%)' }}>
+          <MenuItem 
+            onClick={() => {
+              handleClose()
+              router.navigate('orgs')
+            }}
+            sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              py: 2,
+              width: '100%',
+              justifyContent: 'space-between',
+              background: 'transparent',
+            }}
+          >
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                color: 'white',
+                pl: 2,
+                fontWeight: 'medium',
+              }}
+            >
+              Add new
+            </Typography>
+            <ArrowForwardIcon sx={{ color: 'white', mr: 2 }} />
+          </MenuItem>
+        </Box>
       </Menu>
     </Box>
   )

@@ -19,13 +19,13 @@ const OrgsSidebarMenu: FC<{
         routeName="orgs"
         title="Exit"
         icon={ <ArrowBack/> }
-        includeOrgId={ false }
+        includeOrgId={ true }
       />
       <OrgSidebarMainLink
-        id="settings-link"
-        routeName="org_settings"
-        title="Settings"
-        icon={ <SettingsIcon/> }
+        id="people-link"
+        routeName="org_people"
+        title="People"
+        icon={ <Person/> }
       />
       <OrgSidebarMainLink
         id="teams-link"
@@ -34,10 +34,10 @@ const OrgsSidebarMenu: FC<{
         icon={ <GroupsIcon/> }
       />
       <OrgSidebarMainLink
-        id="people-link"
-        routeName="org_people"
-        title="People"
-        icon={ <Person/> }
+        id="settings-link"
+        routeName="org_settings"
+        title="Settings"
+        icon={ <SettingsIcon/> }
       />
       {/* <OrgSidebarMainLink
         id="billing-link"

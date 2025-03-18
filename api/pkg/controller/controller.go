@@ -22,17 +22,16 @@ import (
 )
 
 type Options struct {
-	Config            *config.ServerConfig
-	Store             store.Store
-	PubSub            pubsub.PubSub
-	Extractor         extract.Extractor
-	RAG               rag.RAG
-	GPTScriptExecutor gptscript.Executor
-	Filestore         filestore.FileStore
-	Janitor           *janitor.Janitor
-	Notifier          notification.Notifier
-	// OpenAIClient         openai.Client
-	ProviderManager      manager.ProviderManager
+	Config               *config.ServerConfig
+	Store                store.Store
+	PubSub               pubsub.PubSub
+	Extractor            extract.Extractor
+	RAG                  rag.RAG
+	GPTScriptExecutor    gptscript.Executor
+	Filestore            filestore.FileStore
+	Janitor              *janitor.Janitor
+	Notifier             notification.Notifier
+	ProviderManager      manager.ProviderManager // OpenAI client provider
 	DataprepOpenAIClient openai.Client
 	Scheduler            *scheduler.Scheduler
 	RunnerController     *scheduler.RunnerController
@@ -115,83 +114,4 @@ func NewController(
 
 func (c *Controller) Initialize() error {
 	return nil
-}
-
-// AuthorizeUserToApp checks if a user has access to an app
-// This is a controller-level method that mirrors the server's authorizeUserToApp function
-func (c *Controller) AuthorizeUserToApp(ctx context.Context, user *types.User, app *types.App) error {
-	// Check direct ownership
-	if user.ID == app.Owner {
-		return nil
-	}
-
-	// Check if app is global
-	if app.Global {
-		return nil
-	}
-
-	// Organization apps require membership checks
-	if app.OrganizationID != "" {
-		// Check organization membership
-		orgMembership, err := c.Options.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-			OrganizationID: app.OrganizationID,
-			UserID:         user.ID,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to get organization membership: %w", err)
-		}
-
-		// Organization owners always have access
-		if orgMembership.Role == types.OrganizationRoleOwner {
-			return nil
-		}
-
-		// Check access grants
-		grants, err := c.Options.Store.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
-			OrganizationID: app.OrganizationID,
-			UserID:         user.ID,
-			ResourceType:   types.ResourceApplication,
-			ResourceID:     app.ID,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list access grants: %w", err)
-		}
-
-		// If user has any grants, allow access
-		if len(grants) > 0 {
-			return nil
-		}
-
-		// Check team-based access
-		teams, err := c.Options.Store.ListTeams(ctx, &store.ListTeamsQuery{
-			OrganizationID: app.OrganizationID,
-			UserID:         user.ID,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list teams: %w", err)
-		}
-
-		var teamIDs []string
-		for _, team := range teams {
-			teamIDs = append(teamIDs, team.ID)
-		}
-
-		if len(teamIDs) > 0 {
-			teamGrants, err := c.Options.Store.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
-				OrganizationID: app.OrganizationID,
-				ResourceType:   types.ResourceApplication,
-				ResourceID:     app.ID,
-				TeamIDs:        teamIDs,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to list team access grants: %w", err)
-			}
-
-			if len(teamGrants) > 0 {
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("you do not have access to the app with the id: %s", app.ID)
 }
