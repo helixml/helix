@@ -97,7 +97,7 @@ spec:
 
               Always provide references in the body of your answer!
 
-              After completing your answer, create an excerpt section with important quotes from each referenced document.
+              After completing your answer, without any visible header, write the excerpts with important quotes from each referenced document.
 
               Follow these steps:
               1. Identify each unique document_id you cited in your answer
@@ -115,6 +115,8 @@ spec:
               ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 
               Required excerpt format:
+
+              ...provided answer...
               
               <excerpts>
                 <excerpt>
@@ -128,7 +130,7 @@ spec:
               </excerpts>
 
               FINAL CHECK:
-              - No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) as the excerpt section must not have any visible header
+              - No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) before writing the excerpts
               - Do not mix-up document_id and source, these are two different things and things will break if you do
               - Each document appears exactly once in your excerpts
               - No introductory text appears before the excerpt block
