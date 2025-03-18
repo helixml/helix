@@ -81,7 +81,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			}
 		}
 	} else {
-		// load the app
+		// If app ID is set, load the app
 		app, err := s.Store.GetAppWithTools(req.Context(), startReq.AppID)
 		if err != nil {
 			log.Error().Err(err).Str("app_id", startReq.AppID).Msg("Failed to load app")
