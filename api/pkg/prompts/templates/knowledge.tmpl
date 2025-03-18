@@ -2,12 +2,12 @@
 We have found the following context you may refer to in your answer:
 {{- range .RagResults }}
 <article>
-<document_id>
-{{ .DocumentID }}
-</document_id>
-<content>
-{{ .Content }}
-</content>
+  <document_id>
+    {{ .DocumentID }}
+  </document_id>
+  <content>
+    {{ .Content }}
+  </content>
 </article>
 {{- end }}
 
@@ -36,14 +36,14 @@ Required excerpt format:
 
 ---
 <excerpts>
-<excerpt>
-<document_id>document-id-you-cited</document_id>
-<snippet>A representative quote from this document that supports your answer.</snippet>
-</excerpt>
-<excerpt>
-<document_id>another-document-id-you-cited</document_id>
-<snippet>A key quote from this document that supports your answer.</snippet>
-</excerpt>
+  <excerpt>
+    <document_id>document-id-you-cited</document_id>
+    <snippet>A representative quote from this document that supports your answer.</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>another-document-id-you-cited</document_id>
+    <snippet>A key quote from this document that supports your answer.</snippet>
+  </excerpt>
 </excerpts>
 ---
 
@@ -59,23 +59,23 @@ We have found the following context you may refer to in your answer:
 {{- range .KnowledgeResults }}
 {{- if .DocumentID }}
 <document_id>
-{{ .DocumentID }}
+  {{ .DocumentID }}
 </document_id>
 {{- end }}
 <article>
-{{- if .Source }}
-<source>
-{{ .Source }}
-</source>
-{{- end }}
-{{- if .Description }}
-<description>
-{{ .Description }}
-</description>
-{{- end }}
-<content>
-{{ .Content }}
-</content>
+  {{- if .Source }}
+  <source>
+    {{ .Source }}
+  </source>
+  {{- end }}
+  {{- if .Description }}
+  <description>
+    {{ .Description }}
+  </description>
+  {{- end }}
+  <content>
+    {{ .Content }}
+  </content>
 </article>
 {{- end }}
 
@@ -83,7 +83,7 @@ IMPORTANT: When referencing documents, always use EXACTLY the document_id values
 
 Always provide references in the body of your answer!
 
-After completing your answer, create an excerpt section with important quotes from each referenced document.
+After completing your answer, without any visible header, write the excerpts with important quotes from each referenced document.
 
 Follow these steps:
 1. Identify each unique document_id you cited in your answer
@@ -102,20 +102,22 @@ one excerpt per document_id.
 
 Required excerpt format:
 
----
+...provided answer...
+
 <excerpts>
-<excerpt>
-<document_id>document-id-you-cited</document_id>
-<snippet>A representative quote from this document that supports your answer.</snippet>
-</excerpt>
-<excerpt>
-<document_id>another-document-id-you-cited</document_id>
-<snippet>A key quote from this document that supports your answer.</snippet>
-</excerpt>
+  <excerpt>
+    <document_id>document-id-you-cited</document_id>
+    <snippet>A representative quote from this document that supports your answer.</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>another-document-id-you-cited</document_id>
+    <snippet>A key quote from this document that supports your answer.</snippet>
+  </excerpt>
 </excerpts>
----
 
 FINAL CHECK:
+- No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) before writing the excerpts
+- Do not mix-up document_id and source, these are two different things and things will break if you do
 - Each document appears exactly once in your excerpts
 - No introductory text appears before the excerpt block
 - All document_ids match those you cited in your answer
