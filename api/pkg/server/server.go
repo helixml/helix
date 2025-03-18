@@ -681,7 +681,7 @@ func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 }
 
 // searchUsers handles the API endpoint for searching users by email, name, or username patterns
-func (apiServer *HelixAPIServer) searchUsers(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (apiServer *HelixAPIServer) searchUsers(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	// Parse query parameters
 	query := &store.SearchUsersQuery{
 		EmailPattern:    r.URL.Query().Get("email"),
