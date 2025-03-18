@@ -429,7 +429,7 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 		return nil, fmt.Errorf("error getting app: %w", err)
 	}
 
-	if (!app.Global && !app.Shared) && app.Owner != user.ID {
+	if !app.Global && app.Owner != user.ID {
 		return nil, fmt.Errorf("you do not have access to the app with the id: %s", app.ID)
 	}
 

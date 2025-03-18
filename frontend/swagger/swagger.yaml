@@ -577,8 +577,6 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: e.g. user, system, org
-      shared:
-        type: boolean
       updated:
         type: string
       user:
@@ -813,6 +811,20 @@ definitions:
         $ref: '#/definitions/types.OpenAIMessage'
       text:
         type: string
+    type: object
+  types.ContextMenuData:
+    properties:
+      label:
+        type: string
+      value:
+        type: string
+    type: object
+  types.ContextMenuResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/types.ContextMenuData'
+        type: array
     type: object
   types.CrawledSources:
     properties:
@@ -1927,8 +1939,6 @@ definitions:
       rag_source_data_entity_id:
         description: the RAG source data entity we produced from this session
         type: string
-      shared:
-        type: boolean
       stream:
         type: boolean
       system_prompt:
@@ -2180,20 +2190,6 @@ definitions:
         $ref: '#/definitions/types.CronTrigger'
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
-    type: object
-  types.UIAtData:
-    properties:
-      label:
-        type: string
-      value:
-        type: string
-    type: object
-  types.UIAtResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/types.UIAtData'
-        type: array
     type: object
   types.UpdateOrganizationMemberRequest:
     properties:
@@ -2546,6 +2542,28 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/context-menu:
+    get:
+      description: contextMenuHandler
+      parameters:
+      - description: Query string
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: App ID
+        in: query
+        name: app_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ContextMenuResponse'
+      summary: contextMenuHandler
+      tags:
+      - ui
   /api/v1/knowledge:
     get:
       responses:
@@ -3117,28 +3135,6 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
-  /api/v1/ui/at:
-    get:
-      description: uiAt
-      parameters:
-      - description: Query string
-        in: query
-        name: q
-        required: true
-        type: string
-      - description: App ID
-        in: query
-        name: app_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.UIAtResponse'
-      summary: uiAt
-      tags:
-      - ui
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

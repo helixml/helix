@@ -45,8 +45,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   // Compare session
   if (prevProps.session?.id !== nextProps.session?.id ||
     prevProps.session?.type !== nextProps.session?.type ||
-    prevProps.session?.mode !== nextProps.session?.mode ||
-    prevProps.session?.config?.shared !== nextProps.session?.config?.shared) {
+    prevProps.session?.mode !== nextProps.session?.mode) {
     return false
   }
 
@@ -178,7 +177,6 @@ export const Interaction: FC<InteractionProps> = ({
           imageURLs={imageURLs}
           message={displayMessage}
           error={interaction?.error}
-          isShared={session.config.shared}
           onRestart={onRestart}
           upgrade={interaction.data_prep_limited}
           isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}

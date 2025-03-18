@@ -379,7 +379,6 @@ export interface TypesApp {
   owner?: string;
   /** e.g. user, system, org */
   owner_type?: TypesOwnerType;
-  shared?: boolean;
   updated?: string;
   /** Owner user struct, populated by the server for organization views */
   user?: TypesUser;
@@ -516,6 +515,15 @@ export interface TypesChoice {
   index?: number;
   message?: TypesOpenAIMessage;
   text?: string;
+}
+
+export interface TypesContextMenuData {
+  label?: string;
+  value?: string;
+}
+
+export interface TypesContextMenuResponse {
+  data?: TypesContextMenuData[];
 }
 
 export interface TypesCrawledSources {
@@ -1192,7 +1200,6 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
-  shared?: boolean;
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
@@ -1341,15 +1348,6 @@ export interface TypesToolZapierConfig {
 export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
-}
-
-export interface TypesUIAtData {
-  label?: string;
-  value?: string;
-}
-
-export interface TypesUIAtResponse {
-  data?: TypesUIAtData[];
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -1825,6 +1823,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/user`,
         method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description contextMenuHandler
+     *
+     * @tags ui
+     * @name V1ContextMenuList
+     * @summary contextMenuHandler
+     * @request GET:/api/v1/context-menu
+     */
+    v1ContextMenuList: (
+      query: {
+        /** Query string */
+        q: string;
+        /** App ID */
+        app_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesContextMenuResponse, any>({
+        path: `/api/v1/context-menu`,
+        method: "GET",
+        query: query,
         ...params,
       }),
 
@@ -2493,30 +2515,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description uiAt
-     *
-     * @tags ui
-     * @name V1UiAtList
-     * @summary uiAt
-     * @request GET:/api/v1/ui/at
-     */
-    v1UiAtList: (
-      query: {
-        /** Query string */
-        q: string;
-        /** App ID */
-        app_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesUIAtResponse, any>({
-        path: `/api/v1/ui/at`,
-        method: "GET",
-        query: query,
         ...params,
       }),
   };

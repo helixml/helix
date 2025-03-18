@@ -40,7 +40,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [systemPrompt, setSystemPrompt] = useState(app.systemPrompt || '')
   const [avatar, setAvatar] = useState(app.avatar || '')
   const [image, setImage] = useState(app.image || '')
-  const [shared, setShared] = useState(app.shared || false)
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
@@ -245,22 +244,6 @@ const AppSettings: FC<AppSettingsProps> = ({
         label="Image"
         helperText="URL for the app's main image"
       />
-      <Tooltip title="Share this app with other users in your organization">
-        <FormGroup>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={shared}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                  handleCheckboxChange('shared', event.target.checked)
-                }}
-                // Never disable share checkbox -- required for github apps and normal apps
-              />
-            }
-            label="Shared?"
-          />
-        </FormGroup>
-      </Tooltip>
       {isAdmin && (
         <Tooltip title="Make this app available to all users">
           <FormGroup>
@@ -271,7 +254,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                     handleCheckboxChange('global', event.target.checked)
                   }}
-                  // Never disable global checkbox -- required for github apps and normal apps
+                // Never disable global checkbox -- required for github apps and normal apps
                 />
               }
               label="Global?"
