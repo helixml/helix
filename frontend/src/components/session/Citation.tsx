@@ -311,7 +311,7 @@ const Citation: React.FC<CitationProps> = ({
                     </Box>
 
                     <Box
-                        component="p"
+                        component="div"
                         className="citation-source"
                         sx={{
                             fontSize: '0.8em',
