@@ -85,6 +85,11 @@ func (suite *ControllerSuite) SetupSuite() {
 	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
 	suite.NoError(err)
 
+	// Add a mock AuthzApp function that always allows access
+	mockAuthzApp := func(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+		return nil
+	}
+
 	c, err := NewController(context.Background(), Options{
 		Config:          cfg,
 		Store:           suite.store,
@@ -94,6 +99,7 @@ func (suite *ControllerSuite) SetupSuite() {
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
 		Scheduler:       scheduler,
+		AuthzApp:        mockAuthzApp,
 	})
 	suite.NoError(err)
 
@@ -250,7 +256,8 @@ func (suite *ControllerSuite) Test_EvaluateSecrets() {
 	app, err := suite.controller.evaluateSecrets(suite.ctx, suite.user, app)
 	suite.NoError(err)
 
-	suite.Equal(app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"], "secret_value")
+	// After evaluateSecrets, ${API_KEY} should be replaced with secret_value
+	suite.Equal("secret_value", app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"])
 }
 
 func Test_setSystemPrompt(t *testing.T) {
