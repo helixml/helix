@@ -425,10 +425,6 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 		return nil, fmt.Errorf("error getting app: %w", err)
 	}
 
-	if err := c.AuthorizeUserToApp(ctx, user, app); err != nil {
-		return nil, err
-	}
-
 	// Load secrets into the app
 	app, err = c.evaluateSecrets(ctx, user, app)
 	if err != nil {
