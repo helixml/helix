@@ -3,7 +3,6 @@ import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
-import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
 
 interface NewInferenceParams {
   type: ISessionType;
@@ -14,6 +13,7 @@ interface NewInferenceParams {
   modelName?: string;
   loraDir?: string;
   sessionId?: string;
+  orgId?: string;
 }
 
 interface StreamingContextType {
@@ -170,7 +170,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     ragSourceId = '',
     modelName = '',
     loraDir = '',
-    sessionId = ''
+    sessionId = '',
+    orgId = '',
   }: NewInferenceParams): Promise<ISession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -180,6 +181,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       type,
       stream: true,
       app_id: appId,
+      organization_id: orgId,
       assistant_id: assistantId,
       rag_source_id: ragSourceId,
       model: modelName,
