@@ -85,11 +85,6 @@ func (suite *ControllerSuite) SetupSuite() {
 	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
 	suite.NoError(err)
 
-	// Add a mock AuthzApp function that always allows access
-	mockAuthzApp := func(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
-		return nil
-	}
-
 	c, err := NewController(context.Background(), Options{
 		Config:          cfg,
 		Store:           suite.store,
@@ -99,7 +94,6 @@ func (suite *ControllerSuite) SetupSuite() {
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
 		Scheduler:       scheduler,
-		AuthzApp:        mockAuthzApp,
 	})
 	suite.NoError(err)
 
