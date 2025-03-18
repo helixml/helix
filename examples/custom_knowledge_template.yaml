@@ -5,6 +5,7 @@ metadata:
 spec:
   assistants:
     - name: Default Assistant
+      provider: openai
       model: microsoft/phi-4
       type: text
       knowledge:
@@ -127,7 +128,7 @@ spec:
               </excerpts>
 
               FINAL CHECK:
-              - No title/header such as "# Excerpts" as this is going to be invisible for the users              
+              - No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) as the excerpt section must not have any visible header
               - Do not mix-up document_id and source, these are two different things and things will break if you do
               - Each document appears exactly once in your excerpts
               - No introductory text appears before the excerpt block
