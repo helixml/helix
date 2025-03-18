@@ -496,14 +496,17 @@ export interface IToolApiAction {
 }
 
 export interface IToolApiConfig {
-  url: string,
-  schema: string,
-  actions: IToolApiAction[],
-  headers: Record<string, string>,
-  query: Record<string, string>,
-  request_prep_template?: string,
-  response_success_template?: string,
-  response_error_template?: string,
+  url: string;
+  schema?: string;
+  actions?: IToolApiAction[];
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+  request_prep_template?: string;
+  response_success_template?: string;
+  response_error_template?: string;
+  model?: string;
+  oauth_provider?: string;
+  oauth_scopes?: string[];
 }
 
 export interface IToolGptScriptConfig {
@@ -522,6 +525,7 @@ export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
   zapier?: IToolZapierConfig,
+  helix?: IAppHelixConfig,
 }
 
 export interface ITool {

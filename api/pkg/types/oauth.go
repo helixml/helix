@@ -74,9 +74,6 @@ type OAuthConnection struct {
 	ProviderUsername  string         `json:"provider_username"`
 	Profile           *OAuthUserInfo `json:"profile" gorm:"type:text;serializer:json"`
 	Metadata          string         `json:"metadata" gorm:"type:text"`
-
-	// Unique constraint
-	UniqueConnection string `json:"unique_connection" gorm:"uniqueIndex"`
 }
 
 // OAuthRequestToken temporarily stores OAuth state parameters during authorization code flow

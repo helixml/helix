@@ -27,6 +27,7 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import LockIcon from '@mui/icons-material/Lock'
+import CodeIcon from '@mui/icons-material/Code'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
@@ -88,16 +89,24 @@ const OAuthConnections: React.FC<{}> = () => {
         api.get('/api/v1/oauth/providers')
       ])
       
-      console.log('🍅 TOMATO: Providers API response:', providersResponse)
-      console.log('🍅 TOMATO: Connections API response:', connectionsResponse)
+      console.log('🍅 TOMATO: Raw Providers API response:', JSON.stringify(providersResponse, null, 2))
+      console.log('🍅 TOMATO: Raw Connections API response:', JSON.stringify(connectionsResponse, null, 2))
       
-      // Check if providers response is valid and not empty
-      if (!providersResponse || (Array.isArray(providersResponse) && providersResponse.length === 0)) {
-        console.warn('🍅 TOMATO: No providers returned from API or invalid response');
-      }
+      // Convert snake_case to camelCase for connections
+      const formattedConnections = (connectionsResponse || []).map((conn: any) => ({
+        id: conn.id,
+        createdAt: conn.created_at, // Map from snake_case to camelCase
+        updatedAt: conn.updated_at,
+        userId: conn.user_id,
+        providerId: conn.provider_id,
+        expiresAt: conn.expires_at,
+        providerUserId: conn.provider_user_id,
+        provider: conn.provider,
+        profile: conn.profile
+      }));
       
-      // Extract data from response
-      setConnections(connectionsResponse || [])
+      // Extract data with proper format
+      setConnections(formattedConnections)
       setProviders(providersResponse || [])
     } catch (err) {
       error('Failed to load OAuth connections')
@@ -108,6 +117,28 @@ const OAuthConnections: React.FC<{}> = () => {
     } finally {
       setLoading(false)
     }
+  }
+  
+  // Helper function to guess the provider type from a provider ID
+  const guessProviderType = (providerId: string): string => {
+    const lowerProviderId = providerId.toLowerCase();
+    
+    // Check if the ID contains any known provider types
+    for (const type of Object.keys(PROVIDER_TYPES)) {
+      if (lowerProviderId.includes(type.toLowerCase())) {
+        console.log(`🍅 TOMATO: Guessed provider type ${type} from ID ${providerId}`);
+        return type;
+      }
+    }
+    
+    // Default to GitHub if we can't determine (since we're focusing on GitHub now)
+    return 'github';
+  }
+  
+  // Helper function to get name for built-in providers
+  const getBuiltInProviderName = (providerId: string): string => {
+    const type = guessProviderType(providerId);
+    return PROVIDER_TYPES[type as keyof typeof PROVIDER_TYPES] || 'Unknown Provider';
   }
   
   const confirmDeleteConnection = (id: string) => {
@@ -224,7 +255,37 @@ const OAuthConnections: React.FC<{}> = () => {
         return;
       }
       
-      window.location.href = authUrl;
+      // Open in a popup window instead of redirecting
+      const width = 800;
+      const height = 700;
+      const left = (window.innerWidth - width) / 2;
+      const top = (window.innerHeight - height) / 2;
+      
+      // Open the popup
+      const popup = window.open(
+        authUrl,
+        'oauth-popup',
+        `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,directories=0,scrollbars=1`
+      );
+      
+      if (!popup) {
+        error('Popup blocked! Please allow popups for this site to authenticate with the provider.');
+        return;
+      }
+      
+      // Add a listener to reload connections when the popup completes
+      window.addEventListener('message', function handleOAuthMessage(event) {
+        // Check if this is our OAuth success message
+        if (event.data && event.data.type === 'oauth-success') {
+          console.log('🍅 TOMATO: Received OAuth success message:', event.data);
+          // Clean up the event listener
+          window.removeEventListener('message', handleOAuthMessage);
+          // Reload the connections data
+          loadData();
+          // Show success message
+          success('Successfully connected to provider!');
+        }
+      });
     } catch (err: any) {
       error('Failed to start OAuth flow')
       console.error('🍅 TOMATO: OAuth flow error:', err)
@@ -252,13 +313,46 @@ const OAuthConnections: React.FC<{}> = () => {
   }
   
   const getProviderName = (providerId: string) => {
-    const provider = providers.find(p => p.id === providerId)
-    return provider ? provider.name : 'Unknown Provider'
+    // Safety check - if providerId is undefined or null, return early
+    if (!providerId) {
+      return "Unknown Provider";
+    }
+    
+    // First try to find the provider in our loaded providers list
+    const foundProvider = providers.find(p => p.id === providerId);
+    if (foundProvider && foundProvider.name) {
+      return foundProvider.name;
+    }
+    
+    // If we can't find it or it has no name, try to determine from the connection
+    const associatedConnection = connections.find(c => c.providerId === providerId);
+    if (associatedConnection && associatedConnection.provider?.name) {
+      return associatedConnection.provider.name;
+    }
+    
+    // If we have a connection with a provider type, use the known provider type names
+    if (associatedConnection && associatedConnection.provider?.type) {
+      const typeName = PROVIDER_TYPES[associatedConnection.provider.type as keyof typeof PROVIDER_TYPES];
+      if (typeName) return typeName;
+    }
+    
+    // Check if the ID contains any known provider names - without toLowerCase
+    for (const [type, name] of Object.entries(PROVIDER_TYPES)) {
+      if (providerId.includes(type)) {
+        return name;
+      }
+    }
+    
+    // Default
+    return "Unknown Provider";
   }
   
   const isExpired = (expiresAt: string) => {
-    if (!expiresAt) return false
-    return new Date(expiresAt) < new Date()
+    // If no expiration date or default date (year before 2000), treat as non-expiring
+    if (!expiresAt || new Date(expiresAt).getFullYear() < 2000) return false;
+    
+    // Check if the date is in the past
+    return new Date(expiresAt) < new Date();
   }
   
   // Get providers that exist on the server and are not already connected
@@ -351,12 +445,51 @@ const OAuthConnections: React.FC<{}> = () => {
     });
   }
   
+  // Add this function to test GitHub API access
+  const testGitHubConnection = async (connection: OAuthConnection) => {
+    try {
+      console.log('🍅 TOMATO: Testing GitHub connection:', connection.id);
+      
+      // Call our backend endpoint that will test the GitHub API access
+      const response = await api.get(`/api/v1/oauth/connections/${connection.id}/test`);
+      console.log('🍅 TOMATO: GitHub API test response:', response);
+      
+      if (response && response.success) {
+        success(`Successfully tested GitHub connection! Found ${response.repos_count || 'your'} repositories.`);
+      } else {
+        error('Failed to test GitHub connection. Check console for details.');
+        console.error('🍅 TOMATO: GitHub API test failed:', response);
+      }
+    } catch (err) {
+      error('Failed to test GitHub connection');
+      console.error('🍅 TOMATO: GitHub API test error:', err);
+    }
+  }
+  
   const renderConnectionCard = (connection: OAuthConnection) => {
-    const { provider } = connection;
-    const icon = getProviderIcon(provider?.type || 'custom');
-    const color = getProviderColor(provider?.type || 'custom');
+    // Log the raw connection data for debugging
+    console.log('🍅 TOMATO: Raw connection data:', JSON.stringify(connection, null, 2))
+    
+    // Look up the provider directly from the providers list
+    const providerFromList = providers.find(p => p.id === connection.providerId);
+    console.log('🍅 TOMATO: Found provider from list:', providerFromList);
+    
+    // Get the provider type from the list or fall back to a default
+    const providerType = providerFromList?.type || 'custom';
+    
+    // Show exactly what we get from the backend
+    const icon = getProviderIcon(providerType);
+    const color = getProviderColor(providerType);
     const profileName = getProfile(connection);
     const expired = isExpired(connection.expiresAt);
+    
+    // Use the name from the providers list, or fall back to other methods
+    const providerName = providerFromList?.name || 
+                         connection.provider?.name || 
+                         getProviderName(connection.providerId || "");
+    
+    // Check if this is a GitHub connection
+    const isGitHub = providerType === 'github';
     
     return (
       <Card sx={{ 
@@ -372,11 +505,16 @@ const OAuthConnections: React.FC<{}> = () => {
       }}>
         <CardHeader
           avatar={
-            <Avatar sx={{ bgcolor: color }}>
+            <Avatar sx={{ 
+              width: 40,
+              height: 40,
+              bgcolor: color,
+              color: 'white'
+            }}>
               {icon}
             </Avatar>
           }
-          title={provider?.name || getProviderName(connection.providerId)}
+          title={providerName}
           titleTypographyProps={{ variant: 'h6' }}
           subheader={profileName}
           action={
@@ -390,16 +528,41 @@ const OAuthConnections: React.FC<{}> = () => {
           }
         />
         <CardContent sx={{ flexGrow: 1 }}>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Connected on {formatDate(connection.createdAt)}
-          </Typography>
-          {connection.expiresAt && (
+          {connection.createdAt ? (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Connected on {formatDate(connection.createdAt)}
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Connection date unknown
+            </Typography>
+          )}
+          
+          {/* Only show provider ID if debugging is needed */}
+          {/* <Typography variant="body2" color="text.secondary">
+            Provider ID: {connection.providerId}
+          </Typography> */}
+          
+          {connection.expiresAt && new Date(connection.expiresAt).getFullYear() > 1970 && (
             <Typography variant="body2" color={expired ? "error" : "text.secondary"}>
               {expired ? 'Expired on' : 'Expires on'} {formatDate(connection.expiresAt)}
             </Typography>
           )}
         </CardContent>
         <CardActions sx={{ justifyContent: 'flex-end' }}>
+          {/* Add test button for GitHub connections */}
+          {isGitHub && (
+            <Tooltip title="Test GitHub API access">
+              <IconButton 
+                onClick={() => testGitHubConnection(connection)}
+                size="small"
+                color="info"
+              >
+                <CodeIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          
           {connection.expiresAt && (
             <Tooltip title="Refresh token">
               <IconButton 
@@ -618,9 +781,9 @@ const OAuthConnections: React.FC<{}> = () => {
                   width: 60, 
                   height: 60, 
                   mb: 2,
-                  bgcolor: 'transparent', 
-                  color: getProviderColor(selectedProvider?.type || 'custom'),
-                  border: `1px solid ${getProviderColor(selectedProvider?.type || 'custom')}`
+                  bgcolor: selectedProvider.enabled ? getProviderColor(selectedProvider?.type || 'custom') : 'transparent',
+                  color: selectedProvider.enabled ? 'white' : getProviderColor(selectedProvider?.type || 'custom'),
+                  border: selectedProvider.enabled ? 'none' : `1px solid ${getProviderColor(selectedProvider?.type || 'custom')}`
                 }}
               >
                 {getProviderIcon(selectedProvider?.type || 'custom')}

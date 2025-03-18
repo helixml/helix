@@ -8,6 +8,14 @@ import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import Avatar from '@mui/material/Avatar';
+import IconButton from '@mui/material/IconButton';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
 
 import StringMapEditor from '../widgets/StringMapEditor';
 import JsonWindowLink from '../widgets/JsonWindowLink';
@@ -15,6 +23,7 @@ import Window from '../widgets/Window';
 import ClickLink from '../widgets/ClickLink';
 
 import { ITool, IToolApiAction } from '../../types';
+import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 
 interface ToolEditorProps {
   initialData: ITool;
@@ -41,6 +50,10 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
   const [responseSuccessTemplate, setResponseSuccessTemplate] = useState(initialData.config.api?.response_success_template || '');
   const [responseErrorTemplate, setResponseErrorTemplate] = useState(initialData.config.api?.response_error_template || '');
   const [useScriptUrl, setUseScriptUrl] = useState(!!initialData.config.gptscript?.script_url);
+  
+  // New OAuth provider and scopes state
+  const [oauthProvider, setOAuthProvider] = useState(initialData.config.api?.oauth_provider || '');
+  const [oauthScopes, setOAuthScopes] = useState<string[]>(initialData.config.api?.oauth_scopes || []);
 
   useEffect(() => {
     console.log('ToolEditor: useEffect triggered with initialData:', initialData);
@@ -56,6 +69,8 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
         setRequestPrepTemplate(initialData.config.api.request_prep_template || '');
         setResponseSuccessTemplate(initialData.config.api.response_success_template || '');
         setResponseErrorTemplate(initialData.config.api.response_error_template || '');
+        setOAuthProvider(initialData.config.api.oauth_provider || '');
+        setOAuthScopes(initialData.config.api.oauth_scopes || []);
       } else if (initialData.config.gptscript) {
         setGptScriptURL(initialData.config.gptscript.script_url || '');
         setGptScript(initialData.config.gptscript.script || '');
@@ -98,6 +113,8 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
               request_prep_template: requestPrepTemplate,
               response_success_template: responseSuccessTemplate,
               response_error_template: responseErrorTemplate,
+              oauth_provider: oauthProvider || undefined,
+              oauth_scopes: oauthScopes.filter(s => s.trim() !== '') || [],
             },
           }
         : {
@@ -109,6 +126,22 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
     };
     console.log('Saving tool:', updatedData);
     onSave(updatedData);
+  };
+
+  const handleScopeChange = (index: number, value: string) => {
+    const newScopes = [...oauthScopes];
+    newScopes[index] = value;
+    setOAuthScopes(newScopes);
+  };
+
+  const addScope = () => {
+    setOAuthScopes([...oauthScopes, '']);
+  };
+
+  const removeScope = (index: number) => {
+    const newScopes = [...oauthScopes];
+    newScopes.splice(index, 1);
+    setOAuthScopes(newScopes);
   };
 
   console.log('ToolEditor: Rendering component');
@@ -280,6 +313,88 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
                 </Box>
               ))}
             </Grid>
+
+            {/* OAuth Configuration Section */}
+            <Grid item xs={12}>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                OAuth Configuration
+              </Typography>
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel id="oauth-provider-label">OAuth Provider</InputLabel>
+                <Select
+                  labelId="oauth-provider-label"
+                  id="oauth-provider"
+                  value={oauthProvider}
+                  label="OAuth Provider"
+                  onChange={(e) => setOAuthProvider(e.target.value)}
+                  disabled={isReadOnly}
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {Object.keys(PROVIDER_ICONS).map((provider) => (
+                    <MenuItem key={provider} value={provider}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Avatar 
+                          sx={{ 
+                            bgcolor: PROVIDER_COLORS[provider] || PROVIDER_COLORS.custom,
+                            color: 'white',
+                            mr: 1,
+                            width: 24,
+                            height: 24
+                          }}
+                        >
+                          {PROVIDER_ICONS[provider]}
+                        </Avatar>
+                        <span>{provider}</span>
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {oauthProvider && (
+                <Box sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="subtitle1">Required Scopes</Typography>
+                    <Button 
+                      startIcon={<AddIcon />} 
+                      onClick={addScope}
+                      disabled={isReadOnly}
+                      variant="outlined"
+                      size="small"
+                    >
+                      Add Scope
+                    </Button>
+                  </Box>
+                  
+                  {oauthScopes.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No scopes defined. Add scopes to request specific permissions.
+                    </Typography>
+                  ) : (
+                    oauthScopes.map((scope, index) => (
+                      <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <TextField
+                          value={scope}
+                          onChange={(e) => handleScopeChange(index, e.target.value)}
+                          fullWidth
+                          placeholder="Enter scope"
+                          size="small"
+                          disabled={isReadOnly}
+                        />
+                        <IconButton 
+                          onClick={() => removeScope(index)}
+                          disabled={isReadOnly}
+                          color="error"
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Box>
+                    ))
+                  )}
+                </Box>
+              )}
+            </Grid>
+
             <Grid item xs={12}>
               <Accordion>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>

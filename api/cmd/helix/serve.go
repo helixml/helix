@@ -384,6 +384,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		RunnerController:     runnerController,
 	}
 
+	// Create the OAuth manager
+	oauthManager := oauth.NewManager(postgresStore)
+	if err := oauthManager.LoadProviders(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to load oauth providers")
+	}
+
+	// Update controller options with the OAuth manager
+	controllerOptions.OAuthManager = oauthManager
+
 	appController, err = controller.NewController(ctx, controllerOptions)
 	if err != nil {
 		return err
@@ -428,12 +437,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		pingService = version.NewPingService(postgresStore, cfg.LicenseKey, cfg.LaunchpadURL)
 		pingService.Start(ctx)
 		defer pingService.Stop()
-	}
-
-	// Create the OAuth manager
-	oauthManager := oauth.NewManager(postgresStore)
-	if err := oauthManager.LoadProviders(ctx); err != nil {
-		log.Error().Err(err).Msg("failed to load oauth providers")
 	}
 
 	server, err := server.NewServer(

@@ -194,7 +194,7 @@ func (s *PostgresStore) GetOAuthConnectionByUserAndProvider(ctx context.Context,
 	var connection types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND provider_id = ?", userID, providerID).
+		Where("user_id = ? AND provider_id = ? AND deleted_at IS NULL", userID, providerID).
 		First(&connection).Error
 
 	if err != nil {
@@ -237,6 +237,9 @@ func (s *PostgresStore) ListOAuthConnections(ctx context.Context, query *ListOAu
 	var connections []*types.OAuthConnection
 
 	db := s.gdb.WithContext(ctx)
+
+	// Always exclude deleted records
+	db = db.Where("deleted_at IS NULL")
 
 	if query != nil {
 		if query.UserID != "" {

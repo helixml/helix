@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -28,6 +29,7 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 	connectionRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleGetOAuthConnection)).Methods("GET")
 	connectionRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleDeleteOAuthConnection)).Methods("DELETE")
 	connectionRouter.HandleFunc("/{id}/refresh", system.DefaultWrapper(s.handleRefreshOAuthConnection)).Methods("POST")
+	connectionRouter.HandleFunc("/{id}/test", system.DefaultWrapper(s.handleTestOAuthConnection)).Methods("GET")
 
 	// OAuth flow routes (except callback which is registered in insecureRouter)
 	flowRouter := r.PathPrefix("/oauth/flow").Subrouter()
@@ -382,7 +384,45 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 
 	// Check for errors
 	if errorMsg != "" {
-		http.Error(w, fmt.Sprintf("OAuth error: %s", errorMsg), http.StatusBadRequest)
+		// Create a user-friendly error page based on the error type
+		errorTitle := "Authentication Error"
+		errorMessage := fmt.Sprintf("%v", errorMsg)
+		errorColor := "#d32f2f" // Red by default
+
+		// Check for specific error types
+		if strings.Contains(errorMessage, "duplicate key") || strings.Contains(errorMessage, "unique constraint") {
+			errorTitle = "Already Connected"
+			errorMessage = "You are already connected to this service. You can manage your connections in your account settings."
+			errorColor = "#ff9800" // Orange for warnings
+		}
+
+		htmlError := fmt.Sprintf(`<html>
+		<head><title>%s</title>
+		<style>
+			body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
+			h1 { color: %s; }
+			p { font-size: 16px; }
+			.close-button { background: %s; color: white; border: none; padding: 10px 20px; 
+				margin-top: 20px; border-radius: 4px; cursor: pointer; }
+		</style></head>
+		<body>
+			<h1>%s</h1>
+			<p>%s</p>
+			<button class="close-button" onclick="window.close()">Close Window</button>
+			<script>
+				window.opener && window.opener.postMessage({
+					type: 'oauth-failure', 
+					error: '%s'
+				}, '*');
+				setTimeout(() => window.close(), 5000);
+			</script>
+		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
+
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusBadRequest)
+		if _, writeErr := w.Write([]byte(htmlError)); writeErr != nil {
+			log.Error().Err(writeErr).Msg("error writing OAuth error response")
+		}
 		return
 	}
 
@@ -406,12 +446,82 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// Complete the OAuth flow
 	connection, err := s.oauthManager.CompleteOAuthFlow(r.Context(), requestToken.UserID, requestToken.ProviderID, code)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error completing OAuth flow: %v", err), http.StatusInternalServerError)
+		// Create a user-friendly error page based on the error type
+		errorTitle := "Authentication Error"
+		errorMessage := fmt.Sprintf("%v", err)
+		errorColor := "#d32f2f" // Red by default
+
+		// Check for specific error types
+		if strings.Contains(errorMessage, "duplicate key") || strings.Contains(errorMessage, "unique constraint") {
+			errorTitle = "Already Connected"
+			errorMessage = "You are already connected to this service. You can manage your connections in your account settings."
+			errorColor = "#ff9800" // Orange for warnings
+		}
+
+		htmlError := fmt.Sprintf(`<html>
+		<head><title>%s</title>
+		<style>
+			body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
+			h1 { color: %s; }
+			p { font-size: 16px; }
+			.close-button { background: %s; color: white; border: none; padding: 10px 20px; 
+				margin-top: 20px; border-radius: 4px; cursor: pointer; }
+		</style></head>
+		<body>
+			<h1>%s</h1>
+			<p>%s</p>
+			<button class="close-button" onclick="window.close()">Close Window</button>
+			<script>
+				window.opener && window.opener.postMessage({
+					type: 'oauth-failure', 
+					error: '%s'
+				}, '*');
+				setTimeout(() => window.close(), 5000);
+			</script>
+		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
+
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusBadRequest)
+		if _, writeErr := w.Write([]byte(htmlError)); writeErr != nil {
+			log.Error().Err(writeErr).Msg("error writing OAuth error response")
+		}
 		return
 	}
 
-	// Set a custom success page
-	htmlResponse := fmt.Sprintf("<html><body><h1>Connection Successful</h1><p>You can close this window now.</p><script>window.opener && window.opener.postMessage({type: 'oauth-success', connectionId: '%s'}, '*'); setTimeout(() => window.close(), 2000);</script></body></html>", connection.ID)
+	// Get the provider for a better success message
+	provider, err := s.Store.GetOAuthProvider(r.Context(), requestToken.ProviderID)
+	providerName := "service"
+	if err == nil && provider != nil {
+		providerName = provider.Name
+	}
+
+	// Set a custom success page with auto-close
+	htmlResponse := fmt.Sprintf(`<html>
+	<head><title>Connection Successful</title>
+	<meta charset="UTF-8">
+	<style>
+		body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
+		h1 { color: #4caf50; }
+		p { font-size: 16px; }
+		.icon { font-size: 64px; color: #4caf50; margin-bottom: 20px; }
+	</style></head>
+	<body>
+		<div class="icon">&#10004;</div>
+		<h1>Connection Successful</h1>
+		<p>You have successfully connected to %s.</p>
+		<p>This window will close automatically in a few seconds.</p>
+		<script>
+			// Send a message to the opener window
+			window.opener && window.opener.postMessage({
+				type: 'oauth-success', 
+				connectionId: '%s',
+				providerId: '%s'
+			}, '*');
+			
+			// Close this window automatically after a short delay
+			setTimeout(() => window.close(), 2000);
+		</script>
+	</body></html>`, providerName, connection.ID, requestToken.ProviderID)
 
 	w.Header().Set("Content-Type", "text/html")
 	// Use http.Error for any write errors - even though we've already set the header
@@ -419,4 +529,63 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	if _, err = w.Write([]byte(htmlResponse)); err != nil {
 		log.Error().Err(err).Msg("error writing OAuth callback response")
 	}
+}
+
+// handleTestOAuthConnection tests an OAuth connection by making an API call to the provider
+func (s *HelixAPIServer) handleTestOAuthConnection(w http.ResponseWriter, r *http.Request) (map[string]interface{}, error) {
+	ctx := r.Context()
+
+	// Get the connection ID from the URL
+	vars := mux.Vars(r)
+	connectionID := vars["id"]
+	if connectionID == "" {
+		return nil, fmt.Errorf("connection ID is required")
+	}
+
+	// Get the user from the context
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	// Get the connection from the database
+	connection, err := s.Store.GetOAuthConnection(ctx, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	// Check if the connection belongs to the user
+	if connection.UserID != user.ID {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	// Load the provider to populate the connection.Provider field
+	provider, err := s.Store.GetOAuthProvider(ctx, connection.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider: %w", err)
+	}
+
+	// Make a copy of the connection with the provider details
+	connectionWithProvider := *connection
+	connectionWithProvider.Provider = *provider
+
+	// Depending on the provider type, test the connection
+	var result map[string]interface{}
+
+	if provider.Type == types.OAuthProviderTypeGitHub {
+		// Test GitHub connection
+		result, err = s.oauthManager.TestGitHubConnection(ctx, &connectionWithProvider)
+		if err != nil {
+			return nil, fmt.Errorf("failed to test GitHub connection: %w", err)
+		}
+	} else {
+		// For other providers, return a generic success response
+		result = map[string]interface{}{
+			"success": true,
+			"message": "Connection is valid but testing is not implemented for this provider type",
+		}
+	}
+
+	// Return the result
+	return result, nil
 }
