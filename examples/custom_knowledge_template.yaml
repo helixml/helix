@@ -5,8 +5,8 @@ metadata:
 spec:
   assistants:
     - name: Default Assistant
-      provider: openai
-      model: microsoft/phi-4
+      provider: together
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
       type: text
       knowledge:
         - name: arxiv
