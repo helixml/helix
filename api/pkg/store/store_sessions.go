@@ -24,18 +24,10 @@ func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery)
 		q = q.Where("parent_session = ?", query.ParentSession)
 	}
 
-	// Handle organization_id differently depending on whether it's specified
 	if query.OrganizationID != "" {
-		if query.OrganizationID == "default" {
-			// For "default" organization ID, explicitly return only sessions with no organization
-			q = q.Where("organization_id IS NULL OR organization_id = ''")
-		} else {
-			// Filter for sessions with this specific organization
-			q = q.Where("organization_id = ?", query.OrganizationID)
-		}
+		q = q.Where("organization_id = ?", query.OrganizationID)
 	} else {
-		// No organization filter provided, return all sessions (personal and org)
-		// This is different from the "default" case which returns only sessions with no organization
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
 	// Add ordering
@@ -72,18 +64,10 @@ func (s *PostgresStore) GetSessionsCounter(ctx context.Context, query GetSession
 		q = q.Where("parent_session = ?", query.ParentSession)
 	}
 
-	// Handle organization_id differently depending on whether it's specified
 	if query.OrganizationID != "" {
-		if query.OrganizationID == "default" {
-			// For "default" organization ID, explicitly count only sessions with no organization
-			q = q.Where("organization_id IS NULL OR organization_id = ''")
-		} else {
-			// Count sessions with this specific organization
-			q = q.Where("organization_id = ?", query.OrganizationID)
-		}
+		q = q.Where("organization_id = ?", query.OrganizationID)
 	} else {
-		// No organization filter provided, count all sessions (personal and org)
-		// This is different from the "default" case which counts only sessions with no organization
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
 	var counter int64

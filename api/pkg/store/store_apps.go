@@ -227,13 +227,9 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 
 	// Handle organization_id based on specific conditions
 	if q.OrganizationID != "" {
-		if q.OrganizationID == "default" {
-			// For "default" organization ID, explicitly return only apps with no organization
-			query = query.Where("organization_id IS NULL OR organization_id = ''")
-		} else {
-			// Filter for apps with this specific organization
-			query = query.Where("organization_id = ?", q.OrganizationID)
-		}
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	} else {
+		query = query.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
 	// Execute the query
