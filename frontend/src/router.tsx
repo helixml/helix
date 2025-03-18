@@ -43,6 +43,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     meta: {
       title: 'Home',
       drawer: true,
+      orgRouteAware: true,
     },
     render: () => (
         <Home />
@@ -53,6 +54,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     meta: {
       title: 'New Session',
       drawer: true,
+      orgRouteAware: true,
     },
     render: () => (
         <Create />
@@ -62,6 +64,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     path: routePrefix + '/apps',
     meta: {
       drawer: true,
+      orgRouteAware: true,
     },
     render: () => (
       <Apps />
@@ -86,21 +89,12 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <Session />
     ),
   }, {
-    name: namePrefix + 'dashboard',
-    path: routePrefix + '/dashboard',
-    meta: {
-      drawer: true,
-      background: '#ffffff'
-    },
-    render: () => (
-      <Dashboard />
-    ),
-  }, {
     name: namePrefix + 'appstore',
     path: routePrefix + '/appstore',
     meta: {
       title: 'App Store',
       drawer: true,
+      orgRouteAware: true,
     },
     render: () => (
         <AppStore />
@@ -195,6 +189,17 @@ const routes: IApplicationRoute[] = [
     drawer: false,
   },
   render: () => <OpenAPI />,
+}, {
+  name: 'dashboard',
+  path: '/dashboard',
+  meta: {
+    drawer: true,
+    background: '#ffffff',
+    orgAware: true,
+  },
+  render: () => (
+    <Dashboard />
+  ),
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

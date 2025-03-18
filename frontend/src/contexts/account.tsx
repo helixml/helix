@@ -396,10 +396,11 @@ export const useAccountContext = (): IAccountContext => {
   }, [api])
 
   const orgNavigate = useCallback((routeName: string, params: Record<string, string> = {}) => {
-    if(organizationTools.organization) {
+    if(organizationTools.organization || params.org_id) {
+      const useOrgID = organizationTools.organization?.name || params.org_id
       router.navigate(`org_${routeName}`, {
         ...params,
-        org_id: organizationTools.organization?.name,
+        org_id: useOrgID,
       })
     } else {
       router.navigate(routeName, params)
