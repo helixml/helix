@@ -79,10 +79,10 @@ export const useKnowledge = (
   const loadKnowledge = useCallback(async () => {
     if(!appId) return
     const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${appId}`, undefined, {
-      snackbar: showErrors,
+      snackbar: false,
     })
     setKnowledge(knowledge || [])
-  }, [api, appId, showErrors])
+  }, [api, appId])
 
   const handleRefreshKnowledge = useCallback((id: string) => {
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
@@ -179,7 +179,7 @@ export const useKnowledge = (
         pollingIntervalRef.current = null;
       }
     };
-  }, [appId, account.user, pollingActive, api, knowledge, mergeKnowledgeUpdates]);
+  }, [appId, account.user, pollingActive])
   
   /**
    * Effect to restart polling when new knowledge is added
