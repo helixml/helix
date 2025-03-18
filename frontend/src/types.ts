@@ -857,6 +857,7 @@ export interface IMessage {
 
 export interface ISessionChatRequest {
   app_id?: string,
+  organization_id?: string,
   assistant_id?: string,
   session_id?: string,
   stream?: boolean,

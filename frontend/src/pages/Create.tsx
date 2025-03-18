@@ -142,6 +142,7 @@ const Create: FC = () => {
     let assistantID = urlParams.get('assistant_id') || ''
     const ragSourceID = urlParams.get('rag_source_id') || ''
     let useModel = urlParams.get('model') || ''
+    let orgId = ''
 
     // if we have an app but no assistant ID let's default to the first one
     if(appID && !assistantID) {
@@ -150,6 +151,10 @@ const Create: FC = () => {
 
     if (!useModel) {
       useModel = filteredModels[0].id
+    }
+
+    if(account.organizationTools.organization?.id) {
+      orgId = account.organizationTools.organization.id
     }
 
     try {
@@ -161,6 +166,7 @@ const Create: FC = () => {
         ragSourceId: ragSourceID,
         modelName: useModel,
         loraDir: '',
+        orgId,
       });
 
       if (!session) return
@@ -170,7 +176,7 @@ const Create: FC = () => {
       })
       await sessions.loadSessions()
       setLoading(false)
-      router.navigate('session', { session_id: session.id })
+      account.orgNavigate('session', { session_id: session.id })
     } catch (error) {
       console.error('Error in onInference:', error);
       snackbar.error('Failed to start inference');
