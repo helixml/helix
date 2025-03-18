@@ -44,7 +44,7 @@ func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Reque
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		err = s.authorizeUserToApp(ctx, user, app, types.ActionGet)
+		err = s.AuthorizeUserToApp(ctx, user, app, types.ActionGet)
 		// If there is no error, that means the user has access to the app and we can proceed
 		if err != nil {
 			log.Trace().Err(err).Str("app_id", appID).Str("user_id", user.ID).Msg("User does not have access to app")

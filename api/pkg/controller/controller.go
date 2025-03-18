@@ -36,6 +36,8 @@ type Options struct {
 	DataprepOpenAIClient openai.Client
 	Scheduler            *scheduler.Scheduler
 	RunnerController     *scheduler.RunnerController
+	// Function provided by server layer to authorize user access to apps
+	AuthzApp func(ctx context.Context, user *types.User, app *types.App, action types.Action) error
 }
 
 type Controller struct {

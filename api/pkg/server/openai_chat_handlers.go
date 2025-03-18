@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -114,6 +115,22 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		ctx = oai.SetContextAppID(ctx, user.AppID)
 
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
+
+		// If an app_id is being used, verify that the user has access to it
+		if options.AppID != "" {
+			app, err := s.Store.GetApp(ctx, options.AppID)
+			if err != nil {
+				log.Error().Err(err).Str("app_id", options.AppID).Msg("error getting app")
+				http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+				return
+			}
+
+			if err := s.AuthorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+				log.Error().Err(err).Str("app_id", options.AppID).Str("user_id", user.ID).Msg("user is not authorized to access this app")
+				http.Error(rw, fmt.Sprintf("Not authorized to access app: %s", err), http.StatusForbidden)
+				return
+			}
+		}
 
 		// Check if the appID contains a LORA
 		assistant, err := s.getAppLoraAssistant(ctx, options.AppID)

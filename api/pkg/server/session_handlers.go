@@ -82,6 +82,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			return
 		}
 
+		// Check if the user has access to the app
+		if err := s.AuthorizeUserToApp(req.Context(), user, app, types.ActionGet); err != nil {
+			log.Error().Err(err).Str("app_id", startReq.AppID).Str("user_id", user.ID).Msg("User doesn't have access to app")
+			http.Error(rw, "You do not have access to the app with the id: "+startReq.AppID, http.StatusForbidden)
+			return
+		}
+
 		// If an AssistantID is specified, get the correct assistant from the app
 		if startReq.AssistantID != "" {
 			var assistant *types.AssistantConfig
