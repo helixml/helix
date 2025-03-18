@@ -109,9 +109,9 @@ func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Cont
 	return apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceAccessGrants, action)
 }
 
-// AuthorizeUserToApp checks if a user has access to an app
+// authorizeUserToApp checks if a user has access to an app
 // This is a server-level method that centralizes the authorization logic
-func (apiServer *HelixAPIServer) AuthorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
 	// If the organization ID is not set and the user is not the app owner, then error
 	if app.OrganizationID == "" {
 		// This is the old style app logic, where the app is owned by a user and optionally made global
