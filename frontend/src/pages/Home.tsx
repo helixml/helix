@@ -105,7 +105,7 @@ const Home: FC = () => {
   }
 
   const openApp = async (appId: string) => {
-    router.navigate('new', { app_id: appId });
+    account.orgNavigate('new', { app_id: appId });
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
