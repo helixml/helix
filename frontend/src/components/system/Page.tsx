@@ -95,7 +95,7 @@ const Page: React.FC<{
                       textDecoration: 'underline',
                     }}
                     onClick={ () => {
-                      if(orgBreadcrumbs) {
+                      if(orgBreadcrumbs || breadcrumb.orgRoute) {
                         account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
                       } else {
                         router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) 
