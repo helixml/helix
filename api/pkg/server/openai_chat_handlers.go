@@ -125,7 +125,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 				return
 			}
 
-			if err := s.AuthorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 				log.Error().Err(err).Str("app_id", options.AppID).Str("user_id", user.ID).Msg("user is not authorized to access this app")
 				http.Error(rw, fmt.Sprintf("Not authorized to access app: %s", err), http.StatusForbidden)
 				return
