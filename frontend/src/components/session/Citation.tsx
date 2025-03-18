@@ -33,6 +33,7 @@ export interface Excerpt {
     filename: string;
     fileUrl: string;
     isPartial: boolean;
+    citationNumber?: number;
 }
 
 interface CitationProps {
@@ -236,6 +237,9 @@ const Citation: React.FC<CitationProps> = ({
                             color: '#e0e0e0',
                             position: 'relative',
                             textIndent: 0,
+                            display: 'flex',
+                            gap: '8px',
+                            alignItems: 'flex-start',
                             '& .loading-content': {
                                 color: '#aaa',
                                 fontStyle: 'italic',
@@ -252,40 +256,57 @@ const Citation: React.FC<CitationProps> = ({
                             }
                         }}
                     >
-                        <Box
-                            component="span"
-                            className="start-quote"
-                            sx={{
-                                color: 'rgba(88, 166, 255, 1.0)',
-                                fontFamily: 'Georgia, serif',
-                                fontSize: '1.5em',
-                                fontWeight: 'bold',
-                                lineHeight: 0,
-                                position: 'relative',
-                                marginRight: '0.15em',
-                                top: '0.1em',
-                            }}
-                        >
-                            {'\u201C'}
-                        </Box>
+                        {excerpt.citationNumber && (
+                            <Box
+                                component="span"
+                                sx={{
+                                    color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                    fontSize: '0.85em',
+                                    fontWeight: 'bold',
+                                    padding: '2px 6px',
+                                    flexShrink: 0,
+                                    marginTop: '2px'
+                                }}
+                            >
+                                [{excerpt.citationNumber}]
+                            </Box>
+                        )}
+                        <Box component="span">
+                            <Box
+                                component="span"
+                                className="start-quote"
+                                sx={{
+                                    color: 'rgba(88, 166, 255, 1.0)',
+                                    fontFamily: 'Georgia, serif',
+                                    fontSize: '1.5em',
+                                    fontWeight: 'bold',
+                                    lineHeight: 0,
+                                    position: 'relative',
+                                    marginRight: '0.15em',
+                                    top: '0.1em',
+                                }}
+                            >
+                                {'\u201C'}
+                            </Box>
 
-                        {excerpt.snippet}
+                            {excerpt.snippet}
 
-                        <Box
-                            component="span"
-                            className="end-quote"
-                            sx={{
-                                color: 'rgba(88, 166, 255, 1.0)',
-                                fontFamily: 'Georgia, serif',
-                                fontSize: '1.5em',
-                                fontWeight: 'bold',
-                                lineHeight: 0,
-                                position: 'relative',
-                                marginLeft: '0.15em',
-                                top: '0.1em',
-                            }}
-                        >
-                            {'\u201D'}
+                            <Box
+                                component="span"
+                                className="end-quote"
+                                sx={{
+                                    color: 'rgba(88, 166, 255, 1.0)',
+                                    fontFamily: 'Georgia, serif',
+                                    fontSize: '1.5em',
+                                    fontWeight: 'bold',
+                                    lineHeight: 0,
+                                    position: 'relative',
+                                    marginLeft: '0.15em',
+                                    top: '0.1em',
+                                }}
+                            >
+                                {'\u201D'}
+                            </Box>
                         </Box>
                     </Box>
 
