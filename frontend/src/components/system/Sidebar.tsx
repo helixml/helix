@@ -110,7 +110,7 @@ const Sidebar: React.FC<{
   const handleCreateNew = () => {
     const resourceType = RESOURCE_TYPES[activeTab]
     if (resourceType === 'chat') {
-      account.orgNavigate('new')
+      account.orgNavigate('home')
     } else if (resourceType === 'app') {
       apps.createOrgApp()
     }
@@ -145,15 +145,7 @@ const Sidebar: React.FC<{
                   
                 )
               }
-              <SidebarMainLink
-                id="home-link"
-                routeName="home"
-                title="Home"
-                icon={ <HomeIcon/> }
-              />
               
-              <Divider />
-
               {/* Tabs for CHATS and APPS */}
               <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
                 <Tabs 
