@@ -16,7 +16,7 @@ const OrgsSidebarMenu: FC<{
     <List disablePadding>
       <OrgSidebarMainLink
         id="exit-link"
-        routeName="home"
+        routeName="orgs"
         title="Exit"
         icon={ <ArrowBack/> }
         includeOrgId={ false }
