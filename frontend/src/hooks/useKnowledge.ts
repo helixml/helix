@@ -179,7 +179,7 @@ export const useKnowledge = (
         pollingIntervalRef.current = null;
       }
     };
-  }, [appId, account.user, pollingActive])
+  }, [appId, account.user, pollingActive, knowledge, mergeKnowledgeUpdates])
   
   /**
    * Effect to restart polling when new knowledge is added
