@@ -84,7 +84,6 @@ export const useAppsContext = (): IAppsContext => {
     
     // Determine the organization_id parameter value
     let organizationIdParam = account.organizationTools.organization?.id || ''
-    if(!organizationIdParam) organizationIdParam = 'default'
 
     const result = await api.get<IApp[]>(`/api/v1/apps`, {
       params: {

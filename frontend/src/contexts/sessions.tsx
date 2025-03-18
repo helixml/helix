@@ -83,9 +83,6 @@ export const useSessionsContext = (): ISessionsContext => {
     if (query.org_id) {
       // If specific org_id is provided, use it
       params.organization_id = query.org_id;
-    } else if (account.organizationTools.orgID === '') {
-      // If we're in the default (no org) context, use "default"
-      params.organization_id = 'default';
     } else if (account.organizationTools.organization) {
       // If we're in an org context, use the org ID
       params.organization_id = account.organizationTools.organization.id;
