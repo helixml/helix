@@ -14,7 +14,7 @@ import useSnackbar from '../../hooks/useSnackbar';
 import useAccount from '../../hooks/useAccount'
 
 interface IdeIntegrationSectionProps {
-  appId: string;  
+  appId: string;
 }
 
 const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
@@ -55,6 +55,44 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   };
 
   const renderIdeInstructions = () => {
+    var installCliInstructions = <>
+      <div>
+        <Typography variant="body2" sx={{ mb: 1 }}>1. Download Helix client: </Typography>
+        <Box sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          mb: 2
+        }}>
+          <Typography component="pre"
+            sx={{
+              wordBreak: 'break-all',
+              wordWrap: 'break-all',
+              whiteSpace: 'pre-wrap',
+              fontSize: '0.8rem',
+              fontFamily: "monospace",
+              flexGrow: 1,
+              mb: 0,
+              mt: 0,
+            }}
+          >
+            curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli
+          </Typography>
+          <Button
+            variant="text"
+            size="small"
+            startIcon={<ContentCopyIcon />}
+            onClick={() => {
+              navigator.clipboard.writeText("curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli");
+              snackbarSuccess('Command copied to clipboard');
+            }}
+            sx={{ textTransform: 'none', flexShrink: 0 }}
+          >
+            Copy
+          </Button>
+        </Box>
+      </div>
+    </>
     switch (selectedIde) {
       case 'cline':
         return (
@@ -63,15 +101,16 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               Follow these steps to configure <Link href="https://cline.bot/" target="_blank" rel="noopener noreferrer">Cline</Link>:
             </Typography>
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ mb: 1 }}>1. Open the command palette (CMD+Shift+P)</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>2. Type "MCP Servers"</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>3. Add the following configuration:</Typography>
+              {installCliInstructions}
+              <Typography variant="body2" sx={{ mb: 1 }}>2. Open the command palette (CMD+Shift+P)</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>3. Type "MCP Servers"</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>4. Add the following configuration:</Typography>
             </Box>
             <TextField
               value={getGenericMCPConfig()}
               fullWidth
               multiline
-              
+
               disabled
               InputProps={{
                 style: { fontFamily: 'monospace' }
@@ -106,9 +145,10 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               Follow these steps to configure <Link href="https://claude.ai/download" target="_blank" rel="noopener noreferrer">Claude Desktop</Link>:
             </Typography>
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ mb: 1 }}>1. Open Claude Desktop settings</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>2. Select "Developer" section</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>3. Click "Edit Config"</Typography>
+              {installCliInstructions}
+              <Typography variant="body2" sx={{ mb: 1 }}>2. Open Claude Desktop settings</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>3. Select "Developer" section</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>4. Click "Edit Config"</Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>4. Add the following configuration:</Typography>
             </Box>
             <TextField
@@ -146,8 +186,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               Follow these steps to configure <Link href="https://www.cursor.com/" target="_blank" rel="noopener noreferrer">Cursor</Link>:
             </Typography>
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ mb: 1 }}>1. For a specific project open `.cursor/mcp.json` file, for global configuration open `~/.cursor/mcp.json`</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>2. Add the following configuration:</Typography>
+              {installCliInstructions}
+              <Typography variant="body2" sx={{ mb: 1 }}>2. For a specific project open `.cursor/mcp.json` file, for global configuration open `~/.cursor/mcp.json`</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>3. Add the following configuration:</Typography>
             </Box>
             <TextField
               value={getGenericMCPConfig()}
@@ -171,7 +212,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               >
                 Copy
               </Button>
-            </Box>            
+            </Box>
             <Typography variant="body1" sx={{ mb: 2 }}>
               You can find additional information in the official <Link href="https://docs.cursor.com/context/model-context-protocol" target="_blank" rel="noopener noreferrer">Model Context Protocol</Link> documentation.
             </Typography>
@@ -187,7 +228,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
       <Typography variant="h6" sx={{ mb: 2 }}>
         IDE Integration
       </Typography>
-      <Typography variant="body1" sx={{ mb: 2 }}> 
+      <Typography variant="body1" sx={{ mb: 2 }}>
         Helix provides an MCP server that can be used by a number of IDEs, chat clients or standalone agents.
       </Typography>
       <FormControl fullWidth sx={{ mb: 3 }}>
