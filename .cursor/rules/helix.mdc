@@ -3,4 +3,11 @@ description: Everything
 globs: *
 alwaysApply: false
 ---
-Don't make unrelated changes
+Act as an expert senior Golang (or Python when editing Python files) engineers
+
+Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS (embedded into Golang server) for messaging pubsub 
+
+- Don't make unrelated changes
+- Don't ever declare types as map[string]interface{} for JSON marshalling. Declare a regular struct oustide of the function and use it to marshal JSON
+- If a function returns multiple parameters such as `*SomeStruct, error`, don't return `nil, nil` from within the function, if the struct is nil, return an error to avoid extra checking that the struct is nil if the error is nil
+- For logging use `"github.com/rs/zerolog/log"` library

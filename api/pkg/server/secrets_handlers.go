@@ -99,6 +99,20 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError401("user not found")
 	}
 
+	// First, verify the secret exists and belongs to the user
+	existing, err := s.Store.GetSecret(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("Secret not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Check ownership - return 404 instead of 403 to avoid leaking existence of secret
+	if existing.Owner != user.ID {
+		return nil, system.NewHTTPError404("Secret not found")
+	}
+
 	var secret types.Secret
 	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
 		return nil, system.NewHTTPError400(err.Error())

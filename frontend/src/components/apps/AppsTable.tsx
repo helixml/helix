@@ -218,7 +218,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       </Box>
     )
   }, [
-
+    onDelete,
+    onEdit,
   ])
 
   return (

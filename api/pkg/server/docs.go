@@ -421,6 +421,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/context-menu": {
+            "get": {
+                "description": "contextMenuHandler",
+                "tags": [
+                    "ui"
+                ],
+                "summary": "contextMenuHandler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Query string",
+                        "name": "q",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ContextMenuResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -542,6 +574,54 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/license": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the license key for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get license key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LicenseKeyRequest"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the license key for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Set license key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LicenseKeyRequest"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/llm_calls": {
             "get": {
                 "security": [
@@ -612,7 +692,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Create a new organization",
+                "description": "Create a new organization. Only admin users can create organizations.",
                 "tags": [
                     "organizations"
                 ],
@@ -1091,6 +1171,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search knowledges for a given app and prompt",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Search knowledges",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Knowledge ID",
+                        "name": "knowledge_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search prompt",
+                        "name": "prompt",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.KnowledgeSearchResult"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/secrets": {
             "get": {
                 "security": [
@@ -1272,39 +1399,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/ui/at": {
-            "get": {
-                "description": "uiAt",
-                "tags": [
-                    "ui"
-                ],
-                "summary": "uiAt",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Query string",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.UIAtResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -1390,9 +1484,6 @@ const docTemplate = `{
                 "config": {
                     "$ref": "#/definitions/types.ToolConfig"
                 },
-                "created": {
-                    "type": "string"
-                },
                 "description": {
                     "type": "string"
                 },
@@ -1405,23 +1496,8 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "owner": {
-                    "description": "uuid of owner entity",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
                 "tool_type": {
                     "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ToolType"
-                },
-                "updated": {
-                    "type": "string"
                 }
             }
         },
@@ -2031,6 +2107,14 @@ const docTemplate = `{
                 }
             }
         },
+        "server.LicenseKeyRequest": {
+            "type": "object",
+            "properties": {
+                "license_key": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AccessGrant": {
             "type": "object",
             "properties": {
@@ -2158,9 +2242,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.OwnerType"
                         }
                     ]
-                },
-                "shared": {
-                    "type": "boolean"
                 },
                 "updated": {
                     "type": "string"
@@ -2501,6 +2582,34 @@ const docTemplate = `{
                 },
                 "text": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuAction": {
+            "type": "object",
+            "properties": {
+                "action_label": {
+                    "description": "Forms the grouping in the UI",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "The label that will be shown in the UI",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value written to the text area when the action is selected",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContextMenuAction"
+                    }
                 }
             }
         },
@@ -2977,6 +3086,23 @@ const docTemplate = `{
                 },
                 "step": {
                     "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSearchResult": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "knowledge": {
+                    "$ref": "#/definitions/types.Knowledge"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
                 }
             }
         },
@@ -3824,6 +3950,10 @@ const docTemplate = `{
                     "description": "name that goes in the UI - ideally autogenerated by AI but for now can be\nnamed manually",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "the organization this session belongs to, if any",
+                    "type": "string"
+                },
                 "owner": {
                     "description": "uuid of owner entity",
                     "type": "string"
@@ -3885,6 +4015,10 @@ const docTemplate = `{
                     "description": "The model to use",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
                 "provider": {
                     "description": "The provider to use",
                     "allOf": [
@@ -3934,6 +4068,10 @@ const docTemplate = `{
                 },
                 "default_rag_model": {
                     "description": "When doing RAG, allow the resulting inference session model to be specified",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "The organization this session belongs to, if any",
                     "type": "string"
                 },
                 "rag_enabled": {
@@ -4052,9 +4190,6 @@ const docTemplate = `{
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
                 },
-                "shared": {
-                    "type": "boolean"
-                },
                 "stream": {
                     "type": "boolean"
                 },
@@ -4142,6 +4277,12 @@ const docTemplate = `{
                 },
                 "interaction_id": {
                     "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "session_id": {
                     "type": "string"
@@ -4404,28 +4545,6 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
-                }
-            }
-        },
-        "types.UIAtData": {
-            "type": "object",
-            "properties": {
-                "label": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.UIAtResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UIAtData"
-                    }
                 }
             }
         },

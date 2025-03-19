@@ -23,17 +23,16 @@ import (
 )
 
 type Options struct {
-	Config            *config.ServerConfig
-	Store             store.Store
-	PubSub            pubsub.PubSub
-	Extractor         extract.Extractor
-	RAG               rag.RAG
-	GPTScriptExecutor gptscript.Executor
-	Filestore         filestore.FileStore
-	Janitor           *janitor.Janitor
-	Notifier          notification.Notifier
-	// OpenAIClient         openai.Client
-	ProviderManager      manager.ProviderManager
+	Config               *config.ServerConfig
+	Store                store.Store
+	PubSub               pubsub.PubSub
+	Extractor            extract.Extractor
+	RAG                  rag.RAG
+	GPTScriptExecutor    gptscript.Executor
+	Filestore            filestore.FileStore
+	Janitor              *janitor.Janitor
+	Notifier             notification.Notifier
+	ProviderManager      manager.ProviderManager // OpenAI client provider
 	DataprepOpenAIClient openai.Client
 	Scheduler            *scheduler.Scheduler
 	RunnerController     *scheduler.RunnerController

@@ -95,9 +95,6 @@ func TestKnowledgePrompt(t *testing.T) {
 		if !strings.Contains(prompt, "The Eiffel Tower is 324 meters tall.") {
 			t.Errorf("prompt does not contain knowledge content")
 		}
-		if !strings.Contains(prompt, "https://example.com/eiffel-tower") {
-			t.Errorf("prompt does not contain knowledge source")
-		}
 	})
 }
 

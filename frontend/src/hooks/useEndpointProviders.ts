@@ -1,14 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import useApi from './useApi'
-import { IProviderEndpoint } from '../types'
 import { throttle } from 'lodash'
+import useApi from './useApi'
+import {
+  TypesProviderEndpoint,
+} from '../api/api'
 
 export const useEndpointProviders = () => {
   const api = useApi()
   const mountedRef = useRef(true)
   const [isLoading, setIsLoading] = useState(false)
-  const [data, setData] = useState<IProviderEndpoint[]>([])
-  const [endpoint, setEndpoint] = useState<IProviderEndpoint>()
+  const [data, setData] = useState<TypesProviderEndpoint[]>([])
+  const [endpoint, setEndpoint] = useState<TypesProviderEndpoint>()
 
   // Create a ref for the throttled function
   const throttledLoadRef = useRef<any>(null)
@@ -20,9 +22,10 @@ export const useEndpointProviders = () => {
       setIsLoading(true)
       
       try {
-        let result = await api.get<IProviderEndpoint[]>('/api/v1/provider-endpoints', undefined, {
+        let result = await api.get<TypesProviderEndpoint[]>('/api/v1/provider-endpoints', undefined, {
           snackbar: true,
         })
+        
         if(result === null) result = []
         if(!mountedRef.current) return
         setData(result)
@@ -49,9 +52,9 @@ export const useEndpointProviders = () => {
     }
   }, [])
 
-  const createEndpoint = useCallback(async (endpoint: Partial<IProviderEndpoint>): Promise<IProviderEndpoint | undefined> => {
+  const createEndpoint = useCallback(async (endpoint: Partial<TypesProviderEndpoint>): Promise<TypesProviderEndpoint | undefined> => {
     try {
-      const result = await api.post<Partial<IProviderEndpoint>, IProviderEndpoint>('/api/v1/provider-endpoints', endpoint, {}, {
+      const result = await api.post<Partial<TypesProviderEndpoint>, TypesProviderEndpoint>('/api/v1/provider-endpoints', endpoint, {}, {
         snackbar: true,
       })
       if (!result) return undefined
@@ -63,9 +66,9 @@ export const useEndpointProviders = () => {
     }
   }, [api, loadData])
 
-  const updateEndpoint = useCallback(async (id: string, updatedEndpoint: Partial<IProviderEndpoint>): Promise<IProviderEndpoint | undefined> => {
+  const updateEndpoint = useCallback(async (id: string, updatedEndpoint: Partial<TypesProviderEndpoint>): Promise<TypesProviderEndpoint | undefined> => {
     try {
-      const result = await api.put<Partial<IProviderEndpoint>, IProviderEndpoint>(`/api/v1/provider-endpoints/${id}`, updatedEndpoint, {}, {
+      const result = await api.put<Partial<TypesProviderEndpoint>, TypesProviderEndpoint>(`/api/v1/provider-endpoints/${id}`, updatedEndpoint, {}, {
         snackbar: true,
       })
       if (!result) return undefined
@@ -92,7 +95,7 @@ export const useEndpointProviders = () => {
 
   const getEndpoint = useCallback(async (id: string, showErrors: boolean = true): Promise<void> => {
     if (!id) return
-    const result = await api.get<IProviderEndpoint>(`/api/v1/provider-endpoints/${id}`, undefined, {
+    const result = await api.get<TypesProviderEndpoint>(`/api/v1/provider-endpoints/${id}`, undefined, {
       snackbar: showErrors,
     })
     if (!result || !mountedRef.current) return

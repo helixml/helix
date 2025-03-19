@@ -117,7 +117,20 @@ func (s *PostgresStore) DeleteOrganizationMembership(ctx context.Context, organi
 		return fmt.Errorf("organization_id and user_id must be specified")
 	}
 
-	return s.gdb.WithContext(ctx).
-		Where("organization_id = ? AND user_id = ?", organizationID, userID).
-		Delete(&types.OrganizationMembership{}).Error
+	// We need to perform this in a transaction to ensure data consistency
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// First delete all team memberships for this user in this organization
+		if err := tx.Where("organization_id = ? AND user_id = ?", organizationID, userID).
+			Delete(&types.TeamMembership{}).Error; err != nil {
+			return fmt.Errorf("failed to delete team memberships: %w", err)
+		}
+
+		// Then delete the organization membership
+		if err := tx.Where("organization_id = ? AND user_id = ?", organizationID, userID).
+			Delete(&types.OrganizationMembership{}).Error; err != nil {
+			return fmt.Errorf("failed to delete organization membership: %w", err)
+		}
+
+		return nil
+	})
 }

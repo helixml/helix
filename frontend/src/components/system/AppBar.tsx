@@ -59,7 +59,7 @@ const AppBar: React.FC<{
       >
         <Row>
           {
-            !isBigScreen && (
+            !isBigScreen && onOpenDrawer && (
               <Cell>
                 <IconButton
                   color="inherit"

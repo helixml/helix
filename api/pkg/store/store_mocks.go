@@ -358,21 +358,6 @@ func (mr *MockStoreMockRecorder) CreateTeamMembership(ctx, membership any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTeamMembership", reflect.TypeOf((*MockStore)(nil).CreateTeamMembership), ctx, membership)
 }
 
-// CreateTool mocks base method.
-func (m *MockStore) CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateTool", ctx, tool)
-	ret0, _ := ret[0].(*types.Tool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateTool indicates an expected call of CreateTool.
-func (mr *MockStoreMockRecorder) CreateTool(ctx, tool any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTool", reflect.TypeOf((*MockStore)(nil).CreateTool), ctx, tool)
-}
-
 // CreateUser mocks base method.
 func (m *MockStore) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
 	m.ctrl.T.Helper()
@@ -668,20 +653,6 @@ func (m *MockStore) DeleteTeamMembership(ctx context.Context, teamID, userID str
 func (mr *MockStoreMockRecorder) DeleteTeamMembership(ctx, teamID, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTeamMembership", reflect.TypeOf((*MockStore)(nil).DeleteTeamMembership), ctx, teamID, userID)
-}
-
-// DeleteTool mocks base method.
-func (m *MockStore) DeleteTool(ctx context.Context, id string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteTool", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteTool indicates an expected call of DeleteTool.
-func (mr *MockStoreMockRecorder) DeleteTool(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTool", reflect.TypeOf((*MockStore)(nil).DeleteTool), ctx, id)
 }
 
 // DeleteUser mocks base method.
@@ -1103,21 +1074,6 @@ func (mr *MockStoreMockRecorder) GetTeamMembership(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamMembership", reflect.TypeOf((*MockStore)(nil).GetTeamMembership), ctx, q)
 }
 
-// GetTool mocks base method.
-func (m *MockStore) GetTool(ctx context.Context, id string) (*types.Tool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetTool", ctx, id)
-	ret0, _ := ret[0].(*types.Tool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetTool indicates an expected call of GetTool.
-func (mr *MockStoreMockRecorder) GetTool(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTool", reflect.TypeOf((*MockStore)(nil).GetTool), ctx, id)
-}
-
 // GetUser mocks base method.
 func (m *MockStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
 	m.ctrl.T.Helper()
@@ -1404,21 +1360,6 @@ func (mr *MockStoreMockRecorder) ListTeams(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeams", reflect.TypeOf((*MockStore)(nil).ListTeams), ctx, query)
 }
 
-// ListTools mocks base method.
-func (m *MockStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTools", ctx, q)
-	ret0, _ := ret[0].([]*types.Tool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListTools indicates an expected call of ListTools.
-func (mr *MockStoreMockRecorder) ListTools(ctx, q any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTools", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
-}
-
 // ListUsers mocks base method.
 func (m *MockStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error) {
 	m.ctrl.T.Helper()
@@ -1432,6 +1373,22 @@ func (m *MockStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
+}
+
+// SearchUsers mocks base method.
+func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SearchUsers", ctx, query)
+	ret0, _ := ret[0].([]*types.User)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SearchUsers indicates an expected call of SearchUsers.
+func (mr *MockStoreMockRecorder) SearchUsers(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchUsers", reflect.TypeOf((*MockStore)(nil).SearchUsers), ctx, query)
 }
 
 // LookupKnowledge mocks base method.
@@ -1684,21 +1641,6 @@ func (m *MockStore) UpdateTeam(ctx context.Context, team *types.Team) (*types.Te
 func (mr *MockStoreMockRecorder) UpdateTeam(ctx, team any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTeam", reflect.TypeOf((*MockStore)(nil).UpdateTeam), ctx, team)
-}
-
-// UpdateTool mocks base method.
-func (m *MockStore) UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateTool", ctx, tool)
-	ret0, _ := ret[0].(*types.Tool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateTool indicates an expected call of UpdateTool.
-func (mr *MockStoreMockRecorder) UpdateTool(ctx, tool any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTool", reflect.TypeOf((*MockStore)(nil).UpdateTool), ctx, tool)
 }
 
 // UpdateUser mocks base method.

@@ -11,6 +11,29 @@ import (
 // authorizeOrgOwner used to check if the user is an owner of the organization to perform certain actions
 // such as creating, updating teams, updating or deleting organization
 func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	// Global admins can perform any operation, regardless of their organization membership
+	if user.Admin {
+		// For global admins, we'll still try to get their membership if it exists
+		membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+		})
+
+		// If the global admin has membership, return it
+		if err == nil {
+			return membership, nil
+		}
+
+		// If the global admin doesn't have a membership, create a temporary one with owner role
+		// This won't be stored in the database, just returned for the current operation
+		return &types.OrganizationMembership{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+			Role:           types.OrganizationRoleOwner,
+		}, nil
+	}
+
+	// For non-admin users, proceed with the existing logic
 	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
@@ -29,6 +52,29 @@ func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *ty
 // deleting used to check if the user is a member of the organization to perform certain actions
 // such as listing teams, listing members, etc
 func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	// Global admins can perform any operation, regardless of their organization membership
+	if user.Admin {
+		// For global admins, we'll still try to get their membership if it exists
+		membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+		})
+
+		// If the global admin has membership, return it
+		if err == nil {
+			return membership, nil
+		}
+
+		// If the global admin doesn't have a membership, create a temporary one with owner role
+		// This won't be stored in the database, just returned for the current operation
+		return &types.OrganizationMembership{
+			OrganizationID: orgID,
+			UserID:         user.ID,
+			Role:           types.OrganizationRoleOwner,
+		}, nil
+	}
+
+	// For non-admin users, proceed with the existing logic
 	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
@@ -63,8 +109,36 @@ func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Cont
 	return apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceAccessGrants, action)
 }
 
+// authorizeUserToApp checks if a user has access to an app
+// This is a server-level method that centralizes the authorization logic
 func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
-	// Check if user is a member of the org
+	// If the organization ID is not set and the user is not the app owner, then error
+	if app.OrganizationID == "" {
+		// This is the old style app logic, where the app is owned by a user and optionally made global
+
+		// If the user is the owner of the app, they can access it
+		if user.ID == app.Owner {
+			return nil
+		}
+
+		// If the app is global, the user can access it
+		if app.Global {
+			// But only admins can update or delete global apps
+			if action == types.ActionUpdate || action == types.ActionDelete {
+				if !isAdmin(user) {
+					return fmt.Errorf("only admin users can update or delete global apps")
+				}
+			}
+
+			// If the app is global, the user can access it
+			return nil
+		}
+
+		// Otherwise the user is not allowed to access the app
+		return fmt.Errorf("user is not the owner of the app")
+	}
+
+	// If organization ID is set, authorize the user against the organization
 	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, app.OrganizationID)
 	if err != nil {
 		return err

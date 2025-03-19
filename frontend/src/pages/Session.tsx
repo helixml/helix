@@ -66,6 +66,7 @@ import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
+import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -130,11 +131,32 @@ const Session: FC = () => {
   // Add state to track which session we've auto-scrolled
   const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
 
+  // Add ref to store current scroll position
+  const scrollPositionRef = useRef<number>(0)
+
+  // Function to save scroll position
+  const saveScrollPosition = useCallback(() => {
+    if (containerRef.current) {
+      scrollPositionRef.current = containerRef.current.scrollTop;
+    }
+  }, []);
+
+  // Function to restore scroll position
+  const restoreScrollPosition = useCallback(() => {
+    if (containerRef.current && scrollPositionRef.current > 0) {
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = scrollPositionRef.current;
+        }
+      });
+    }
+  }, []);
+
   // Add effect to handle auto-scrolling when session changes
   useEffect(() => {
     // Return early if no session ID
     if (!sessionID) return
-    
+
     // Return early if session data hasn't loaded yet
     if (!session.data?.interactions) return
 
@@ -144,7 +166,7 @@ const Session: FC = () => {
     // Set a small timeout to ensure content is rendered
     setTimeout(() => {
       if (!containerRef.current) return
-      
+
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
         behavior: 'smooth'
@@ -164,14 +186,14 @@ const Session: FC = () => {
     if (!session.data?.interactions || session.data.interactions.length === 0) return
 
     const totalInteractions = session.data.interactions.length
-    
+
     // If we're streaming, we want to show a continuous block from the most recent visible interaction
     if (isStreaming) {
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1]
-      const startIndex = lastVisibleBlock 
-        ? lastVisibleBlock.startIndex 
+      const startIndex = lastVisibleBlock
+        ? lastVisibleBlock.startIndex
         : Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-      
+
       setVisibleBlocks([{
         startIndex,
         endIndex: totalInteractions,
@@ -191,12 +213,12 @@ const Session: FC = () => {
   // Handle streaming state
   useEffect(() => {
     if (!session.data?.interactions || session.data.interactions.length === 0) return
-    
+
     const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
     const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
-    
+
     setIsStreaming(isCurrentlyStreaming)
-    
+
     if (isCurrentlyStreaming) {
       // When streaming, initialize the visible blocks to show just the current interaction
       const currentIndex = session.data.interactions.length - 1
@@ -222,7 +244,7 @@ const Session: FC = () => {
       return prev.map(block => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
         const blockHeight = blockHeights[blockKey] || 0
-        
+
         // Calculate block position
         const blockTop = totalHeightAbove
         const blockBottom = blockTop + blockHeight
@@ -230,7 +252,7 @@ const Session: FC = () => {
 
         // Check if block should be rendered based on viewport and buffer
         const isNearViewport = (
-          blockTop <= containerBottom + (VIEWPORT_BUFFER * blockHeight) && 
+          blockTop <= containerBottom + (VIEWPORT_BUFFER * blockHeight) &&
           blockBottom >= containerTop - (VIEWPORT_BUFFER * blockHeight)
         )
 
@@ -266,10 +288,10 @@ const Session: FC = () => {
     requestAnimationFrame(() => {
       visibleBlocks.forEach(block => {
         if (block.isGhost) return
-        
+
         const key = getBlockKey(block.startIndex, block.endIndex)
         const element = blockRefs.current[key]
-        
+
         if (element && !blockHeights[key]) {
           setBlockHeights(prev => ({
             ...prev,
@@ -295,9 +317,9 @@ const Session: FC = () => {
   }
 
   const loading = useMemo(() => {
-    if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
+    if (!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
     const interaction = session.data?.interactions[session.data?.interactions.length - 1]
-    if(!interaction.finished) return true
+    if (!interaction.finished) return true
     return interaction.state == INTERACTION_STATE_EDITING
   }, [
     session.data,
@@ -308,17 +330,31 @@ const Session: FC = () => {
   }, [sessionID]);
 
   const lastFinetuneInteraction = useMemo(() => {
-    if(!session.data) return undefined
+    if (!session.data) return undefined
     const finetunes = session.data.interactions.filter(i => i.mode == SESSION_MODE_FINETUNE)
-    if(finetunes.length === 0) return undefined
+    if (finetunes.length === 0) return undefined
     return finetunes[finetunes.length - 1]
   }, [
     session.data,
   ])
 
+  // Create a wrapper for session.reload to preserve scroll position
+  const safeReloadSession = useCallback(async () => {
+    // Save current scroll position
+    saveScrollPosition();
+    
+    // Call the actual reload
+    const result = await session.reload();
+    
+    // Restore scroll position
+    setTimeout(restoreScrollPosition, 0);
+    
+    return result;
+  }, [session, saveScrollPosition, restoreScrollPosition]);
+
   const onSend = useCallback(async (prompt: string) => {
-    if(!session.data) return
-    if(!checkOwnership({
+    if (!session.data) return
+    if (!checkOwnership({
       inferencePrompt: prompt,
     })) return
 
@@ -348,9 +384,9 @@ const Session: FC = () => {
       setInputValue("")
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
-    
-    if(!newSession) return
-    session.reload()
+
+    if (!newSession) return
+    await safeReloadSession()
 
   }, [
     session.data,
@@ -358,32 +394,18 @@ const Session: FC = () => {
     NewInference,
   ])
 
-  const onUpdateSharing = useCallback(async (value: boolean) => {
-    if(!session.data) return false
-    const latestSessionData = await session.reload()
-    if(!latestSessionData) return false
-    const result = await session.updateConfig(latestSessionData.id, Object.assign({}, latestSessionData.config, {
-      shared: value,
-    }))
-    return result ? true : false
-  }, [
-    isOwner,
-    session.data,
-    session.updateConfig,
-  ])
-
   const onRestart = useCallback(() => {
     setRestartWindowOpen(true)
   }, [])
 
   const checkOwnership = useCallback((instructions: IShareSessionInstructions): boolean => {
-    if(!session.data) return false
+    if (!session.data) return false
     setShareInstructions(instructions)
-    if(!account.user) {
+    if (!account.user) {
       setShowLoginWindow(true)
       return false
     }
-    if(session.data.owner != account.user.id) {
+    if (session.data.owner != account.user.id) {
       setShowCloneWindow(true)
       return false
     }
@@ -402,50 +424,60 @@ const Session: FC = () => {
   ])
 
   const onRestartConfirm = useCallback(async () => {
-    if(!session.data) return
+    if (!session.data) return
+    // Save current scroll position
+    saveScrollPosition()
+    
     const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
       loading: true,
     })
-    if(!newSession) return
-    session.reload()
-    setRestartWindowOpen(false)
-    snackbar.success('Session restarted...')
+    if (!newSession) return
+    
+    await safeReloadSession().then(() => {
+      setRestartWindowOpen(false)
+      snackbar.success('Session restarted...')
+    })
   }, [
     account.user,
     session.data,
+    saveScrollPosition,
+    restoreScrollPosition,
   ])
 
   const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
-    if(!session.data) return
-    const latestSessionData = await session.reload()
-    if(!latestSessionData) return false
+    if (!session.data) return
+    
+    const latestSessionData = await safeReloadSession()
+    if (!latestSessionData) return false
     const sessionConfigUpdate = Object.assign({}, latestSessionData.config, data)
     const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${session.data.id}/config`, sessionConfigUpdate, undefined, {
       loading: true,
     })
-    if(!result) return
-    session.reload()
-    if(snackbarMessage) {
+    if (!result) return
+    
+    await safeReloadSession()
+    if (snackbarMessage) {
       snackbar.success(snackbarMessage)
     }
   }, [
     account.user,
     session.data,
+    safeReloadSession,
   ])
 
   const onClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
-    if(!checkOwnership({
+    if (!checkOwnership({
       cloneMode: mode,
       cloneInteractionID: interactionID,
     })) return true
-    if(!session.data) return false
+    if (!session.data) return false
     const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
       loading: true,
     })
-    if(!newSession) return false
-    await sessions.loadSessions(true)
+    if (!newSession) return false
+    await sessions.loadSessions()
     snackbar.success('Session cloned...')
-    router.navigate('session', {session_id: newSession.id})
+    router.navigate('session', { session_id: newSession.id })
     return true
   }, [
     checkOwnership,
@@ -456,35 +488,35 @@ const Session: FC = () => {
 
   const onCloneIntoAccount = useCallback(async () => {
     const handler = async (): Promise<boolean> => {
-      if(!session.data) return false
-      if(!shareInstructions) return false
+      if (!session.data) return false
+      if (!shareInstructions) return false
       let cloneInteractionID = ''
       let cloneInteractionMode: ICloneInteractionMode = 'all'
-      if(shareInstructions.addDocumentsMode || shareInstructions.inferencePrompt) {
+      if (shareInstructions.addDocumentsMode || shareInstructions.inferencePrompt) {
         const interaction = getAssistantInteraction(session.data)
-        if(!interaction) return false
+        if (!interaction) return false
         cloneInteractionID = interaction.id
-      } else if(shareInstructions.cloneMode && shareInstructions.cloneInteractionID) {
+      } else if (shareInstructions.cloneMode && shareInstructions.cloneInteractionID) {
         cloneInteractionID = shareInstructions.cloneInteractionID
         cloneInteractionMode = shareInstructions.cloneMode
       }
       let newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${cloneInteractionID}/${cloneInteractionMode}`, undefined)
-      if(!newSession) return false
+      if (!newSession) return false
 
       // send the next prompt
-      if(shareInstructions.inferencePrompt) {
+      if (shareInstructions.inferencePrompt) {
         const formData = new FormData()
         formData.set('input', inputValue)
         newSession = await api.put(`/api/v1/sessions/${newSession.id}`, formData)
-        if(!newSession) return false
+        if (!newSession) return false
         setInputValue("")
       }
-      await sessions.loadSessions(true)
+      await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
         session_id: newSession.id
       }
-      if(shareInstructions.addDocumentsMode) {
+      if (shareInstructions.addDocumentsMode) {
         params.addDocuments = 'yes'
       }
       setShareInstructions(undefined)
@@ -496,12 +528,12 @@ const Session: FC = () => {
     try {
       await handler()
       setShowCloneWindow(false)
-    } catch(e: any) {
+    } catch (e: any) {
       console.error(e)
       snackbar.error(e.toString())
     }
     loadingHelpers.setLoading(false)
-    
+
   }, [
     account.user,
     session.data,
@@ -510,16 +542,16 @@ const Session: FC = () => {
 
   const onCloneAllIntoAccount = useCallback(async (withEvalUser = false) => {
     const handler = async () => {
-      if(!session.data) return
-      if(session.data.interactions.length <=0 ) throw new Error('Session cloned...')
+      if (!session.data) return
+      if (session.data.interactions.length <= 0) throw new Error('Session cloned...')
       const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
       let newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${lastInteraction.id}/all`, undefined, {
         params: {
           clone_into_eval_user: withEvalUser ? 'yes' : '',
         }
       })
-      if(!newSession) return false
-      await sessions.loadSessions(true)
+      if (!newSession) return false
+      await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
         session_id: newSession.id
@@ -532,20 +564,20 @@ const Session: FC = () => {
     try {
       await handler()
       setShowCloneAllWindow(false)
-    } catch(e: any) {
+    } catch (e: any) {
       console.error(e)
       snackbar.error(e.toString())
     }
     loadingHelpers.setLoading(false)
-    
+
   }, [
     account.user,
     session.data,
   ])
 
   const onAddDocuments = useCallback(() => {
-    if(!session.data) return
-    if(!checkOwnership({
+    if (!session.data) return
+    if (!checkOwnership({
       addDocumentsMode: true,
     })) return false
     router.setParams({
@@ -566,7 +598,7 @@ const Session: FC = () => {
   ])
 
   const retryFinetuneErrors = useCallback(async () => {
-    if(!session.data) return
+    if (!session.data) return
     await session.retryTextFinetune(session.data.id)
   }, [
     session.data,
@@ -577,7 +609,7 @@ const Session: FC = () => {
       if (event.shiftKey) {
         setInputValue(current => current + "\n")
       } else {
-        if(!loading) {
+        if (!loading) {
           onSend(inputValue)
         }
       }
@@ -588,9 +620,35 @@ const Session: FC = () => {
     onSend,
   ])
 
+  const onHandleFilterDocument = useCallback(async (docId: string) => {
+    if (!appID) {
+      snackbar.error('Unable to filter document, no app ID found')
+      return
+    }
+
+    // Make a call to the API to get the correct format and ensure the user has access to the document
+    const result = await api.getApiClient().v1ContextMenuList({
+      app_id: appID || '',
+    })
+    if (result.status !== 200) {
+      snackbar.error(`Unable to filter document, error from API: ${result.statusText}`)
+      return
+    }
+    const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
+    if (!filterAction) {
+      snackbar.error('Unable to filter document, no action found')
+      return
+    }
+    setInputValue(current => current + filterAction.value);
+  }, [setInputValue]);
+
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
     if (!session.data) return null;
+    
+    // Create a stable reference for interactions
+    const interactionIds = session.data.interactions.map(i => i.id).join(',');
+    
     return {
       id: session.data.id,
       name: session.data.name,
@@ -605,9 +663,29 @@ const Session: FC = () => {
       mode: session.data.mode,
       model_name: session.data.model_name,
       lora_dir: session.data.lora_dir,
-      config: session.data.config
+      config: {
+        ...session.data.config
+      }
     }
-  }, [session.data])
+  }, [
+    session.data?.id,
+    session.data?.name,
+    session.data?.created,
+    session.data?.updated,
+    session.data?.parent_session,
+    session.data?.parent_app,
+    // Use stable references for interactions to prevent unnecessary rerenders
+    session.data?.interactions.length,
+    session.data?.interactions.map(i => i.id).join(','),
+    session.data?.owner,
+    session.data?.owner_type,
+    session.data?.type,
+    session.data?.mode,
+    session.data?.model_name,
+    session.data?.lora_dir,
+    // Deep compare the config object
+    JSON.stringify(session.data?.config)
+  ])
 
   // Modify the container styles
   const containerStyles = useMemo(() => ({
@@ -627,16 +705,16 @@ const Session: FC = () => {
 
     const firstBlock = visibleBlocks[0]
     const newStartIndex = Math.max(0, firstBlock.startIndex - INTERACTIONS_PER_BLOCK)
-    
+
     // If we're already at the start or would be adding the same content, return early
     if (newStartIndex >= firstBlock.startIndex) return
-    
+
     // If we're already showing all interactions, return early
     if (firstBlock.startIndex === 0) return
 
     // Set loading lock
     setIsLoadingBlock(true)
-    
+
     // Store current scroll info before adding content
     const container = containerRef.current
     const scrollTop = container.scrollTop
@@ -660,7 +738,7 @@ const Session: FC = () => {
           containerRef.current.scrollTop = scrollTop + addedHeight
         }
       }
-      
+
       // Release lock after the scroll adjustment
       setTimeout(() => {
         setIsLoadingBlock(false)
@@ -685,9 +763,9 @@ const Session: FC = () => {
       entries.forEach(entry => {
         // Only trigger if we're actually intersecting with the virtual space
         // and we're not at the start of the interactions
-        if (entry.isIntersecting && 
-            entry.target.id === 'virtual-space-above' && 
-            visibleBlocks[0]?.startIndex > 0) {
+        if (entry.isIntersecting &&
+          entry.target.id === 'virtual-space-above' &&
+          visibleBlocks[0]?.startIndex > 0) {
           addBlocksAbove()
         }
       })
@@ -706,10 +784,10 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Add scrollToBottom function with debouncing logic
+  // Fix scrollToBottom which keeps getting changed incorrectly
   const scrollToBottom = useCallback(() => {
     if (!containerRef.current) return
-    
+
     const now = Date.now()
     const timeSinceLastScroll = now - lastScrollTimeRef.current
     const SCROLL_DEBOUNCE = 200
@@ -739,10 +817,10 @@ const Session: FC = () => {
   useEffect(() => {
     // Only trigger when streaming changes from true to false
     if (isStreaming) return
-    
+
     // Reset the scroll timer when streaming ends
     lastScrollTimeRef.current = 0
-    
+
     // Wait for the bottom bar and final content to render
     const timer = setTimeout(() => {
       if (!containerRef.current) return
@@ -762,7 +840,7 @@ const Session: FC = () => {
       setVisibleBlocks(prev => {
         const totalInteractions = session.data!.interactions.length
         const lastBlock = prev[prev.length - 1]
-        
+
         if (!lastBlock) {
           return [{
             startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
@@ -792,18 +870,18 @@ const Session: FC = () => {
     // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
     if (isStreaming) {
       const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
-      
+
       // Calculate how many previous interactions to show
       const startIndex = Math.max(0, sessionData.interactions.length - 1 - INTERACTIONS_PER_BLOCK)
       const previousInteractions = sessionData.interactions.slice(startIndex, sessionData.interactions.length - 1)
-      
+
       return (
         <Container maxWidth="lg" sx={{ py: 2 }}>
           {startIndex > 0 && (
-            <Typography 
-              variant="body2" 
-              sx={{ 
-                textAlign: 'center', 
+            <Typography
+              variant="body2"
+              sx={{
+                textAlign: 'center',
                 color: 'text.secondary',
                 mb: 2
               }}
@@ -820,13 +898,14 @@ const Session: FC = () => {
               session={sessionData}
               highlightAllFiles={highlightAllFiles}
               retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={session.reload}
+              onReloadSession={safeReloadSession}
               onClone={onClone}
               onAddDocuments={undefined}
               onRestart={undefined}
+              onFilterDocument={onHandleFilterDocument}
             />
           ))}
-          
+
           <Interaction
             key={currentInteraction.id}
             serverConfig={account.serverConfig}
@@ -834,10 +913,11 @@ const Session: FC = () => {
             session={sessionData}
             highlightAllFiles={highlightAllFiles}
             retryFinetuneErrors={retryFinetuneErrors}
-            onReloadSession={session.reload}
+            onReloadSession={safeReloadSession}
             onClone={onClone}
             onAddDocuments={onAddDocuments}
             onRestart={onRestart}
+            onFilterDocument={onHandleFilterDocument}
           >
             <InteractionLiveStream
               session_id={sessionData.id}
@@ -846,6 +926,7 @@ const Session: FC = () => {
               serverConfig={account.serverConfig}
               hasSubscription={account.userConfig.stripe_subscription_active || false}
               onMessageUpdate={scrollToBottom}
+              onFilterDocument={onHandleFilterDocument}
             />
           </Interaction>
         </Container>
@@ -860,7 +941,7 @@ const Session: FC = () => {
         {hasMoreAbove && !isStreaming && (
           <div
             id="virtual-space-above"
-            style={{ 
+            style={{
               height: VIRTUAL_SPACE_HEIGHT,
               display: 'flex',
               alignItems: 'center',
@@ -878,7 +959,7 @@ const Session: FC = () => {
         )}
         {visibleBlocks.map(block => {
           const key = getBlockKey(block.startIndex, block.endIndex)
-          
+
           if (block.isGhost) {
             return (
               <div
@@ -889,7 +970,7 @@ const Session: FC = () => {
           }
 
           const interactions = sessionData.interactions.slice(block.startIndex, block.endIndex)
-          
+
           return (
             <div
               key={key}
@@ -910,10 +991,11 @@ const Session: FC = () => {
                     session={sessionData}
                     highlightAllFiles={highlightAllFiles}
                     retryFinetuneErrors={retryFinetuneErrors}
-                    onReloadSession={session.reload}
+                    onReloadSession={safeReloadSession}
                     onClone={onClone}
                     onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
                     onRestart={isLastInteraction ? onRestart : undefined}
+                    onFilterDocument={onHandleFilterDocument}
                     headerButtons={isLastInteraction ? (
                       <Tooltip title="Restart Session">
                         <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
@@ -956,7 +1038,7 @@ const Session: FC = () => {
     account.userConfig.stripe_subscription_active,
     highlightAllFiles,
     retryFinetuneErrors,
-    session.reload,
+    safeReloadSession,
     onClone,
     onAddDocuments,
     onRestart,
@@ -968,11 +1050,12 @@ const Session: FC = () => {
     getBlockKey,
     isLoadingBlock,
     isStreaming,
-    scrollToBottom
+    scrollToBottom,
+    onHandleFilterDocument,
   ])
 
   useEffect(() => {
-    if(loading) return
+    if (loading) return
     textFieldRef.current?.focus()
   }, [
     loading,
@@ -988,112 +1071,58 @@ const Session: FC = () => {
   useEffect(() => {
     // Initial focus attempt
     textFieldRef.current?.focus()
-    
+
     // Make multiple focus attempts with increasing delays
     // This helps ensure focus works in various conditions and page load timing scenarios
     const delays = [100, 300, 600, 1000]
-    
-    const focusTimers = delays.map(delay => 
+
+    const focusTimers = delays.map(delay =>
       setTimeout(() => {
         const textField = textFieldRef.current
         if (textField) {
           textField.focus()
-          
+
           // For some browsers/scenarios, we might need to also scroll the element into view
           textField.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
       }, delay)
     )
-    
+
     // Cleanup all timers on unmount
     return () => focusTimers.forEach(timer => clearTimeout(timer))
   }, [])
 
   useEffect(() => {
-    // we need this because if a session is not shared
-    // we need to wait for the user token to have arrived before
-    // we can ask for the session
-    // if the session IS shared but we are not logged in
-    // this just means we have waited to confirm that we are not actually logged in
-    // before then asking for the shared session
-    if(!account.initialized) return
-    if(sessionID) {
+    if (!account.initialized) return
+    if (sessionID) {
+      // Save the current scroll position before loading
+      saveScrollPosition()
+      
       if (router.params.fixturemode === 'true') {
         // Use fixture data instead of loading from API
         const fixtureSession = generateFixtureSession(1000) // Generate 1000 interactions
         session.setData(fixtureSession)
+        // Restore scroll position
+        setTimeout(restoreScrollPosition, 0)
       } else {
-        session.loadSession(sessionID)
+        session.loadSession(sessionID).then(() => {
+          // Restore scroll position after loading
+          setTimeout(restoreScrollPosition, 0)
+        })
       }
     }
   }, [
     account.initialized,
     sessionID,
     router.params.fixturemode,
+    saveScrollPosition,
+    restoreScrollPosition,
   ])
 
   // this is for where we tried to do something to a shared session
   // but we were not logged in - so now we've gone off and logged in
   // and we end up back here - this will trigger the attempt to do it again
   // and then ask "do you want to clone this session"
-  useEffect(() => {
-    if(!session.data) return
-    if(!account.user) return
-    const instructionsString = localStorage.getItem('shareSessionInstructions')
-    if(!instructionsString) return
-    localStorage.removeItem('shareSessionInstructions')
-    const instructions = JSON.parse(instructionsString || '{}') as IShareSessionInstructions
-    if(instructions.cloneMode && instructions.cloneInteractionID) {
-      onClone(instructions.cloneMode, instructions.cloneInteractionID)
-    } else if(instructions.inferencePrompt) {
-      setInputValue(instructions.inferencePrompt)
-      onSend(instructions.inferencePrompt)
-    }
-  }, [
-    account.user,
-    session.data,
-  ])
-
-  // when the session has loaded re-populate the feedback area
-  useEffect(() => {
-    if(!session.data) return
-    setFeedbackValue(session.data.config.eval_user_reason)
-  }, [
-    session.data,
-  ])
-
-  // in case the web socket updates do not arrive, if the session is not finished
-  // then keep reloading it until it has finished
-  useEffect(() => {
-    if(!session.data) return
-    const systemInteraction = getAssistantInteraction(session.data)
-    if(!systemInteraction) return
-    if(systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
-
-    // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
-    const timer = setTimeout(() => {
-      session.reload()
-    }, 5000)
-
-    return () => clearTimeout(timer)
-  }, [
-    session.data,
-  ])
-
-  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
-  useWebsocket(sessionID, (parsedData) => {
-    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      const newSession: ISession = parsedData.session
-      session.setData(newSession)
-    }
-  })
-
-  // this is a horrible hack so we can have a global JS function
-  // that will set the state on this page - this is because we are
-  // rendering links in the interaction inference and we are rendering
-  // those links with dangerouslySetInnerHTML so it's not easy
-  // to add callback handlers to those links
-  // so we just call a global function that is setup here
   //
   // update 2024-10-08 Luke: is it still true that we're rendering links with
   // dangerouslySetInnerHTML?
@@ -1147,9 +1176,92 @@ const Session: FC = () => {
     setIsLoadingBlock(false)
   }, [sessionID])
 
-  if(!session.data) return null
+  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
+  useWebsocket(sessionID, (parsedData) => {
+    if (parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+      const newSession: ISession = parsedData.session
+      // Save scroll position before updating session data
+      saveScrollPosition()
+      session.setData(newSession)
+      // Restore scroll position after updating session data
+      setTimeout(restoreScrollPosition, 0)
+    }
+  })
 
-  return (    
+  // this is a horrible hack so we can have a global JS function
+  // that will set the state on this page - this is because we are
+  // rendering links in the interaction inference and we are rendering
+  // those links with dangerouslySetInnerHTML so it's not easy
+  // to add callback handlers to those links
+  // so we just call a global function that is setup here
+  //
+  // update 2024-10-08 Luke: is it still true that we're rendering links with
+  // dangerouslySetInnerHTML?
+  useEffect(() => {
+    const w = window as any
+    w._helixHighlightAllFiles = () => {
+      setHighlightAllFiles(true)
+      setTimeout(() => {
+        setHighlightAllFiles(false)
+      }, 2000)
+    }
+  }, [])
+
+  // This effect handles login and returning to a shared session
+  useEffect(() => {
+    if (!session.data) return
+    if (!account.user) return
+    const instructionsString = localStorage.getItem('shareSessionInstructions')
+    if (!instructionsString) return
+    localStorage.removeItem('shareSessionInstructions')
+    const instructions = JSON.parse(instructionsString || '{}') as IShareSessionInstructions
+    if (instructions.cloneMode && instructions.cloneInteractionID) {
+      onClone(instructions.cloneMode, instructions.cloneInteractionID)
+    } else if (instructions.inferencePrompt) {
+      setInputValue(instructions.inferencePrompt)
+      onSend(instructions.inferencePrompt)
+    }
+  }, [
+    account.user,
+    session.data,
+    onClone,
+    onSend,
+  ])
+
+  // When the session has loaded re-populate the feedback area
+  useEffect(() => {
+    if (!session.data) return
+    setFeedbackValue(session.data.config.eval_user_reason)
+  }, [
+    session.data,
+  ])
+
+  // In case the web socket updates do not arrive, if the session is not finished
+  // then keep reloading it until it has finished
+  useEffect(() => {
+    if (!session.data) return
+    const systemInteraction = getAssistantInteraction(session.data)
+    if (!systemInteraction) return
+    if (systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
+    
+    // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
+    const timer = setTimeout(() => {
+      safeReloadSession()
+    }, 5000)
+
+    return () => clearTimeout(timer)
+  }, [
+    session.data,
+    safeReloadSession,
+  ])
+
+  if (!session.data) return null
+
+  const handleInsertText = (text: string) => {
+    setInputValue(inputValue + text)
+  }
+
+  return (
     <Box
       sx={{
         width: '100%',
@@ -1173,19 +1285,19 @@ const Session: FC = () => {
           sx={{
             width: '100%',
             flexShrink: 0,
-            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
           }}
         >
           {(isOwner || account.admin) && (
             <Box sx={{ py: 1, px: 2 }}>
               <SessionToolbar
                 session={session.data}
-                onReload={session.reload}
+                onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
               />
             </Box>
           )}
-          
+
           {appID && apps.app && (
             <Box
               sx={{
@@ -1285,7 +1397,7 @@ const Session: FC = () => {
           <Box
             sx={{
               flexShrink: 0, // Prevent shrinking
-              borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+              borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
               bgcolor: theme.palette.background.default,
             }}
           >
@@ -1294,6 +1406,11 @@ const Session: FC = () => {
                 <Box sx={{ py: 2 }}>
                   <Row>
                     <Cell flexGrow={1}>
+                      <ContextMenuModal
+                        appId={appID || ''}
+                        textAreaRef={textFieldRef}
+                        onInsertText={handleInsertText}
+                      />
                       <TextField
                         id="textEntry"
                         fullWidth
@@ -1480,8 +1597,6 @@ const Session: FC = () => {
       {router.params.sharing && session.data && (
         <ShareSessionWindow
           session={session.data}
-          onShare={async () => true}
-          onUpdateSharing={onUpdateSharing}
           onCancel={() => {
             router.removeParams(['sharing'])
           }}

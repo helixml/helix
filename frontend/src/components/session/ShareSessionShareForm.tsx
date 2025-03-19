@@ -1,13 +1,10 @@
-import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Switch from '@mui/material/Switch'
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
+import { FC } from 'react'
 import useSnackbar from '../../hooks/useSnackbar'
+import Cell from '../widgets/Cell'
+import Row from '../widgets/Row'
 
 import {
   ISession,
@@ -15,113 +12,67 @@ import {
 
 export const ShareSessionShareForm: FC<{
   session: ISession,
-  shared: boolean,
-  onChange: {
-    (shared: boolean): void,
-  },
 }> = ({
   session,
-  shared,
-  onChange,
 }) => {
-  const snackbar = useSnackbar()
-  const url = `${window.location.protocol}//${window.location.hostname}/session/${session.id}`
+    const snackbar = useSnackbar()
+    const url = `${window.location.protocol}//${window.location.hostname}/session/${session.id}`
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(url)
-      .then(() => {
-        snackbar.success('Copied to clipboard')
-      })
-      .catch((error) => {
-        console.error('Failed to copy:', error)
-        snackbar.error('Failed to copy to clipboard')
-      })
-  }
+    const handleCopy = () => {
+      navigator.clipboard.writeText(url)
+        .then(() => {
+          snackbar.success('Copied to clipboard')
+        })
+        .catch((error) => {
+          console.error('Failed to copy:', error)
+          snackbar.error('Failed to copy to clipboard')
+        })
+    }
 
-  return (
-    <Box
-      sx={{
-        p: 1,
-      }}
-    >
-      <Row
+    return (
+      <Box
         sx={{
-          mb: 3,
+          p: 1,
         }}
       >
-        <Cell
-          sx={{
-            minWidth: '200px'
-          }}
-        >
-          <FormControlLabel
-            control={
-              <Switch
-                checked={ shared }
-                onChange={ (e) => {
-                  onChange(e.target.checked)
+        {
+          (
+            <Row>
+              <Cell
+                sx={{
+                  pr: 0.5,
+                  pb: 2.5,
                 }}
-              />
-            }
-            label="Share Session?"
-          />
-        </Cell>
-        <Cell grow>
-          {
-            shared ? (
-              <Typography
-                variant="body1"
+                flexGrow={1}
               >
-                This session is shared with other users (and is public).  Give them the following URL and they can continue the conversation from this point (but in their own account).
-              </Typography>
-            ) : (
-              <Typography
-                variant="body1"
+                <Typography variant="h6" sx={{
+                  backgroundColor: '#000',
+                  p: 2,
+                  border: '1px solid #999',
+                  borderRadius: 5,
+                }}>
+                  {url}
+                </Typography>
+              </Cell>
+              <Cell
+                sx={{
+                  ml: 0.5,
+                  pb: 3,
+                }}
               >
-                Share this session with other users (this will make it public).  They will be able to continue the conversation from this point (but in their own account).
-              </Typography>
-            )
-          }
-        </Cell>
-      </Row>
-      {
-        shared && (
-          <Row>
-            <Cell
-              sx={{
-                pr: 0.5,
-                pb: 2.5,
-              }}
-              flexGrow={1}
-            >
-              <Typography variant="h6" sx={{
-                backgroundColor: '#000',
-                p: 2,
-                border: '1px solid #999',
-                borderRadius: 5,
-              }}>
-                { url }
-              </Typography>
-            </Cell>
-            <Cell
-              sx={{
-                ml: 0.5,
-                pb: 3,
-              }}
-            >
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={handleCopy}
-              >
-                Copy URL
-              </Button>
-            </Cell>
-          </Row>
-        )
-      }
-    </Box>
-  )
-}
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={handleCopy}
+                >
+                  Copy URL
+                </Button>
+              </Cell>
+            </Row>
+          )
+        }
+      </Box>
+    )
+  }
 
 export default ShareSessionShareForm

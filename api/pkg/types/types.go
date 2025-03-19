@@ -188,7 +188,6 @@ type SessionRAGResult struct {
 type SessionMetadata struct {
 	OriginalMode            SessionMode       `json:"original_mode"`
 	Origin                  SessionOrigin     `json:"origin"`
-	Shared                  bool              `json:"shared"`
 	Avatar                  string            `json:"avatar"`
 	Priority                bool              `json:"priority"`
 	DocumentIDs             map[string]string `json:"document_ids"`
@@ -239,18 +238,19 @@ type SessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID        string      `json:"app_id"`       // Assign the session settings from the specified app
-	AssistantID  string      `json:"assistant_id"` // Which assistant are we speaking to?
-	SessionID    string      `json:"session_id"`   // If empty, we will start a new session
-	Stream       bool        `json:"stream"`       // If true, we will stream the response
-	Type         SessionType `json:"type"`         // e.g. text, image
-	LoraDir      string      `json:"lora_dir"`
-	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
-	Messages     []*Message  `json:"messages"` // Initial messages
-	Tools        []string    `json:"tools"`    // Available tools to use in the session
-	Provider     Provider    `json:"provider"` // The provider to use
-	Model        string      `json:"model"`    // The model to use
-	RAGSourceID  string      `json:"rag_source_id"`
+	AppID          string      `json:"app_id"`          // Assign the session settings from the specified app
+	OrganizationID string      `json:"organization_id"` // The organization this session belongs to, if any
+	AssistantID    string      `json:"assistant_id"`    // Which assistant are we speaking to?
+	SessionID      string      `json:"session_id"`      // If empty, we will start a new session
+	Stream         bool        `json:"stream"`          // If true, we will stream the response
+	Type           SessionType `json:"type"`            // e.g. text, image
+	LoraDir        string      `json:"lora_dir"`
+	SystemPrompt   string      `json:"system"`   // System message, only applicable when starting a new session
+	Messages       []*Message  `json:"messages"` // Initial messages
+	Tools          []string    `json:"tools"`    // Available tools to use in the session
+	Provider       Provider    `json:"provider"` // The provider to use
+	Model          string      `json:"model"`    // The model to use
+	RAGSourceID    string      `json:"rag_source_id"`
 	// the fine tuned data entity we produced from this session
 	LoraID string `json:"lora_id"`
 }
@@ -270,7 +270,8 @@ func (s *SessionChatRequest) Message() (string, bool) {
 // the user wants to create a Lora or RAG source
 // we turn this into a InternalSessionRequest
 type SessionLearnRequest struct {
-	Type SessionType `json:"type"` // e.g. text, image
+	Type           SessionType `json:"type"`            // e.g. text, image
+	OrganizationID string      `json:"organization_id"` // The organization this session belongs to, if any
 	// FINE-TUNE MODE ONLY
 	DataEntityID string `json:"data_entity_id"` // The uploaded files we want to use for fine-tuning and/or RAG
 	// Do we want to create a RAG data entity from this session?
@@ -329,6 +330,7 @@ type InternalSessionRequest struct {
 	LoraDir                 string
 	ParentSession           string
 	ParentApp               string // tools will get pulled in from here in the controller
+	OrganizationID          string // the organization this session belongs to, if any
 	AssistantID             string // target a specific assistant - defaults to "0" (i.e. the first assistant)
 	ModelName               string
 	Owner                   string
@@ -367,8 +369,10 @@ type Session struct {
 	Updated       time.Time `json:"updated"`
 	ParentSession string    `json:"parent_session"`
 	// the app this session was spawned from
-	ParentApp string          `json:"parent_app"`
-	Metadata  SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
+	ParentApp string `json:"parent_app"`
+	// the organization this session belongs to, if any
+	OrganizationID string          `json:"organization_id" gorm:"index"`
+	Metadata       SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -671,9 +675,10 @@ type SessionSummary struct {
 	Owner         string      `json:"owner"`
 	LoraDir       string      `json:"lora_dir,omitempty"`
 	// this is either the prompt or the summary of the training data
-	Summary  string `json:"summary"`
-	Priority bool   `json:"priority"`
-	AppID    string `json:"app_id,omitempty"`
+	Summary        string `json:"summary"`
+	Priority       bool   `json:"priority"`
+	AppID          string `json:"app_id,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
 }
 
 type WorkloadSummary struct {
@@ -837,13 +842,7 @@ const (
 )
 
 type Tool struct {
-	ID      string    `json:"id" gorm:"primaryKey"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
-	// uuid of owner entity
-	Owner string `json:"owner" gorm:"index"`
-	// e.g. user, system, org
-	OwnerType   OwnerType  `json:"owner_type"`
+	ID          string     `json:"id" gorm:"primaryKey"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
 	ToolType    ToolType   `json:"tool_type"`
@@ -1127,7 +1126,6 @@ type App struct {
 	OwnerType OwnerType `json:"owner_type"`
 	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
 	Global    bool      `json:"global"`
-	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
@@ -1534,4 +1532,17 @@ type AuthenticatedResponse struct {
 
 type TokenResponse struct {
 	Token string `json:"token"`
+}
+
+// This response represents what can be done with the context menu. The goal is to provide a list of
+// actions that can be taken, like "filter" or "include".
+// The UI is designed so that it groups each action into a section. If you want a multi-level menu,
+// you will need to implement that.
+type ContextMenuResponse struct {
+	Data []ContextMenuAction `json:"data"`
+}
+type ContextMenuAction struct {
+	ActionLabel string `json:"action_label"` // Forms the grouping in the UI
+	Label       string `json:"label"`        // The label that will be shown in the UI
+	Value       string `json:"value"`        // The value written to the text area when the action is selected
 }

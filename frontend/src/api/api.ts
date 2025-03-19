@@ -15,17 +15,11 @@ export interface GithubComHelixmlHelixApiPkgTypesConfig {
 
 export interface GithubComHelixmlHelixApiPkgTypesTool {
   config?: TypesToolConfig;
-  created?: string;
   description?: string;
   global?: boolean;
   id?: string;
   name?: string;
-  /** uuid of owner entity */
-  owner?: string;
-  /** e.g. user, system, org */
-  owner_type?: TypesOwnerType;
   tool_type?: GithubComHelixmlHelixApiPkgTypesToolType;
-  updated?: string;
 }
 
 export enum GithubComHelixmlHelixApiPkgTypesToolType {
@@ -331,6 +325,10 @@ export interface OpenaiEmbeddingResponse {
   usage?: GithubComSashabaranovGoOpenaiUsage;
 }
 
+export interface ServerLicenseKeyRequest {
+  license_key?: string;
+}
+
 export interface TypesAccessGrant {
   created_at?: string;
   id?: string;
@@ -381,7 +379,6 @@ export interface TypesApp {
   owner?: string;
   /** e.g. user, system, org */
   owner_type?: TypesOwnerType;
-  shared?: boolean;
   updated?: string;
   /** Owner user struct, populated by the server for organization views */
   user?: TypesUser;
@@ -518,6 +515,19 @@ export interface TypesChoice {
   index?: number;
   message?: TypesOpenAIMessage;
   text?: string;
+}
+
+export interface TypesContextMenuAction {
+  /** Forms the grouping in the UI */
+  action_label?: string;
+  /** The label that will be shown in the UI */
+  label?: string;
+  /** The value written to the text area when the action is selected */
+  value?: string;
+}
+
+export interface TypesContextMenuResponse {
+  data?: TypesContextMenuAction[];
 }
 
 export interface TypesCrawledSources {
@@ -729,6 +739,12 @@ export interface TypesKnowledgeProgress {
   progress?: number;
   started_at?: string;
   step?: string;
+}
+
+export interface TypesKnowledgeSearchResult {
+  duration_ms?: number;
+  knowledge?: TypesKnowledge;
+  results?: TypesSessionRAGResult[];
 }
 
 export interface TypesKnowledgeSource {
@@ -1089,6 +1105,8 @@ export interface TypesSession {
    * named manually
    */
   name?: string;
+  /** the organization this session belongs to, if any */
+  organization_id?: string;
   /** uuid of owner entity */
   owner?: string;
   /** e.g. user, system, org */
@@ -1113,6 +1131,8 @@ export interface TypesSessionChatRequest {
   messages?: TypesMessage[];
   /** The model to use */
   model?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
   rag_source_id?: string;
@@ -1133,6 +1153,8 @@ export interface TypesSessionLearnRequest {
   data_entity_id?: string;
   /** When doing RAG, allow the resulting inference session model to be specified */
   default_rag_model?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
   /**
    * Do we want to create a RAG data entity from this session?
    * You must provide a data entity ID for the uploaded documents if yes
@@ -1188,7 +1210,6 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
-  shared?: boolean;
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
@@ -1225,6 +1246,7 @@ export interface TypesSessionRAGResult {
   filename?: string;
   id?: string;
   interaction_id?: string;
+  metadata?: Record<string, string>;
   session_id?: string;
   source?: string;
 }
@@ -1336,15 +1358,6 @@ export interface TypesToolZapierConfig {
 export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
-}
-
-export interface TypesUIAtData {
-  label?: string;
-  value?: string;
-}
-
-export interface TypesUIAtResponse {
-  data?: TypesUIAtData[];
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -1824,6 +1837,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description contextMenuHandler
+     *
+     * @tags ui
+     * @name V1ContextMenuList
+     * @summary contextMenuHandler
+     * @request GET:/api/v1/context-menu
+     */
+    v1ContextMenuList: (
+      query: {
+        /** App ID */
+        app_id: string;
+        /** Query string */
+        q?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesContextMenuResponse, any>({
+        path: `/api/v1/context-menu`,
+        method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -1920,6 +1957,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the license key for the current user
+     *
+     * @name V1LicenseList
+     * @summary Get license key
+     * @request GET:/api/v1/license
+     * @secure
+     */
+    v1LicenseList: (params: RequestParams = {}) =>
+      this.request<ServerLicenseKeyRequest, any>({
+        path: `/api/v1/license`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the license key for the current user
+     *
+     * @name V1LicenseCreate
+     * @summary Set license key
+     * @request POST:/api/v1/license
+     * @secure
+     */
+    v1LicenseCreate: (params: RequestParams = {}) =>
+      this.request<ServerLicenseKeyRequest, any>({
+        path: `/api/v1/license`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List user's LLM calls with pagination and optional session filtering for a specific app
      *
      * @tags llm_calls
@@ -1964,7 +2037,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new organization
+     * @description Create a new organization. Only admin users can create organizations.
      *
      * @tags organizations
      * @name V1OrganizationsCreate
@@ -2322,6 +2395,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Search knowledges for a given app and prompt
+     *
+     * @tags knowledge
+     * @name V1SearchList
+     * @summary Search knowledges
+     * @request GET:/api/v1/search
+     * @secure
+     */
+    v1SearchList: (
+      query: {
+        /** App ID */
+        app_id: string;
+        /** Knowledge ID */
+        knowledge_id?: string;
+        /** Search prompt */
+        prompt: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesKnowledgeSearchResult[], any>({
+        path: `/api/v1/search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List secrets for the user.
      *
      * @tags secrets
@@ -2424,30 +2525,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description uiAt
-     *
-     * @tags ui
-     * @name V1UiAtList
-     * @summary uiAt
-     * @request GET:/api/v1/ui/at
-     */
-    v1UiAtList: (
-      query: {
-        /** Query string */
-        q: string;
-        /** App ID */
-        app_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesUIAtResponse, any>({
-        path: `/api/v1/ui/at`,
-        method: "GET",
-        query: query,
         ...params,
       }),
   };
