@@ -1,4 +1,4 @@
-{{- if .RagResults or .KnowledgeResults }}
+{{- if or .RagResults .KnowledgeResults }}
 We have found the following context you may refer to in your answer:
 {{- end }}
 
@@ -35,7 +35,7 @@ We have found the following context you may refer to in your answer:
 {{- end }}
 {{- end }}
 
-{{ if .RagResults or .KnowledgeResults }}
+{{ if or .RagResults .KnowledgeResults }}
 
 Your job is to provide high quality RAG results based on the above chunks and the user's question below.
 You will provide references in two ways:
