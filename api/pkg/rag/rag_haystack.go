@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -40,24 +41,22 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 
 	logger.Debug().Msg("Indexing documents")
 
-	for _, chunk := range chunks {
-		logger.Debug().
-			Str("data_entity_id", chunk.DataEntityID).
-			Str("document_id", chunk.DocumentID).
-			Msg("indexing chunk")
+	// Early exit if no chunks to index
+	if len(chunks) == 0 {
+		logger.Warn().Msg("no chunks to index, skipping")
+		return nil
+	}
 
-		// Metadata check before processing
-		if chunk.Metadata != nil {
-			logger.Info().
+	for _, chunk := range chunks {
+		// Skip chunks with empty content
+		if chunk.Content == "" {
+			logger.Warn().
 				Str("document_id", chunk.DocumentID).
-				Interface("chunk_metadata", chunk.Metadata).
-				Msg("Chunk contains metadata")
-		} else {
-			logger.Info().
-				Str("document_id", chunk.DocumentID).
-				Msg("Chunk does NOT contain metadata")
+				Msg("skipping chunk with empty content")
+			continue
 		}
 
+		// Create multipart/form-data
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
 
@@ -67,15 +66,16 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 
 		logger.Debug().Str("filename", filename).Msg("Indexing file")
 
-		// Add the file as a part
+		// Create a form file for the document
 		part, err := w.CreateFormFile("file", filename)
 		if err != nil {
 			return fmt.Errorf("creating form file: %w", err)
 		}
 
+		// Write the content - preserve original content including any NUL bytes
 		_, err = part.Write([]byte(chunk.Content))
 		if err != nil {
-			return fmt.Errorf("writing file content: %w", err)
+			return fmt.Errorf("writing content: %w", err)
 		}
 
 		// Add metadata for the document
@@ -90,7 +90,7 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 			// Add other metadata as needed
 		}
 
-		// Add any custom metadata from the chunk
+		// Add user metadata if present
 		if chunk.Metadata != nil {
 			logger.Info().
 				Str("document_id", chunk.DocumentID).
@@ -196,6 +196,18 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 		Interface("document_id_list", q.DocumentIDList).
 		Logger()
 
+	// Remove NUL bytes from the prompt first
+	sanitizedPrompt := removeNULBytes(q.Prompt)
+	if sanitizedPrompt != q.Prompt {
+		logger.Warn().Msg("query prompt contained NUL bytes that were removed")
+	}
+
+	// Check for empty prompt after sanitizing - return early with error
+	if sanitizedPrompt == "" {
+		logger.Error().Msg("empty query prompt received (or only NUL bytes), rejecting request")
+		return nil, fmt.Errorf("query prompt cannot be empty")
+	}
+
 	// Build document ID conditions
 	documentIDConditions := make([]Condition, len(q.DocumentIDList))
 	for i, documentID := range q.DocumentIDList {
@@ -208,7 +220,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 
 	// Build the complete query request
 	queryReq := QueryRequest{
-		Query: q.Prompt,
+		Query: sanitizedPrompt,
 		TopK:  q.MaxResults,
 		Filters: QueryFilter{
 			Operator: "AND",
@@ -221,6 +233,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 			},
 		},
 	}
+	logger.Trace().Interface("query_request", queryReq).Msg("query request")
 
 	// Add document ID filter if there are any document IDs
 	if len(documentIDConditions) > 0 {
@@ -339,10 +352,18 @@ func (h *HaystackRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest)
 
 	logger.Debug().Msg("Deleting documents from Haystack")
 
-	// Create delete request
+	// Create delete request with properly formatted filters
+	// The Haystack service expects filters with operator and conditions
 	deleteReq := map[string]interface{}{
 		"filters": map[string]interface{}{
-			"data_entity_id": req.DataEntityID,
+			"operator": "AND",
+			"conditions": []map[string]interface{}{
+				{
+					"field":    "meta.data_entity_id",
+					"operator": "==",
+					"value":    req.DataEntityID,
+				},
+			},
 		},
 	}
 
@@ -420,4 +441,9 @@ func toString(value interface{}) string {
 		// For any other type, try to use fmt.Sprint
 		return fmt.Sprint(v)
 	}
+}
+
+// removeNULBytes removes NUL bytes from a string
+func removeNULBytes(s string) string {
+	return strings.ReplaceAll(s, "\x00", "")
 }

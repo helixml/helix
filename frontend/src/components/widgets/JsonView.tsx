@@ -3,6 +3,8 @@ import { Box, Typography, Switch, FormControlLabel } from '@mui/material'
 
 interface JsonViewProps {
   data: any,
+  withFancyRendering?: boolean,
+  withFancyRenderingControls?: boolean,
   scrolling?: boolean
 }
 
@@ -61,9 +63,11 @@ const renderJsonValue = (value: any): JSX.Element => {
 
 const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
   data,
+  withFancyRendering = true,
+  withFancyRenderingControls = true,
   scrolling = false
 }) => {
-  const [useFancyRendering, setUseFancyRendering] = useState(true);
+  const [useFancyRendering, setUseFancyRendering] = useState(withFancyRendering);
 
   const toggleRendering = () => {
     setUseFancyRendering(!useFancyRendering);
@@ -71,10 +75,14 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
 
   return (
     <Box>
-      <FormControlLabel
-        control={<Switch checked={useFancyRendering} onChange={toggleRendering} />}
-        label="Fancy Rendering"
-      />
+      {
+        withFancyRenderingControls && (
+          <FormControlLabel
+            control={<Switch checked={useFancyRendering} onChange={toggleRendering} />}
+            label="Fancy Rendering"
+          />
+        )
+      }
       <Box
         sx={{
           fontFamily: '"Roboto Mono", monospace',

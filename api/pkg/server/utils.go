@@ -296,16 +296,6 @@ func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessi
 	return filePath, ownerContext, nil
 }
 
-func extractSessionID(path string) string {
-	parts := strings.Split(path, "/")
-	for i, part := range parts {
-		if part == "sessions" && i+1 < len(parts) {
-			return parts[i+1]
-		}
-	}
-	return ""
-}
-
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
 // this will tell you if the given http request is authorized to access it
 func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, error) {
@@ -322,22 +312,6 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 		verified := apiServer.Controller.VerifySignature(u)
 		logger.Debug().Bool("signatureVerified", verified).Msg("Checking URL signature")
 		return verified, nil
-	}
-
-	// if the session is "shared" then anyone can see it's files
-	sessionID := extractSessionID(req.URL.Path)
-	if sessionID != "" {
-		logger.Debug().Str("sessionID", sessionID).Msg("Found session ID in path")
-		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-		if err != nil {
-			logger.Error().Err(err).Str("sessionID", sessionID).Msg("Error retrieving session")
-			return false, err
-		}
-		if session.Metadata.Shared {
-			logger.Debug().Str("sessionID", sessionID).Msg("Session is shared, allowing access")
-			return true, nil
-		}
-		logger.Debug().Str("sessionID", sessionID).Bool("isShared", false).Msg("Session is not shared")
 	}
 
 	user := getRequestUser(req)
@@ -497,7 +471,6 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 		Str("appOwner", app.Owner).
 		Str("ownerType", string(app.OwnerType)).
 		Bool("isGlobal", app.Global).
-		Bool("isShared", app.Shared).
 		Msg("Retrieved app information")
 
 	// Get the user from the request
@@ -537,18 +510,6 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 		}
 		// Only admins and owners can modify global apps
 		logger.Debug().Msg("App is global but user requires write access, denying access")
-		return false, appID, nil
-	}
-
-	// Check if the app is shared
-	if app.Shared {
-		// For shared apps, read access is allowed for everyone
-		if requiredAction == types.ActionGet || requiredAction == types.ActionList {
-			logger.Debug().Msg("App is shared, granting read access")
-			return true, appID, nil
-		}
-		// Only admins and owners can modify shared apps
-		logger.Debug().Msg("App is shared but user requires write access, denying access")
 		return false, appID, nil
 	}
 

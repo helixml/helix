@@ -14,6 +14,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 
 interface JsonWindowProps {
   data: any,
+  withFancyRendering?: boolean,
+  withFancyRenderingControls?: boolean,
   onClose: {
     (): void,
   },
@@ -21,6 +23,8 @@ interface JsonWindowProps {
 
 const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
   data,
+  withFancyRendering = true,
+  withFancyRenderingControls = true,
   onClose,
 }) => {
   const snackbar = useSnackbar()
@@ -102,6 +106,8 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
           <JsonView
             data={data}
             scrolling={false}
+            withFancyRendering={withFancyRendering}
+            withFancyRenderingControls={withFancyRenderingControls}
           />
         </Box>
         <Box

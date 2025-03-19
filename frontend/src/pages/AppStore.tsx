@@ -24,17 +24,11 @@ const AppStore: FC = () => {
   const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
   
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
-  ])
-  
   return (
     <Page
       showTopbar={ true }
       breadcrumbTitle='App Store'
+      orgBreadcrumbs={ true }
     >
       <Container
         maxWidth="xl"
@@ -95,8 +89,8 @@ const AppStore: FC = () => {
           </Grid>
         </Box>
         <AppStoreGrid
-          apps={ apps.data }
-          onClick={ (id) => router.navigate('new', {app_id: id}) }
+          apps={ apps.apps }
+          onClick={ (id) => account.orgNavigate('new', {app_id: id}) }
         />
       </Container>
     </Page>

@@ -71,15 +71,34 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.AssistantID = assistantID
 	}
 
-	// if the app specifies a model, override startReq.Model so that we display
-	// the correct model in the UI (and some things may rely on it)
-	if startReq.AppID != "" {
-		// load the app
+	if startReq.AppID == "" {
+		// If organization ID is set, check if user is a member of the organization
+		if startReq.OrganizationID != "" {
+			_, err := s.authorizeOrgMember(req.Context(), user, startReq.OrganizationID)
+			if err != nil {
+				http.Error(rw, "You do not have access to the organization with the id: "+startReq.OrganizationID, http.StatusForbidden)
+				return
+			}
+		}
+	} else {
+		// If app ID is set, load the app
 		app, err := s.Store.GetAppWithTools(req.Context(), startReq.AppID)
 		if err != nil {
 			log.Error().Err(err).Str("app_id", startReq.AppID).Msg("Failed to load app")
 			http.Error(rw, "Failed to load app: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		// Check if the user has access to the app
+		if err := s.authorizeUserToApp(req.Context(), user, app, types.ActionGet); err != nil {
+			log.Error().Err(err).Str("app_id", startReq.AppID).Str("user_id", user.ID).Msg("User doesn't have access to app")
+			http.Error(rw, "You do not have access to the app with the id: "+startReq.AppID, http.StatusForbidden)
+			return
+		}
+
+		// Set organization ID if not set yet
+		if app.OrganizationID != "" {
+			startReq.OrganizationID = app.OrganizationID
 		}
 
 		// If an AssistantID is specified, get the correct assistant from the app
@@ -171,17 +190,33 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	} else {
 		// Create session
 		newSession = true
+
+		// // Check if this session is being created from an app that belongs to an organization
+		// // If so, inherit the organization ID from the app (if not already specified)
+		// if startReq.AppID != "" && startReq.OrganizationID == "" {
+		// 	app, err := s.Store.GetApp(req.Context(), startReq.AppID)
+		// 	if err == nil && app.OrganizationID != "" {
+		// 		// Found the app and it belongs to an organization, use its organization ID
+		// 		startReq.OrganizationID = app.OrganizationID
+		// 		log.Debug().
+		// 			Str("app_id", startReq.AppID).
+		// 			Str("organization_id", startReq.OrganizationID).
+		// 			Msg("using app's organization ID for new session")
+		// 	}
+		// }
+
 		session = &types.Session{
-			ID:        system.GenerateSessionID(),
-			Name:      s.getTemporarySessionName(message),
-			Created:   time.Now(),
-			Updated:   time.Now(),
-			Mode:      types.SessionModeInference,
-			Type:      types.SessionTypeText,
-			ModelName: startReq.Model,
-			ParentApp: startReq.AppID,
-			Owner:     user.ID,
-			OwnerType: user.Type,
+			ID:             system.GenerateSessionID(),
+			Name:           s.getTemporarySessionName(message),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			ModelName:      startReq.Model,
+			ParentApp:      startReq.AppID,
+			OrganizationID: startReq.OrganizationID,
+			Owner:          user.ID,
+			OwnerType:      user.Type,
 			Metadata: types.SessionMetadata{
 				Stream:       startReq.Stream,
 				SystemPrompt: startReq.SystemPrompt,

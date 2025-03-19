@@ -16,7 +16,6 @@ interface APIKeysSectionProps {
   allowedDomains: string[];
   setAllowedDomains: (domains: string[]) => void;
   isReadOnly: boolean;
-  readOnly: boolean;
 }
 
 const APIKeysSection: React.FC<APIKeysSectionProps> = ({
@@ -26,7 +25,6 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
   allowedDomains,
   setAllowedDomains,
   isReadOnly,
-  readOnly,
 }) => {
   return (
     <Box sx={{ mt: 2 }}>
@@ -69,7 +67,7 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
       </Typography>
       <StringArrayEditor
         entityTitle="domain"
-        disabled={readOnly || isReadOnly}
+        disabled={isReadOnly}
         data={allowedDomains}
         onChange={setAllowedDomains}
       />

@@ -20,11 +20,12 @@ type OwnerQuery struct {
 }
 
 type GetSessionsQuery struct {
-	Owner         string          `json:"owner"`
-	OwnerType     types.OwnerType `json:"owner_type"`
-	ParentSession string          `json:"parent_session"`
-	Offset        int             `json:"offset"`
-	Limit         int             `json:"limit"`
+	Owner          string          `json:"owner"`
+	OwnerType      types.OwnerType `json:"owner_type"`
+	ParentSession  string          `json:"parent_session"`
+	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
+	Offset         int             `json:"offset"`
+	Limit          int             `json:"limit"`
 }
 
 type ListAPIKeysQuery struct {
@@ -79,9 +80,15 @@ type ListUsersQuery struct {
 	Username  string          `json:"username"`
 }
 
-// ListOAuthProvidersQuery contains filters for listing OAuth providers
-// ListOAuthConnectionsQuery contains filters for listing OAuth connections
-// These types are defined in store_oauth.go
+// SearchUsersQuery defines parameters for searching users with partial matching
+type SearchUsersQuery struct {
+	EmailPattern    string `json:"email_pattern"`    // Pattern to match against email (LIKE query)
+	NamePattern     string `json:"name_pattern"`     // Pattern to match against full name (LIKE query)
+	UsernamePattern string `json:"username_pattern"` // Pattern to match against username (LIKE query)
+	OrganizationID  string `json:"organization_id"`  // Organization ID to filter users that are members of the org
+	Limit           int    `json:"limit"`            // Maximum number of results to return
+	Offset          int    `json:"offset"`           // Offset for pagination
+}
 
 var _ Store = &PostgresStore{}
 
@@ -123,7 +130,6 @@ type Store interface {
 	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
 	DeleteRole(ctx context.Context, id string) error
 	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
-
 	CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error)
 	ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error)
 	DeleteAccessGrant(ctx context.Context, id string) error
@@ -148,6 +154,7 @@ type Store interface {
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
+	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 
 	// usermeta
@@ -161,13 +168,6 @@ type Store interface {
 	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
-
-	// tools
-	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	GetTool(ctx context.Context, id string) (*types.Tool, error)
-	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
-	DeleteTool(ctx context.Context, id string) error
 
 	// provider endpoints
 	CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
@@ -225,6 +225,8 @@ type Store interface {
 	GetDecodedLicense(ctx context.Context) (*license.License, error)
 
 	// OAuth Provider methods
+	// ListOAuthProvidersQuery contains filters for listing OAuth providers
+	// ListOAuthConnectionsQuery contains filters for listing OAuth connections
 	CreateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error)
 	GetOAuthProvider(ctx context.Context, id string) (*types.OAuthProvider, error)
 	UpdateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error)

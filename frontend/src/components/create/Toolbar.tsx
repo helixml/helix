@@ -46,17 +46,13 @@ const CreateToolbar: FC<{
   const account = useAccount()
   const {
     navigate,
+    params,
   } = useRouter()
   const {
-    data: apps,
-    loadData,
+    apps,
   } = useApps()
-  const appRequested = new URLSearchParams(window.location.search).get('app_id') || '';
 
-  useEffect(() => {
-    if (!account.user) return
-    loadData()
-  }, [account.user])
+  const appRequested = params.app_id
 
   return (
     <Row>
