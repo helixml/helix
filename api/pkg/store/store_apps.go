@@ -7,7 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -54,8 +53,6 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 	}
 
 	app.Updated = time.Now()
-
-	spew.Dump(app)
 
 	sortAppTools(app)
 
