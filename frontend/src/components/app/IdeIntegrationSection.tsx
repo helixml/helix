@@ -63,9 +63,43 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               Follow these steps to configure <Link href="https://cline.bot/" target="_blank" rel="noopener noreferrer">Cline</Link>:
             </Typography>
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ mb: 1 }}>1. Open the command palette (CMD+Shift+P)</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>2. Type "MCP Servers"</Typography>
-              <Typography variant="body2" sx={{ mb: 1 }}>3. Add the following configuration:</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>1. Download Helix client: </Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 2,
+                mb: 2
+              }}>
+                <Typography component="pre" 
+                    sx={{
+                    wordBreak: 'break-all',
+                    wordWrap: 'break-all',
+                    whiteSpace: 'pre-wrap',
+                    fontSize: '0.8rem',                      
+                    fontFamily: "monospace",
+                    flexGrow: 1,
+                    mb: 0,
+                    mt: 0,
+                    }}
+                >
+                  curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli
+                </Typography>
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => {
+                    navigator.clipboard.writeText("curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli");
+                    snackbarSuccess('Command copied to clipboard');
+                  }}
+                  sx={{ textTransform: 'none', flexShrink: 0 }}
+                >
+                  Copy
+                </Button>
+              </Box>
+              <Typography variant="body2" sx={{ mb: 1 }}>2. Open the command palette (CMD+Shift+P)</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>3. Type "MCP Servers"</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>4. Add the following configuration:</Typography>
             </Box>
             <TextField
               value={getGenericMCPConfig()}
