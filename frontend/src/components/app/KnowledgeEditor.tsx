@@ -1,25 +1,23 @@
-import React, { FC, useState, useEffect, useRef, useCallback } from 'react';
-import {
-  Box,
-  Button,
-  TextField,
-  Typography,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  IconButton,
-  Alert,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  FormControlLabel,
-  Chip,
-  Tooltip,
-  Switch,
-  CircularProgress,
-  Grid,
-} from '@mui/material';
+import React, { FC, useState } from 'react';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import IconButton from '@mui/material/IconButton';
+import Alert from '@mui/material/Alert';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
+import Switch from '@mui/material/Switch';
+import CircularProgress from '@mui/material/CircularProgress';
+import Grid from '@mui/material/Grid';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -28,190 +26,59 @@ import LinkIcon from '@mui/icons-material/Link';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import useAccount from '../../hooks/useAccount';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
-import { IFileStoreItem, IKnowledgeSource } from '../../types';
-import useSnackbar from '../../hooks/useSnackbar';
-import useApi from '../../hooks/useApi';
 import CrawledUrlsDialog from './CrawledUrlsDialog';
 import AddKnowledgeDialog from './AddKnowledgeDialog';
 import FileUpload from '../widgets/FileUpload';
+
+import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import { prettyBytes } from '../../utils/format';
-import { IFilestoreUploadProgress } from '../../contexts/filestore';
+
+import useSnackbar from '../../hooks/useSnackbar';
+import useAccount from '../../hooks/useAccount';
+import useKnowledge, {
+  default_max_depth,
+} from '../../hooks/useKnowledge';
 
 interface KnowledgeEditorProps {
-  knowledgeSources: IKnowledgeSource[];
-  onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;  
-  onRefresh: (id: string) => void;
-  onCompletePreparation: (id: string) => void;
-  onUpload: (path: string, files: File[]) => Promise<void>;
-  loadFiles: (path: string) => Promise<IFileStoreItem[]>;
-  uploadProgress?: IFilestoreUploadProgress;
-  disabled: boolean;
   appId: string;
-  onRequestSave?: () => Promise<any>;
+  disabled: boolean;
+  saveKnowledgeToApp: (updatedKnowledge: IKnowledgeSource[]) => Promise<void>; 
+  onSaveApp: () => Promise<any>;
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, onCompletePreparation, onUpload, loadFiles, uploadProgress, disabled, appId, onRequestSave }) => {
-  const [expanded, setExpanded] = useState<string | false>(false);
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const { error: snackbarError, info: snackbarInfo, success: snackbarSuccess } = useSnackbar();
-  const api = useApi();
+const formatSpeed = (bytesPerSecond: number): string => {
+  if (bytesPerSecond < 1024) {
+    return `${bytesPerSecond.toFixed(1)} B/s`;
+  } else if (bytesPerSecond < 1024 * 1024) {
+    return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+  } else if (bytesPerSecond < 1024 * 1024 * 1024) {
+    return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+  } else {
+    return `${(bytesPerSecond / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
+  }
+}
+
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
+  appId,
+  disabled,
+  saveKnowledgeToApp,
+  onSaveApp,
+}) => {
+
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [directoryFiles, setDirectoryFiles] = useState<Record<number, IFileStoreItem[]>>({});
-  const [deletingFiles, setDeletingFiles] = useState<Record<string, boolean>>({});
-  const [localUploadProgress, setLocalUploadProgress] = useState<any>(null);
-  const uploadStartTimeRef = useRef<number | null>(null);
-  const [uploadEta, setUploadEta] = useState<string | null>(null);
-  const cancelTokenRef = useRef<AbortController | null>(null);
-  const uploadCancelledRef = useRef<boolean>(false);
-  const uploadSpeedRef = useRef<number[]>([]);
-  const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
-  const [uploadingFileCount, setUploadingFileCount] = useState<number>(0);
-  const account = useAccount();
 
-  useEffect(() => {
-    console.log('[KnowledgeEditor] Component mounted or updated with props:', {
-      knowledgeSources,
-      disabled,  
-      appId
-    });
-
-    return () => {
-      console.log('[KnowledgeEditor] Component will unmount');
-    };
-  }, [knowledgeSources, disabled, appId]);
-
-  useEffect(() => {
-    console.log('[KnowledgeEditor] Knowledge sources changed:', knowledgeSources);
-  }, [knowledgeSources]);
-
-  useEffect(() => {
-    console.log('KnowledgeEditor uploadProgress:', uploadProgress);
-  }, [uploadProgress]);
-
-  const default_max_depth = 1;
-  const default_max_pages = 5;
-
-  const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
-    setExpanded(isExpanded ? panel : false);
-  };
-
-  const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
-    console.log('[KnowledgeEditor] handleSourceUpdate - Original source:', knowledgeSources[index]);
-    console.log('[KnowledgeEditor] handleSourceUpdate - Updated fields:', updatedSource);
+  const snackbar = useSnackbar()
+  const account = useAccount()
+  const knowledgeHelpers = useKnowledge({
+    appId,
+    saveKnowledgeToApp,
+    onSaveApp,
+  })
     
-    const newSources = [...knowledgeSources];
-    const existingSource = newSources[index];
-    
-    let newSource = { ...existingSource, ...updatedSource };    
-    
-    console.log('[KnowledgeEditor] handleSourceUpdate - After merge:', newSource);
-
-    if (newSource.refresh_schedule === 'custom') {
-      newSource.refresh_schedule = '0 0 * * *';
-    } else if (newSource.refresh_schedule === 'One off') {
-      newSource.refresh_schedule = '';
-    }
-
-    if (newSource.source.web && newSource.source.web.crawler) {
-      newSource.source.web.crawler.enabled = true;
-    }
-
-    if (newSource.source.web?.crawler) {
-      newSource.source.web.crawler.max_depth = newSource.source.web.crawler.max_depth || default_max_depth;
-      newSource.source.web.crawler.max_pages = newSource.source.web.crawler.max_pages || default_max_pages;
-    }
-
-    newSources[index] = newSource;
-    console.log('[KnowledgeEditor] handleSourceUpdate - Final sources array being sent to parent:', newSources);
-    
-    // Only reload directory contents if the filestore path was changed
-    if (updatedSource.source?.filestore?.path && 
-        updatedSource.source.filestore.path !== existingSource.source.filestore?.path) {
-      loadDirectoryContents(updatedSource.source.filestore.path, index);
-    }
-    
-    // Directly update without debouncing
-    onUpdate(newSources);
-  };
-
-  const handleAddSource = (newSource: IKnowledgeSource) => {
-    console.log('[KnowledgeEditor] handleAddSource - Adding new source:', newSource);
-    let knowledges = [...knowledgeSources, newSource];
-    console.log('[KnowledgeEditor] handleAddSource - Updated knowledge array:', knowledges);
-    onUpdate(knowledges);
-    
-    setExpanded(`panel${knowledgeSources.length}`);
-    
-    if (newSource.source.filestore) {
-      snackbarInfo(`Knowledge source "${newSource.name}" created. You can now upload files.`);
-      // Explicitly load directory contents when a new filestore source is added
-      if (newSource.source.filestore.path) {
-        loadDirectoryContents(newSource.source.filestore.path, knowledgeSources.length);
-      }
-    }
-  };
-
-  const deleteSource = (index: number) => {
-    console.log('[KnowledgeEditor] deleteSource - Deleting source at index:', index);
-    const newSources = knowledgeSources.filter((_, i) => i !== index);
-    console.log('[KnowledgeEditor] deleteSource - Remaining sources:', newSources);
-    onUpdate(newSources);
-  };
-
-  const refreshSource = (index: number) => {
-    const knowledge = knowledgeSources.find(k => k.name === knowledgeSources[index].name);
-    if (knowledge) {
-      onRefresh(knowledge.id);
-      snackbarSuccess('Knowledge refresh initiated. This may take a few minutes.');
-    }
-  };
-
-  const completePreparation = (index: number) => {
-    const knowledge = knowledgeSources.find(k => k.name === knowledgeSources[index].name);
-    if (knowledge) {
-      onCompletePreparation(knowledge.id);
-      snackbarSuccess('Knowledge preparation completed. Indexing started.');
-    }
-  };
-
-  const validateSources = () => {
-    const newErrors: Record<string, string[]> = {};
-    knowledgeSources.forEach((source, index) => {      
-      if ((!source.source.web?.urls || source.source.web.urls.length === 0) && !source.source.filestore?.path) {
-        newErrors[`${index}`] = ["At least one URL or a filestore path must be specified."];
-      }
-    });
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  useEffect(() => {
-    validateSources();
-  }, [knowledgeSources]);
-
-  // Modified effect to only load directory contents when needed
-  useEffect(() => {
-    // Extract current filestore paths
-    const filestorePaths = knowledgeSources.map((source) => 
-      source.source.filestore?.path || null
-    );
-    
-    // Only load initial directory contents on component mount
-    knowledgeSources.forEach((source, index) => {
-      if (source.source.filestore?.path) {
-        loadDirectoryContents(source.source.filestore.path, index);
-      }
-    });
-    
-    // The effect dependency is intentionally empty to only run on mount
-    // Use the loadDirectoryContents function directly when needed instead
-  }, []); // Empty dependency array means only run on mount
-
   const getSourcePreview = (source: IKnowledgeSource): string => {
     // Prioritize using the source name if available
     if (source.name && source.name.trim() !== '') {
@@ -236,16 +103,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       return path;
     }
     return 'Unknown source';
-  };
-
-  const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
-    if (source.id) {
-      const byId = knowledgeSources.find(k => k.id === source.id);
-      if (byId) return byId;
-    }
-    
-    return knowledgeSources.find(k => k.name === source.name);
-  };
+  }
 
   const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
     if (!knowledge) return null;
@@ -278,303 +136,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
-  const formatTimeRemaining = (seconds: number): string => {
-    if (seconds < 60) {
-      return `${Math.round(seconds)}s`;
-    } else if (seconds < 3600) {
-      return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-    } else {
-      return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-    }
-  };
 
-  const formatSpeed = (bytesPerSecond: number): string => {
-    if (bytesPerSecond < 1024) {
-      return `${bytesPerSecond.toFixed(1)} B/s`;
-    } else if (bytesPerSecond < 1024 * 1024) {
-      return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
-    } else if (bytesPerSecond < 1024 * 1024 * 1024) {
-      return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
-    } else {
-      return `${(bytesPerSecond / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
-    }
-  };
-
-  const calculateEta = (loaded: number, total: number, startTime: number) => {
-    const elapsedSeconds = (Date.now() - startTime) / 1000;
-    
-    if (elapsedSeconds < 0.1) {
-      const percentComplete = loaded / total;
-      if (percentComplete > 0) {
-        return formatTimeRemaining(Math.ceil((total / loaded) * elapsedSeconds));
-      }
-      return "Calculating...";
-    }
-    
-    const currentSpeedValue = loaded / elapsedSeconds;
-    
-    uploadSpeedRef.current.push(currentSpeedValue);
-    if (uploadSpeedRef.current.length > 5) {
-      uploadSpeedRef.current.shift();
-    }
-    
-    const smoothedSpeed = uploadSpeedRef.current.reduce((sum, speed) => sum + speed, 0) / 
-                         uploadSpeedRef.current.length;
-    
-    setCurrentSpeed(smoothedSpeed);
-    
-    if (smoothedSpeed > 0) {
-      const remainingBytes = total - loaded;
-      const remainingSeconds = remainingBytes / smoothedSpeed;
-      
-      if (remainingSeconds < 1 && remainingSeconds > 0) {
-        return "< 1s";
-      }
-      
-      return formatTimeRemaining(remainingSeconds);
-    }
-    
-    return "Calculating...";
-  };
-
-  const handleFileUpload = async (index: number, files: File[]) => {    
-    const source = knowledgeSources[index];
-    if (!source.source.filestore?.path) {
-      snackbarError('No filestore path specified');
-      return;
-    }
-
-    let uploadPath = source.source.filestore.path;
-    if (!uploadPath.startsWith(`apps/${appId}/`)) {
-      uploadPath = `apps/${appId}/${uploadPath}`;
-    }
-
-    uploadCancelledRef.current = false;
-    
-    cancelTokenRef.current = new AbortController();
-    
-    try {
-      uploadSpeedRef.current = [];
-      setCurrentSpeed(null);
-      setUploadingFileCount(files.length);
-      
-      uploadStartTimeRef.current = Date.now();
-      setLocalUploadProgress({
-        percent: 0,
-        uploadedBytes: 0,
-        totalBytes: files.reduce((total, file) => total + file.size, 0)
-      });
-      setUploadEta("Calculating..."); 
-
-      const formData = new FormData();
-      files.forEach((file) => {
-        formData.append("files", file);
-      });
-
-      try {
-        await api.post('/api/v1/filestore/upload', formData, {
-          params: {
-            path: uploadPath,
-          },
-          signal: cancelTokenRef.current.signal,
-          onUploadProgress: (progressEvent) => {
-            if (uploadCancelledRef.current) return;
-            
-            const percent = progressEvent.total && progressEvent.total > 0 ?
-              Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
-            
-            setLocalUploadProgress({
-              percent,
-              uploadedBytes: progressEvent.loaded || 0,
-              totalBytes: progressEvent.total || 0,
-            });
-            
-            if (uploadStartTimeRef.current && progressEvent.total && progressEvent.loaded > 0) {
-              const eta = calculateEta(progressEvent.loaded, progressEvent.total, uploadStartTimeRef.current);
-              setUploadEta(eta);
-            }
-          }
-        });
-
-        if (!uploadCancelledRef.current) {
-          snackbarSuccess(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
-
-          const updatedFiles = await loadFiles(uploadPath);
-          setDirectoryFiles(prev => ({
-            ...prev,
-            [index]: updatedFiles
-          }));
-
-          if (onRequestSave) {
-            console.log('Auto-saving app after file upload to trigger indexing');
-            await onRequestSave();
-            
-            const knowledge = getKnowledge(source);
-            if (knowledge && knowledge.id) {
-              console.log('Triggering re-indexing after file upload for knowledge source:', knowledge.id);
-              onRefresh(knowledge.id);
-              snackbarInfo('Re-indexing started for newly uploaded files. This may take a few minutes.');
-            }
-          }
-        }
-      } catch (uploadError: unknown) {
-        if (
-          typeof uploadError === 'object' && 
-          uploadError !== null && 
-          ('name' in uploadError) && 
-          (uploadError.name === 'AbortError' || uploadError.name === 'CanceledError')
-        ) {
-          console.log('Upload was cancelled by user');
-          return;
-        }
-        
-        if (!uploadCancelledRef.current) {
-          console.error('Direct upload failed, falling back to onUpload method:', uploadError);
-          
-          try {
-            await onUpload(uploadPath, files);
-            
-            if (!uploadCancelledRef.current) {
-              snackbarSuccess(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`);
-              
-              const fallbackFiles = await loadFiles(uploadPath);
-              setDirectoryFiles(prev => ({
-                ...prev,
-                [index]: fallbackFiles
-              }));
-
-              if (onRequestSave) {
-                console.log('Auto-saving app after file upload to trigger indexing');
-                await onRequestSave();
-                
-                const knowledge = getKnowledge(source);
-                if (knowledge && knowledge.id) {
-                  console.log('Triggering re-indexing after fallback file upload for knowledge source:', knowledge.id);
-                  onRefresh(knowledge.id);
-                  snackbarInfo('Re-indexing started for newly uploaded files. This may take a few minutes.');
-                }
-              }
-            }
-          } catch (fallbackError) {
-            if (!uploadCancelledRef.current) {
-              console.error('Error in fallback upload:', fallbackError);
-              snackbarError('Failed to upload files. Please try again.');
-            }
-          }
-        }
-      }
-    } catch (error: unknown) {
-      if (!uploadCancelledRef.current) {
-        console.error('Error uploading files:', error);
-        snackbarError('Failed to upload files. Please try again.');
-      }
-    } finally {
-      if (uploadCancelledRef.current) {
-        setLocalUploadProgress(null);
-        uploadStartTimeRef.current = null;
-        setUploadEta(null);
-        setUploadingFileCount(0);
-        cancelTokenRef.current = null;
-      } else {
-        setTimeout(() => {
-          setLocalUploadProgress(null);
-          uploadStartTimeRef.current = null;
-          setUploadEta(null);
-          setUploadingFileCount(0);
-          cancelTokenRef.current = null;
-        }, 1000);
-      }
-      
-      uploadCancelledRef.current = false;
-    }
-  };
-
-  const handleCancelUpload = () => {
-    if (cancelTokenRef.current) {
-      uploadCancelledRef.current = true;
-      
-      snackbarInfo('Upload cancelled');
-      
-      cancelTokenRef.current.abort();
-      
-      setLocalUploadProgress(null);
-      uploadStartTimeRef.current = null;
-      setUploadEta(null);
-      setUploadingFileCount(0);
-      cancelTokenRef.current = null;
-    }
-  };
-
-  const loadDirectoryContents = async (path: string, index: number) => {
-    if (!path) return;
-    try {
-      let loadPath = path;
-      if (!loadPath.startsWith(`apps/${appId}/`)) {
-        loadPath = `apps/${appId}/${loadPath}`;
-      }
-      const files = await loadFiles(loadPath);
-      setDirectoryFiles(prev => ({
-        ...prev,
-        [index]: files
-      }));
-    } catch (error) {
-      console.error('Error loading directory contents:', error);
-    }
-  };
-
-  const handleDeleteFile = async (index: number, fileName: string) => {
-    const source = knowledgeSources[index];
-    if (!source.source.filestore?.path) {
-      snackbarError('No filestore path specified');
-      return;
-    }
-    
-    try {
-      const fileId = `${index}-${fileName}`;
-      setDeletingFiles(prev => ({
-        ...prev,
-        [fileId]: true
-      }));
-      
-      let basePath = source.source.filestore.path;
-      if (!basePath.startsWith(`apps/${appId}/`)) {
-        basePath = `apps/${appId}/${basePath}`;
-      }
-      
-      const filePath = `${basePath}/${fileName}`;
-      
-      const response = await api.delete('/api/v1/filestore/delete', {
-        params: {
-          path: filePath,
-        }
-      });
-      
-      if (response) {
-        snackbarSuccess(`File "${fileName}" deleted successfully`);
-        
-        const files = await loadFiles(basePath);
-        setDirectoryFiles(prev => ({
-          ...prev,
-          [index]: files
-        }));
-      } else {
-        snackbarError(`Failed to delete file "${fileName}"`);
-      }
-    } catch (error) {
-      console.error('Error deleting file:', error);
-      snackbarError('An error occurred while deleting the file');
-    } finally {
-      const fileId = `${index}-${fileName}`;
-      setDeletingFiles(prev => ({
-        ...prev,
-        [fileId]: false
-      }));
-    }
-  };
-
-  const renderSourceInput = (source: IKnowledgeSource, index: number) => {
-    const sourceType = source.source.filestore ? 'filestore' : 'web';
-    const knowledge = getKnowledge(source);
+  const renderSourceInput = (knowledge: IKnowledgeSource) => {
+    const sourceType = knowledge.source.filestore ? 'filestore' : 'web';
 
     return (
       <>
@@ -584,21 +148,21 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           <TextField
             fullWidth
             label="URLs (comma-separated)"
-            value={source.source.web?.urls?.join(', ') || ''}
+            value={knowledge.source.web?.urls?.join(', ') || ''}
             onChange={(e) => {
-              handleSourceUpdate(index, { 
+              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
                 source: { 
                   web: { 
-                    ...source.source.web, 
+                    ...knowledge.source.web, 
                     urls: e.target.value.split(',').map(url => url.trim()) 
                   } 
                 } 
-              });
+              })
             }}
             disabled={disabled}
             sx={{ mb: 2 }}
-            error={!!errors[`${index}`]}
-            helperText={errors[`${index}`]?.join(', ')}
+            error={!!knowledgeHelpers.errors[`${knowledge.id}`]}
+            helperText={knowledgeHelpers.errors[`${knowledge.id}`]?.join(', ')}
           />
         )}
 
@@ -607,11 +171,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           label="Description"
           multiline
           rows={2}
-          value={source.description || ''}
+          value={knowledge.description || ''}
           onChange={(e) => {
-            handleSourceUpdate(index, { 
-              description: e.target.value 
-            });
+            knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
+              description: e.target.value
+            })
           }}
           disabled={disabled}
           sx={{ mb: 2 }}
@@ -623,15 +187,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             fullWidth
             label="Results Count (optional)"
             type="number"
-            value={source.rag_settings.results_count}
+            value={knowledge.rag_settings.results_count}
             onChange={(e) => {
               const value = parseInt(e.target.value);
-              handleSourceUpdate(index, {
+              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
                 rag_settings: {
-                  ...source.rag_settings,
+                  ...knowledge.rag_settings,
                   results_count: value
                 }
-              });
+              })
             }}
             disabled={disabled}
           />
@@ -639,15 +203,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             fullWidth
             label="Chunk Size (optional)"
             type="number"              
-            value={source.rag_settings.chunk_size || ''}
+            value={knowledge.rag_settings.chunk_size || ''}
             onChange={(e) => {
               const value = e.target.value ? parseInt(e.target.value) : undefined;
-              handleSourceUpdate(index, {
+              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
                 rag_settings: {
-                  ...source.rag_settings,
+                  ...knowledge.rag_settings,
                   chunk_size: value ?? 0
                 }
-              });
+              })
             }}
             disabled={disabled}
           />
@@ -655,15 +219,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             fullWidth
             label="Chunk Overflow (optional)"
             type="number"
-            value={source.rag_settings.chunk_overflow}
+            value={knowledge.rag_settings.chunk_overflow}
             onChange={(e) => {
               const value = parseInt(e.target.value);
-              handleSourceUpdate(index, {
+              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
                 rag_settings: {
-                  ...source.rag_settings,
+                  ...knowledge.rag_settings,
                   chunk_overflow: value
                 }
-              });
+              })
             }}
             disabled={disabled}
           />
@@ -676,21 +240,21 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 fullWidth
                 label="Max crawling depth (pages to visit, max 100)"
                 type="number"
-                value={source.source.web?.crawler?.max_depth || default_max_depth}
+                value={knowledge.source.web?.crawler?.max_depth || default_max_depth}
                 onChange={(e) => {
                   const value = parseInt(e.target.value) || default_max_depth;
-                  handleSourceUpdate(index, {
+                  knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
                     source: {
                       web: {
-                        ...source.source.web,
+                        ...knowledge.source.web,
                         crawler: {
                           enabled: true,
-                          ...source.source.web?.crawler,
+                          ...knowledge.source.web?.crawler,
                           max_depth: value
                         }
                       }
                     }
-                  });
+                  })
                 }}
                 disabled={disabled}
               /> 
@@ -698,20 +262,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={source.source.web?.crawler?.readability ?? true}
+                      checked={knowledge.source.web?.crawler?.readability ?? true}
                       onChange={(e) => {
-                        handleSourceUpdate(index, {
+                        knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
                           source: {
                             web: {
-                              ...source.source.web,
+                              ...knowledge.source.web,
                               crawler: {
                                 enabled: true,
-                                ...source.source.web?.crawler,
+                                ...knowledge.source.web?.crawler,
                                 readability: e.target.checked
                               }
                             }
                           }
-                        });
+                        })
                       }}
                       disabled={disabled}
                     />
@@ -727,13 +291,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         <FormControl fullWidth sx={{ mb: 2 }}>
           <InputLabel>Scrape Interval</InputLabel>
           <Select
-            value={source.refresh_schedule === '' ? 'One off' : 
-                   (source.refresh_schedule === '@hourly' || source.refresh_schedule === '@daily' ? source.refresh_schedule : 'custom')}
+            value={knowledge.refresh_schedule === '' ? 'One off' : 
+                   (knowledge.refresh_schedule === '@hourly' || knowledge.refresh_schedule === '@daily' ? knowledge.refresh_schedule : 'custom')}
             onChange={(e) => {
               let newSchedule = e.target.value;
               if (newSchedule === 'One off') newSchedule = '';
               if (newSchedule === 'custom') newSchedule = '0 0 * * *';
-              handleSourceUpdate(index, { refresh_schedule: newSchedule });
+              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
+                refresh_schedule: newSchedule,
+              })
             }}
             disabled={disabled}
           >
@@ -743,12 +309,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             <MenuItem value="custom">Custom (cron)</MenuItem>
           </Select>
         </FormControl>
-        {source.refresh_schedule !== '' && source.refresh_schedule !== '@hourly' && source.refresh_schedule !== '@daily' && (
+        {knowledge.refresh_schedule !== '' && knowledge.refresh_schedule !== '@hourly' && knowledge.refresh_schedule !== '@daily' && (
           <TextField
             fullWidth
             label="Custom Cron Schedule"
-            value={source.refresh_schedule}
-            onChange={(e) => handleSourceUpdate(index, { refresh_schedule: e.target.value })}
+            value={knowledge.refresh_schedule}
+            onChange={(e) => {
+              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
+                refresh_schedule: e.target.value,
+              })
+            }}
             disabled={disabled}
             sx={{ mb: 2 }}
             helperText="Enter a valid cron expression (default: daily at midnight)"
@@ -769,7 +339,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 alignItems: 'center',
               }}
             >
-              {localUploadProgress ? (
+              {knowledgeHelpers.localUploadProgress ? (
                 <Box sx={{ 
                   border: '1px solid rgba(255, 255, 255, 0.2)', 
                   borderRadius: '8px', 
@@ -787,14 +357,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     mb: 2
                   }}>
                     <Typography variant="h6" fontWeight="500" color="common.white">
-                      Uploading {uploadingFileCount} {uploadingFileCount === 1 ? 'File' : 'Files'}
+                      Uploading {knowledgeHelpers.uploadingFileCount} {knowledgeHelpers.uploadingFileCount === 1 ? 'File' : 'Files'}
                     </Typography>
                     
                     <Button 
                       variant="outlined" 
                       color="error" 
                       size="small" 
-                      onClick={handleCancelUpload}
+                      onClick={knowledgeHelpers.handleCancelUpload}
                       startIcon={<CloseIcon />}
                       sx={{ 
                         borderRadius: '20px'
@@ -806,10 +376,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                     <Typography variant="body1" color="common.white" fontWeight="medium">
-                      {localUploadProgress.percent}% Complete
+                      {knowledgeHelpers.localUploadProgress.percent}% Complete
                     </Typography>
                     <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
-                      {prettyBytes(localUploadProgress.uploadedBytes)} of {prettyBytes(localUploadProgress.totalBytes)}
+                      {prettyBytes(knowledgeHelpers.localUploadProgress.uploadedBytes)} of {prettyBytes(knowledgeHelpers.localUploadProgress.totalBytes)}
                     </Typography>
                   </Box>
                   
@@ -824,7 +394,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     <Box 
                       sx={{ 
                         height: '100%', 
-                        width: `${localUploadProgress.percent}%`, 
+                        width: `${knowledgeHelpers.localUploadProgress.percent}%`, 
                         background: 'linear-gradient(90deg, #2196f3 0%, #64b5f6 100%)',
                         transition: 'width 0.3s ease-in-out'
                       }} 
@@ -838,7 +408,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                           ESTIMATED TIME REMAINING
                         </Typography>
                         <Typography variant="body2" color="common.white" fontWeight="medium">
-                          {uploadEta || "Calculating..."}
+                          {knowledgeHelpers.uploadEta || "Calculating..."}
                         </Typography>
                       </Box>
                     </Grid>
@@ -848,7 +418,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                           UPLOAD SPEED
                         </Typography>
                         <Typography variant="body2" color="common.white" fontWeight="medium">
-                          {currentSpeed ? formatSpeed(currentSpeed) : "Calculating..."}
+                          {knowledgeHelpers.currentSpeed ? formatSpeed(knowledgeHelpers.currentSpeed) : "Calculating..."}
                         </Typography>
                       </Box>
                     </Grid>
@@ -856,7 +426,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 </Box>
               ) : (
                 <>
-                  <FileUpload onUpload={(files) => handleFileUpload(index, files)}>
+                  <FileUpload onUpload={(files) => knowledgeHelpers.handleFileUpload(knowledge.id, files)}>
                     <Box
                       sx={{
                         border: '1px dashed #ccc',
@@ -891,7 +461,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               )}
             </Box>
 
-            {directoryFiles[index]?.length > 0 && !localUploadProgress && (
+            {knowledgeHelpers.directoryFiles[knowledge.id]?.length > 0 && !knowledgeHelpers.localUploadProgress && (
               <>
                 <Typography variant="caption" sx={{ mt: 2, mb: 1, display: 'block' }}>
                   Current files:
@@ -904,9 +474,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   p: 1,
                   width: '100%'
                 }}>
-                  {directoryFiles[index].map((file: any, fileIndex: number) => {
-                    const fileId = `${index}-${file.name}`;
-                    const isDeleting = deletingFiles[fileId] === true;
+                  {knowledgeHelpers.directoryFiles[knowledge.id].map((file: any, fileIndex: number) => {
+                    const fileId = `${knowledge.id}-${file.name}`;
+                    const isDeleting = knowledgeHelpers.deletingFiles[fileId] === true;
                     
                     return (
                       <Box 
@@ -942,7 +512,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                             onClick={(e) => {
                               e.stopPropagation();
                               if (!file.directory) {
-                                openFileInNewTab(file, source.source.filestore?.path || '');
+                                openFileInNewTab(file, knowledge.source.filestore?.path || '');
                               }
                             }}
                             style={{ 
@@ -965,7 +535,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (!isDeleting && window.confirm(`Are you sure you want to delete "${file.name}"?`)) {
-                                  handleDeleteFile(index, file.name);
+                                  knowledgeHelpers.handleDeleteFile(knowledge.id, file.name);
                                 }
                               }}
                               disabled={disabled || isDeleting}
@@ -989,19 +559,19 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     );
                   })}
                 </Box>
-                {source.source.filestore?.path && (
+                {knowledge.source.filestore?.path && (
                   <Box sx={{ display: 'flex', mt: 1 }}>
                     <Button
                       size="small"
                       startIcon={<RefreshIcon />}
-                      onClick={() => loadDirectoryContents(source.source.filestore?.path || '', index)}
+                      onClick={() => knowledgeHelpers.loadDirectoryContents(knowledge.source.filestore?.path || '', knowledge.id)}
                     >
                       Refresh Files
                     </Button>
                     <Button
                       size="small"
                       startIcon={<FolderOpenIcon />}
-                      onClick={() => openInFilestore(source.source.filestore?.path || '')}
+                      onClick={() => openInFilestore(knowledge.source.filestore?.path || '')}
                       sx={{ ml: 1 }}
                     >
                       Open in Filestore
@@ -1011,9 +581,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               </>
             )}
             
-            {directoryFiles[index]?.length === 0 && !localUploadProgress && (
+            {knowledgeHelpers.directoryFiles[knowledge.id]?.length === 0 && !knowledgeHelpers.localUploadProgress && (
               <Typography variant="caption" sx={{ color: '#999', textAlign: 'center', mt: 2, display: 'block' }}>
-                {source.source.filestore?.path 
+                {knowledge.source.filestore?.path 
                   ? 'No files uploaded yet. Drag and drop files here to upload.'
                   : 'Specify a filestore path first'
                 }
@@ -1030,7 +600,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               <Button
                 color="inherit"
                 size="small"
-                onClick={() => completePreparation(index)}
+                onClick={() => knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)}
                 disabled={disabled}
               >
                 Complete & Start Indexing
@@ -1047,7 +617,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   // Add functions to open files in a new tab and in the filestore
   const openFileInNewTab = (file: IFileStoreItem, sourcePath: string) => {
     if (!account.token) {
-      snackbarError('Must be logged in to view files');
+      snackbar.error('Must be logged in to view files');
       return;
     }
 
@@ -1075,14 +645,19 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   return (
     <Box>
-      {knowledgeSources.map((source, index) => {
-        const knowledge = getKnowledge(source);
-        
+      {knowledgeHelpers.knowledge.map((knowledge, index) => {
+        const serverKnowledge = knowledgeHelpers.serverKnowledge.find((k: IKnowledgeSource) => k.id === knowledge.id) || knowledge
         return (
           <Accordion
             key={index}
-            expanded={expanded === `panel${index}`}
-            onChange={handleChange(`panel${index}`)}
+            expanded={knowledgeHelpers.expanded === `panel${knowledge.id}`}
+            onChange={() => {
+              if(knowledgeHelpers.expanded === `panel${knowledge.id}`) {
+                knowledgeHelpers.setExpanded('')
+              } else {
+                knowledgeHelpers.setExpanded(`panel${knowledge.id}`)
+              }              
+            }}
           >
             <AccordionSummary 
               expandIcon={<ExpandMoreIcon />}
@@ -1090,14 +665,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             >
               <Box sx={{ flexGrow: 1 }}>
                 <Typography component="div" sx={{ display: 'flex', alignItems: 'center' }}>
-                  Knowledge Source ({getSourcePreview(source)})
-                  {renderKnowledgeState(knowledge)}
+                  Knowledge Source ({getSourcePreview(knowledge)})
+                  {renderKnowledgeState(serverKnowledge)}
                 </Typography>
-                {knowledge?.state === 'indexing' && (
+                {serverKnowledge.state === 'indexing' && (
                   <>
-                    {knowledge?.progress?.step && knowledge?.progress?.step !== '' ? (
+                    {serverKnowledge.progress?.step && serverKnowledge.progress?.step !== '' ? (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        {knowledge.progress.step} {knowledge.progress.progress ? `| ${knowledge.progress.progress}%` : ''} {knowledge.progress.message ? `| ${knowledge.progress.message}` : ''} {knowledge.progress.started_at ? `| elapsed: ${Math.round((Date.now() - new Date(knowledge.progress.started_at).getTime()) / 1000)}s` : ''}
+                        {serverKnowledge.progress.step} {serverKnowledge.progress.progress ? `| ${serverKnowledge.progress.progress}%` : ''} {serverKnowledge.progress.message ? `| ${serverKnowledge.progress.message}` : ''} {serverKnowledge.progress.started_at ? `| elapsed: ${Math.round((Date.now() - new Date(serverKnowledge.progress.started_at).getTime()) / 1000)}s` : ''}
                       </Typography>
                     ) : (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
@@ -1107,10 +682,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   </>
                 )}
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                  Version: {knowledge?.version || 'N/A'}
+                  Version: {serverKnowledge?.version || 'N/A'}
                 </Typography>
               </Box>
-              {source.source.web && (
+              {knowledge.source.web && (
                 <Tooltip title="View crawled URLs">
                   <IconButton
                     onClick={(e) => {
@@ -1129,7 +704,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 <IconButton
                   onClick={(e) => {
                     e.stopPropagation();
-                    refreshSource(index);
+                    knowledgeHelpers.handleRefreshKnowledge(knowledge.id)
                   }}
                   disabled={disabled}
                   sx={{ mr: 1 }}
@@ -1137,12 +712,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   <RefreshIcon />
                 </IconButton>
               </Tooltip>
-              {knowledge && knowledge.state === 'preparing' && (
+              {serverKnowledge && serverKnowledge.state === 'preparing' && (
                 <Tooltip title="Complete preparation and start indexing">
                   <IconButton
                     onClick={(e) => {
                       e.stopPropagation();
-                      completePreparation(index);
+                      knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)
                     }}
                     disabled={disabled}
                     sx={{ mr: 1 }}
@@ -1156,7 +731,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 <IconButton
                   onClick={(e) => {
                     e.stopPropagation();
-                    deleteSource(index);
+                    knowledgeHelpers.handleDeleteSource(knowledge.id)
                   }}
                   disabled={disabled}
                   sx={{ mr: 1 }}
@@ -1166,7 +741,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               </Tooltip>
             </AccordionSummary>
             <AccordionDetails>
-              {renderSourceInput(source, index)}
+              {renderSourceInput(knowledge)}
             </AccordionDetails>
           </Accordion>
         );
@@ -1183,10 +758,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       <AddKnowledgeDialog
         open={addDialogOpen}
         onClose={() => setAddDialogOpen(false)}
-        onAdd={handleAddSource}
+        onAdd={knowledgeHelpers.handleAddSource}
         appId={appId}
       />
-      {Object.keys(errors).length > 0 && (
+      {Object.keys(knowledgeHelpers.errors).length > 0 && (
         <Alert severity="error" sx={{ mt: 2 }}>
           Please specify at least one URL for each knowledge source.
         </Alert>
@@ -1201,3 +776,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 };
 
 export default KnowledgeEditor;
+
+
+
+// {appTools.knowledgeErrors && appTools.showErrors && (
+//   <Alert severity="error" sx={{ mt: 2 }}>
+//     Please specify at least one URL for each knowledge source.
+//   </Alert>
+// )}

@@ -195,16 +195,14 @@ const App: FC = () => {
                         Knowledge Sources
                       </Typography>
                       <KnowledgeEditor
-                        knowledgeSources={appTools.knowledge}
-                        onUpdate={appTools.handleKnowledgeUpdate}
-                        onRefresh={appTools.handleRefreshKnowledge}
-                        onCompletePreparation={appTools.handleCompleteKnowledgePreparation}
-                        onUpload={appTools.handleFileUpload}
-                        loadFiles={appTools.handleLoadFiles}
-                        uploadProgress={filestore.uploadProgress}
-                        disabled={appTools.isReadOnly}
                         appId={appTools.id}
-                        onRequestSave={async () => {
+                        disabled={appTools.isReadOnly}
+                        saveKnowledgeToApp={async (knowledge) => {
+                          await appTools.saveFlatApp({
+                            knowledge,
+                          })
+                        }}
+                        onSaveApp={async () => {
                           console.log('Saving app state after file upload to trigger indexing');
                           // Save the current app state to ensure all knowledge changes are persisted
                           if (!appTools.app) {
@@ -214,11 +212,6 @@ const App: FC = () => {
                           return await appTools.saveApp(appTools.app);
                         }}
                       />
-                      {appTools.knowledgeErrors && appTools.showErrors && (
-                        <Alert severity="error" sx={{ mt: 2 }}>
-                          Please specify at least one URL for each knowledge source.
-                        </Alert>
-                      )}
                     </Box>
                   )}
 
@@ -310,7 +303,7 @@ const App: FC = () => {
                   setInputValue={appTools.setInputValue}
                   onInference={appTools.onInference}
                   onSearch={appTools.onSearch}
-                  hasKnowledgeSources={appTools.knowledge.length > 0}
+                  hasKnowledgeSources={(appTools.flatApp?.knowledge?.length || 0) > 0}
                   searchResults={appTools.searchResults}
                   session={appTools.session.data}
                   serverConfig={account.serverConfig}

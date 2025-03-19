@@ -22,7 +22,6 @@ import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
 import useApps from './useApps'
 import useSession from './useSession'
-import useKnowledge from './useKnowledge'
 import useWebsocket from './useWebsocket'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
@@ -69,7 +68,6 @@ export const useApp = (appId: string) => {
 
   // App validation states
   const [showErrors, setShowErrors] = useState(false)
-  const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false)
 
   // New inference state
   const [isInferenceLoading, setIsInferenceLoading] = useState(false)
@@ -382,48 +380,12 @@ export const useApp = (appId: string) => {
   /**
    * Loads knowledge for the app
    */
-  const knowledgeUpdateCallback = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
+  const onUpdateKnowledge = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     saveFlatApp({
       knowledge: updatedKnowledge,
     })
   }, [saveFlatApp]);
 
-  const knowledgeTools = useKnowledge(appId, knowledgeUpdateCallback)
-  
-
-  /**
-   * 
-   * 
-   * filestore handlers
-   * 
-   * 
-   */  
-  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
-    try {
-      const filesResult = await api.get('/api/v1/filestore/list', {
-        params: {
-          path,
-        }
-      })
-      if(filesResult) {
-        return filesResult
-      }
-    } catch(e) {}
-    return []
-  }, [api]);
-
-  // Upload the files to the filestore
-  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
-    const formData = new FormData()
-    files.forEach((file) => {
-      formData.append("files", file)
-    })
-    await api.post('/api/v1/filestore/upload', formData, {
-      params: {
-        path,
-      },
-    })
-  }, [api]);
   
   /**
    * 
@@ -778,9 +740,7 @@ export const useApp = (appId: string) => {
 
     // Validation methods
     validateApp,
-    setKnowledgeErrors,
     setShowErrors,
-    knowledgeErrors,
     showErrors,
     
     // App operations
@@ -789,14 +749,7 @@ export const useApp = (appId: string) => {
     saveFlatApp,
 
     // Knowledge methods
-    knowledge: knowledgeTools.knowledge,
-    handleRefreshKnowledge: knowledgeTools.handleRefreshKnowledge,
-    handleCompleteKnowledgePreparation: knowledgeTools.handleCompleteKnowledgePreparation,
-    handleKnowledgeUpdate: knowledgeTools.handleKnowledgeUpdate,
-
-    // File methods
-    handleLoadFiles,
-    handleFileUpload,
+    onUpdateKnowledge,
 
     // Tools methods
     onSaveApiTool,
