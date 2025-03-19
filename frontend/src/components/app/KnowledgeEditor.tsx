@@ -489,7 +489,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                   <IconButton
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedKnowledge(knowledge);
+                      setSelectedKnowledge(serverKnowledge);
                       setUrlDialogOpen(true);
                     }}
                     disabled={disabled || !knowledge}
