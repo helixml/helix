@@ -76,41 +76,6 @@ export const useKnowledge = ({
   const [uploadingFileCount, setUploadingFileCount] = useState<number>(0)
   
   /**
-   * 
-   * 
-   * knowledge handlers
-   * 
-   * 
-   */
-
-  /**
-   * Merges server-controlled knowledge fields with current knowledge state
-   * Only updates fields that the server controls during background processing
-   */
-  const mergeKnowledgeUpdates = useCallback((currentKnowledge: IKnowledgeSource[], serverKnowledge: IKnowledgeSource[]) => {
-    // If we don't have any current knowledge, just use server knowledge
-    if (!currentKnowledge.length) return serverKnowledge
-    
-    return currentKnowledge.map(clientItem => {
-      // Find matching server item by ID
-      const serverItem = serverKnowledge.find(serverItem => serverItem.id === clientItem.id)
-      
-      // If no matching server item found, return client item unchanged
-      if (!serverItem) return clientItem
-      
-      // Only update server-controlled fields
-      return {
-        ...clientItem,        
-        state: serverItem.state,
-        message: serverItem.message,
-        progress: serverItem.progress,
-        crawled_sources: serverItem.crawled_sources,
-        version: serverItem.version
-      }
-    })
-  }, [])
-
-  /**
    * Loads knowledge for the app
    */
   const loadKnowledge = async (): Promise<IKnowledgeSource[]> => {

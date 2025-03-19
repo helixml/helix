@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { stringify as stringifyYaml } from 'yaml'
+import bluebird from 'bluebird'
 import {
   IApp,
   IAppFlatState,
@@ -9,10 +10,12 @@ import {
   IAssistantGPTScript,
   IAssistantApi,
   IAssistantZapier,
-  IFileStoreItem,
   APP_SOURCE_GITHUB,
   IAccessGrant,
   CreateAccessGrantRequest,
+  SESSION_TYPE_TEXT,
+  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  ISession,
 } from '../types'
 import {
   removeEmptyValues,
@@ -25,11 +28,6 @@ import useSession from './useSession'
 import useWebsocket from './useWebsocket'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
-import {
-  SESSION_TYPE_TEXT,
-  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
-  ISession,
-} from '../types'
 import {
   validateApp,
   getAppFlatState,
@@ -58,6 +56,7 @@ export const useApp = (appId: string) => {
    */
   const [app, setApp] = useState<IApp | null>(null)
   const [appSchema, setAppSchema] = useState<string>('')
+  const [serverKnowledge, setServerKnowledge] = useState<IKnowledgeSource[]>([])
   const [isAppLoading, setIsAppLoading] = useState(true)
   const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
@@ -216,6 +215,14 @@ export const useApp = (appId: string) => {
       setIsAppLoading(false)
     }
   }, [api, getDefaultAssistant])
+
+  const loadServerKnowledge = useCallback(async () => {
+    if(!appId) return
+    const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${appId}`, undefined, {
+      snackbar: false,
+    })
+    setServerKnowledge(knowledge || [])
+  }, [api, appId])
   
   /**
    * Merges flat state into the app
@@ -497,10 +504,10 @@ export const useApp = (appId: string) => {
    */
   const onSearch = async (query: string) => {
     if (!app) return
-    
+
     // Get knowledge ID from the app state
     // TODO: support multiple knowledge sources
-    const knowledgeId = app?.config.helix.assistants?.[0]?.knowledge?.[0]?.id
+    const knowledgeId = serverKnowledge[0]?.id
 
     if (!knowledgeId) {
       snackbar.error('No knowledge sources available')
@@ -665,15 +672,18 @@ export const useApp = (appId: string) => {
 
     const handleLoading = async () => {
       // First load the app
-      const loadedApp = await loadApp(appId, {
+      await loadApp(appId, {
         showErrors: true,
         showLoading: true,
       })
       
-      // Load other data that doesn't depend on the app's organization status
-      await endpointProviders.loadData()
-      await account.loadAppApiKeys(appId)
-
+      await bluebird.all([
+        loadServerKnowledge(),
+        // Load other data that doesn't depend on the app's organization status
+        endpointProviders.loadData(),
+        account.loadAppApiKeys(appId),
+      ])
+      
       setInitialised(true)
     }
 
@@ -750,6 +760,9 @@ export const useApp = (appId: string) => {
 
     // Knowledge methods
     onUpdateKnowledge,
+    loadServerKnowledge,
+    serverKnowledge,
+    setServerKnowledge,
 
     // Tools methods
     onSaveApiTool,
