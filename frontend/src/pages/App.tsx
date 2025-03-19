@@ -198,9 +198,13 @@ const App: FC = () => {
                         appId={appTools.id}
                         disabled={appTools.isReadOnly}
                         saveKnowledgeToApp={async (knowledge) => {
+                          // the knowledge has changed so we need to keep the app hook
+                          // in sync so it knows about the knowledge IDs then we
+                          // can use that for the preview panel
                           await appTools.saveFlatApp({
                             knowledge,
                           })
+                          await appTools.loadServerKnowledge()
                         }}
                         onSaveApp={async () => {
                           console.log('Saving app state after file upload to trigger indexing');
