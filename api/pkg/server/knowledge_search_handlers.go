@@ -77,15 +77,19 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 
 		pool.Go(func() error {
 			start := time.Now()
-			documentIDs := rag.ParseDocumentIDs(prompt)
-			log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
+			filterActions := rag.ParseFilterActions(prompt)
+			filterDocumentIDs := make([]string, 0)
+			for _, filterAction := range filterActions {
+				filterDocumentIDs = append(filterDocumentIDs, rag.ParseDocID(filterAction))
+			}
+			log.Trace().Interface("filterDocumentIDs", filterDocumentIDs).Msg("filterDocumentIDs")
 			resp, err := client.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
-				DocumentIDList:    documentIDs,
+				DocumentIDList:    filterDocumentIDs,
 			})
 			if err != nil {
 				log.Error().Err(err).Msgf("error querying RAG for knowledge %s", knowledge.ID)
