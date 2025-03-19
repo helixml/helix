@@ -949,55 +949,40 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 		return nil, nil
 	}
 
-	// First, check the new tool-level OAuth providers
-	for _, tool := range app.Config.Helix.Tools {
-		if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-			providerType := tool.Config.API.OAuthProvider
-			requiredScopes := tool.Config.API.OAuthScopes
+	// Keep track of providers we've seen to avoid duplicates
+	seenProviders := make(map[types.OAuthProviderType]bool)
 
-			token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
-			if err == nil && token != "" {
-				envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-				envVars = append(envVars, fmt.Sprintf("%s=%s", envName, token))
-				log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
-			} else {
-				var scopeErr *oauth.ScopeError
-				if errors.As(err, &scopeErr) {
-					log.Warn().
-						Str("app_id", app.ID).
-						Str("user_id", userID).
-						Str("provider", string(providerType)).
-						Strs("missing_scopes", scopeErr.Missing).
-						Msg("Missing required OAuth scopes for tool")
+	// First, check the tools defined in assistants
+	for _, assistant := range app.Config.Helix.Assistants {
+		for _, tool := range assistant.Tools {
+			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+				providerType := tool.Config.API.OAuthProvider
+				requiredScopes := tool.Config.API.OAuthScopes
+
+				// Skip if we've already processed this provider
+				if seenProviders[providerType] {
+					continue
+				}
+				seenProviders[providerType] = true
+
+				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
+				if err == nil && token != "" {
+					envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
+					envVars = append(envVars, fmt.Sprintf("%s=%s", envName, token))
+					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
 				} else {
-					log.Debug().Err(err).Str("provider", string(providerType)).Msg("Failed to get OAuth token for tool")
+					var scopeErr *oauth.ScopeError
+					if errors.As(err, &scopeErr) {
+						log.Warn().
+							Str("app_id", app.ID).
+							Str("user_id", userID).
+							Str("provider", string(providerType)).
+							Strs("missing_scopes", scopeErr.Missing).
+							Msg("Missing required OAuth scopes for tool")
+					} else {
+						log.Debug().Err(err).Str("provider", string(providerType)).Msg("Failed to get OAuth token for tool")
+					}
 				}
-			}
-		}
-	}
-
-	// For backward compatibility, also check app-level OAuth providers
-	if app.Config.Helix.OAuthProviders != nil && len(app.Config.Helix.OAuthProviders) > 0 {
-		for _, providerType := range app.Config.Helix.OAuthProviders {
-			// Skip if we already have a token for this provider from a tool
-			envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-			hasToken := false
-			for _, env := range envVars {
-				if strings.HasPrefix(env, envName+"=") {
-					hasToken = true
-					break
-				}
-			}
-			if hasToken {
-				continue
-			}
-
-			token, err := c.Options.OAuthManager.GetTokenForApp(ctx, userID, providerType)
-			if err == nil && token != "" {
-				envVars = append(envVars, fmt.Sprintf("%s=%s", envName, token))
-				log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment (legacy)")
-			} else {
-				log.Debug().Err(err).Str("provider", string(providerType)).Msg("Failed to get OAuth token for app (legacy)")
 			}
 		}
 	}

@@ -158,11 +158,11 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return false
 		}
 
-		// Second priority: Meta-Llama-3.1-8B-Instruct-Turbo
-		if models[i].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
+		// Second priority: meta-llama/Llama-3.3-70B-Instruct-Turbo
+		if models[i].ID == "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
 			return true
 		}
-		if models[j].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
+		if models[j].ID == "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
 			return false
 		}
 
