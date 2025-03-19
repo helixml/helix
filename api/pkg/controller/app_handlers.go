@@ -12,6 +12,8 @@ import (
 )
 
 // getAppOAuthTokenEnv retrieves OAuth tokens for an app and returns them as environment variables
+// This function is currently unused but kept for future implementation
+// nolint:unused
 func (c *Controller) getAppOAuthTokenEnv(ctx context.Context, app *types.App, userID string) ([]string, error) {
 	if c.Options.OAuthManager == nil {
 		return nil, nil

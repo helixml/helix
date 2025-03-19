@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/oauth2"
+
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"golang.org/x/oauth2"
 )
 
 // OAuth2Provider implements the Provider interface for generic OAuth 2.0 providers
@@ -137,7 +139,11 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 	requestToken := requestTokens[0]
 
 	// Delete the request token as it's no longer needed
-	defer p.store.DeleteOAuthRequestToken(ctx, requestToken.ID)
+	defer func() {
+		if err := p.store.DeleteOAuthRequestToken(ctx, requestToken.ID); err != nil {
+			log.Error().Err(err).Str("requestTokenID", requestToken.ID).Msg("Failed to delete OAuth request token")
+		}
+	}()
 
 	// Check if the request token has expired
 	if time.Now().After(requestToken.ExpiresAt) {

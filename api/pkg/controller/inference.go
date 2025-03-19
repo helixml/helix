@@ -992,7 +992,7 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 
 func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Client, opts *ChatCompletionOptions, user *types.User) error {
 	// If we already have OAuth tokens, use them
-	if opts.OAuthEnvVars != nil && len(opts.OAuthEnvVars) > 0 {
+	if len(opts.OAuthEnvVars) > 0 {
 		return nil
 	}
 

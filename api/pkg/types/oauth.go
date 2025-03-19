@@ -99,7 +99,7 @@ type OAuthUserInfo struct {
 }
 
 // BeforeCreate sets default values for new records
-func (p *OAuthProvider) BeforeCreate(tx *gorm.DB) error {
+func (p *OAuthProvider) BeforeCreate(_ *gorm.DB) error {
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now()
 	}
@@ -110,13 +110,13 @@ func (p *OAuthProvider) BeforeCreate(tx *gorm.DB) error {
 }
 
 // BeforeUpdate sets updated_at before updating
-func (p *OAuthProvider) BeforeUpdate(tx *gorm.DB) error {
+func (p *OAuthProvider) BeforeUpdate(_ *gorm.DB) error {
 	p.UpdatedAt = time.Now()
 	return nil
 }
 
 // BeforeCreate sets default values for new connections
-func (c *OAuthConnection) BeforeCreate(tx *gorm.DB) error {
+func (c *OAuthConnection) BeforeCreate(_ *gorm.DB) error {
 	if c.CreatedAt.IsZero() {
 		c.CreatedAt = time.Now()
 	}
