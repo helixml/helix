@@ -466,17 +466,16 @@ export const useApp = (appId: string) => {
 
   /**
    * Handles sending a new inference message
-   * @param currentInputValue - Optional override for the current input value
    * @returns Promise<void>
    */
-  const onInference = async (currentInputValue?: string) => {
+  const onInference = async () => {
     if(!app) return
     
     setIsInferenceLoading(true)
 
     try {  
-      // Use the provided input value or the current state value
-      const messageToSend = currentInputValue !== undefined ? currentInputValue : inputValue
+      // Use the current input value from state
+      const messageToSend = inputValue;
 
       setInputValue('')
       

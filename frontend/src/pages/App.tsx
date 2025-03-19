@@ -294,7 +294,7 @@ const App: FC = () => {
               </Grid>
               {/* For API keys section show  */}
               {tabValue === 'apikeys' ? (
-                <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
+                <CodeExamples apiKey={account.appApiKeys[0]?.key || ''} />
               ) : (
                 <PreviewPanel
                   loading={appTools.isInferenceLoading}
