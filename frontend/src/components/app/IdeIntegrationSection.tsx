@@ -37,6 +37,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
 
 
   const getGenericMCPConfig = () => {
+    const serverUrl = window.location.origin;
     return `{
   "mcpServers": {
     "helix-mcp": {
@@ -46,7 +47,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
         "run",
         "--app-id", "${appId}",
         "--api-key", "${apiKey}",
-        "--url", "http://localhost:8080"
+        "--url", "${serverUrl}"
       ]
     }
   }
