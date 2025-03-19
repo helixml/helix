@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 
@@ -386,7 +387,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	if errorMsg != "" {
 		// Create a user-friendly error page based on the error type
 		errorTitle := "Authentication Error"
-		errorMessage := fmt.Sprintf("%v", errorMsg)
+		errorMessage := fmt.Sprintf("%v", html.EscapeString(errorMsg))
 		errorColor := "#d32f2f" // Red by default
 
 		// Check for specific error types
