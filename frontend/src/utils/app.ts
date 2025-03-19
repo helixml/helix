@@ -108,10 +108,10 @@ export const validateApp = (app: IApp): string[] => {
 
   if (!app) return ['No app loaded']
   
-  // Validate required fields
-  if (!app.config.helix.name) {
-    errors.push('App name is required')
-  }
+  // // Validate required fields
+  // if (!app.config.helix.name) {
+  //   errors.push('App name is required')
+  // }
   
   // Validate assistants
   if (!app.config.helix.assistants || app.config.helix.assistants.length === 0) {
