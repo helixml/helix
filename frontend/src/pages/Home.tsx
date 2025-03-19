@@ -16,6 +16,7 @@ import ExamplePrompts from '../components/create/ExamplePrompts'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
 import { useAccount } from '../contexts/account'
+import OAuthAppTemplates from '../components/home/OAuthAppTemplates'
 
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
@@ -346,6 +347,9 @@ const Home: FC = () => {
                         }, 100)
                       }}
                     />
+
+                    {/* Add OAuth App Templates section */}
+                    <OAuthAppTemplates />
                   </Box>
                 </Row>
                 <Row

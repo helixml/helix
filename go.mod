@@ -12,6 +12,7 @@ require (
 	github.com/Nerzal/gocloak/v13 v13.9.0
 	github.com/avast/retry-go/v4 v4.5.1
 	github.com/bwmarrin/discordgo v0.28.1
+	github.com/coreos/go-oidc/v3 v3.13.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/drone/envsubst v1.0.3
@@ -76,8 +77,6 @@ require (
 )
 
 require (
-	github.com/coreos/go-oidc/v3 v3.13.0 // indirect
-	github.com/dghubble/oauth1 v0.7.3 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
 )
