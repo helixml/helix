@@ -177,15 +177,6 @@ const routes: IApplicationRoute[] = [
     <Secrets />
   ),
 }, {
-  name: 'app',
-  path: '/app/:app_id',
-  meta: {
-    drawer: false,
-  },
-  render: () => (
-    <App />
-  ),
-}, {
   name: 'oauth-connections',
   path: '/oauth-connections',
   meta: {
@@ -194,16 +185,6 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <OAuthConnectionsPage />
-  ),
-}, {
-  name: 'session',
-  path: '/session/:session_id',
-  meta: {
-    drawer: true,
-    topbar: false,
-  },
-  render: () => (
-    <Session />
   ),
 }, {
   name: 'dashboard',
@@ -229,17 +210,6 @@ const routes: IApplicationRoute[] = [
     drawer: false,
   },
   render: () => <OpenAPI />,
-}, {
-  name: 'dashboard',
-  path: '/dashboard',
-  meta: {
-    drawer: true,
-    background: '#ffffff',
-    orgAware: true,
-  },
-  render: () => (
-    <Dashboard />
-  ),
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
