@@ -181,8 +181,15 @@ export const useKnowledge = ({
     
     if (newlyAddedSource.source.filestore) {
       snackbar.info(`Knowledge source "${newlyAddedSource.name}" created. You can now upload files.`)
+
       // Explicitly load directory contents when a new filestore source is added
       if (newlyAddedSource.source.filestore.path) {
+        // Initialize an empty array for the new knowledge source to prevent "undefined" checks
+        setDirectoryFiles(prev => ({
+          ...prev,
+          [newlyAddedSource.id]: [] // Initialize with empty array
+        }))
+        // Then load the actual directory contents
         loadDirectoryContents(newlyAddedSource.source.filestore.path, newlyAddedSource.id)
       }
     }
@@ -280,33 +287,59 @@ export const useKnowledge = ({
   
   const loadDirectoryContents = async (path: string, id: string) => {
     if (!path) return
+    if (!id) {
+      console.error('[useKnowledge] loadDirectoryContents called with empty ID')
+      return
+    }
+    
     try {
+      // Ensure consistent path handling
       let loadPath = path
       if (!loadPath.startsWith(`apps/${appId}/`)) {
         loadPath = `apps/${appId}/${loadPath}`
       }
-      const files = await filestore.getFiles(loadPath)
-      setDirectoryFiles(prev => ({
-        ...prev,
-        [id]: files
-      }))
+      
+      console.log(`[useKnowledge] Loading directory contents for ID: ${id}, path: ${loadPath}`)
+      
+      // Fetch files from filestore
+      const files = await api.get<IFileStoreItem[]>('/api/v1/filestore/list', {
+        params: {
+          path: loadPath,
+        }
+      }) || []
+
+      // Store files with knowledge ID as key
+      setDirectoryFiles(prev => {
+        const updated = {
+          ...prev,
+          [id]: files
+        }
+        console.log(`[useKnowledge] Updated directoryFiles:`, updated)
+        return updated
+      })
     } catch (error) {
-      console.error('Error loading directory contents:', error)
+      console.error(`[useKnowledge] Error loading directory contents for ID: ${id}:`, error)
     }
   }
 
   const handleFileUpload = async (id: string, files: File[]) => {
+    console.log(`[useKnowledge] Starting file upload for knowledge ID: ${id}`)
     const source = knowledge.find(k => k.id === id)
-    if(!source) return
+    if(!source) {
+      console.error(`[useKnowledge] Knowledge source not found for ID: ${id}`)
+      return
+    }
     if (!source.source.filestore?.path) {
       snackbar.error('No filestore path specified')
       return
     }
 
+    // Ensure consistent path handling
     let uploadPath = source.source.filestore.path
     if (!uploadPath.startsWith(`apps/${appId}/`)) {
       uploadPath = `apps/${appId}/${uploadPath}`
     }
+    console.log(`[useKnowledge] Upload path: ${uploadPath}`)
 
     uploadCancelledRef.current = false
     
@@ -358,7 +391,11 @@ export const useKnowledge = ({
         if (!uploadCancelledRef.current) {
           snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`)
 
+          // Get updated file list after successful upload
           const updatedFiles = await filestore.getFiles(uploadPath)
+          console.log(`[useKnowledge] Upload complete, found ${updatedFiles.length} files for ID: ${id}`, updatedFiles)
+          
+          // Update directory files state with knowledge ID as key
           setDirectoryFiles(prev => ({
             ...prev,
             [id]: updatedFiles
@@ -389,7 +426,11 @@ export const useKnowledge = ({
             if (!uploadCancelledRef.current) {
               snackbar.success(`Successfully uploaded ${files.length} file${files.length !== 1 ? 's' : ''}`)
               
+              // Get updated file list after fallback upload
               const fallbackFiles = await filestore.getFiles(uploadPath)
+              console.log(`[useKnowledge] Fallback upload complete, found ${fallbackFiles.length} files for ID: ${id}`, fallbackFiles)
+              
+              // Update directory files state with knowledge ID as key
               setDirectoryFiles(prev => ({
                 ...prev,
                 [id]: fallbackFiles
@@ -431,6 +472,14 @@ export const useKnowledge = ({
       }
       
       uploadCancelledRef.current = false
+    }
+
+    const uploadedKnowledge = knowledge.find(k => k.id === id)
+
+    if (uploadedKnowledge) {
+      if (uploadedKnowledge.source.filestore?.path) {
+        loadDirectoryContents(uploadedKnowledge.source.filestore.path, uploadedKnowledge.id)
+      }
     }
   }
 
@@ -484,6 +533,8 @@ export const useKnowledge = ({
         snackbar.success(`File "${fileName}" deleted successfully`);
         
         const files = await filestore.getFiles(basePath);
+        console.log(`[useKnowledge] After file deletion, found ${files.length} files for ID: ${id}`, files);
+        
         setDirectoryFiles(prev => ({
           ...prev,
           [id]: files
@@ -517,13 +568,12 @@ export const useKnowledge = ({
       }, 2000)
       loadServerKnowledge()
       const knowledge = await loadKnowledge()
-      // Only load initial directory contents on component mount
-      knowledge
-        .forEach((source) => {
-          if (source.source.filestore?.path) {
-            loadDirectoryContents(source.source.filestore.path, source.id)
-          }
-        })
+
+      knowledge.forEach((source) => {
+        if (source.source.filestore?.path) {
+          loadDirectoryContents(source.source.filestore.path, source.id)
+        }
+      })
     }
 
     runAsync()

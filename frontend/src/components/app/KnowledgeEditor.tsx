@@ -292,7 +292,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                   p: 1,
                   width: '100%'
                 }}>
-                  {knowledgeHelpers.directoryFiles[knowledge.id].map((file: any, fileIndex: number) => {
+                  {Array.isArray(knowledgeHelpers.directoryFiles[knowledge.id]) && 
+                   knowledgeHelpers.directoryFiles[knowledge.id].map((file: IFileStoreItem, fileIndex: number) => {
                     const fileId = `${knowledge.id}-${file.name}`;
                     const isDeleting = knowledgeHelpers.deletingFiles[fileId] === true;
                     
@@ -399,12 +400,19 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
               </>
             )}
             
-            {knowledgeHelpers.directoryFiles[knowledge.id]?.length === 0 && !knowledgeHelpers.localUploadProgress && (
+            {(!knowledgeHelpers.directoryFiles[knowledge.id] || 
+              knowledgeHelpers.directoryFiles[knowledge.id]?.length === 0) && 
+              !knowledgeHelpers.localUploadProgress && (
               <Typography variant="caption" sx={{ color: '#999', textAlign: 'center', mt: 2, display: 'block' }}>
                 {knowledge.source.filestore?.path 
                   ? 'No files uploaded yet. Drag and drop files here to upload.'
                   : 'Specify a filestore path first'
                 }
+                {/* Debug info */}
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.500' }}>
+                  Knowledge ID: {knowledge.id}, 
+                  Available keys: {Object.keys(knowledgeHelpers.directoryFiles || {}).join(', ')}
+                </Typography>
               </Typography>
             )}
           </Box>
@@ -575,11 +583,3 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
 };
 
 export default KnowledgeEditor;
-
-
-
-// {appTools.knowledgeErrors && appTools.showErrors && (
-//   <Alert severity="error" sx={{ mt: 2 }}>
-//     Please specify at least one URL for each knowledge source.
-//   </Alert>
-// )}
