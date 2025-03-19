@@ -130,6 +130,27 @@ const Session: FC = () => {
   // Add state to track which session we've auto-scrolled
   const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
 
+  // Add ref to store current scroll position
+  const scrollPositionRef = useRef<number>(0)
+
+  // Function to save scroll position
+  const saveScrollPosition = useCallback(() => {
+    if (containerRef.current) {
+      scrollPositionRef.current = containerRef.current.scrollTop;
+    }
+  }, []);
+
+  // Function to restore scroll position
+  const restoreScrollPosition = useCallback(() => {
+    if (containerRef.current && scrollPositionRef.current > 0) {
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = scrollPositionRef.current;
+        }
+      });
+    }
+  }, []);
+
   // Add effect to handle auto-scrolling when session changes
   useEffect(() => {
     // Return early if no session ID
@@ -316,6 +337,20 @@ const Session: FC = () => {
     session.data,
   ])
 
+  // Create a wrapper for session.reload to preserve scroll position
+  const safeReloadSession = useCallback(async () => {
+    // Save current scroll position
+    saveScrollPosition();
+    
+    // Call the actual reload
+    const result = await session.reload();
+    
+    // Restore scroll position
+    setTimeout(restoreScrollPosition, 0);
+    
+    return result;
+  }, [session, saveScrollPosition, restoreScrollPosition]);
+
   const onSend = useCallback(async (prompt: string) => {
     if (!session.data) return
     if (!checkOwnership({
@@ -350,7 +385,7 @@ const Session: FC = () => {
     }
 
     if (!newSession) return
-    session.reload()
+    await safeReloadSession()
 
   }, [
     session.data,
@@ -389,34 +424,44 @@ const Session: FC = () => {
 
   const onRestartConfirm = useCallback(async () => {
     if (!session.data) return
+    // Save current scroll position
+    saveScrollPosition()
+    
     const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
       loading: true,
     })
     if (!newSession) return
-    session.reload()
-    setRestartWindowOpen(false)
-    snackbar.success('Session restarted...')
+    
+    await safeReloadSession().then(() => {
+      setRestartWindowOpen(false)
+      snackbar.success('Session restarted...')
+    })
   }, [
     account.user,
     session.data,
+    saveScrollPosition,
+    restoreScrollPosition,
   ])
 
   const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
     if (!session.data) return
-    const latestSessionData = await session.reload()
+    
+    const latestSessionData = await safeReloadSession()
     if (!latestSessionData) return false
     const sessionConfigUpdate = Object.assign({}, latestSessionData.config, data)
     const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${session.data.id}/config`, sessionConfigUpdate, undefined, {
       loading: true,
     })
     if (!result) return
-    session.reload()
+    
+    await safeReloadSession()
     if (snackbarMessage) {
       snackbar.success(snackbarMessage)
     }
   }, [
     account.user,
     session.data,
+    safeReloadSession,
   ])
 
   const onClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
@@ -581,6 +626,10 @@ const Session: FC = () => {
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
     if (!session.data) return null;
+    
+    // Create a stable reference for interactions
+    const interactionIds = session.data.interactions.map(i => i.id).join(',');
+    
     return {
       id: session.data.id,
       name: session.data.name,
@@ -595,9 +644,29 @@ const Session: FC = () => {
       mode: session.data.mode,
       model_name: session.data.model_name,
       lora_dir: session.data.lora_dir,
-      config: session.data.config
+      config: {
+        ...session.data.config
+      }
     }
-  }, [session.data])
+  }, [
+    session.data?.id,
+    session.data?.name,
+    session.data?.created,
+    session.data?.updated,
+    session.data?.parent_session,
+    session.data?.parent_app,
+    // Use stable references for interactions to prevent unnecessary rerenders
+    session.data?.interactions.length,
+    session.data?.interactions.map(i => i.id).join(','),
+    session.data?.owner,
+    session.data?.owner_type,
+    session.data?.type,
+    session.data?.mode,
+    session.data?.model_name,
+    session.data?.lora_dir,
+    // Deep compare the config object
+    JSON.stringify(session.data?.config)
+  ])
 
   // Modify the container styles
   const containerStyles = useMemo(() => ({
@@ -696,7 +765,7 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Add scrollToBottom function with debouncing logic
+  // Fix scrollToBottom which keeps getting changed incorrectly
   const scrollToBottom = useCallback(() => {
     if (!containerRef.current) return
 
@@ -810,7 +879,7 @@ const Session: FC = () => {
               session={sessionData}
               highlightAllFiles={highlightAllFiles}
               retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={session.reload}
+              onReloadSession={safeReloadSession}
               onClone={onClone}
               onAddDocuments={undefined}
               onRestart={undefined}
@@ -825,7 +894,7 @@ const Session: FC = () => {
             session={sessionData}
             highlightAllFiles={highlightAllFiles}
             retryFinetuneErrors={retryFinetuneErrors}
-            onReloadSession={session.reload}
+            onReloadSession={safeReloadSession}
             onClone={onClone}
             onAddDocuments={onAddDocuments}
             onRestart={onRestart}
@@ -903,7 +972,7 @@ const Session: FC = () => {
                     session={sessionData}
                     highlightAllFiles={highlightAllFiles}
                     retryFinetuneErrors={retryFinetuneErrors}
-                    onReloadSession={session.reload}
+                    onReloadSession={safeReloadSession}
                     onClone={onClone}
                     onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
                     onRestart={isLastInteraction ? onRestart : undefined}
@@ -950,7 +1019,7 @@ const Session: FC = () => {
     account.userConfig.stripe_subscription_active,
     highlightAllFiles,
     retryFinetuneErrors,
-    session.reload,
+    safeReloadSession,
     onClone,
     onAddDocuments,
     onRestart,
@@ -1007,82 +1076,34 @@ const Session: FC = () => {
   useEffect(() => {
     if (!account.initialized) return
     if (sessionID) {
+      // Save the current scroll position before loading
+      saveScrollPosition()
+      
       if (router.params.fixturemode === 'true') {
         // Use fixture data instead of loading from API
         const fixtureSession = generateFixtureSession(1000) // Generate 1000 interactions
         session.setData(fixtureSession)
+        // Restore scroll position
+        setTimeout(restoreScrollPosition, 0)
       } else {
-        session.loadSession(sessionID)
+        session.loadSession(sessionID).then(() => {
+          // Restore scroll position after loading
+          setTimeout(restoreScrollPosition, 0)
+        })
       }
     }
   }, [
     account.initialized,
     sessionID,
     router.params.fixturemode,
+    saveScrollPosition,
+    restoreScrollPosition,
   ])
 
   // this is for where we tried to do something to a shared session
   // but we were not logged in - so now we've gone off and logged in
   // and we end up back here - this will trigger the attempt to do it again
   // and then ask "do you want to clone this session"
-  useEffect(() => {
-    if (!session.data) return
-    if (!account.user) return
-    const instructionsString = localStorage.getItem('shareSessionInstructions')
-    if (!instructionsString) return
-    localStorage.removeItem('shareSessionInstructions')
-    const instructions = JSON.parse(instructionsString || '{}') as IShareSessionInstructions
-    if (instructions.cloneMode && instructions.cloneInteractionID) {
-      onClone(instructions.cloneMode, instructions.cloneInteractionID)
-    } else if (instructions.inferencePrompt) {
-      setInputValue(instructions.inferencePrompt)
-      onSend(instructions.inferencePrompt)
-    }
-  }, [
-    account.user,
-    session.data,
-  ])
-
-  // when the session has loaded re-populate the feedback area
-  useEffect(() => {
-    if (!session.data) return
-    setFeedbackValue(session.data.config.eval_user_reason)
-  }, [
-    session.data,
-  ])
-
-  // in case the web socket updates do not arrive, if the session is not finished
-  // then keep reloading it until it has finished
-  useEffect(() => {
-    if (!session.data) return
-    const systemInteraction = getAssistantInteraction(session.data)
-    if (!systemInteraction) return
-    if (systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
-
-    // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
-    const timer = setTimeout(() => {
-      session.reload()
-    }, 5000)
-
-    return () => clearTimeout(timer)
-  }, [
-    session.data,
-  ])
-
-  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
-  useWebsocket(sessionID, (parsedData) => {
-    if (parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      const newSession: ISession = parsedData.session
-      session.setData(newSession)
-    }
-  })
-
-  // this is a horrible hack so we can have a global JS function
-  // that will set the state on this page - this is because we are
-  // rendering links in the interaction inference and we are rendering
-  // those links with dangerouslySetInnerHTML so it's not easy
-  // to add callback handlers to those links
-  // so we just call a global function that is setup here
   //
   // update 2024-10-08 Luke: is it still true that we're rendering links with
   // dangerouslySetInnerHTML?
@@ -1136,6 +1157,85 @@ const Session: FC = () => {
     setIsLoadingBlock(false)
   }, [sessionID])
 
+  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
+  useWebsocket(sessionID, (parsedData) => {
+    if (parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+      const newSession: ISession = parsedData.session
+      // Save scroll position before updating session data
+      saveScrollPosition()
+      session.setData(newSession)
+      // Restore scroll position after updating session data
+      setTimeout(restoreScrollPosition, 0)
+    }
+  })
+
+  // this is a horrible hack so we can have a global JS function
+  // that will set the state on this page - this is because we are
+  // rendering links in the interaction inference and we are rendering
+  // those links with dangerouslySetInnerHTML so it's not easy
+  // to add callback handlers to those links
+  // so we just call a global function that is setup here
+  //
+  // update 2024-10-08 Luke: is it still true that we're rendering links with
+  // dangerouslySetInnerHTML?
+  useEffect(() => {
+    const w = window as any
+    w._helixHighlightAllFiles = () => {
+      setHighlightAllFiles(true)
+      setTimeout(() => {
+        setHighlightAllFiles(false)
+      }, 2000)
+    }
+  }, [])
+
+  // This effect handles login and returning to a shared session
+  useEffect(() => {
+    if (!session.data) return
+    if (!account.user) return
+    const instructionsString = localStorage.getItem('shareSessionInstructions')
+    if (!instructionsString) return
+    localStorage.removeItem('shareSessionInstructions')
+    const instructions = JSON.parse(instructionsString || '{}') as IShareSessionInstructions
+    if (instructions.cloneMode && instructions.cloneInteractionID) {
+      onClone(instructions.cloneMode, instructions.cloneInteractionID)
+    } else if (instructions.inferencePrompt) {
+      setInputValue(instructions.inferencePrompt)
+      onSend(instructions.inferencePrompt)
+    }
+  }, [
+    account.user,
+    session.data,
+    onClone,
+    onSend,
+  ])
+
+  // When the session has loaded re-populate the feedback area
+  useEffect(() => {
+    if (!session.data) return
+    setFeedbackValue(session.data.config.eval_user_reason)
+  }, [
+    session.data,
+  ])
+
+  // In case the web socket updates do not arrive, if the session is not finished
+  // then keep reloading it until it has finished
+  useEffect(() => {
+    if (!session.data) return
+    const systemInteraction = getAssistantInteraction(session.data)
+    if (!systemInteraction) return
+    if (systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
+    
+    // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
+    const timer = setTimeout(() => {
+      safeReloadSession()
+    }, 5000)
+
+    return () => clearTimeout(timer)
+  }, [
+    session.data,
+    safeReloadSession,
+  ])
+
   if (!session.data) return null
 
   return (
@@ -1169,7 +1269,7 @@ const Session: FC = () => {
             <Box sx={{ py: 1, px: 2 }}>
               <SessionToolbar
                 session={session.data}
-                onReload={session.reload}
+                onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
               />
             </Box>
