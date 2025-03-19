@@ -517,7 +517,7 @@ export const useApp = (appId: string) => {
       const newSearchResults = await api.get<IKnowledgeSearchResult[]>('/api/v1/search', {
         params: {
           app_id: app.id,
-          knowledge_id: knowledgeId,
+          knowledge_id: "", // When knowledge ID is not set, it will use all knowledge sources attached to this app
           prompt: query,
         }
       })
