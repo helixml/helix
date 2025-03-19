@@ -38,7 +38,7 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 }
 
 // handleListOAuthProviders returns the list of available OAuth providers
-func (s *HelixAPIServer) handleListOAuthProviders(w http.ResponseWriter, r *http.Request) ([]*types.OAuthProvider, error) {
+func (s *HelixAPIServer) handleListOAuthProviders(_ http.ResponseWriter, r *http.Request) ([]*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
 	// Only admin users can list all providers
@@ -90,7 +90,7 @@ func (s *HelixAPIServer) handleListOAuthProviders(w http.ResponseWriter, r *http
 }
 
 // handleCreateOAuthProvider creates a new OAuth provider
-func (s *HelixAPIServer) handleCreateOAuthProvider(w http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
+func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
 	// Only admin users can create providers
@@ -135,8 +135,8 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(w http.ResponseWriter, r *htt
 	return result, nil
 }
 
-// handleListOAuthConnections returns the user's OAuth connections
-func (s *HelixAPIServer) handleListOAuthConnections(w http.ResponseWriter, r *http.Request) ([]*types.OAuthConnection, error) {
+// handleListOAuthConnections returns the list of OAuth connections for the current user
+func (s *HelixAPIServer) handleListOAuthConnections(_ http.ResponseWriter, r *http.Request) ([]*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
 	// Get the user's connections

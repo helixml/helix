@@ -340,7 +340,7 @@ func (s *PostgresStore) DeleteOAuthRequestToken(ctx context.Context, id string) 
 }
 
 // GenerateRandomState generates a random state string for OAuth flow
-func (s *PostgresStore) GenerateRandomState(ctx context.Context) (string, error) {
+func (s *PostgresStore) GenerateRandomState(_ context.Context) (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)
 	if err != nil {
