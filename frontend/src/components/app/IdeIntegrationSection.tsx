@@ -14,7 +14,7 @@ import useSnackbar from '../../hooks/useSnackbar';
 import useAccount from '../../hooks/useAccount'
 
 interface IdeIntegrationSectionProps {
-  appId: string;  
+  appId: string;
 }
 
 const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
@@ -64,23 +64,23 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
             </Typography>
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" sx={{ mb: 1 }}>1. Download Helix client: </Typography>
-              <Box sx={{ 
-                display: 'flex', 
-                alignItems: 'center', 
+              <Box sx={{
+                display: 'flex',
+                alignItems: 'center',
                 gap: 2,
                 mb: 2
               }}>
-                <Typography component="pre" 
-                    sx={{
+                <Typography component="pre"
+                  sx={{
                     wordBreak: 'break-all',
                     wordWrap: 'break-all',
                     whiteSpace: 'pre-wrap',
-                    fontSize: '0.8rem',                      
+                    fontSize: '0.8rem',
                     fontFamily: "monospace",
                     flexGrow: 1,
                     mb: 0,
                     mt: 0,
-                    }}
+                  }}
                 >
                   curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli
                 </Typography>
@@ -105,7 +105,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               value={getGenericMCPConfig()}
               fullWidth
               multiline
-              
+
               disabled
               InputProps={{
                 style: { fontFamily: 'monospace' }
@@ -205,7 +205,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               >
                 Copy
               </Button>
-            </Box>            
+            </Box>
             <Typography variant="body1" sx={{ mb: 2 }}>
               You can find additional information in the official <Link href="https://docs.cursor.com/context/model-context-protocol" target="_blank" rel="noopener noreferrer">Model Context Protocol</Link> documentation.
             </Typography>
@@ -221,7 +221,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
       <Typography variant="h6" sx={{ mb: 2 }}>
         IDE Integration
       </Typography>
-      <Typography variant="body1" sx={{ mb: 2 }}> 
+      <Typography variant="body1" sx={{ mb: 2 }}>
         Helix provides an MCP server that can be used by a number of IDEs, chat clients or standalone agents.
       </Typography>
       <FormControl fullWidth sx={{ mb: 3 }}>
