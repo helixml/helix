@@ -25,8 +25,10 @@ import Interaction from '../session/Interaction';
 import InteractionLiveStream from '../session/InteractionLiveStream';
 
 import { ISession, ISessionRAGResult, IKnowledgeSearchResult } from '../../types';
+import ContextMenuModal from '../widgets/ContextMenuModal';
 
 interface PreviewPanelProps {
+  appId: string;
   loading: boolean;
   name: string;
   avatar: string;
@@ -46,6 +48,7 @@ interface PreviewPanelProps {
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
+  appId,
   loading,
   name,
   avatar,
@@ -179,6 +182,12 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             justifyContent: 'center',
           }}
         >
+          <ContextMenuModal appId={appId} textAreaRef={textFieldRef} onInsertText={(text) => {
+            setInputValue(inputValue + text);
+            if (isSearchMode) {
+              onSearch(inputValue + text);
+            }
+          }} />
           <TextField
             id="textEntry"
             fullWidth

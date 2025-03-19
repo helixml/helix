@@ -145,7 +145,7 @@ const Create: FC = () => {
     let orgId = ''
 
     // if we have an app but no assistant ID let's default to the first one
-    if(appID && !assistantID) {
+    if (appID && !assistantID) {
       assistantID = '0'
     }
 
@@ -153,7 +153,7 @@ const Create: FC = () => {
       useModel = filteredModels[0].id
     }
 
-    if(account.organizationTools.organization?.id) {
+    if (account.organizationTools.organization?.id) {
       orgId = account.organizationTools.organization.id
     }
 
@@ -269,18 +269,18 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (!account.user) return
-    
+
     // Clear the app state if there's no appID
     if (!appID) {
       apps.setApp(undefined)
       return
     }
-    
+
     setIsLoadingApp(true)
     apps.loadApp(appID).finally(() => {
       setIsLoadingApp(false)
     })
-    
+
     return () => apps.setApp(undefined)
     // we include the user's id in the dependency array to filter out changes to
     // the user token which refreshes regularly (to avoid flickering the page)
@@ -347,6 +347,7 @@ const Create: FC = () => {
     >
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
+          appId={appID}
           loading={loading}
           type={type}
           focus={focusInput ? 'true' : activeAssistantID}
@@ -627,7 +628,7 @@ const Create: FC = () => {
 
   return (
     <Page
-      orgBreadcrumbs={ true }
+      orgBreadcrumbs={true}
       breadcrumbs={
         getNewSessionBreadcrumbs({
           mode,
