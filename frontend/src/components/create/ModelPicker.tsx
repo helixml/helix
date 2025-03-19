@@ -34,6 +34,8 @@ const ModelPicker: FC<{
   const loadedProviderRef = useRef<string | undefined>()
   // Track if user has made a selection since provider changed
   const [userSelectedModel, setUserSelectedModel] = useState(false)
+  // Track component initialization to handle initial state differently
+  const initializedRef = useRef(false)
 
   const getShortModelName = (name: string): string => {
     if (displayMode === 'full') return name;
@@ -50,14 +52,25 @@ const ModelPicker: FC<{
     return shortName;
   }
 
+  // Run once on initialization to properly handle pre-existing model/provider
+  useEffect(() => {
+    // If we have a model already set, we should respect it as if user selected it
+    if (!initializedRef.current && model) {
+      setUserSelectedModel(true);
+      initializedRef.current = true;
+    }
+  }, [model]);
+
   // Fetch models when provider changes
   useEffect(() => {
     if (loadedProviderRef.current !== provider) {
       console.log('fetching models for provider', provider)
       loadedProviderRef.current = provider
       fetchModels(provider)
-      // Reset user selection flag when provider changes
-      setUserSelectedModel(false)      
+      // Only reset user selection flag for active provider changes, not initial load
+      if (initializedRef.current) {
+        setUserSelectedModel(false)
+      }
     }
   }, [provider, fetchModels])
 
