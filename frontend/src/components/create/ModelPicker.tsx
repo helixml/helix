@@ -32,6 +32,10 @@ const ModelPicker: FC<{
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
   const { models, fetchModels } = useContext(AccountContext)
   const loadedProviderRef = useRef<string | undefined>()
+  // Track if user has made a selection since provider changed
+  const [userSelectedModel, setUserSelectedModel] = useState(false)
+  // Track component initialization to handle initial state differently
+  const initializedRef = useRef(false)
 
   const getShortModelName = (name: string): string => {
     if (displayMode === 'full') return name;
@@ -48,11 +52,25 @@ const ModelPicker: FC<{
     return shortName;
   }
 
+  // Run once on initialization to properly handle pre-existing model/provider
+  useEffect(() => {
+    // If we have a model already set, we should respect it as if user selected it
+    if (!initializedRef.current && model) {
+      setUserSelectedModel(true);
+      initializedRef.current = true;
+    }
+  }, [model]);
+
+  // Fetch models when provider changes
   useEffect(() => {
     if (loadedProviderRef.current !== provider) {
       console.log('fetching models for provider', provider)
       loadedProviderRef.current = provider
-      fetchModels(provider)      
+      fetchModels(provider)
+      // Only reset user selection flag for active provider changes, not initial load
+      if (initializedRef.current) {
+        setUserSelectedModel(false)
+      }
     }
   }, [provider, fetchModels])
 
@@ -62,11 +80,16 @@ const ModelPicker: FC<{
       m.type === type || (type === "text" && m.type === "chat")
     )
     
-    // Reset selected model if current selection isn't valid for new type
-    if (currentModels.length > 0 && !currentModels.find(m => m.id === model)) {
+    // Only reset model if:
+    // 1. There are models available
+    // 2. Current model isn't in the filtered list
+    // 3. User hasn't explicitly selected a model since provider change
+    if (currentModels.length > 0 && 
+        !currentModels.find(m => m.id === model) && 
+        !userSelectedModel) {
       onSetModel(currentModels[0].id)
     }
-  }, [type, model, models, onSetModel])
+  }, [type, model, models, onSetModel, userSelectedModel])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
@@ -74,6 +97,13 @@ const ModelPicker: FC<{
 
   const handleCloseMenu = () => {
     setModelMenuAnchorEl(undefined)
+  }
+
+  // Handle user selecting a model
+  const handleModelSelect = (modelId: string) => {
+    setUserSelectedModel(true)
+    onSetModel(modelId)
+    handleCloseMenu()
   }
 
   const modelData = models.find(m => m.id === model) || models[0];
@@ -153,10 +183,7 @@ const ModelPicker: FC<{
                     }
                   }
                 }}
-                onClick={() => {
-                  onSetModel(menuModel.id)
-                  handleCloseMenu()
-                }}
+                onClick={() => handleModelSelect(menuModel.id)}
               >
                 {menuModel.name} {menuModel.description && <>&nbsp; <small>({menuModel.description})</small></>}
               </MenuItem>
