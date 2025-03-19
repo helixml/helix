@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/rag"
@@ -91,6 +92,11 @@ func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Reque
 			Value:       rag.BuildFilterAction(k),
 		})
 	}
+
+	// Sort the results, which is a slice, by label alphabetically to ensure consistent responses
+	sort.Slice(data, func(i, j int) bool {
+		return data[i].Label < data[j].Label
+	})
 
 	return &types.ContextMenuResponse{
 		Data: data,
