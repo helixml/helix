@@ -535,20 +535,11 @@ export const useApp = (appId: string) => {
   const onSearch = async (query: string) => {
     if (!app) return
     
-    // Get knowledge ID from the app state
-    // TODO: support multiple knowledge sources
-    const knowledgeId = app?.config.helix.assistants?.[0]?.knowledge?.[0]?.id
-
-    if (!knowledgeId) {
-      snackbar.error('No knowledge sources available')
-      return
-    }
-    
     try {
       const newSearchResults = await api.get<IKnowledgeSearchResult[]>('/api/v1/search', {
         params: {
           app_id: app.id,
-          knowledge_id: knowledgeId,
+          knowledge_id: "", // When knowledge ID is not set, it will use all knowledge sources attached to this app
           prompt: query,
         }
       })
