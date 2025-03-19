@@ -826,33 +826,6 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 		}
 	}
 
-	// For backward compatibility, also check app-level OAuth providers
-	if appRecord.Config.Helix.OAuthProviders != nil && len(appRecord.Config.Helix.OAuthProviders) > 0 {
-		for _, providerType := range appRecord.Config.Helix.OAuthProviders {
-			// Skip if we already have a token for this provider from a tool
-			envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-			hasToken := false
-			for _, env := range envPairs {
-				if strings.HasPrefix(env, envName+"=") {
-					hasToken = true
-					break
-				}
-			}
-			if hasToken {
-				continue
-			}
-
-			token, err := s.oauthManager.GetTokenForApp(ctx, user.ID, providerType)
-			if err == nil && token != "" {
-				// Add the token as an environment variable
-				envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
-				log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment (legacy)")
-			} else {
-				log.Debug().Err(err).Str("provider", string(providerType)).Msg("Failed to get OAuth token for app (legacy)")
-			}
-		}
-	}
-
 	return envPairs
 }
 
