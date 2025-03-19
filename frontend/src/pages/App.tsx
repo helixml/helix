@@ -48,7 +48,7 @@ const App: FC = () => {
 
   const appTools = useApp(params.app_id)
 
-  const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
+  const [deletingAPIKey, setDeletingAPIKey] = useState('')
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
@@ -61,21 +61,21 @@ const App: FC = () => {
    */
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setTabValue(newValue)
-    
+
     // Update URL search params
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev.toString())
       newParams.set('tab', newValue)
-      
+
       // Update URL without reload
       if (typeof window !== 'undefined') {
         window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`)
       }
-      
+
       return newParams
     })
   }
-  
+
   /**
    * Launches the app - we assume the app has been saving we it's been edited
    */
@@ -91,8 +91,8 @@ const App: FC = () => {
     endpointProviders.loadData()
   }, [])
 
-  if(!account.user) return null
-  if(!appTools.app) return null
+  if (!account.user) return null
+  if (!appTools.app) return null
 
   return (
     <Page
@@ -157,7 +157,7 @@ const App: FC = () => {
           </Box>
           <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
-              <Grid item sm={12} md={6} sx={{ 
+              <Grid item sm={12} md={6} sx={{
                 borderRight: '1px solid #303047',
                 height: '100%',
                 overflow: 'auto',
@@ -254,7 +254,7 @@ const App: FC = () => {
                           index: appTools.gptscriptsTools.length
                         });
                       }}
-                      onEdit={(tool, index) => appTools.setEditingGptScript({tool, index})}
+                      onEdit={(tool, index) => appTools.setEditingGptScript({ tool, index })}
                       onDeleteGptScript={appTools.onDeleteGptScript}
                       isReadOnly={appTools.isReadOnly}
                       isGithubApp={appTools.isGithubApp}
@@ -267,7 +267,7 @@ const App: FC = () => {
                       onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={appTools.flatApp?.allowedDomains || []}
-                      setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({allowedDomains})}
+                      setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
                       isReadOnly={appTools.isReadOnly}
                     />
                   )}
@@ -300,6 +300,7 @@ const App: FC = () => {
                 <CodeExamples apiKey={account.apiKeys[0]?.key || ''} />
               ) : (
                 <PreviewPanel
+                  appId={appTools.id}
                   loading={appTools.isInferenceLoading}
                   name={appTools.flatApp?.name || ''}
                   avatar={appTools.flatApp?.avatar || ''}
@@ -338,7 +339,7 @@ const App: FC = () => {
               }, {
                 snackbar: true,
               })
-              if(!res) return
+              if (!res) return
               snackbar.success('API Key deleted')
               await account.loadAppApiKeys(appTools.id)
               setDeletingAPIKey('')

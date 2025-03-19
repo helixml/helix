@@ -66,6 +66,7 @@ import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
+import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -428,7 +429,7 @@ const Session: FC = () => {
     const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
       loading: true,
     })
-    if(!newSession) return false
+    if (!newSession) return false
     await sessions.loadSessions()
     snackbar.success('Session cloned...')
     router.navigate('session', { session_id: newSession.id })
@@ -504,7 +505,7 @@ const Session: FC = () => {
           clone_into_eval_user: withEvalUser ? 'yes' : '',
         }
       })
-      if(!newSession) return false
+      if (!newSession) return false
       await sessions.loadSessions()
       snackbar.success('Session cloned...')
       const params: Record<string, string> = {
@@ -1138,6 +1139,10 @@ const Session: FC = () => {
 
   if (!session.data) return null
 
+  const handleInsertText = (text: string) => {
+    setInputValue(inputValue + text)
+  }
+
   return (
     <Box
       sx={{
@@ -1283,6 +1288,11 @@ const Session: FC = () => {
                 <Box sx={{ py: 2 }}>
                   <Row>
                     <Cell flexGrow={1}>
+                      <ContextMenuModal
+                        appId={appID || ''}
+                        textAreaRef={textFieldRef}
+                        onInsertText={handleInsertText}
+                      />
                       <TextField
                         id="textEntry"
                         fullWidth

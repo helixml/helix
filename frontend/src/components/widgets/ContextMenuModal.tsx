@@ -110,10 +110,12 @@ export const useContextMenu = ({
         setResults([]);
         setSelectedIndex(0);
 
-        // Return focus to the textarea if it exists
-        if (textAreaRef?.current) {
-            textAreaRef.current.focus();
-        }
+        // Use setTimeout to ensure focus happens after React updates
+        setTimeout(() => {
+            if (textAreaRef?.current) {
+                textAreaRef.current.focus();
+            }
+        }, 0);
     }, [textAreaRef]);
 
     // Fetch suggestions from API when query changes
