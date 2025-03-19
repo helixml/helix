@@ -1,21 +1,14 @@
 import React, { FC, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import IconButton from '@mui/material/IconButton';
 import Alert from '@mui/material/Alert';
-import Select from '@mui/material/Select';
-import MenuItem from '@mui/material/MenuItem';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
-import FormControlLabel from '@mui/material/FormControlLabel';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
-import Switch from '@mui/material/Switch';
 import CircularProgress from '@mui/material/CircularProgress';
 import Grid from '@mui/material/Grid';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -31,15 +24,14 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CrawledUrlsDialog from './CrawledUrlsDialog';
 import AddKnowledgeDialog from './AddKnowledgeDialog';
 import FileUpload from '../widgets/FileUpload';
+import KnowledgeSourceInputs from './KnowledgeSourceInputs';
 
 import { IFileStoreItem, IKnowledgeSource } from '../../types';
 import { prettyBytes } from '../../utils/format';
 
 import useSnackbar from '../../hooks/useSnackbar';
 import useAccount from '../../hooks/useAccount';
-import useKnowledge, {
-  default_max_depth,
-} from '../../hooks/useKnowledge';
+import useKnowledge from '../../hooks/useKnowledge';
 
 interface KnowledgeEditorProps {
   appId: string;
@@ -142,188 +134,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
 
     return (
       <>
-        {sourceType === 'filestore' ? (
-          null
-        ) : (
-          <TextField
-            fullWidth
-            label="URLs (comma-separated)"
-            value={knowledge.source.web?.urls?.join(', ') || ''}
-            onChange={(e) => {
-              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                source: { 
-                  web: { 
-                    ...knowledge.source.web, 
-                    urls: e.target.value.split(',').map(url => url.trim()) 
-                  } 
-                } 
-              })
-            }}
-            disabled={disabled}
-            sx={{ mb: 2 }}
-            error={!!knowledgeHelpers.errors[`${knowledge.id}`]}
-            helperText={knowledgeHelpers.errors[`${knowledge.id}`]?.join(', ')}
-          />
-        )}
-
-        <TextField
-          fullWidth
-          label="Description"
-          multiline
-          rows={2}
-          value={knowledge.description || ''}
-          onChange={(e) => {
-            knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-              description: e.target.value
-            })
-          }}
+        {/* Component to handle all text field inputs with local state */}
+        <KnowledgeSourceInputs 
+          knowledge={knowledge}
+          updateKnowledge={knowledgeHelpers.updateSingleKnowledge}
           disabled={disabled}
-          sx={{ mb: 2 }}
-          placeholder="Description for this knowledge source. This will be used by the agent to search for relevant information."
+          errors={knowledgeHelpers.errors}
+          onCompletePreparation={knowledgeHelpers.handleCompleteKnowledgePreparation}
         />
-
-        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-          <TextField
-            fullWidth
-            label="Results Count (optional)"
-            type="number"
-            value={knowledge.rag_settings.results_count}
-            onChange={(e) => {
-              const value = parseInt(e.target.value);
-              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                rag_settings: {
-                  ...knowledge.rag_settings,
-                  results_count: value
-                }
-              })
-            }}
-            disabled={disabled}
-          />
-          <TextField
-            fullWidth
-            label="Chunk Size (optional)"
-            type="number"              
-            value={knowledge.rag_settings.chunk_size || ''}
-            onChange={(e) => {
-              const value = e.target.value ? parseInt(e.target.value) : undefined;
-              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                rag_settings: {
-                  ...knowledge.rag_settings,
-                  chunk_size: value ?? 0
-                }
-              })
-            }}
-            disabled={disabled}
-          />
-          <TextField
-            fullWidth
-            label="Chunk Overflow (optional)"
-            type="number"
-            value={knowledge.rag_settings.chunk_overflow}
-            onChange={(e) => {
-              const value = parseInt(e.target.value);
-              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                rag_settings: {
-                  ...knowledge.rag_settings,
-                  chunk_overflow: value
-                }
-              })
-            }}
-            disabled={disabled}
-          />
-        </Box>
-
-        {sourceType === 'web' && (
-          <>
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-              <TextField
-                fullWidth
-                label="Max crawling depth (pages to visit, max 100)"
-                type="number"
-                value={knowledge.source.web?.crawler?.max_depth || default_max_depth}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value) || default_max_depth;
-                  knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                    source: {
-                      web: {
-                        ...knowledge.source.web,
-                        crawler: {
-                          enabled: true,
-                          ...knowledge.source.web?.crawler,
-                          max_depth: value
-                        }
-                      }
-                    }
-                  })
-                }}
-                disabled={disabled}
-              /> 
-              <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={knowledge.source.web?.crawler?.readability ?? true}
-                      onChange={(e) => {
-                        knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                          source: {
-                            web: {
-                              ...knowledge.source.web,
-                              crawler: {
-                                enabled: true,
-                                ...knowledge.source.web?.crawler,
-                                readability: e.target.checked
-                              }
-                            }
-                          }
-                        })
-                      }}
-                      disabled={disabled}
-                    />
-                  }
-                  label="Filter out headers, footers, etc."
-                  sx={{ mb: 2 }}
-                />
-              </Tooltip>               
-            </Box>            
-          </>
-        )}
-
-        <FormControl fullWidth sx={{ mb: 2 }}>
-          <InputLabel>Scrape Interval</InputLabel>
-          <Select
-            value={knowledge.refresh_schedule === '' ? 'One off' : 
-                   (knowledge.refresh_schedule === '@hourly' || knowledge.refresh_schedule === '@daily' ? knowledge.refresh_schedule : 'custom')}
-            onChange={(e) => {
-              let newSchedule = e.target.value;
-              if (newSchedule === 'One off') newSchedule = '';
-              if (newSchedule === 'custom') newSchedule = '0 0 * * *';
-              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                refresh_schedule: newSchedule,
-              })
-            }}
-            disabled={disabled}
-          >
-            <MenuItem value="One off">One off</MenuItem>
-            <MenuItem value="@hourly">Hourly</MenuItem>
-            <MenuItem value="@daily">Daily</MenuItem>
-            <MenuItem value="custom">Custom (cron)</MenuItem>
-          </Select>
-        </FormControl>
-        {knowledge.refresh_schedule !== '' && knowledge.refresh_schedule !== '@hourly' && knowledge.refresh_schedule !== '@daily' && (
-          <TextField
-            fullWidth
-            label="Custom Cron Schedule"
-            value={knowledge.refresh_schedule}
-            onChange={(e) => {
-              knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
-                refresh_schedule: e.target.value,
-              })
-            }}
-            disabled={disabled}
-            sx={{ mb: 2 }}
-            helperText="Enter a valid cron expression (default: daily at midnight)"
-          />
-        )}
 
         {sourceType === 'filestore' && (
           <Box sx={{ mt: 2, mb: 2 }}>
@@ -590,25 +408,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
               </Typography>
             )}
           </Box>
-        )}
-
-        {knowledge && knowledge.state === 'preparing' && (
-          <Alert 
-            severity="warning" 
-            sx={{ mt: 2, mb: 2 }}
-            action={
-              <Button
-                color="inherit"
-                size="small"
-                onClick={() => knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)}
-                disabled={disabled}
-              >
-                Complete & Start Indexing
-              </Button>
-            }
-          >
-            This knowledge source is in preparation mode. Upload all your files, then click "Complete & Start Indexing" when you're ready.
-          </Alert>
         )}
       </>
     );
