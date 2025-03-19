@@ -575,8 +575,26 @@ const Session: FC = () => {
     onSend,
   ])
 
-  const onHandleFilterDocument = useCallback((docId: string) => {
-    setInputValue(current => current + `[DOC_ID:${docId}] `);
+  const onHandleFilterDocument = useCallback(async (docId: string) => {
+    if (!appID) {
+      snackbar.error('Unable to filter document, no app ID found')
+      return
+    }
+
+    // Make a call to the API to get the correct format and ensure the user has access to the document
+    const result = await api.getApiClient().v1ContextMenuList({
+      app_id: appID || '',
+    })
+    if (result.status !== 200) {
+      snackbar.error(`Unable to filter document, error from API: ${result.statusText}`)
+      return
+    }
+    const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
+    if (!filterAction) {
+      snackbar.error('Unable to filter document, no action found')
+      return
+    }
+    setInputValue(current => current + filterAction.value);
   }, [setInputValue]);
 
   // Memoize the session data comparison

@@ -6,16 +6,13 @@ import {
     Paper,
     MenuList,
     Box,
-    Typography
+    Typography,
+    Divider,
+    ListSubheader
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useApi from '../../hooks/useApi';
-
-// Define the context menu data structure based on the API response
-interface ContextMenuData {
-    label?: string;
-    value?: string;
-}
+import { TypesContextMenuAction } from '../../api/api';
 
 interface ContextMenuPosition {
     top: number;
@@ -36,7 +33,7 @@ export const useContextMenu = ({
 }: UseContextMenuOptions) => {
     const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const [results, setResults] = useState<ContextMenuData[]>([]);
+    const [results, setResults] = useState<TypesContextMenuAction[]>([]);
     const [position, setPosition] = useState<ContextMenuPosition>({ top: 0, left: 0 });
     const [loading, setLoading] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(0);
@@ -249,7 +246,7 @@ export const useContextMenu = ({
     }, [isOpen, closeContextMenu]);
 
     // Handle selection of an item
-    const handleSelect = useCallback((item: ContextMenuData) => {
+    const handleSelect = useCallback((item: TypesContextMenuAction) => {
         if (!item.value) return;
 
         if (onInsertText) {
@@ -263,6 +260,19 @@ export const useContextMenu = ({
         const theme = useTheme();
 
         if (!isOpen) return null;
+
+        // Group results by action
+        const groupedResults: { [key: string]: TypesContextMenuAction[] } = {};
+        results.forEach(item => {
+            const action = item.action_label || 'Other';
+            if (!groupedResults[action]) {
+                groupedResults[action] = [];
+            }
+            groupedResults[action].push(item);
+        });
+
+        // Flatten grouped results for keyboard navigation
+        const flattenedResults = results;
 
         return (
             <Menu
@@ -281,8 +291,8 @@ export const useContextMenu = ({
                 MenuListProps={{
                     disablePadding: true,
                     sx: {
-                        minWidth: 200,
-                        maxHeight: 300,
+                        minWidth: 240,
+                        maxHeight: 400,
                         overflow: 'auto'
                     }
                 }}
@@ -315,14 +325,44 @@ export const useContextMenu = ({
                         </MenuItem>
                     )}
 
-                    {results.map((item, index) => (
-                        <MenuItem
-                            key={index}
-                            onClick={() => handleSelect(item)}
-                            selected={index === selectedIndex}
-                        >
-                            {item.label || item.value}
-                        </MenuItem>
+                    {Object.entries(groupedResults).map(([action, items]) => (
+                        <React.Fragment key={action}>
+                            <ListSubheader
+                                sx={{
+                                    backgroundColor: theme.palette.background.paper,
+                                    lineHeight: '30px',
+                                    color: theme.palette.primary.main,
+                                    fontWeight: 'bold',
+                                    pl: 2
+                                }}
+                            >
+                                {action}
+                            </ListSubheader>
+
+                            {items.map((item, itemIndex) => {
+                                // Find the index of this item in the flattened results array
+                                const flatIndex = flattenedResults.findIndex(
+                                    r => r === item
+                                );
+
+                                return (
+                                    <MenuItem
+                                        key={`${action}-${itemIndex}`}
+                                        onClick={() => handleSelect(item)}
+                                        selected={flatIndex === selectedIndex}
+                                        sx={{ pl: 3 }} // Indent items to show hierarchy
+                                    >
+                                        {item.label || item.value}
+                                    </MenuItem>
+                                );
+                            })}
+
+                            {/* Add divider between groups */}
+                            {Object.keys(groupedResults).indexOf(action) <
+                                Object.keys(groupedResults).length - 1 && (
+                                    <Divider />
+                                )}
+                        </React.Fragment>
                     ))}
                 </MenuList>
             </Menu>
