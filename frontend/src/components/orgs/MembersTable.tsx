@@ -60,17 +60,16 @@ const MembersTable: FC<MembersTableProps> = ({
       const isOrgMembership = 'role' in member
       const roleDisplay = getRoleDisplay(isOrgMembership ? member.role : 'member')
     
-      const anyUser = member.user as any
       return {
         id: member.user_id,
         _data: member, // Store original data for actions
         user: (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <PersonIcon color="action" />
-            <span>{anyUser.full_name || 'Unnamed User'}</span>
+            <span>{member.user?.full_name || 'Unnamed User'}</span>
           </Box>
         ),
-        email: anyUser.Email || '',
+        email: member.user?.email || '',
         role: (
           <Chip 
             label={roleDisplay.label} 
