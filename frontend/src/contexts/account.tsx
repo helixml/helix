@@ -6,6 +6,7 @@ import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
+import { triggerMenuChange } from '../components/system/SlideMenuContainer'
 
 import {
   IApiKey,
@@ -396,14 +397,55 @@ export const useAccountContext = (): IAccountContext => {
   }, [api])
 
   const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}) => {
+    // Current menu type for triggering animations
+    const currentResourceType = router.params.resource_type || 'chat'
+    const isOrgRoute = routeName.startsWith('org_')
+    const targetIsOrgRoute = isOrgRoute || params.org_id
+    
+    // Determine if we're transitioning between org and non-org routes or vice versa
+    const isOrgTransition = (router.meta.menu === 'orgs' && !targetIsOrgRoute) || 
+                           (router.meta.menu !== 'orgs' && targetIsOrgRoute)
+    
+    // Get the target route name and params
+    let targetRouteName = routeName
+    let targetParams = {...params}
+    
     if(organizationTools.organization || params.org_id) {
-      const useOrgID = organizationTools.organization?.name || params.org_id
-      router.navigate(`org_${routeName}`, {
+      const useOrgID = params.org_id || organizationTools.organization?.name
+      // Only prepend org_ if not already present
+      if (!routeName.startsWith('org_')) {
+        targetRouteName = `org_${routeName}`
+      }
+      targetParams = {
         ...params,
         org_id: useOrgID,
-      })
-    } else {
-      router.navigate(routeName, params)
+      }
+    }
+    
+    // Navigate first, then trigger animations after a very small delay
+    // This ensures components are mounted before animations run
+    router.navigate(targetRouteName, targetParams)
+    
+    // If this is an org transition, trigger animation after a small delay
+    if (isOrgTransition) {
+      // For org transitions, determine the menu types for animation
+      const fromMenu = router.meta.menu || currentResourceType
+      const toMenu = targetIsOrgRoute ? 'orgs' : currentResourceType
+      
+      // Determine direction: 
+      // - When going to orgs (personal -> org), we slide right (current slides out right)
+      // - When going from orgs (org -> personal), we slide left (current slides out left)
+      const direction = targetIsOrgRoute ? 'right' : 'left'
+      
+      // Trigger animation after a small delay to ensure components are mounted
+      setTimeout(() => {
+        // Use the active menus tracking to ensure both components exist
+        if (window._activeMenus && (window._activeMenus[fromMenu] || window._activeMenus[toMenu])) {
+          triggerMenuChange(fromMenu, toMenu, direction, true)
+        } else {
+          console.log(`Animation not triggered - menus not ready (${fromMenu} -> ${toMenu})`)
+        }
+      }, 50)
     }
   }
 

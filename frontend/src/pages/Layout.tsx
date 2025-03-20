@@ -15,6 +15,7 @@ import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
+import { SlideMenuWrapper } from '../components/system/SlideMenuContainer'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -51,6 +52,14 @@ const Layout: FC = ({
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
   const resourceType = router.params.resource_type || 'chat'
+
+  // This useEffect handles registering/updating the menu
+  React.useEffect(() => {
+    // Store the current resource type for later use
+    if (resourceType) {
+      localStorage.setItem('last_resource_type', resourceType)
+    }
+  }, [resourceType])
 
   if(router.meta.drawer) {
     if(router.meta.menu == 'orgs') {
@@ -123,11 +132,13 @@ const Layout: FC = ({
                 },
               }}
             >
-              <Sidebar
-                showTopLinks={ !isOrgMenu }
-              >
-                { sidebarMenu }
-              </Sidebar>
+              <SlideMenuWrapper>
+                <Sidebar
+                  showTopLinks={ !isOrgMenu }
+                >
+                  { sidebarMenu }
+                </Sidebar>
+              </SlideMenuWrapper>
             </Drawer>
           )
         }

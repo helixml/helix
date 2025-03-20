@@ -1,4 +1,4 @@
-import React, { FC, useState, useMemo, Fragment } from 'react'
+import React, { FC, useState, useMemo, Fragment, useRef, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Menu from '@mui/material/Menu'
@@ -17,6 +17,7 @@ import useRouter from '../../hooks/useRouter'
 import { TypesOrganization } from '../../api/api'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import { TOOLBAR_HEIGHT } from '../../config'
+import { triggerMenuChange } from '../system/SlideMenuContainer'
 
 interface UserOrgSelectorProps {
   // Any additional props can be added here
@@ -64,27 +65,57 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   }
 
   const handleOrgSelect = (orgId: string | undefined) => {
-    const isDefault = orgId == 'default'
+    const isDefault = orgId === 'default'
+    handleClose()
+    
+    // Handle org-to-org transition specially
+    const isCurrentlyInOrg = router.meta.menu === 'orgs' || !!account.organizationTools.organization
+    const isGoingToOrg = !isDefault
+    const isOrgToOrgTransition = isCurrentlyInOrg && isGoingToOrg
+    
+    // For org-to-org transitions, we just navigate without animation
+    if (isOrgToOrgTransition) {
+      // Navigate directly without animation for org-to-org transitions
+      const routeName = 'org_home'
+      const useParams = { org_id: orgId }
+      
+      router.navigate(routeName, useParams)
+      return
+    }
+    
+    // For personal <-> org transitions, navigate first
     if(router.meta.orgRouteAware) {
       if(isDefault) {
         const useRouteName = router.name.replace(/^org_/i, '')
         const useParams = Object.assign({}, router.params)
         delete useParams.org_id
+        
         router.navigate(useRouteName, useParams)
       } else {
         const useRouteName = 'org_' + router.name.replace(/^org_/i, '')
         const useParams = Object.assign({}, router.params, {
           org_id: orgId,
         })
+        
         router.navigate(useRouteName, useParams)
       }
     } else {
       const routeName = isDefault ? 'home' : 'org_home'
       const useParams = isDefault ? {} : { org_id: orgId }
+      
       router.navigate(routeName, useParams)
     }
-    handleClose()
   }
+
+  // Function to navigate to home or org homepage with slide animation
+  const goToOrgHome = (event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation(); // Stop propagation to prevent opening the dropdown
+    const isDefault = currentOrgId === 'default';
+    const routeName = isDefault ? 'home' : 'org_home';
+    const useParams = isDefault ? {} : { org_id: currentOrg?.name };
+    
+    router.navigate(routeName, useParams);
+  };
 
   return (
     <Box sx={{ 
@@ -93,72 +124,92 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       width: '100%',
       position: 'relative',
     }}>
-      <Button
-        id="org-selector-button"
-        aria-controls={open ? 'org-selector-menu' : undefined}
-        aria-haspopup="true"
-        aria-expanded={open ? 'true' : undefined}
-        onClick={handleClick}
-        endIcon={open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-        sx={{
-          textTransform: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          minWidth: '200px',
+      <Box 
+        sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
           width: '100%',
-          padding: 0,
-          pl: 2,
-          pr: 4,
-          height: isBigScreen ? `${TOOLBAR_HEIGHT}px` : '',
-          borderRadius: 0,
-          background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
-          '&:hover': {
-            background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
-          },
-          '& .MuiButton-endIcon': {
-            position: 'absolute',
-            right: 16,
-          },
           position: 'relative',
         }}
       >
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          p: 1,
-          pl: 0,
-          maxWidth: 'calc(100% - 40px)', // Reserve space for the dropdown icon
-          overflow: 'hidden',
-        }}>
-          <Avatar 
-            sx={{ 
-              width: 28, 
-              height: 28, 
-              bgcolor: theme => theme.palette.primary.main,
-              fontSize: '0.8rem',
-              mr: 1,
-              flexShrink: 0,
-            }}
-          >
-            {displayOrgName.charAt(0).toUpperCase()}
-          </Avatar>
-          <Typography 
-            variant="body1" 
-            noWrap 
-            sx={{ 
-              maxWidth: 'calc(100% - 20px)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              ml: 1,
-              color: '#FFFFFF',
-              fontWeight: 'medium',
-            }}
-          >
-            {displayOrgName}
-          </Typography>
-        </Box>
-      </Button>
+        <Button
+          id="org-selector-button"
+          aria-controls={open ? 'org-selector-menu' : undefined}
+          aria-haspopup="true"
+          aria-expanded={open ? 'true' : undefined}
+          onClick={handleClick}
+          endIcon={open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          sx={{
+            textTransform: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            minWidth: '200px',
+            width: '100%',
+            padding: 0,
+            pl: 2,
+            pr: 4,
+            height: isBigScreen ? `${TOOLBAR_HEIGHT}px` : '',
+            borderRadius: 0,
+            background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
+            '&:hover': {
+              background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
+            },
+            '& .MuiButton-endIcon': {
+              position: 'absolute',
+              right: 16,
+            },
+            position: 'relative',
+          }}
+        >
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            p: 1,
+            pl: 0,
+            maxWidth: 'calc(100% - 40px)', // Reserve space for the dropdown icon
+            overflow: 'hidden',
+            cursor: 'pointer', // Show pointer cursor to indicate clickable element
+          }}>
+            <Avatar 
+              onClick={goToOrgHome}
+              sx={{ 
+                width: 28, 
+                height: 28, 
+                bgcolor: theme => theme.palette.primary.main,
+                fontSize: '0.8rem',
+                mr: 1,
+                flexShrink: 0,
+                cursor: 'pointer', // Show pointer cursor to indicate clickable element
+                '&:hover': {
+                  boxShadow: '0 0 5px rgba(255, 255, 255, 0.5)',
+                },
+              }}
+            >
+              {displayOrgName.charAt(0).toUpperCase()}
+            </Avatar>
+            <Typography 
+              onClick={goToOrgHome}
+              variant="body1" 
+              noWrap 
+              sx={{ 
+                maxWidth: 'calc(100% - 20px)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                ml: 1,
+                color: '#FFFFFF',
+                fontWeight: 'medium',
+                cursor: 'pointer', // Show pointer cursor to indicate clickable element
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+              }}
+            >
+              {displayOrgName}
+            </Typography>
+          </Box>
+        </Button>
+      </Box>
       <Menu
         id="org-selector-menu"
         anchorEl={anchorEl}
@@ -217,12 +268,26 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         <Box sx={{ background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)' }}>
           <MenuItem 
             onClick={() => {
-              handleClose()
-              if (currentOrg && currentOrg.name) {
-                router.navigate('org_people', { org_id: currentOrg.name })
-              } else {
-                router.navigate('account')
+              handleClose();
+              
+              // For personal org (default), just navigate directly without animation
+              if (!currentOrg || !currentOrg.name) {
+                router.navigate('account');
+                return;
               }
+              
+              // For actual orgs, navigate first then trigger animation
+              const currentResourceType = router.params.resource_type || 'chat';
+              
+              // Navigate immediately to org settings
+              router.navigate('org_people', { org_id: currentOrg.name });
+              
+              // Trigger animation after a small delay to ensure components are mounted
+              setTimeout(() => {
+                if (window._activeMenus && (window._activeMenus[currentResourceType] || window._activeMenus['orgs'])) {
+                  triggerMenuChange(currentResourceType, 'orgs', 'right', true);
+                }
+              }, 50);
             }}
             sx={{ 
               display: 'flex', 
@@ -347,8 +412,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         <Box sx={{ background: 'linear-gradient(90deg, #520744 0%, #4d1a7c 100%)' }}>
           <MenuItem 
             onClick={() => {
-              handleClose()
+              handleClose();
+              const currentResourceType = router.params.resource_type || 'chat'
+              
+              // Navigate immediately first
               router.navigate('orgs')
+              
+              // Trigger animation after a delay
+              setTimeout(() => {
+                if (window._activeMenus && (window._activeMenus[currentResourceType] || window._activeMenus['orgs'])) {
+                  triggerMenuChange(currentResourceType, 'orgs', 'right', true);
+                }
+              }, 50);
             }}
             sx={{ 
               display: 'flex', 

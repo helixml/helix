@@ -35,54 +35,238 @@ const Apps: FC = () => {
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
   useEffect(() => {
-    if (
-      params.create === 'true' && 
-      params.template && 
-      params.provider_id && 
-      params.oauth === 'true'
-    ) {
-      createOAuthApp(params.template, params.provider_id)
-    }
-  }, [params.create, params.template, params.provider_id, params.oauth])
+    const handleOAuthAppCreation = async () => {
+      if (
+        params.create === 'true' && 
+        params.template && 
+        params.provider_id && 
+        params.oauth === 'true'
+      ) {
+        try {
+          console.log('Detected OAuth app creation parameters:', {
+            template: params.template,
+            provider_id: params.provider_id
+          });
+          
+          // Set a timeout to prevent the app from getting stuck in a loading state
+          const timeoutId = setTimeout(() => {
+            console.error('OAuth app creation timed out');
+            snackbar.error('App creation timed out. Please try again.');
+            removeParams(['create', 'template', 'provider_id', 'oauth']);
+          }, 30000); // 30 second timeout
+          
+          await createOAuthApp(params.template, params.provider_id);
+          
+          // Clear the timeout if createOAuthApp completes successfully
+          clearTimeout(timeoutId);
+        } catch (err) {
+          console.error('Error in OAuth app creation:', err);
+          snackbar.error('Failed to process OAuth app creation parameters');
+          removeParams(['create', 'template', 'provider_id', 'oauth']);
+        }
+      }
+    };
+    
+    handleOAuthAppCreation();
+  }, [params.create, params.template, params.provider_id, params.oauth]);
 
   const createOAuthApp = async (templateId: string, providerId: string) => {
     try {
-      const provider = await api.get(`/api/v1/oauth/providers/${providerId}`)
+      console.log('Creating OAuth app with template:', templateId, 'provider ID:', providerId);
+      
+      // Add loading state indication
+      snackbar.success('Initializing app creation...');
+      
+      // Fetch provider details with error checking
+      const provider = await api.get(`/api/v1/oauth/providers/${providerId}`);
       if (!provider) {
-        snackbar.error('Could not load OAuth provider')
-        return
+        console.error('Failed to load OAuth provider with ID:', providerId);
+        snackbar.error('Could not load OAuth provider');
+        return;
       }
       
-      const defaultModel = account.models && account.models.length > 0 ? account.models[0].id : ''
+      console.log('Loaded provider details:', provider);
       
-      const appName = templateId.includes('github') ? 'GitHub Repository Analyzer' : 
+      // Ensure we have a default model
+      const defaultModel = account.models && account.models.length > 0 
+        ? account.models[0].id 
+        : '';
+      
+      if (!defaultModel) {
+        console.warn('No default model available');
+      }
+      
+      // Set app name and description based on template
+      const getUniqueAppName = (baseName: string) => {
+        // Add a timestamp to ensure uniqueness
+        const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+        return `${baseName} ${timestamp}`;
+      };
+      
+      const baseAppName = templateId.includes('github') ? 'GitHub Repository Analyzer' : 
                       templateId.includes('jira') ? 'Jira Project Manager' :
                       templateId.includes('slack') ? 'Slack Channel Assistant' :
                       templateId.includes('google') ? 'Google Drive Navigator' :
-                      `${provider.name} Assistant`
+                      `${provider.name} Assistant`;
                       
+      const appName = getUniqueAppName(baseAppName);
+      
       const appDescription = templateId.includes('github') ? 'Analyze GitHub repositories, issues, and PRs' : 
                             templateId.includes('jira') ? 'Manage and analyze Jira projects and issues' :
                             templateId.includes('slack') ? 'Answer questions and perform tasks in Slack channels' :
                             templateId.includes('google') ? 'Search and summarize documents in Google Drive' :
-                            `AI assistant that connects to your ${provider.name} account`
+                            `AI assistant that connects to your ${provider.name} account`;
       
-      const toolName = `${provider.name} API`
-      const tool = {
-        name: toolName,
-        description: `Access ${provider.name} data and functionality`,
-        tool_type: 'api' as const,
-        config: {
-          api: {
-            url: provider.api_url || '',
-            schema: '',
-            oauth_provider: providerId,
-            oauth_scopes: provider.default_scopes || []
-          }
+      // Create API tool configuration
+      const toolName = `${provider.name} API`;
+      
+      // Determine API URL based on provider type
+      const getProviderApiUrl = (provider: any): string => {
+        // Use provider.api_url if available
+        if (provider.api_url) {
+          return provider.api_url;
         }
+        
+        // Default API URLs for known provider types
+        switch (provider.type) {
+          case 'github':
+            return 'https://api.github.com';
+          case 'slack':
+            return 'https://slack.com/api';
+          case 'google':
+            return 'https://www.googleapis.com';
+          case 'jira':
+          case 'atlassian':
+            return 'https://api.atlassian.com';
+          case 'microsoft':
+            return 'https://graph.microsoft.com/v1.0';
+          default:
+            console.warn(`No default API URL for provider type: ${provider.type}`);
+            return '';
+        }
+      };
+      
+      // Get the API URL
+      const apiUrl = getProviderApiUrl(provider);
+      
+      // Log the API URL for debugging
+      console.log('Provider API URL:', apiUrl);
+      
+      // Validation check - API URL is required
+      if (!apiUrl) {
+        console.error('API URL is required but not available for provider:', provider);
+        snackbar.error('API URL is required for API tools');
+        return;
       }
       
-      const newApp = await apps.createApp('helix', {
+      // Get an appropriate API schema for this provider
+      const getProviderSchema = (provider: any): string => {
+        // Try to use schema from provider if available
+        if (provider.api_schema) {
+          return provider.api_schema;
+        }
+        
+        // Generate default schema for known providers
+        switch (provider.type) {
+          case 'github':
+            return JSON.stringify({
+              openapi: "3.0.0",
+              info: {
+                title: "GitHub API",
+                version: "1.0.0",
+                description: "API for GitHub"
+              },
+              paths: {
+                "/users/{username}": {
+                  get: {
+                    operationId: "getUser",
+                    summary: "Get a user",
+                    parameters: [
+                      {
+                        name: "username",
+                        in: "path",
+                        required: true,
+                        schema: { type: "string" }
+                      }
+                    ]
+                  }
+                },
+                "/repos/{owner}/{repo}": {
+                  get: {
+                    operationId: "getRepo",
+                    summary: "Get a repository",
+                    parameters: [
+                      {
+                        name: "owner",
+                        in: "path",
+                        required: true,
+                        schema: { type: "string" }
+                      },
+                      {
+                        name: "repo",
+                        in: "path",
+                        required: true,
+                        schema: { type: "string" }
+                      }
+                    ]
+                  }
+                }
+              }
+            });
+          case 'slack':
+            return JSON.stringify({
+              openapi: "3.0.0",
+              info: {
+                title: "Slack API",
+                version: "1.0.0",
+                description: "API for Slack"
+              },
+              paths: {
+                "/chat.postMessage": {
+                  post: {
+                    operationId: "postMessage",
+                    summary: "Post a message to a channel"
+                  }
+                }
+              }
+            });
+          case 'google':
+            return JSON.stringify({
+              openapi: "3.0.0",
+              info: {
+                title: "Google Drive API",
+                version: "1.0.0",
+                description: "API for Google Drive"
+              },
+              paths: {
+                "/files": {
+                  get: {
+                    operationId: "listFiles",
+                    summary: "List files"
+                  }
+                }
+              }
+            });
+          default:
+            // Return a minimal schema for unknown provider types
+            return JSON.stringify({
+              openapi: "3.0.0",
+              info: {
+                title: `${provider.name} API`,
+                version: "1.0.0",
+                description: `API for ${provider.name}`
+              },
+              paths: {}
+            });
+        }
+      };
+      
+      // Get the schema for this provider
+      const schema = getProviderSchema(provider);
+      console.log(`Using schema for provider type ${provider.type}:`, schema.length > 100 ? schema.substring(0, 100) + '...' : schema);
+      
+      // Prepare app configuration
+      const appConfig = {
         helix: {
           external_url: '',
           name: appName,
@@ -100,8 +284,10 @@ const Apps: FC = () => {
             apis: [{
               name: toolName,
               description: `Access ${provider.name} data and functionality`,
-              url: provider.api_url || '',
-              schema: '',
+              url: apiUrl,
+              schema: schema, // <-- Using the schema we generated
+              oauth_provider: provider.type, // <-- Use the provider type (e.g., 'github') instead of the provider ID
+              oauth_scopes: provider.default_scopes || []
             }],
             gptscripts: [],
             tools: [],
@@ -112,21 +298,49 @@ const Apps: FC = () => {
         },
         secrets: {},
         allowed_domains: [],
-      })
+      };
+      
+      console.log('Creating app with config:', JSON.stringify(appConfig, null, 2));
+      
+      // Create the app
+      const newApp = await apps.createApp('helix', appConfig);
       
       if (!newApp) {
-        snackbar.error('Failed to create app')
-        return
+        console.error('App creation failed - no app returned from API');
+        snackbar.error('Failed to create app');
+        return;
       }
       
-      removeParams(['create', 'template', 'provider_id', 'oauth'])
-      navigate('app', { app_id: newApp.id })
-      snackbar.success(`Created new ${provider.name} app`)
+      console.log('Successfully created app:', newApp);
+      
+      // Clean up URL params and navigate to the new app
+      removeParams(['create', 'template', 'provider_id', 'oauth']);
+      navigate('app', { app_id: newApp.id });
+      snackbar.success(`Created new ${provider.name} app`);
     } catch (err) {
-      console.error('Error creating OAuth app:', err)
-      snackbar.error('Failed to create app with OAuth integration')
+      console.error('Error creating OAuth app:', err);
+      
+      // Extract and display more specific error information
+      let errorMessage = 'Failed to create app with OAuth integration';
+      
+      // Check for axios error response
+      if (err && (err as any).response && (err as any).response.data) {
+        const responseData = (err as any).response.data;
+        if (responseData.error) {
+          errorMessage += `: ${responseData.error}`;
+        } else if (typeof responseData === 'string') {
+          errorMessage += `: ${responseData}`;
+        }
+      } else if (err instanceof Error) {
+        errorMessage += `: ${err.message}`;
+      }
+      
+      snackbar.error(errorMessage);
+      
+      // Clean up URL params even on error
+      removeParams(['create', 'template', 'provider_id', 'oauth']);
     }
-  }
+  };
 
   const onConnectRepo = useCallback(async (repo: string) => {
     if (!account.user) {

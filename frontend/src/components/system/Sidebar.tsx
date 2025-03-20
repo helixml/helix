@@ -36,6 +36,7 @@ import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApps from '../../hooks/useApps'
 import { AccountContext } from '../../contexts/account'
+import SlideMenuContainer, { triggerMenuChange } from './SlideMenuContainer'
 
 import {
   SESSION_MODE_FINETUNE,
@@ -46,13 +47,15 @@ const RESOURCE_TYPES = [
   'apps',
 ]
 
-const Sidebar: React.FC<{
+// Wrap the inner content in the SlideMenuContainer to enable animations
+const SidebarContent: React.FC<{
   showTopLinks?: boolean,
+  menuType: string,
 }> = ({
   children,
   showTopLinks = true,
+  menuType,
 }) => {
-
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
   const router = useRouter()
@@ -105,14 +108,57 @@ const Sidebar: React.FC<{
   }
 
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
+    // Check if this is navigation to an org page
+    if (path.startsWith('org_') || (params && params.org_id)) {
+      // If moving from a non-org page to an org page
+      if (router.meta.menu !== 'orgs') {
+        const currentResourceType = router.params.resource_type || 'chat'
+        
+        // Store pending animation to be picked up by the orgs menu when it mounts
+        localStorage.setItem('pending_animation', JSON.stringify({
+          from: currentResourceType,
+          to: 'orgs',
+          direction: 'right',
+          isOrgSwitch: true
+        }))
+        
+        // Navigate immediately without waiting
+        account.orgNavigate(path, params)
+        postNavigateTo()
+        return
+      }
+    } else {
+      // If moving from an org page to a non-org page
+      if (router.meta.menu === 'orgs') {
+        const currentResourceType = router.params.resource_type || 'chat'
+        
+        // Store pending animation to be picked up when the destination menu mounts
+        localStorage.setItem('pending_animation', JSON.stringify({
+          from: 'orgs',
+          to: currentResourceType,
+          direction: 'left',
+          isOrgSwitch: true
+        }))
+        
+        // Navigate immediately without waiting
+        account.orgNavigate(path, params)
+        postNavigateTo()
+        return
+      }
+    }
+
+    // Otherwise, navigate normally without animation
     account.orgNavigate(path, params)
     postNavigateTo()
   }
 
   // Handle tab change between CHATS and APPS
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    // Get the resource types
+    const fromResourceType = RESOURCE_TYPES[activeTab]
+    const toResourceType = RESOURCE_TYPES[newValue]
+    
     // When switching to the apps tab and we have an app_id, preserve it
-    // When switching to chats tab, we can optionally remove app_id
     const newParams: Record<string, any> = {
       resource_type: RESOURCE_TYPES[newValue],
     };
@@ -122,6 +168,8 @@ const Sidebar: React.FC<{
       newParams.app_id = router.params.app_id;
     }
     
+    // Direct navigation without animation for tab changes
+    // We don't want slide animations between tabs as they're in the same component
     router.mergeParams(newParams);
   }
 
@@ -136,367 +184,389 @@ const Sidebar: React.FC<{
   }
 
   return (
-    <Box
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        borderRight: lightTheme.border,
-        backgroundColor: lightTheme.backgroundColor,
-      }}
-      >
+    <SlideMenuContainer menuType={menuType}>
       <Box
         sx={{
-          flexGrow: 0,
-          width: '100%',
-        }}
-      >
-        {
-          showTopLinks && (
-            <List disablePadding>
-              {
-                account.user && (
-                  <>
-                    <UserOrgSelector />
-                    <Divider />
-                  </>
-                  
-                )
-              }
-              
-              {/* Tabs for CHATS and APPS */}
-              <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
-                <Tabs 
-                  value={activeTab} 
-                  onChange={handleTabChange}
-                  aria-label="content tabs"
-                  sx={{ 
-                    '& .MuiTab-root': {
-                      minWidth: 'auto',
-                      flex: 1,
-                      color: lightTheme.textColorFaded,
-                      fontSize: '16px',
-                    },
-                    '& .Mui-selected': {
-                      color: '#00E5FF',
-                      fontWeight: 'bold',
-                    },
-                    '& .MuiTabs-indicator': {
-                      backgroundColor: '#00E5FF',
-                      height: 3,
-                    },
-                  }}
-                >
-                  {
-                    RESOURCE_TYPES.map((type) => (
-                      <Tab key={type} label={type.charAt(0).toUpperCase() + type.slice(1)} />
-                    ))
-                  }
-                </Tabs>
-              </Box>
-              
-              {/* New resource creation button */}
-              <ListItem
-                disablePadding
-                dense
-              >
-                <ListItemButton
-                  id="create-link"
-                  onClick={handleCreateNew}
-                  sx={{
-                    height: '64px',
-                    display: 'flex',
-                    '&:hover': {
-                      '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
-                    },
-                  }}
-                >
-                  <ListItemText
-                    sx={{
-                      ml: 2,
-                      p: 1,
-                    }}
-                    primary={
-                      RESOURCE_TYPES[activeTab] === 'apps' 
-                        ? 'New App' 
-                        : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
-                    }
-                    primaryTypographyProps={{
-                      fontWeight: 'bold',
-                      color: '#FFFFFF',
-                      fontSize: '16px',
-                    }}
-                  />
-                  <Box 
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: 'transparent',
-                      border: '2px solid #00E5FF',
-                      borderRadius: '50%',
-                      width: 32,
-                      height: 32,
-                      mr: 2,
-                    }}
-                  >
-                    <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
-                  </Box>
-                </ListItemButton>
-              </ListItem>
-              
-              <Divider />
-            </List>
-          )
-        }
-      </Box>
-      <Box
-        sx={{
-          flexGrow: 1,
-          width: '100%',
-          overflowY: 'auto',
-          boxShadow: 'none', // Remove shadow for a more flat/minimalist design
-          borderRight: 'none', // Remove the border if present
-          mr: 3,
-          mt: 1,
-          ...lightTheme.scrollbar,
-        }}
-        >
-        { children }
-      </Box>
-      <Box
-        sx={{
-          flexGrow: 0,
-          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          borderRight: lightTheme.border,
           backgroundColor: lightTheme.backgroundColor,
-          mt: 0,
-          p: 2,
+          width: '100%',
         }}
       >
         <Box
           sx={{
-            borderTop: lightTheme.border,
+            flexGrow: 0,
             width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'left',
-            pt: 1.5,
           }}
-          >
-          <Typography
-            variant="body2"
-            sx={{
-              color: lightTheme.textColorFaded,
-              flexGrow: 1,
-              display: 'flex',
-              justifyContent: 'flex-start',
-              textAlign: 'left',
-              cursor: 'pointer',
-              pl: 2,
-              pb: 0.25,
-            }}
-            onClick={ openDocumentation }
-          >
-            Documentation
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{
-              color: lightTheme.textColorFaded,
-              flexGrow: 1,
-              display: 'flex',
-              justifyContent: 'flex-start',
-              textAlign: 'left',
-              cursor: 'pointer',
-              pl: 2,
-            }}
-            onClick={ onOpenHelp }
-          >
-            Help & Support
-          </Typography>
+        >
+          {
+            showTopLinks && (
+              <List disablePadding>
+                {
+                  account.user && (
+                    <>
+                      <UserOrgSelector />
+                      <Divider />
+                    </>
+                  )
+                }
+                
+                {/* Tabs for CHATS and APPS */}
+                <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
+                  <Tabs 
+                    value={activeTab} 
+                    onChange={handleTabChange}
+                    aria-label="content tabs"
+                    sx={{ 
+                      '& .MuiTab-root': {
+                        minWidth: 'auto',
+                        flex: 1,
+                        color: lightTheme.textColorFaded,
+                        fontSize: '16px',
+                      },
+                      '& .Mui-selected': {
+                        color: '#00E5FF',
+                        fontWeight: 'bold',
+                      },
+                      '& .MuiTabs-indicator': {
+                        backgroundColor: '#00E5FF',
+                        height: 3,
+                      },
+                    }}
+                  >
+                    <Tab 
+                      key="chat" 
+                      label="Chat" 
+                      id="tab-chat"
+                      aria-controls="tabpanel-chat"
+                    />
+                    <Tab 
+                      key="apps" 
+                      label="Apps" 
+                      id="tab-apps"
+                      aria-controls="tabpanel-apps"
+                    />
+                  </Tabs>
+                </Box>
+                
+                {/* New resource creation button */}
+                <ListItem
+                  disablePadding
+                  dense
+                >
+                  <ListItemButton
+                    id="create-link"
+                    onClick={handleCreateNew}
+                    sx={{
+                      height: '64px',
+                      display: 'flex',
+                      '&:hover': {
+                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                      },
+                    }}
+                  >
+                    <ListItemText
+                      sx={{
+                        ml: 2,
+                        p: 1,
+                      }}
+                      primary={
+                        RESOURCE_TYPES[activeTab] === 'apps' 
+                          ? 'New App' 
+                          : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
+                      }
+                      primaryTypographyProps={{
+                        fontWeight: 'bold',
+                        color: '#FFFFFF',
+                        fontSize: '16px',
+                      }}
+                    />
+                    <Box 
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'transparent',
+                        border: '2px solid #00E5FF',
+                        borderRadius: '50%',
+                        width: 32,
+                        height: 32,
+                        mr: 2,
+                      }}
+                    >
+                      <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
+                    </Box>
+                  </ListItemButton>
+                </ListItem>
+                
+                <Divider />
+              </List>
+            )
+          }
+        </Box>
+        <Box
+          sx={{
+            flexGrow: 1,
+            width: '100%',
+            overflowY: 'auto',
+            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
+            borderRight: 'none', // Remove the border if present
+            mr: 3,
+            mt: 1,
+            ...lightTheme.scrollbar,
+          }}
+        >
+          { children }
+        </Box>
+        <Box
+          sx={{
+            flexGrow: 0,
+            width: '100%',
+            backgroundColor: lightTheme.backgroundColor,
+            mt: 0,
+            p: 2,
+          }}
+        >
           <Box
             sx={{
-              display: 'flex',
-              flexDirection: 'row',
+              borderTop: lightTheme.border,
               width: '100%',
-              justifyContent: 'flex-start',
-              mt: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'left',
+              pt: 1.5,
             }}
+          >
+            <Typography
+              variant="body2"
+              sx={{
+                color: lightTheme.textColorFaded,
+                flexGrow: 1,
+                display: 'flex',
+                justifyContent: 'flex-start',
+                textAlign: 'left',
+                cursor: 'pointer',
+                pl: 2,
+                pb: 0.25,
+              }}
+              onClick={ openDocumentation }
             >
-            { themeConfig.logo() }
-            {
-              account.user ? (
-                <>
-                  <Box>
-                    <Typography variant="body2" sx={{fontWeight: 'bold'}}>
-                      {account.user.name}
-                    </Typography>
-                    <Typography variant="caption" sx={{color: lightTheme.textColorFaded}}>
-                      {account.user.email}
-                    </Typography>
-                  </Box>
-                  <IconButton
-                    size="large"
-                    aria-label="account of current user"
-                    aria-controls="menu-appbar"
-                    aria-haspopup="true"
-                    onClick={(event: React.MouseEvent<HTMLElement>) => {
-                      setAccountMenuAnchorEl(event.currentTarget)
-                    }}
-                    
-                    sx={{marginLeft: "auto", color: lightTheme.textColorFaded}}
-                  >
-                    <MoreVertIcon />
-                  </IconButton>
-                  <Menu
-                    id="menu-appbar"
-                    anchorEl={accountMenuAnchorEl}
-                    anchorOrigin={{
-                      vertical: 'top',
-                      horizontal: 'right',
-                    }}
-                    keepMounted
-                    transformOrigin={{
-                      vertical: 'top',
-                      horizontal: 'right',
-                    }}
-                    open={Boolean(accountMenuAnchorEl)}
-                    onClose={() => setAccountMenuAnchorEl(null)}
+              Documentation
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                color: lightTheme.textColorFaded,
+                flexGrow: 1,
+                display: 'flex',
+                justifyContent: 'flex-start',
+                textAlign: 'left',
+                cursor: 'pointer',
+                pl: 2,
+              }}
+              onClick={ onOpenHelp }
+            >
+              Help & Support
+            </Typography>
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'row',
+                width: '100%',
+                justifyContent: 'flex-start',
+                mt: 2,
+              }}
+            >
+              { themeConfig.logo() }
+              {
+                account.user ? (
+                  <>
+                    <Box>
+                      <Typography variant="body2" sx={{fontWeight: 'bold'}}>
+                        {account.user.name}
+                      </Typography>
+                      <Typography variant="caption" sx={{color: lightTheme.textColorFaded}}>
+                        {account.user.email}
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      size="large"
+                      aria-label="account of current user"
+                      aria-controls="menu-appbar"
+                      aria-haspopup="true"
+                      onClick={(event: React.MouseEvent<HTMLElement>) => {
+                        setAccountMenuAnchorEl(event.currentTarget)
+                      }}
+                      
+                      sx={{marginLeft: "auto", color: lightTheme.textColorFaded}}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                    <Menu
+                      id="menu-appbar"
+                      anchorEl={accountMenuAnchorEl}
+                      anchorOrigin={{
+                        vertical: 'top',
+                        horizontal: 'right',
+                      }}
+                      keepMounted
+                      transformOrigin={{
+                        vertical: 'top',
+                        horizontal: 'right',
+                      }}
+                      open={Boolean(accountMenuAnchorEl)}
+                      onClose={() => setAccountMenuAnchorEl(null)}
                     >
 
-                    <MenuItem onClick={ () => {
-                      orgNavigateTo('home')
-                    }}>
-                      <ListItemIcon>
-                        <HomeIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Home
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      orgNavigateTo('appstore')
-                    }}>
-                      <ListItemIcon>
-                        <AppsIcon fontSize="small" />
-                      </ListItemIcon> 
-                      App Store
-                    </MenuItem>
-
-                    {
-                      account.admin && (
-                        <MenuItem onClick={ () => {
-                          navigateTo('dashboard')
-                        }}>
-                          <ListItemIcon>
-                            <DashboardIcon fontSize="small" />
-                          </ListItemIcon> 
-                          Dashboard
-                        </MenuItem>
-                      )
-                    }
-
-                    {
-                      account.serverConfig.apps_enabled && (
-                        <MenuItem onClick={ () => {
-                          orgNavigateTo('apps')
-                        }}>
-                          <ListItemIcon>
-                            <WebhookIcon fontSize="small" />
-                          </ListItemIcon> 
-                          Your Apps
-                        </MenuItem>
-                      )
-                    }
-
-                    <MenuItem onClick={ () => {
-                      orgNavigateTo('new', {
-                        model: defaultModel,
-                        mode: SESSION_MODE_FINETUNE,
-                        rag: true,
-                      })
-                    }}>
-                      <ListItemIcon>
-                        <SchoolIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Learn
-                    </MenuItem>
-                    
-                    <MenuItem onClick={ () => {
-                      navigateTo('account')
-                    }}>
-                      <ListItemIcon>
-                        <AccountBoxIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Account &amp; API
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('oauth-connections')
-                    }}>
-                      <ListItemIcon>
-                        <WebhookIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Connected Services
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('api-reference')
-                    }}>
-                      <ListItemIcon>
-                        <CodeIcon fontSize="small" />
-                      </ListItemIcon> 
-                      API Reference
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('files')
-                    }}>
-                      <ListItemIcon>
-                        <CloudUploadIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Files
-                    </MenuItem>
-
-                    {/* <MenuItem onClick={ () => {
-                      toggleMode()
-                    }}>
-                      <ListItemIcon>
-                        {lightTheme.isDark ? <Brightness7Icon fontSize="small" /> : <Brightness4Icon fontSize="small" />}
-                      </ListItemIcon>
-                      {lightTheme.isDark ? 'Light Mode' : 'Dark Mode'}
-                    </MenuItem> */}
-
-                    <MenuItem onClick={ () => {
-                      setAccountMenuAnchorEl(null)
-                      account.onLogout()
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('home')
                       }}>
-                      <ListItemIcon>
-                        <LogoutIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Logout
-                    </MenuItem>
-                  </Menu>
-                </>
-              ) : (
-                <>
-                  <Button 
-                    id='login-button'
-                    variant="outlined"
-                    endIcon={<LoginIcon />}
-                    onClick={ () => {
-                      account.onLogin()
-                    }}
+                        <ListItemIcon>
+                          <HomeIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Home
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('appstore')
+                      }}>
+                        <ListItemIcon>
+                          <AppsIcon fontSize="small" />
+                        </ListItemIcon> 
+                        App Store
+                      </MenuItem>
+
+                      {
+                        account.admin && (
+                          <MenuItem onClick={ () => {
+                            navigateTo('dashboard')
+                          }}>
+                            <ListItemIcon>
+                              <DashboardIcon fontSize="small" />
+                            </ListItemIcon> 
+                            Dashboard
+                          </MenuItem>
+                        )
+                      }
+
+                      {
+                        account.serverConfig.apps_enabled && (
+                          <MenuItem onClick={ () => {
+                            orgNavigateTo('apps')
+                          }}>
+                            <ListItemIcon>
+                              <WebhookIcon fontSize="small" />
+                            </ListItemIcon> 
+                            Your Apps
+                          </MenuItem>
+                        )
+                      }
+
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('new', {
+                          model: defaultModel,
+                          mode: SESSION_MODE_FINETUNE,
+                          rag: true,
+                        })
+                      }}>
+                        <ListItemIcon>
+                          <SchoolIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Learn
+                      </MenuItem>
+                      
+                      <MenuItem onClick={ () => {
+                        navigateTo('account')
+                      }}>
+                        <ListItemIcon>
+                          <AccountBoxIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Account &amp; API
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        navigateTo('oauth-connections')
+                      }}>
+                        <ListItemIcon>
+                          <WebhookIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Connected Services
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        navigateTo('api-reference')
+                      }}>
+                        <ListItemIcon>
+                          <CodeIcon fontSize="small" />
+                        </ListItemIcon> 
+                        API Reference
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        navigateTo('files')
+                      }}>
+                        <ListItemIcon>
+                          <CloudUploadIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Files
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        setAccountMenuAnchorEl(null)
+                        account.onLogout()
+                        }}>
+                        <ListItemIcon>
+                          <LogoutIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Logout
+                      </MenuItem>
+                    </Menu>
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      id='login-button'
+                      variant="outlined"
+                      endIcon={<LoginIcon />}
+                      onClick={ () => {
+                        account.onLogin()
+                      }}
                     >
-                    Login / Register
-                  </Button>
-                </>
-              )
-            }
+                      Login / Register
+                    </Button>
+                  </>
+                )
+              }
+            </Box>
           </Box>
         </Box>
       </Box>
-    </Box>
+    </SlideMenuContainer>
+  )
+}
+
+// Main Sidebar component that determines which menuType to use
+const Sidebar: React.FC<{
+  showTopLinks?: boolean,
+}> = ({
+  children,
+  showTopLinks = true,
+}) => {
+  const router = useRouter()
+  
+  // Determine the menu type based on the current route
+  const menuType = router.meta.menu || router.params.resource_type || 'chat'
+  
+  return (
+    <SidebarContent 
+      showTopLinks={showTopLinks}
+      menuType={menuType}
+    >
+      {children}
+    </SidebarContent>
   )
 }
 
