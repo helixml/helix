@@ -663,11 +663,11 @@ func setupAuthorizationMocks(mockStore *store.MockStore, app *types.App, callerU
 		OrganizationID: app.OrganizationID,
 		UserID:         callerUserID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceAccessGrants,
+		ResourceType:   resources[0],
 		TeamIDs:        []string{"team_id_test"},
 	}).Return([]*types.AccessGrant{
 		{
-			ResourceType: types.ResourceAccessGrants,
+			ResourceType: resources[0],
 			Roles: []types.Role{
 				{
 					Config: types.Config{
