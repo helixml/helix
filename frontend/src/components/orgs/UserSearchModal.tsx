@@ -32,6 +32,7 @@ interface UserSearchModalProps {
   title?: string
   messagePrefix?: string
   organizationMembersOnly?: boolean
+  existingMembers?: TypesUser[]
 }
 
 // UserSearchModal component for searching and adding users to an organization or team
@@ -41,7 +42,8 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   onAddMember, 
   title = "Add Organization Member",
   messagePrefix,
-  organizationMembersOnly = false
+  organizationMembersOnly = false,
+  existingMembers = []
 }) => {
   // State for the search query
   const [searchQuery, setSearchQuery] = useState('')
@@ -57,9 +59,8 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   
   // Check if a user is already a member of the organization
   const isUserAlreadyMember = useCallback((user: TypesUser) => {
-    if (!account.organizationTools.organization) return false
-    return isUserMemberOfOrganization(account.organizationTools.organization, user.id || '')
-  }, [account.organizationTools.organization])
+    return existingMembers.some(member => member.id === user.id)
+  }, [existingMembers])
   
   // Handle search query change
   const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
