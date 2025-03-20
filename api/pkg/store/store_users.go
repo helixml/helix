@@ -163,26 +163,25 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 	var users []*types.User
 	var total int64
 
+	if query.Query == "" {
+		return nil, 0, fmt.Errorf("query cannot be empty")
+	}
+
 	// Start with a base query
 	db := s.gdb.WithContext(ctx).Model(&types.User{})
 
-	// Apply filters for partial matching
-	if query != nil {
-		if query.EmailPattern != "" {
-			db = db.Where("email ILIKE ?", "%"+query.EmailPattern+"%")
-		}
-		if query.NamePattern != "" {
-			db = db.Where("full_name ILIKE ?", "%"+query.NamePattern+"%")
-		}
-		if query.UsernamePattern != "" {
-			db = db.Where("username ILIKE ?", "%"+query.UsernamePattern+"%")
-		}
+	// Filter users by organization membership if organization ID is provided
+	if query.OrganizationID != "" {
+		db = db.Joins("JOIN organization_memberships ON organization_memberships.user_id = users.id").
+			Where("organization_memberships.organization_id = ?", query.OrganizationID)
+	}
 
-		// Filter users by organization membership if organization ID is provided
-		if query.OrganizationID != "" {
-			db = db.Joins("JOIN organization_memberships ON organization_memberships.user_id = users.id").
-				Where("organization_memberships.organization_id = ?", query.OrganizationID)
-		}
+	// Apply filters for partial matching
+	if query.Query != "" {
+		db = db.Where("(email ILIKE ? OR full_name ILIKE ? OR username ILIKE ?)",
+			"%"+query.Query+"%",
+			"%"+query.Query+"%",
+			"%"+query.Query+"%")
 	}
 
 	// Count total matching records before applying pagination
@@ -200,7 +199,7 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 	}
 
 	// Execute the query
-	err = db.Find(&users).Error
+	err = db.Debug().Distinct().Find(&users).Error
 	if err != nil {
 		return nil, 0, err
 	}

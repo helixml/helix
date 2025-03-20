@@ -1399,6 +1399,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search users by email, name, or username",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Search users",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserSearchResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -4603,7 +4652,7 @@ const docTemplate = `{
                     "description": "if the ID of the user is contained in the env setting",
                     "type": "boolean"
                 },
-                "appID": {
+                "app_id": {
                     "description": "if the token is associated with an app",
                     "type": "string"
                 },
@@ -4616,7 +4665,7 @@ const docTemplate = `{
                 "email": {
                     "type": "string"
                 },
-                "fullName": {
+                "full_name": {
                     "type": "string"
                 },
                 "id": {
@@ -4626,7 +4675,7 @@ const docTemplate = `{
                     "description": "the actual token used and its type",
                     "type": "string"
                 },
-                "tokenType": {
+                "token_type": {
                     "description": "none, runner. keycloak, api_key",
                     "allOf": [
                         {
@@ -4664,6 +4713,26 @@ const docTemplate = `{
                 },
                 "token": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UserSearchResponse": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "total_count": {
+                    "type": "integer"
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.User"
+                    }
                 }
             }
         },

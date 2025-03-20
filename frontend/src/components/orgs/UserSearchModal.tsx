@@ -15,10 +15,14 @@ import Typography from '@mui/material/Typography'
 import PersonIcon from '@mui/icons-material/Person'
 import InputAdornment from '@mui/material/InputAdornment'
 import SearchIcon from '@mui/icons-material/Search'
+import Tooltip from '@mui/material/Tooltip'
 
 import useDebounce from '../../hooks/useDebounce'
-import useOrganizations, { UserSearchResult } from '../../hooks/useOrganizations'
+import useOrganizations from '../../hooks/useOrganizations'
 import useAccount from '../../hooks/useAccount'
+import { isUserMemberOfOrganization } from '../../utils/organizations'
+
+import { TypesUser } from '../../api/api'
 
 // Interface for component props
 interface UserSearchModalProps {
@@ -28,6 +32,7 @@ interface UserSearchModalProps {
   title?: string
   messagePrefix?: string
   organizationMembersOnly?: boolean
+  existingMembers?: TypesUser[]
 }
 
 // UserSearchModal component for searching and adding users to an organization or team
@@ -37,12 +42,13 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   onAddMember, 
   title = "Add Organization Member",
   messagePrefix,
-  organizationMembersOnly = false
+  organizationMembersOnly = false,
+  existingMembers = []
 }) => {
   // State for the search query
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
-  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<TypesUser[]>([])
   
   // Get the debounced search query to avoid excessive API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
@@ -51,14 +57,19 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   const { searchUsers } = useOrganizations()
   const account = useAccount()
   
+  // Check if a user is already a member of the organization
+  const isUserAlreadyMember = useCallback((user: TypesUser) => {
+    return existingMembers.some(member => member.id === user.id)
+  }, [existingMembers])
+  
   // Handle search query change
   const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value)
   }, [])
   
   // Handle adding a user
-  const handleAddUser = useCallback((user: UserSearchResult) => {
-    onAddMember(user.id)
+  const handleAddUser = useCallback((user: TypesUser) => {    
+    onAddMember(user.id || '')
     onClose()
   }, [onAddMember, onClose])
 
@@ -78,24 +89,29 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
       try {
         // Search by both email and name
         const response = await searchUsers({
-          email: debouncedSearchQuery,
-          name: debouncedSearchQuery,
+          query: debouncedSearchQuery,
           organizationId: organizationMembersOnly ? account.organizationTools.organization?.id : undefined
         })
+
+        // If users is an empty array, thing to return
+        if (response.users?.length === 0) {
+          setSearchResults([])
+          return
+        }
         
         // Normalize the case of API response fields
-        const normalizedResults = response.users.map((user: UserSearchResult) => {
+        const normalizedResults = response.users?.map((user: TypesUser) => {
           // Use type assertion to access capitalized properties
-          const anyUser = user as any;
+          
           return {
             id: user.id,
-            email: user.email || anyUser.Email || '',
-            fullName: user.fullName || anyUser.FullName || '',
-            username: user.username || anyUser.Username || ''
+            email: user.email || '',
+            full_name: user.full_name || '',
+            username: user.username || ''
           };
         });
         
-        setSearchResults(normalizedResults)
+        setSearchResults(normalizedResults || [])
       } catch (error) {
         console.error('Error searching users:', error)
         setSearchResults([])
@@ -154,27 +170,35 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
         </Box>
         
         <List sx={{ width: '100%' }}>
-          {searchResults.map((user) => (
-            <ListItem key={user.id} divider>
-              <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                <PersonIcon color="action" />
-              </Box>
-              <ListItemText
-                primary={user.fullName || 'Unnamed User'}
-                secondary={user.email}
-              />
-              <ListItemSecondaryAction>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="small"
-                  onClick={() => handleAddUser(user)}
-                >
-                  Add
-                </Button>
-              </ListItemSecondaryAction>
-            </ListItem>
-          ))}
+          {searchResults.map((user) => {
+            const alreadyMember = isUserAlreadyMember(user)
+            return (
+              <ListItem key={user.id} divider>
+                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                  <PersonIcon color="action" />
+                </Box>
+                <ListItemText
+                  primary={user.full_name || 'Unnamed User'}
+                  secondary={user.email}
+                />
+                <ListItemSecondaryAction>
+                  <Tooltip title={alreadyMember ? "User is already a member of this organization" : ""}>
+                    <span>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        size="small"
+                        onClick={() => handleAddUser(user)}
+                        disabled={alreadyMember}
+                      >
+                        {alreadyMember ? 'Already Member' : 'Add'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </ListItemSecondaryAction>
+              </ListItem>
+            )
+          })}
         </List>
       </DialogContent>
       <DialogActions>

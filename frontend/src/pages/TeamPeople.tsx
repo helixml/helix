@@ -14,7 +14,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 
-import { TypesOrganizationMembership, TypesTeamMembership, TypesTeam } from '../api/api'
+import { TypesOrganizationMembership, TypesTeamMembership, TypesTeam, TypesUser } from '../api/api'
 
 // Team People page that lists and manages team members
 const TeamPeople: FC = () => {
@@ -105,6 +105,8 @@ const TeamPeople: FC = () => {
   // Use the isOrgAdmin property from the useOrganizations hook
   const isOrgOwner = account.isOrgAdmin
 
+  const existingMembers = currentTeam?.memberships?.map(m => m.user).filter((user): user is TypesUser => user !== undefined) || []
+
   if(!account.user) return null
   if(!organization) return null
   if(!currentTeam) return null
@@ -116,7 +118,7 @@ const TeamPeople: FC = () => {
       topbarContent={isOrgOwner ? (
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={handleAdd}
         >
@@ -144,7 +146,7 @@ const TeamPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`team member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={`team member "${deleteMember?.user?.full_name || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />
@@ -156,6 +158,7 @@ const TeamPeople: FC = () => {
         title="Add Team Member"
         messagePrefix="Only showing users in organization."
         organizationMembersOnly={true}
+        existingMembers={existingMembers || []}
       />
     </Page>
   )
