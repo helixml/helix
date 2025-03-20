@@ -117,20 +117,27 @@ type User struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// the actual token used and its type
-	Token string
+	Token string `json:"token"`
 	// none, runner. keycloak, api_key
-	TokenType TokenType
+	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
-	Admin bool
+	Admin bool `json:"admin"`
 	// if the token is associated with an app
-	AppID string
+	AppID string `json:"app_id"`
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty
-	Type     OwnerType
-	Email    string
-	Username string
-	FullName string
+	Type     OwnerType `json:"type"`
+	Email    string    `json:"email"`
+	Username string    `json:"username"`
+	FullName string    `json:"full_name"`
+}
+
+type UserSearchResponse struct {
+	Users      []*User `json:"users"`
+	TotalCount int64   `json:"total_count"`
+	Limit      int     `json:"limit"`
+	Offset     int     `json:"offset"`
 }
 
 // CreateAccessGrantRequest - request to create an access grant for a team or user

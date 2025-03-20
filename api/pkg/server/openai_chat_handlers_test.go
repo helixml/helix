@@ -373,7 +373,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -448,6 +449,216 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
 }
 
+func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Allowed() {
+
+	app := &types.App{
+		OrganizationID: "org123",
+		Owner:          "some_owner",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	// 1. Checking whether caller is org member
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	// 2. Set up authorization mocks
+	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceApplication}, []types.Action{types.ActionGet})
+
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.userID,
+	}).Return([]*types.Secret{}, nil)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	ownerID, ok := getTestOwnerID(suite.authCtx)
+	suite.Require().True(ok)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", req.Model)
+
+			suite.Require().Equal(2, len(req.Messages))
+
+			suite.Equal("system", req.Messages[0].Role)
+			suite.Equal("you are very custom assistant", req.Messages[0].Content)
+
+			suite.Equal("user", req.Messages[1].Role)
+
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal(ownerID, vals.OwnerID)
+			suite.True(strings.HasPrefix(vals.SessionID, "oai_"), "SessionID should start with 'oai_'")
+			suite.Equal("n/a", vals.InteractionID)
+
+			return oai.ChatCompletionResponse{
+				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Role:    "assistant",
+							Content: "**model-result**",
+						},
+						FinishReason: "stop",
+					},
+				},
+			}, nil
+		})
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp oai.ChatCompletionResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	suite.NoError(err)
+
+	suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", resp.Model)
+	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
+	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
+	suite.Equal("assistant", resp.Choices[0].Message.Role)
+	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Denied_NotMember() {
+	app := &types.App{
+		OrganizationID: "org123",
+		Owner:          "some_owner",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(nil, store.ErrNotFound)
+
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Denied_WrongPermissions() {
+	app := &types.App{
+		OrganizationID: "org123",
+		Owner:          "some_owner",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	// 1. Checking whether caller is org member
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	// 2. No app access
+	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceApplication}, []types.Action{types.ActionList})
+
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
 func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
 
 	app := &types.App{
@@ -474,7 +685,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
 
 	suite.server.providerManager = providerManager
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -566,7 +778,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -660,7 +873,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -888,7 +1102,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -1127,7 +1342,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(3)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil).Times(2)

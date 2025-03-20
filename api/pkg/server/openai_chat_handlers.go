@@ -109,27 +109,49 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}(),
 	}
 
-	if user.AppID != "" {
-		options.AppID = user.AppID
+	var app *types.App
 
-		ctx = oai.SetContextAppID(ctx, user.AppID)
+	switch {
+	// If app ID is set from authentication token
+	case user.AppID != "":
+		// Basic sanity validation to see whether app ID from URL query matches
+		// the app ID from the authentication token
+		if options.AppID != "" && user.AppID != options.AppID {
+			log.Error().Str("app_id", user.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
+			http.Error(rw, "URL query app_id does not match token app_id", http.StatusBadRequest)
+			return
+		}
+
+		app, err = s.Store.GetApp(ctx, user.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", user.AppID).Msg("error getting app")
+			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+			return
+		}
+
+		options.AppID = user.AppID
+	// If app is set through URL query options
+	case options.AppID != "":
+		app, err = s.Store.GetApp(ctx, options.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", options.AppID).Msg("error getting app")
+			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// If app is set
+	if app != nil {
+		ctx = oai.SetContextAppID(ctx, app.ID)
 
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 
 		// If an app_id is being used, verify that the user has access to it
-		if options.AppID != "" {
-			app, err := s.Store.GetApp(ctx, options.AppID)
-			if err != nil {
-				log.Error().Err(err).Str("app_id", options.AppID).Msg("error getting app")
-				http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
-				return
-			}
 
-			if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
-				log.Error().Err(err).Str("app_id", options.AppID).Str("user_id", user.ID).Msg("user is not authorized to access this app")
-				http.Error(rw, fmt.Sprintf("Not authorized to access app: %s", err), http.StatusForbidden)
-				return
-			}
+		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			log.Error().Err(err).Str("app_id", options.AppID).Str("user_id", user.ID).Msg("user is not authorized to access this app")
+			http.Error(rw, fmt.Sprintf("Not authorized to access app: %s", err), http.StatusForbidden)
+			return
 		}
 
 		// Check if the appID contains a LORA

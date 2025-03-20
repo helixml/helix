@@ -14,7 +14,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 
-import { TypesOrganizationMembership, TypesOrganizationRole } from '../api/api'
+import { TypesOrganizationMembership, TypesOrganizationRole, TypesUser } from '../api/api'
 
 // Organization People page that lists and manages members
 const OrgPeople: FC = () => {
@@ -122,6 +122,8 @@ const OrgPeople: FC = () => {
 
   if(!account.user) return null
 
+  const existingMembers = account.organizationTools.organization?.memberships?.map(m => m.user).filter((user): user is TypesUser => user !== undefined) || []
+
   const deleteUserAny = deleteMember?.user as any
 
   return (
@@ -131,7 +133,7 @@ const OrgPeople: FC = () => {
       topbarContent={isOrgOwner ? (
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={handleAdd}
         >
@@ -156,7 +158,7 @@ const OrgPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`member from organization "${deleteUserAny?.FullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={`member from organization "${deleteUserAny?.full_name || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />
@@ -166,6 +168,7 @@ const OrgPeople: FC = () => {
         onClose={() => setSearchModalOpen(false)}
         onAddMember={addMemberToOrganisation}
         title="Add Organization Member"
+        existingMembers={existingMembers || []}
       />
     </Page>
   )
