@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -25,8 +25,11 @@ import Interaction from '../session/Interaction';
 import InteractionLiveStream from '../session/InteractionLiveStream';
 
 import { ISession, ISessionRAGResult, IKnowledgeSearchResult } from '../../types';
+import ContextMenuModal from '../widgets/ContextMenuModal';
+import useApi from '../../hooks/useApi';
 
 interface PreviewPanelProps {
+  appId: string;
   loading: boolean;
   name: string;
   avatar: string;
@@ -46,6 +49,7 @@ interface PreviewPanelProps {
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
+  appId,
   loading,
   name,
   avatar,
@@ -65,6 +69,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 }) => {
   const textFieldRef = useRef<HTMLTextAreaElement>();
   const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
+  const api = useApi();
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -77,9 +82,27 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     }
   };
 
-  const handleFilterDocument = (docId: string) => {
-    setInputValue(`[DOC_ID:${docId}] `);
-  };
+  const onHandleFilterDocument = useCallback(async (docId: string) => {
+    if (!appId) {
+      snackbar.error('Unable to filter document, no app ID found')
+      return
+    }
+
+    // Make a call to the API to get the correct format and ensure the user has access to the document
+    const result = await api.getApiClient().v1ContextMenuList({
+      app_id: appId || '',
+    })
+    if (result.status !== 200) {
+      snackbar.error(`Unable to filter document, error from API: ${result.statusText}`)
+      return
+    }
+    const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
+    if (!filterAction) {
+      snackbar.error('Unable to filter document, no action found')
+      return
+    }
+    setInputValue(filterAction.value || '');
+  }, [setInputValue]);
 
   const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newSearchMode = event.target.checked;
@@ -179,6 +202,12 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             justifyContent: 'center',
           }}
         >
+          <ContextMenuModal appId={appId} textAreaRef={textFieldRef} onInsertText={(text) => {
+            setInputValue(inputValue + text);
+            if (isSearchMode) {
+              onSearch(inputValue + text);
+            }
+          }} />
           <TextField
             id="textEntry"
             fullWidth
@@ -301,7 +330,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       serverConfig={serverConfig}
                       interaction={interaction}
                       session={session}
-                      onFilterDocument={handleFilterDocument}
+                      onFilterDocument={onHandleFilterDocument}
                     >
                       {
                         isLive && (
@@ -310,7 +339,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                             interaction={interaction}
                             session={session}
                             serverConfig={serverConfig}
-                            onFilterDocument={handleFilterDocument}
+                            onFilterDocument={onHandleFilterDocument}
                           />
                         )
                       }

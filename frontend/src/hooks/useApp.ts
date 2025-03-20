@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { stringify as stringifyYaml } from 'yaml'
+import bluebird from 'bluebird'
 import {
   IApp,
   IAppFlatState,
@@ -9,10 +10,12 @@ import {
   IAssistantGPTScript,
   IAssistantApi,
   IAssistantZapier,
-  IFileStoreItem,
   APP_SOURCE_GITHUB,
   IAccessGrant,
   CreateAccessGrantRequest,
+  SESSION_TYPE_TEXT,
+  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  ISession,
 } from '../types'
 import {
   removeEmptyValues,
@@ -22,15 +25,9 @@ import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
 import useApps from './useApps'
 import useSession from './useSession'
-import useKnowledge from './useKnowledge'
 import useWebsocket from './useWebsocket'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
-import {
-  SESSION_TYPE_TEXT,
-  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
-  ISession,
-} from '../types'
 import {
   validateApp,
   getAppFlatState,
@@ -59,6 +56,7 @@ export const useApp = (appId: string) => {
    */
   const [app, setApp] = useState<IApp | null>(null)
   const [appSchema, setAppSchema] = useState<string>('')
+  const [serverKnowledge, setServerKnowledge] = useState<IKnowledgeSource[]>([])
   const [isAppLoading, setIsAppLoading] = useState(true)
   const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
@@ -69,7 +67,6 @@ export const useApp = (appId: string) => {
 
   // App validation states
   const [showErrors, setShowErrors] = useState(false)
-  const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false)
 
   // New inference state
   const [isInferenceLoading, setIsInferenceLoading] = useState(false)
@@ -218,6 +215,14 @@ export const useApp = (appId: string) => {
       setIsAppLoading(false)
     }
   }, [api, getDefaultAssistant])
+
+  const loadServerKnowledge = useCallback(async () => {
+    if(!appId) return
+    const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${appId}`, undefined, {
+      snackbar: false,
+    })
+    setServerKnowledge(knowledge || [])
+  }, [api, appId])
   
   /**
    * Merges flat state into the app
@@ -382,48 +387,12 @@ export const useApp = (appId: string) => {
   /**
    * Loads knowledge for the app
    */
-  const knowledgeUpdateCallback = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
+  const onUpdateKnowledge = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     saveFlatApp({
       knowledge: updatedKnowledge,
     })
   }, [saveFlatApp]);
 
-  const knowledgeTools = useKnowledge(appId, knowledgeUpdateCallback)
-  
-
-  /**
-   * 
-   * 
-   * filestore handlers
-   * 
-   * 
-   */  
-  const handleLoadFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> =>  {
-    try {
-      const filesResult = await api.get('/api/v1/filestore/list', {
-        params: {
-          path,
-        }
-      })
-      if(filesResult) {
-        return filesResult
-      }
-    } catch(e) {}
-    return []
-  }, [api]);
-
-  // Upload the files to the filestore
-  const handleFileUpload = useCallback(async (path: string, files: File[]) => {
-    const formData = new FormData()
-    files.forEach((file) => {
-      formData.append("files", file)
-    })
-    await api.post('/api/v1/filestore/upload', formData, {
-      params: {
-        path,
-      },
-    })
-  }, [api]);
   
   /**
    * 
@@ -534,10 +503,10 @@ export const useApp = (appId: string) => {
    */
   const onSearch = async (query: string) => {
     if (!app) return
-    
+
     // Get knowledge ID from the app state
     // TODO: support multiple knowledge sources
-    const knowledgeId = app?.config.helix.assistants?.[0]?.knowledge?.[0]?.id
+    const knowledgeId = serverKnowledge[0]?.id
 
     if (!knowledgeId) {
       snackbar.error('No knowledge sources available')
@@ -548,7 +517,7 @@ export const useApp = (appId: string) => {
       const newSearchResults = await api.get<IKnowledgeSearchResult[]>('/api/v1/search', {
         params: {
           app_id: app.id,
-          knowledge_id: knowledgeId,
+          knowledge_id: "", // When knowledge ID is not set, it will use all knowledge sources attached to this app
           prompt: query,
         }
       })
@@ -702,15 +671,18 @@ export const useApp = (appId: string) => {
 
     const handleLoading = async () => {
       // First load the app
-      const loadedApp = await loadApp(appId, {
+      await loadApp(appId, {
         showErrors: true,
         showLoading: true,
       })
       
-      // Load other data that doesn't depend on the app's organization status
-      await endpointProviders.loadData()
-      await account.loadAppApiKeys(appId)
-
+      await bluebird.all([
+        loadServerKnowledge(),
+        // Load other data that doesn't depend on the app's organization status
+        endpointProviders.loadData(),
+        account.loadAppApiKeys(appId),
+      ])
+      
       setInitialised(true)
     }
 
@@ -737,8 +709,17 @@ export const useApp = (appId: string) => {
   useEffect(() => {
     if (!app) return
     const currentConfig = JSON.parse(JSON.stringify(app.config.helix))
+    
+    // Remove tools section from all assistants
+    currentConfig.assistants = currentConfig.assistants.map((assistant: IAssistantConfig) => {
+      return {
+        ...assistant,
+        tools: []
+      }
+    })
     // Remove empty values and format as YAML
     const cleanedConfig = removeEmptyValues(currentConfig)
+    
     const yamlString = {
       "apiVersion": "app.aispec.org/v1alpha1",
       "kind": "AIApp",
@@ -777,9 +758,7 @@ export const useApp = (appId: string) => {
 
     // Validation methods
     validateApp,
-    setKnowledgeErrors,
     setShowErrors,
-    knowledgeErrors,
     showErrors,
     
     // App operations
@@ -788,14 +767,10 @@ export const useApp = (appId: string) => {
     saveFlatApp,
 
     // Knowledge methods
-    knowledge: knowledgeTools.knowledge,
-    handleRefreshKnowledge: knowledgeTools.handleRefreshKnowledge,
-    handleCompleteKnowledgePreparation: knowledgeTools.handleCompleteKnowledgePreparation,
-    handleKnowledgeUpdate: knowledgeTools.handleKnowledgeUpdate,
-
-    // File methods
-    handleLoadFiles,
-    handleFileUpload,
+    onUpdateKnowledge,
+    loadServerKnowledge,
+    serverKnowledge,
+    setServerKnowledge,
 
     // Tools methods
     onSaveApiTool,

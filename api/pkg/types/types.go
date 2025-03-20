@@ -1528,11 +1528,15 @@ type TokenResponse struct {
 	Token string `json:"token"`
 }
 
+// This response represents what can be done with the context menu. The goal is to provide a list of
+// actions that can be taken, like "filter" or "include".
+// The UI is designed so that it groups each action into a section. If you want a multi-level menu,
+// you will need to implement that.
 type ContextMenuResponse struct {
-	Data []ContextMenuData `json:"data"`
+	Data []ContextMenuAction `json:"data"`
 }
-
-type ContextMenuData struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
+type ContextMenuAction struct {
+	ActionLabel string `json:"action_label"` // Forms the grouping in the UI
+	Label       string `json:"label"`        // The label that will be shown in the UI
+	Value       string `json:"value"`        // The value written to the text area when the action is selected
 }

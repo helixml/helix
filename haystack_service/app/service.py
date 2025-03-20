@@ -174,6 +174,7 @@ class HaystackService:
         # Save retrievers for parameter updates
         self.vector_retriever = vector_retriever
         self.bm25_retriever = bm25_retriever
+        self.document_joiner = document_joiner
         
         logger.info("Initialized query pipeline")
 
@@ -377,6 +378,10 @@ class HaystackService:
         
         self.bm25_retriever.top_k = top_k
         self.bm25_retriever.filters = formatted_filters
+        # At this point there are 2*top_k results from the retrievers
+
+        logger.info(f"Chopping joined results in half to meet the request for top_k: {top_k}")
+        self.document_joiner.top_k = top_k
         
         # Set up the parameters for the query pipeline
         params = {

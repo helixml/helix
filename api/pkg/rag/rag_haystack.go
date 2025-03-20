@@ -233,6 +233,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 			},
 		},
 	}
+	logger.Trace().Interface("query_request", queryReq).Msg("query request")
 
 	// Add document ID filter if there are any document IDs
 	if len(documentIDConditions) > 0 {

@@ -517,13 +517,17 @@ export interface TypesChoice {
   text?: string;
 }
 
-export interface TypesContextMenuData {
+export interface TypesContextMenuAction {
+  /** Forms the grouping in the UI */
+  action_label?: string;
+  /** The label that will be shown in the UI */
   label?: string;
+  /** The value written to the text area when the action is selected */
   value?: string;
 }
 
 export interface TypesContextMenuResponse {
-  data?: TypesContextMenuData[];
+  data?: TypesContextMenuAction[];
 }
 
 export interface TypesCrawledSources {
@@ -1101,6 +1105,8 @@ export interface TypesSession {
    * named manually
    */
   name?: string;
+  /** the organization this session belongs to, if any */
+  organization_id?: string;
   /** uuid of owner entity */
   owner?: string;
   /** e.g. user, system, org */
@@ -1125,6 +1131,8 @@ export interface TypesSessionChatRequest {
   messages?: TypesMessage[];
   /** The model to use */
   model?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
   rag_source_id?: string;
@@ -1145,6 +1153,8 @@ export interface TypesSessionLearnRequest {
   data_entity_id?: string;
   /** When doing RAG, allow the resulting inference session model to be specified */
   default_rag_model?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
   /**
    * Do we want to create a RAG data entity from this session?
    * You must provide a data entity ID for the uploaded documents if yes
@@ -1836,10 +1846,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1ContextMenuList: (
       query: {
-        /** Query string */
-        q: string;
         /** App ID */
         app_id: string;
+        /** Query string */
+        q?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -2027,7 +2037,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new organization
+     * @description Create a new organization. Only admin users can create organizations.
      *
      * @tags organizations
      * @name V1OrganizationsCreate

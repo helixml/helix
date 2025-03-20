@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/rag"
@@ -18,14 +19,14 @@ import (
 // @Description contextMenuHandler
 // @Tags    ui
 // @Success 200 {object} types.ContextMenuResponse
-// @Param q    query string true "Query string"
 // @Param app_id    query string true "App ID"
+// @Param q    query string false "Query string"
 // @Router /api/v1/context-menu [get]
 func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Request) (*types.ContextMenuResponse, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 
-	var data []types.ContextMenuData
+	filteredKnowlegeSources := make(map[string]string)
 	q := r.URL.Query().Get("q")
 
 	// In the future, there's going to be lots of different things a user can do with the @. This is
@@ -69,24 +70,35 @@ func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Reque
 					} else {
 						label = doc.URL
 					}
-					data = append(data, types.ContextMenuData{
-						Label: label,
-						Value: rag.BuildDocumentID(doc.DocumentID),
-					})
+					filteredKnowlegeSources[doc.DocumentID] = label
 				}
 			}
 		}
 	}
 
 	// Now filter down all results to only include the ones that match the query
-	filteredData := []types.ContextMenuData{}
-	for _, d := range data {
-		if strings.Contains(strings.ToLower(d.Label), strings.ToLower(q)) {
-			filteredData = append(filteredData, d)
+	for k, v := range filteredKnowlegeSources {
+		if !strings.Contains(strings.ToLower(v), strings.ToLower(q)) {
+			delete(filteredKnowlegeSources, k)
 		}
 	}
 
+	// Build the final menu structure
+	data := []types.ContextMenuAction{}
+	for k, v := range filteredKnowlegeSources {
+		data = append(data, types.ContextMenuAction{
+			ActionLabel: "filter",
+			Label:       v,
+			Value:       rag.BuildFilterAction(k),
+		})
+	}
+
+	// Sort the results, which is a slice, by label alphabetically to ensure consistent responses
+	sort.Slice(data, func(i, j int) bool {
+		return data[i].Label < data[j].Label
+	})
+
 	return &types.ContextMenuResponse{
-		Data: filteredData,
+		Data: data,
 	}, nil
 }
