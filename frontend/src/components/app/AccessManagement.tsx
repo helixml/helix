@@ -92,8 +92,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       const user = (membership.user || {}) as any
       return {
         id: membership.user_id,
-        name: user.FullName || 'Unknown',
-        email: user.Email || 'No email'
+        name: user.full_name || 'Unknown',
+        email: user.email || 'No email'
       }
     })
   }, [organization]);
@@ -247,8 +247,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                     const user = (grant.user || {}) as any
                     return (
                       <TableRow key={grant.id}>
-                        <TableCell>{user.FullName || 'Unknown'}</TableCell>
-                        <TableCell>{user.Email || 'No email'}</TableCell>
+                        <TableCell>{user.full_name || 'Unknown'}</TableCell>
+                        <TableCell>{user.email || 'No email'}</TableCell>
                         <TableCell>
                           {grant.roles && grant.roles.map(role => (
                             <Chip 

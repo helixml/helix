@@ -53,10 +53,8 @@ const EditRoleModal: FC<EditRoleModalProps> = ({
     }
   }
 
-  // Get user details from the member object
-  const anyUser = member?.user as any
-  const userName = anyUser?.FullName || 'Unnamed User'
-  const userEmail = anyUser?.Email || ''
+  const userName = member?.user?.full_name || 'Unnamed User'
+  const userEmail = member?.user?.email || ''
 
   // Check if changing from owner to member would be disallowed
   const isChangingFromOwner = member?.role === 'owner' && selectedRole === 'member'

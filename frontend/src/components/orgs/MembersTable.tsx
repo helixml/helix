@@ -59,10 +59,7 @@ const MembersTable: FC<MembersTableProps> = ({
       // For team memberships, default to 'member' since they don't have roles
       const isOrgMembership = 'role' in member
       const roleDisplay = getRoleDisplay(isOrgMembership ? member.role : 'member')
-
-      // TODO: this is because the props are coming in as uppercase
-      // let's fix this in the api so the props come through lowercase
-      // e.g. we are getting member.user.FullName, but we should get member.user.fullName
+    
       const anyUser = member.user as any
       return {
         id: member.user_id,
@@ -70,7 +67,7 @@ const MembersTable: FC<MembersTableProps> = ({
         user: (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <PersonIcon color="action" />
-            <span>{anyUser.FullName || 'Unnamed User'}</span>
+            <span>{anyUser.full_name || 'Unnamed User'}</span>
           </Box>
         ),
         email: anyUser.Email || '',

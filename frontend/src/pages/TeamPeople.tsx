@@ -144,7 +144,7 @@ const TeamPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`team member "${deleteMember?.user?.fullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={`team member "${deleteMember?.user?.full_name || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />
