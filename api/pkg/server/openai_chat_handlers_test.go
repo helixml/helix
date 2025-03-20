@@ -556,7 +556,6 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Allo
 }
 
 func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Denied_NotMember() {
-
 	app := &types.App{
 		OrganizationID: "org123",
 		Owner:          "some_owner",
