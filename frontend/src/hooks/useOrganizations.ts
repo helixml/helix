@@ -513,11 +513,6 @@ export default function useOrganizations(): IOrganizationTools {
   // Add the searchUsers function implementation
   const searchUsers = useCallback(async (query: { query: string, organizationId?: string }) => {
     try {
-      // Build query parameters
-      const params = new URLSearchParams();
-      if (query.query) params.append('query', query.query);
-      if (query.organizationId) params.append('organization_id', query.organizationId);
-
       const searchResult = await api.getApiClient().v1UsersSearchList({
         query: query.query,
         organization_id: query.organizationId
