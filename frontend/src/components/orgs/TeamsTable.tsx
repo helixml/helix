@@ -48,7 +48,7 @@ const TeamsTable: FC<{
           onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
             e.preventDefault()
             e.stopPropagation()
-            onEdit(team)
+            onView(team)
           }}
         >
           {team.name}
@@ -76,7 +76,7 @@ const TeamsTable: FC<{
   }, [
     theme,
     data,
-    onEdit,
+    onView,
   ])
 
   // Generate action buttons for each team row
