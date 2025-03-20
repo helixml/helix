@@ -2240,7 +2240,7 @@ definitions:
       admin:
         description: if the ID of the user is contained in the env setting
         type: boolean
-      appID:
+      app_id:
         description: if the token is associated with an app
         type: string
       created_at:
@@ -2249,14 +2249,14 @@ definitions:
         $ref: '#/definitions/gorm.DeletedAt'
       email:
         type: string
-      fullName:
+      full_name:
         type: string
       id:
         type: string
       token:
         description: the actual token used and its type
         type: string
-      tokenType:
+      token_type:
         allOf:
         - $ref: '#/definitions/types.TokenType'
         description: none, runner. keycloak, api_key
@@ -2282,6 +2282,19 @@ definitions:
         type: string
       token:
         type: string
+    type: object
+  types.UserSearchResponse:
+    properties:
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total_count:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/types.User'
+        type: array
     type: object
   types.WebsiteCrawler:
     properties:
@@ -3148,6 +3161,37 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
+  /api/v1/users/search:
+    get:
+      description: Search users by email, name, or username
+      parameters:
+      - description: Query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Organization ID
+        in: query
+        name: organization_id
+        type: string
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserSearchResponse'
+      security:
+      - BearerAuth: []
+      summary: Search users
+      tags:
+      - users
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.
