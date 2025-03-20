@@ -373,7 +373,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -580,7 +581,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
 
 	suite.server.providerManager = providerManager
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil)
@@ -1234,7 +1236,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 		},
 	}
 
-	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(2)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app123").Return(app, nil).Times(3)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil).Times(2)
