@@ -347,9 +347,6 @@ const Home: FC = () => {
                         }, 100)
                       }}
                     />
-
-                    {/* Add OAuth App Templates section */}
-                    <OAuthAppTemplates />
                   </Box>
                 </Row>
                 <Row
@@ -490,6 +487,9 @@ const Home: FC = () => {
                     </Grid>
                   </Grid>
                 </Row>
+                
+                {/* Add the OAuthAppTemplates below Recent Apps section */}
+                <OAuthAppTemplates />
               </Grid>
             </Grid>
           </Container>
