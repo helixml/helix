@@ -603,6 +603,62 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Deni
 	suite.Equal(http.StatusForbidden, rec.Code, rec.Body.String())
 }
 
+func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Denied_WrongPermissions() {
+	app := &types.App{
+		OrganizationID: "org123",
+		Owner:          "some_owner",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	// 1. Checking whether caller is org member
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	// 2. No app access
+	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceApplication}, []types.Action{types.ActionList})
+
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
 func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
 
 	app := &types.App{
