@@ -93,12 +93,12 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
         // Normalize the case of API response fields
         const normalizedResults = response.users?.map((user: TypesUser) => {
           // Use type assertion to access capitalized properties
-          const anyUser = user as any;
+          
           return {
             id: user.id,
-            email: user.email || anyUser.email || '',
-            full_name: user.full_name || anyUser.full_name || '',
-            username: user.username || anyUser.username || ''
+            email: user.email || '',
+            full_name: user.full_name || '',
+            username: user.username || ''
           };
         });
         
