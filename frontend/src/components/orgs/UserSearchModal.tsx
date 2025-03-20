@@ -15,10 +15,12 @@ import Typography from '@mui/material/Typography'
 import PersonIcon from '@mui/icons-material/Person'
 import InputAdornment from '@mui/material/InputAdornment'
 import SearchIcon from '@mui/icons-material/Search'
+import Tooltip from '@mui/material/Tooltip'
 
 import useDebounce from '../../hooks/useDebounce'
 import useOrganizations from '../../hooks/useOrganizations'
 import useAccount from '../../hooks/useAccount'
+import { isUserMemberOfOrganization } from '../../utils/organizations'
 
 import { TypesUser } from '../../api/api'
 
@@ -52,6 +54,12 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   // Get the searchUsers function from useOrganizations hook
   const { searchUsers } = useOrganizations()
   const account = useAccount()
+  
+  // Check if a user is already a member of the organization
+  const isUserAlreadyMember = useCallback((user: TypesUser) => {
+    if (!account.organizationTools.organization) return false
+    return isUserMemberOfOrganization(account.organizationTools.organization, user.id || '')
+  }, [account.organizationTools.organization])
   
   // Handle search query change
   const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,27 +169,35 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
         </Box>
         
         <List sx={{ width: '100%' }}>
-          {searchResults.map((user) => (
-            <ListItem key={user.id} divider>
-              <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                <PersonIcon color="action" />
-              </Box>
-              <ListItemText
-                primary={user.full_name || 'Unnamed User'}
-                secondary={user.email}
-              />
-              <ListItemSecondaryAction>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="small"
-                  onClick={() => handleAddUser(user)}
-                >
-                  Add
-                </Button>
-              </ListItemSecondaryAction>
-            </ListItem>
-          ))}
+          {searchResults.map((user) => {
+            const alreadyMember = isUserAlreadyMember(user)
+            return (
+              <ListItem key={user.id} divider>
+                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                  <PersonIcon color="action" />
+                </Box>
+                <ListItemText
+                  primary={user.full_name || 'Unnamed User'}
+                  secondary={user.email}
+                />
+                <ListItemSecondaryAction>
+                  <Tooltip title={alreadyMember ? "User is already a member of this organization" : ""}>
+                    <span>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        size="small"
+                        onClick={() => handleAddUser(user)}
+                        disabled={alreadyMember}
+                      >
+                        {alreadyMember ? 'Already Member' : 'Add'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </ListItemSecondaryAction>
+              </ListItem>
+            )
+          })}
         </List>
       </DialogContent>
       <DialogActions>
