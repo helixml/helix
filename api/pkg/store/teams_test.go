@@ -269,3 +269,67 @@ func (suite *TeamsTestSuite) TestListTeams() {
 		suite.NoError(err)
 	})
 }
+
+func (suite *TeamsTestSuite) TestListTeams_ByUser() {
+	// Create a test user
+	userID := system.GenerateUserID()
+	user := &types.User{
+		ID:    userID,
+		Email: "test-user@example.com",
+	}
+	_, err := suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+
+	// Create multiple test teams
+	teamsToCreate := []*types.Team{
+		{
+			ID:             system.GenerateTeamID(),
+			Name:           "Test Team 1",
+			OrganizationID: suite.org.ID,
+		},
+		{
+			ID:             system.GenerateTeamID(),
+			Name:           "Test Team 2",
+			OrganizationID: suite.org.ID,
+		},
+		{
+			ID:             system.GenerateTeamID(),
+			Name:           "Test Team 3",
+			OrganizationID: suite.org.ID,
+		},
+	}
+
+	for _, team := range teamsToCreate {
+		_, err := suite.db.CreateTeam(suite.ctx, team)
+		suite.Require().NoError(err)
+	}
+
+	// Add user to the second team
+	_, err = suite.db.CreateTeamMembership(suite.ctx, &types.TeamMembership{
+		TeamID:         teamsToCreate[1].ID,
+		UserID:         userID,
+		OrganizationID: suite.org.ID,
+	})
+	suite.NoError(err)
+
+	// Test listing all teams for the organization
+	orgTeams, err := suite.db.ListTeams(suite.ctx, &ListTeamsQuery{
+		OrganizationID: suite.org.ID,
+		UserID:         userID,
+	})
+	suite.NoError(err)
+	suite.Equal(1, len(orgTeams))
+	suite.Equal(teamsToCreate[1].ID, orgTeams[0].ID)
+
+	// Cleanup
+	suite.T().Cleanup(func() {
+		for _, team := range teamsToCreate {
+			err := suite.db.DeleteTeam(suite.ctx, team.ID)
+			suite.NoError(err)
+		}
+
+		suite.NoError(err)
+		err = suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
+		suite.NoError(err)
+	})
+}
