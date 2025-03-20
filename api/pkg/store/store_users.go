@@ -170,17 +170,17 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 	// Start with a base query
 	db := s.gdb.WithContext(ctx).Model(&types.User{})
 
+	// Filter users by organization membership if organization ID is provided
+	if query.OrganizationID != "" {
+		db = db.Joins("JOIN organization_memberships ON organization_memberships.user_id = users.id").
+			Where("organization_memberships.organization_id = ?", query.OrganizationID)
+	}
+
 	// Apply filters for partial matching
 	if query.Query != "" {
 		db = db.Where("email ILIKE ?", "%"+query.Query+"%").
 			Or("full_name ILIKE ?", "%"+query.Query+"%").
 			Or("username ILIKE ?", "%"+query.Query+"%")
-	}
-
-	// Filter users by organization membership if organization ID is provided
-	if query.OrganizationID != "" {
-		db = db.Joins("JOIN organization_memberships ON organization_memberships.user_id = users.id").
-			Where("organization_memberships.organization_id = ?", query.OrganizationID)
 	}
 
 	// Count total matching records before applying pagination
@@ -198,7 +198,7 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 	}
 
 	// Execute the query
-	err = db.Find(&users).Error
+	err = db.Debug().Distinct().Find(&users).Error
 	if err != nil {
 		return nil, 0, err
 	}
