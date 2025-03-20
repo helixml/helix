@@ -114,8 +114,9 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	switch {
 	// If app ID is set from authentication token
 	case user.AppID != "":
-		// Basic sanity validation
-		if user.AppID != options.AppID {
+		// Basic sanity validation to see whether app ID from URL query matches
+		// the app ID from the authentication token
+		if options.AppID != "" && user.AppID != options.AppID {
 			log.Error().Str("app_id", user.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
 			http.Error(rw, "URL query app_id does not match token app_id", http.StatusBadRequest)
 			return
