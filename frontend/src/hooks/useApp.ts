@@ -709,8 +709,17 @@ export const useApp = (appId: string) => {
   useEffect(() => {
     if (!app) return
     const currentConfig = JSON.parse(JSON.stringify(app.config.helix))
+    
+    // Remove tools section from all assistants
+    currentConfig.assistants = currentConfig.assistants.map((assistant: IAssistantConfig) => {
+      return {
+        ...assistant,
+        tools: []
+      }
+    })
     // Remove empty values and format as YAML
     const cleanedConfig = removeEmptyValues(currentConfig)
+    
     const yamlString = {
       "apiVersion": "app.aispec.org/v1alpha1",
       "kind": "AIApp",
