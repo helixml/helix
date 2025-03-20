@@ -116,7 +116,7 @@ const TeamPeople: FC = () => {
       topbarContent={isOrgOwner ? (
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={handleAdd}
         >
