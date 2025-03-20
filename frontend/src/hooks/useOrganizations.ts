@@ -518,12 +518,14 @@ export default function useOrganizations(): IOrganizationTools {
       if (query.query) params.append('query', query.query);
       if (query.organizationId) params.append('organization_id', query.organizationId);
 
-      // Call the API endpoint
-      const response = await api.get(`/api/v1/users/search?${params.toString()}`);
+      const searchResult = await api.getApiClient().v1UsersSearchList({
+        query: query.query,
+        organization_id: query.organizationId
+      })
 
       // Return the response data if it exists, otherwise return empty results
-      if (response) {
-        return response
+      if (searchResult.data) {
+        return searchResult.data
       }
 
       return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
