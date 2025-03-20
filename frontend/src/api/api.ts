@@ -1383,16 +1383,16 @@ export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
   /** if the token is associated with an app */
-  appID?: string;
+  app_id?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
   email?: string;
-  fullName?: string;
+  full_name?: string;
   id?: string;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
-  tokenType?: TypesTokenType;
+  token_type?: TypesTokenType;
   /**
    * these are set by the keycloak user based on the token
    * if it's an app token - the keycloak user is loaded from the owner of the app
@@ -1408,6 +1408,13 @@ export interface TypesUserResponse {
   id?: string;
   name?: string;
   token?: string;
+}
+
+export interface TypesUserSearchResponse {
+  limit?: number;
+  offset?: number;
+  total_count?: number;
+  users?: TypesUser[];
 }
 
 export interface TypesWebsiteCrawler {
@@ -2525,6 +2532,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Search users by email, name, or username
+     *
+     * @tags users
+     * @name V1UsersSearchList
+     * @summary Search users
+     * @request GET:/api/v1/users/search
+     * @secure
+     */
+    v1UsersSearchList: (
+      query: {
+        /** Query */
+        query: string;
+        /** Organization ID */
+        organization_id?: string;
+        /** Limit */
+        limit?: number;
+        /** Offset */
+        offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesUserSearchResponse, any>({
+        path: `/api/v1/users/search`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
   };

@@ -17,8 +17,10 @@ import InputAdornment from '@mui/material/InputAdornment'
 import SearchIcon from '@mui/icons-material/Search'
 
 import useDebounce from '../../hooks/useDebounce'
-import useOrganizations, { UserSearchResult } from '../../hooks/useOrganizations'
+import useOrganizations from '../../hooks/useOrganizations'
 import useAccount from '../../hooks/useAccount'
+
+import { TypesUser } from '../../api/api'
 
 // Interface for component props
 interface UserSearchModalProps {
@@ -42,7 +44,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   // State for the search query
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
-  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<TypesUser[]>([])
   
   // Get the debounced search query to avoid excessive API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
@@ -57,8 +59,8 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
   }, [])
   
   // Handle adding a user
-  const handleAddUser = useCallback((user: UserSearchResult) => {
-    onAddMember(user.id)
+  const handleAddUser = useCallback((user: TypesUser) => {    
+    onAddMember(user.id || '')
     onClose()
   }, [onAddMember, onClose])
 
@@ -78,24 +80,29 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
       try {
         // Search by both email and name
         const response = await searchUsers({
-          email: debouncedSearchQuery,
-          name: debouncedSearchQuery,
+          query: debouncedSearchQuery,
           organizationId: organizationMembersOnly ? account.organizationTools.organization?.id : undefined
         })
+
+        // If users is an empty array, thing to return
+        if (response.users?.length === 0) {
+          setSearchResults([])
+          return
+        }
         
         // Normalize the case of API response fields
-        const normalizedResults = response.users.map((user: UserSearchResult) => {
+        const normalizedResults = response.users?.map((user: TypesUser) => {
           // Use type assertion to access capitalized properties
           const anyUser = user as any;
           return {
             id: user.id,
-            email: user.email || anyUser.Email || '',
-            fullName: user.fullName || anyUser.FullName || '',
-            username: user.username || anyUser.Username || ''
+            email: user.email || anyUser.email || '',
+            full_name: user.full_name || anyUser.full_name || '',
+            username: user.username || anyUser.username || ''
           };
         });
         
-        setSearchResults(normalizedResults)
+        setSearchResults(normalizedResults || [])
       } catch (error) {
         console.error('Error searching users:', error)
         setSearchResults([])
@@ -160,7 +167,7 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
                 <PersonIcon color="action" />
               </Box>
               <ListItemText
-                primary={user.fullName || 'Unnamed User'}
+                primary={user.full_name || 'Unnamed User'}
                 secondary={user.email}
               />
               <ListItemSecondaryAction>

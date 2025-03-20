@@ -131,7 +131,7 @@ const OrgPeople: FC = () => {
       topbarContent={isOrgOwner ? (
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={handleAdd}
         >
@@ -156,7 +156,7 @@ const OrgPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`member from organization "${deleteUserAny?.FullName || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={`member from organization "${deleteUserAny?.full_name || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />
