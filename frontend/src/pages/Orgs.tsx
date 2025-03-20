@@ -61,7 +61,7 @@ const Orgs: FC = () => {
       topbarContent={account.admin ? (
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={handleCreate}
         >

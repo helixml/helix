@@ -1,26 +1,10 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole, TypesAccessGrant, TypesCreateAccessGrantRequest } from '../api/api'
+import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole, TypesAccessGrant, TypesCreateAccessGrantRequest, TypesUserSearchResponse } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useRouter from './useRouter'
 import { extractErrorMessage } from './useErrorCallback'
 import bluebird from 'bluebird'
-
-export interface UserSearchResult {
-  id: string;
-  email: string;
-  fullName?: string;
-  username?: string;
-}
-
-export interface SearchUsersResponse {
-  users: UserSearchResult[];
-  pagination: {
-    total: number;
-    limit: number;
-    offset: number;
-  };
-}
 
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
@@ -49,7 +33,7 @@ export interface IOrganizationTools {
   addTeamMember: (organizationId: string, teamId: string, userReference: string) => Promise<boolean>,
   removeTeamMember: (organizationId: string, teamId: string, userId: string) => Promise<boolean>,
   // User search method
-  searchUsers: (query: { email?: string, name?: string, username?: string, organizationId?: string }) => Promise<SearchUsersResponse>,
+  searchUsers: (query: { query: string, organizationId?: string }) => Promise<TypesUserSearchResponse>,
   // App access grants methods
   listAppAccessGrants: (appId: string) => Promise<TypesAccessGrant[]>,
   createAppAccessGrant: (appId: string, grant: TypesCreateAccessGrantRequest) => Promise<boolean>,
@@ -143,8 +127,8 @@ export default function useOrganizations(): IOrganizationTools {
                 const bUser = b.user as any
 
                 // Get the name from FullName, fullName, or email as fallback
-                const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
-                const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
+                const aName = ((aUser?.full_name || aUser?.full_name  || a.user?.email || '')).toLowerCase()
+                const bName = ((bUser?.full_name || bUser?.full_name || b.user?.email || '')).toLowerCase()
 
                 return aName.localeCompare(bName)
               })
@@ -176,8 +160,8 @@ export default function useOrganizations(): IOrganizationTools {
         const bUser = b.user as any
 
         // Get the name from FullName, fullName, or email as fallback
-        const aName = ((aUser?.FullName || aUser?.fullName || a.user?.email || '')).toLowerCase()
-        const bName = ((bUser?.FullName || bUser?.fullName || b.user?.email || '')).toLowerCase()
+        const aName = ((aUser?.full_name || aUser?.full_name || a.user?.email || '')).toLowerCase()
+        const bName = ((bUser?.full_name || bUser?.full_name || b.user?.email || '')).toLowerCase()
 
         return aName.localeCompare(bName)
       })
@@ -527,21 +511,16 @@ export default function useOrganizations(): IOrganizationTools {
   }, [])
 
   // Add the searchUsers function implementation
-  const searchUsers = useCallback(async (query: { email?: string, name?: string, username?: string, organizationId?: string }) => {
+  const searchUsers = useCallback(async (query: { query: string, organizationId?: string }) => {
     try {
-      // Build query parameters
-      const params = new URLSearchParams();
-      if (query.email) params.append('email', query.email);
-      if (query.name) params.append('name', query.name);
-      if (query.username) params.append('username', query.username);
-      if (query.organizationId) params.append('organization_id', query.organizationId);
-
-      // Call the API endpoint
-      const response = await api.get(`/api/v1/users/search?${params.toString()}`);
+      const searchResult = await api.getApiClient().v1UsersSearchList({
+        query: query.query,
+        organization_id: query.organizationId
+      })
 
       // Return the response data if it exists, otherwise return empty results
-      if (response) {
-        return response
+      if (searchResult.data) {
+        return searchResult.data
       }
 
       return { users: [], pagination: { total: 0, limit: 0, offset: 0 } };
