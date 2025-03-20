@@ -178,9 +178,10 @@ func (s *PostgresStore) SearchUsers(ctx context.Context, query *SearchUsersQuery
 
 	// Apply filters for partial matching
 	if query.Query != "" {
-		db = db.Where("email ILIKE ?", "%"+query.Query+"%").
-			Or("full_name ILIKE ?", "%"+query.Query+"%").
-			Or("username ILIKE ?", "%"+query.Query+"%")
+		db = db.Where("(email ILIKE ? OR full_name ILIKE ? OR username ILIKE ?)",
+			"%"+query.Query+"%",
+			"%"+query.Query+"%",
+			"%"+query.Query+"%")
 	}
 
 	// Count total matching records before applying pagination
