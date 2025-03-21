@@ -351,6 +351,9 @@ export const useApp = (appId: string) => {
     
     try {
       const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
+      if (!savedApp) {
+        return
+      }
       setApp(savedApp)
       apps.loadApps()
       return 

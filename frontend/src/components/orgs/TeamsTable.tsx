@@ -6,9 +6,11 @@ import Tooltip from '@mui/material/Tooltip'
 import useTheme from '@mui/material/styles/useTheme'
 import GroupsIcon from '@mui/icons-material/Groups'
 import VisibilityIcon from '@mui/icons-material/Visibility'
+import Link from '@mui/material/Link'
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
+import useRouter from '../../hooks/useRouter'
 
 import {
   TypesTeam,
@@ -21,16 +23,19 @@ const TeamsTable: FC<{
   onDelete: (team: TypesTeam) => void,
   onView: (team: TypesTeam) => void,
   loading?: boolean,
-  isOrgAdmin?: boolean
+  isOrgAdmin?: boolean,
+  orgName?: string,
 }> = ({
   data,
   onEdit,
   onDelete,
   onView,
   loading = false,
-  isOrgAdmin = false
+  isOrgAdmin = false,
+  orgName,
 }) => {
   const theme = useTheme()
+  const router = useRouter()
   
   // Transform team data for the table display
   const tableData = useMemo(() => {
@@ -38,21 +43,24 @@ const TeamsTable: FC<{
       id: team.id,
       _data: team,
       name: (
-        <a
-          style={{
+        <Link
+          sx={{
             textDecoration: 'none',
             fontWeight: 'bold',
             color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
           }}
-          href="#"
+          href={`/orgs/${orgName}/teams/${team.id}/people`}
           onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
             e.preventDefault()
             e.stopPropagation()
-            onView(team)
+            router.navigate('team_people', {
+              org_id: orgName,
+              team_id: team.id,
+            })
           }}
         >
           {team.name}
-        </a>
+        </Link>
       ),
       members: (
         <Box
@@ -77,6 +85,8 @@ const TeamsTable: FC<{
     theme,
     data,
     onView,
+    router,
+    orgName,
   ])
 
   // Generate action buttons for each team row
