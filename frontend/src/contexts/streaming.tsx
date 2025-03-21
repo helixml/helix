@@ -92,13 +92,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const handleWebsocketEvent = useCallback((parsedData: IWebsocketEvent) => {
     if (!currentSessionId) return;
 
-    console.log('fox: StreamingContext - Processing websocket event', { 
-      type: parsedData.type, 
-      currentSessionId,
-      isSessionUpdate: parsedData.type === "session_update",
-      isWorkerTaskResponse: parsedData.type === WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE,
-    });
-
     if (parsedData.type as string === "step_info") {
         const stepInfo = parsedData.step_info;
         setStepInfos(prev => {
@@ -126,14 +119,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             }
           }
 
-          console.log('fox: StreamingContext - Updating current response', {
-            currentSessionId,
-            prevState: current.state,
-            prevFinished: current.finished,
-            updatedState: updatedInteraction.state,
-            updatedFinished: updatedInteraction.finished
-          });
-
           // Store the latest state in the ref
           const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
           return newMap;
@@ -141,16 +126,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       });
     }
     
-    // Log if there's a session update with state changes
+    // If there's a session update with state changes
     if (parsedData.type === "session_update" && parsedData.session) {
       const lastInteraction = parsedData.session.interactions[parsedData.session.interactions.length - 1];
-      console.log('fox: StreamingContext - Session update with interaction state', {
-        currentSessionId,
-        interactionId: lastInteraction.id,
-        state: lastInteraction.state,
-        finished: lastInteraction.finished,
-        isComplete: lastInteraction.state === "complete" && lastInteraction.finished === true
-      });
       
       // Update currentResponses with the latest interaction state
       // This ensures useLiveInteraction will receive the updated state
@@ -167,15 +145,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
               message: lastInteraction.message || current.message
             };
             
-            console.log('fox: StreamingContext - Syncing session state to currentResponses', {
-              currentSessionId,
-              interactionId: lastInteraction.id,
-              prevState: current.state,
-              newState: lastInteraction.state,
-              prevFinished: current.finished,
-              newFinished: lastInteraction.finished
-            });
-            
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
             return newMap;
           });
@@ -191,21 +160,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     const wsHost = window.location.host;
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${currentSessionId}`;
     const rws = new ReconnectingWebSocket(url);
-    
-    console.log('fox: StreamingContext - Connected websocket', { currentSessionId, url });
 
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
-      
-      console.log('fox: StreamingContext - WebSocket message received', { 
-        type: parsedData.type,
-        sessionId: parsedData.session_id,
-        hasSession: !!parsedData.session,
-        interactionCount: parsedData.session?.interactions?.length,
-        lastInteractionState: parsedData.session?.interactions?.[parsedData.session?.interactions?.length - 1]?.state,
-        lastInteractionFinished: parsedData.session?.interactions?.[parsedData.session?.interactions?.length - 1]?.finished
-      });
       
       // Reload all sessions to refresh the name in the sidebar
       sessions.loadSessions()
@@ -215,7 +173,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     rws.addEventListener('message', messageHandler);
 
     return () => {
-      console.log('fox: StreamingContext - Disconnected websocket', { currentSessionId });
       rws.removeEventListener('message', messageHandler);
       rws.close();
     };

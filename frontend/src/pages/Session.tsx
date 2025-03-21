@@ -867,15 +867,6 @@ const Session: FC = () => {
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
     
-    console.log('fox: Session - Rendering interactions', {
-      sessionId: sessionData.id,
-      interactionCount: sessionData.interactions.length,
-      lastInteractionState: sessionData.interactions[sessionData.interactions.length - 1]?.state,
-      lastInteractionFinished: sessionData.interactions[sessionData.interactions.length - 1]?.finished,
-      isComplete: sessionData.interactions[sessionData.interactions.length - 1]?.state === 'complete' && 
-                 sessionData.interactions[sessionData.interactions.length - 1]?.finished === true
-    });
-    
     // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
     if (isStreaming) {
       const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
@@ -1192,15 +1183,6 @@ const Session: FC = () => {
       // Save scroll position before updating session data
       saveScrollPosition()
       
-      console.log('fox: Session - Received session update via useWebsocket', {
-        sessionId: newSession.id,
-        interactionCount: newSession.interactions.length,
-        lastInteractionState: newSession.interactions[newSession.interactions.length - 1]?.state,
-        lastInteractionFinished: newSession.interactions[newSession.interactions.length - 1]?.finished,
-        isComplete: newSession.interactions[newSession.interactions.length - 1]?.state === 'complete' && 
-                   newSession.interactions[newSession.interactions.length - 1]?.finished === true
-      });
-      
       session.setData(newSession)
       // Restore scroll position after updating session data
       setTimeout(restoreScrollPosition, 0)
@@ -1261,23 +1243,10 @@ const Session: FC = () => {
     if (!session.data) return
     const systemInteraction = getAssistantInteraction(session.data)
     if (!systemInteraction) return
-    
-    console.log('fox: Session - Checking if reload needed', {
-      interactionId: systemInteraction.id,
-      state: systemInteraction.state,
-      finished: systemInteraction.finished,
-      isComplete: systemInteraction.state === 'complete' && systemInteraction.finished === true
-    });
-    
     if (systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
     
     // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
     const timer = setTimeout(() => {
-      console.log('fox: Session - Triggering reload due to unfinished interaction', {
-        interactionId: systemInteraction.id,
-        state: systemInteraction.state,
-        finished: systemInteraction.finished
-      });
       safeReloadSession()
     }, 5000)
 
@@ -1433,102 +1402,68 @@ const Session: FC = () => {
               bgcolor: theme.palette.background.default,
             }}
           >
-            {!loading && (
-              <Container maxWidth="lg">
-                <Box sx={{ py: 2 }}>
-                  <Row>
-                    <Cell flexGrow={1}>
-                      <ContextMenuModal
-                        appId={appID || ''}
-                        textAreaRef={textFieldRef}
-                        onInsertText={handleInsertText}
-                      />
-                      <TextField
-                        id="textEntry"
-                        fullWidth
-                        inputRef={textFieldRef}
-                        autoFocus={true}
-                        label={(
-                          (
-                            session.data?.type == SESSION_TYPE_TEXT ?
-                              session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
-                              'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                          ) + " (shift+enter to add a newline)"
-                        )}
-                        value={inputValue}
-                        disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                        onChange={handleInputChange}
-                        name="ai_submit"
-                        multiline={true}
-                        onKeyDown={handleKeyDown}
-                        InputProps={{
-                          startAdornment: isBigScreen && (
-                            activeAssistant ? (
-                              activeAssistantAvatar ? (
-                                <Avatar
-                                  src={activeAssistantAvatar}
-                                  sx={{
-                                    width: '30px',
-                                    height: '30px',
-                                    mr: 1,
-                                  }}
-                                />
-                              ) : null
-                            ) : null
-                          ),
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                id="send-button"
-                                aria-label="send"
-                                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                                onClick={() => onSend(inputValue)}
+            <Container maxWidth="lg">
+              <Box sx={{ py: 2 }}>
+                <Row>
+                  <Cell flexGrow={1}>
+                    <ContextMenuModal
+                      appId={appID || ''}
+                      textAreaRef={textFieldRef}
+                      onInsertText={handleInsertText}
+                    />
+                    <TextField
+                      id="textEntry"
+                      fullWidth
+                      inputRef={textFieldRef}
+                      autoFocus={true}
+                      label={(
+                        (
+                          session.data?.type == SESSION_TYPE_TEXT ?
+                            session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
+                            'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                        ) + " (shift+enter to add a newline)"
+                      )}
+                      value={inputValue}
+                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                      onChange={handleInputChange}
+                      name="ai_submit"
+                      multiline={true}
+                      onKeyDown={handleKeyDown}
+                      InputProps={{
+                        startAdornment: isBigScreen && (
+                          activeAssistant ? (
+                            activeAssistantAvatar ? (
+                              <Avatar
+                                src={activeAssistantAvatar}
                                 sx={{
-                                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                                  width: '30px',
+                                  height: '30px',
+                                  mr: 1,
                                 }}
-                              >
-                                <SendIcon />
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </Cell>
-                    {isBigScreen && (
-                      <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
-                        <Button
-                          onClick={() => {
-                            onUpdateSessionConfig({
-                              eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                            }, `Thank you for your feedback!`)
-                          }}
-                        >
-                          {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            onUpdateSessionConfig({
-                              eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                            }, `Sorry! We will use your feedback to improve`)
-                          }}
-                        >
-                          {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
-                        </Button>
-                      </Cell>
-                    )}
-                  </Row>
-
-                  {!isBigScreen && (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mt: 2,
+                              />
+                            ) : null
+                          ) : null
+                        ),
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              id="send-button"
+                              aria-label="send"
+                              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                              onClick={() => onSend(inputValue)}
+                              sx={{
+                                color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                              }}
+                            >
+                              <SendIcon />
+                            </IconButton>
+                          </InputAdornment>
+                        ),
                       }}
-                    >
+                    />
+                  </Cell>
+                  {isBigScreen && (
+                    <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
                       <Button
                         onClick={() => {
                           onUpdateSessionConfig({
@@ -1547,45 +1482,77 @@ const Session: FC = () => {
                       >
                         {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
                       </Button>
-                    </Box>
+                    </Cell>
                   )}
+                </Row>
 
-                  {session.data?.config.eval_user_score != "" && (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mt: 2,
+                {!isBigScreen && (
+                  <Box
+                    sx={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mt: 2,
+                    }}
+                  >
+                    <Button
+                      onClick={() => {
+                        onUpdateSessionConfig({
+                          eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                        }, `Thank you for your feedback!`)
                       }}
                     >
-                      <TextField
-                        id="feedback"
-                        label="Please explain why"
-                        value={feedbackValue}
-                        onChange={handleFeedbackChange}
-                        name="ai_feedback"
-                      />
-                      <Button
-                        variant="contained"
-                        disabled={loading}
-                        onClick={() => onUpdateSessionConfig({
-                          eval_user_reason: feedbackValue,
-                        }, `Thanks, you are awesome`)}
-                        sx={{ ml: 2 }}
-                      >
-                        Save
-                      </Button>
-                    </Box>
-                  )}
-                  <Box sx={{ mt: 2 }}>
-                    <Disclaimer />
+                      {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        onUpdateSessionConfig({
+                          eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                        }, `Sorry! We will use your feedback to improve`)
+                      }}
+                    >
+                      {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                    </Button>
                   </Box>
+                )}
+
+                {session.data?.config.eval_user_score != "" && (
+                  <Box
+                    sx={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mt: 2,
+                    }}
+                  >
+                    <TextField
+                      id="feedback"
+                      label="Please explain why"
+                      value={feedbackValue}
+                      onChange={handleFeedbackChange}
+                      name="ai_feedback"
+                    />
+                    <Button
+                      variant="contained"
+                      disabled={loading}
+                      onClick={() => onUpdateSessionConfig({
+                        eval_user_reason: feedbackValue,
+                      }, `Thanks, you are awesome`)}
+                      sx={{ ml: 2 }}
+                    >
+                      Save
+                    </Button>
+                  </Box>
+                )}
+                <Box sx={{ mt: 2 }}>
+                  <Disclaimer />
                 </Box>
-              </Container>
-            )}
+              </Box>
+            </Container>
           </Box>
         </Box>
       </Box>

@@ -141,6 +141,9 @@ export const Interaction: FC<InteractionProps> = ({
   const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
   const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
   const useBadge = isAssistant ? 'AI' : ''
+  
+  // Determine if this interaction is live (streaming)
+  const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -171,21 +174,23 @@ export const Interaction: FC<InteractionProps> = ({
           )
         }
 
-        <InteractionInference
-          serverConfig={serverConfig}
-          session={session}
-          imageURLs={imageURLs}
-          message={displayMessage}
-          error={interaction?.error}
-          onRestart={onRestart}
-          upgrade={interaction.data_prep_limited}
-          isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
-          onFilterDocument={onFilterDocument}
-        />
-
-        {
+        {/* Only show one of the components - no transition or overlay */}
+        {isLive ? (
           children
-        }
+        ) : (
+          <InteractionInference
+            serverConfig={serverConfig}
+            session={session}
+            imageURLs={imageURLs}
+            message={displayMessage}
+            error={interaction?.error}
+            onRestart={onRestart}
+            upgrade={interaction.data_prep_limited}
+            isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
+            onFilterDocument={onFilterDocument}
+          />
+        )}
+        
       </InteractionContainer>
     </Box>
   )

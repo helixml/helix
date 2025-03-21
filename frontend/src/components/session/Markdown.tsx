@@ -95,13 +95,6 @@ export class MessageProcessor {
   process(): string {
     let processedMessage = this.message;
     
-    console.log('fox: MessageProcessor.process START', {
-      isStreaming: this.options.isStreaming,
-      showBlinker: this.options.showBlinker,
-      messageLength: this.message.length,
-      sessionId: this.options.session.id
-    });
-    
     // Process XML citations
     processedMessage = this.processXmlCitations(processedMessage);
     
@@ -130,34 +123,15 @@ export class MessageProcessor {
     
     // Add blinker if requested and appropriate
     if (this.options.showBlinker && !this.citationData) {
-      console.log('fox: MessageProcessor should show blinker?', {
-        showBlinker: this.options.showBlinker,
-        isStreaming: this.options.isStreaming,
-        hasCitationData: !!this.citationData
-      });
-      
       if (this.options.isStreaming) {
-        console.log('fox: MessageProcessor adding blinker to message');
         processedMessage = this.addBlinker(processedMessage);
-      } else {
-        console.log('fox: MessageProcessor NOT adding blinker - streaming is false');
       }
-    } else {
-      console.log('fox: MessageProcessor NOT adding blinker - conditions not met', {
-        showBlinker: this.options.showBlinker,
-        hasCitationData: !!this.citationData
-      });
     }
     
     // Add citation data as a special marker if present
     if (this.citationData) {
       processedMessage = this.addCitationData(processedMessage);
     }
-    
-    console.log('fox: MessageProcessor.process END', {
-      hasAddedBlinker: processedMessage.includes('blinker-class'),
-      finalMessageLength: processedMessage.length
-    });
     
     return processedMessage;
   }
@@ -426,7 +400,6 @@ ${content}
   }
 
   private addBlinker(message: string): string {
-    console.log('fox: MessageProcessor.addBlinker called with isStreaming =', this.options.isStreaming);
     // Add blinker at the end of content
     return message + '<span class="blinker-class">┃</span>';
   }
@@ -473,17 +446,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const [processedContent, setProcessedContent] = useState<string>('');
   const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
 
-  // Debug when props change
-  useEffect(() => {
-    console.log('fox: Markdown component received props:', { 
-      textLength: text?.length, 
-      isStreaming,
-      showBlinker,
-      sessionId: session?.id,
-      blinkerInContent: processedContent?.includes('blinker-class')
-    });
-  }, [text, isStreaming, showBlinker, session?.id, processedContent]);
-
   useEffect(() => {
     if (!text) {
       setProcessedContent('');
@@ -494,8 +456,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     // Process the message content
     let content: string;
     if (session) {
-      console.log('fox: Creating MessageProcessor with isStreaming =', isStreaming);
-      // console.debug(`Markdown: Processing message for session ${session.id} with MessageProcessor`);
       const processor = new MessageProcessor(text, {
         session,
         getFileURL,
@@ -504,7 +464,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         onFilterDocument,
       });
       content = processor.process();
-      console.log('fox: MessageProcessor result has blinker:', content.includes('blinker-class'));
 
     // Extract citation data if present
     const citationPattern = /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/;
@@ -524,7 +483,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         setCitationData(null);
       }
     } else {
-      console.debug(`Markdown: Processing message without session context (basic processing)`);
       content = processBasicContent(text);
       setCitationData(null);
     }
