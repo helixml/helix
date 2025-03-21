@@ -187,28 +187,15 @@ const Session: FC = () => {
 
     const totalInteractions = session.data.interactions.length
 
-    // If we're streaming, we want to show a continuous block from the most recent visible interaction
-    if (isStreaming) {
-      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1]
-      const startIndex = lastVisibleBlock
-        ? lastVisibleBlock.startIndex
-        : Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-
-      setVisibleBlocks([{
-        startIndex,
-        endIndex: totalInteractions,
-        isGhost: false
-      }])
-    } else {
-      // Normal initialization for non-streaming state
-      const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-      setVisibleBlocks([{
-        startIndex,
-        endIndex: totalInteractions,
-        isGhost: false
-      }])
-    }
-  }, [session.data?.interactions, isStreaming, visibleBlocks])
+    // Create a consistent block structure regardless of streaming state
+    const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+    
+    setVisibleBlocks([{
+      startIndex,
+      endIndex: totalInteractions,
+      isGhost: false
+    }])
+  }, [session.data?.interactions])
 
   // Handle streaming state
   useEffect(() => {
@@ -217,17 +204,10 @@ const Session: FC = () => {
     const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
     const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
 
+    // Only update streaming state
     setIsStreaming(isCurrentlyStreaming)
-
-    if (isCurrentlyStreaming) {
-      // When streaming, initialize the visible blocks to show just the current interaction
-      const currentIndex = session.data.interactions.length - 1
-      setVisibleBlocks([{
-        startIndex: currentIndex,
-        endIndex: currentIndex + 1,
-        isGhost: false
-      }])
-    }
+    
+    // Don't change block structure here - maintain consistency
   }, [session.data?.interactions])
 
   // Track which blocks are in viewport - simplify to just track visibility
@@ -867,78 +847,12 @@ const Session: FC = () => {
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
     
-    // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
-    if (isStreaming) {
-      const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
-
-      // Calculate how many previous interactions to show
-      const startIndex = Math.max(0, sessionData.interactions.length - 1 - INTERACTIONS_PER_BLOCK)
-      const previousInteractions = sessionData.interactions.slice(startIndex, sessionData.interactions.length - 1)
-
-      return (
-        <Container maxWidth="lg" sx={{ py: 2 }}>
-          {startIndex > 0 && (
-            <Typography
-              variant="body2"
-              sx={{
-                textAlign: 'center',
-                color: 'text.secondary',
-                mb: 2
-              }}
-            >
-              Previous messages hidden...
-            </Typography>
-          )}
-
-          {previousInteractions.map(interaction => (
-            <Interaction
-              key={interaction.id}
-              serverConfig={account.serverConfig}
-              interaction={interaction}
-              session={sessionData}
-              highlightAllFiles={highlightAllFiles}
-              retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={safeReloadSession}
-              onClone={onClone}
-              onAddDocuments={undefined}
-              onRestart={undefined}
-              onFilterDocument={onHandleFilterDocument}
-            />
-          ))}
-
-          <Interaction
-            key={currentInteraction.id}
-            serverConfig={account.serverConfig}
-            interaction={currentInteraction}
-            session={sessionData}
-            highlightAllFiles={highlightAllFiles}
-            retryFinetuneErrors={retryFinetuneErrors}
-            onReloadSession={safeReloadSession}
-            onClone={onClone}
-            onAddDocuments={onAddDocuments}
-            onRestart={onRestart}
-            onFilterDocument={onHandleFilterDocument}
-          >
-            <InteractionLiveStream
-              session_id={sessionData.id}
-              interaction={currentInteraction}
-              session={sessionData}
-              serverConfig={account.serverConfig}
-              hasSubscription={account.userConfig.stripe_subscription_active || false}
-              onMessageUpdate={scrollToBottom}
-              onFilterDocument={onHandleFilterDocument}
-            />
-          </Interaction>
-        </Container>
-      )
-    }
-
-    // Normal virtualized rendering for non-streaming state
+    // Use a consistent approach regardless of streaming state
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
-
+    
     return (
       <Container maxWidth="lg" sx={{ py: 2 }}>
-        {hasMoreAbove && !isStreaming && (
+        {hasMoreAbove && (
           <div
             id="virtual-space-above"
             style={{
@@ -980,7 +894,7 @@ const Session: FC = () => {
               {interactions.map((interaction, index) => {
                 const absoluteIndex = block.startIndex + index
                 const isLastInteraction = absoluteIndex === sessionData.interactions.length - 1
-                const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+                const isLive = isLastInteraction && !interaction.finished && interaction.state !== INTERACTION_STATE_EDITING
                 const isOwner = account.user?.id === sessionData.owner
 
                 return (
@@ -1018,6 +932,8 @@ const Session: FC = () => {
                         session={sessionData}
                         serverConfig={account.serverConfig}
                         hasSubscription={account.userConfig.stripe_subscription_active || false}
+                        onMessageUpdate={isLastInteraction ? scrollToBottom : undefined}
+                        onFilterDocument={onHandleFilterDocument}
                       />
                     )}
                   </Interaction>
@@ -1049,7 +965,6 @@ const Session: FC = () => {
     themeConfig.darkIconHover,
     getBlockKey,
     isLoadingBlock,
-    isStreaming,
     scrollToBottom,
     onHandleFilterDocument,
   ])
