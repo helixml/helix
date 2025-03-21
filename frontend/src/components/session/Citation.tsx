@@ -389,23 +389,27 @@ const Citation: React.FC<CitationProps> = ({
                                     >
                                         {excerpt.filename}
                                     </Box>
-                                    <FilterAlt
-                                        sx={{
-                                            cursor: 'pointer',
-                                            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
-                                            textDecoration: 'none',
-                                            fontWeight: 500,
-                                            opacity: 0.85,
-                                            transition: 'all 0.2s ease',
-                                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                                            '&:hover': {
-                                                opacity: 1,
-                                                backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                                textDecoration: 'underline',
-                                            }
-                                        }}
-                                        titleAccess="Add this document to filter over on the next search"
-                                        onClick={() => onFilterDocument?.(excerpt.docId)} />
+                                    
+                                    {/* Only show filter button if onFilterDocument is provided */}
+                                    {onFilterDocument && (
+                                        <FilterAlt
+                                            sx={{
+                                                cursor: 'pointer',
+                                                color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                                textDecoration: 'none',
+                                                fontWeight: 500,
+                                                opacity: 0.85,
+                                                transition: 'all 0.2s ease',
+                                                backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                                '&:hover': {
+                                                    opacity: 1,
+                                                    backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                                    textDecoration: 'underline',
+                                                }
+                                            }}
+                                            titleAccess="Add this document to filter over on the next search"
+                                            onClick={() => onFilterDocument?.(excerpt.docId)} />
+                                    )}
                                 </Container>
                             </div>
                         )}

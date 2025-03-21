@@ -61,7 +61,7 @@ export const validateApiSchemas = (app: IApp): string[] => {
       assistant.tools.forEach((tool, toolIndex) => {
         if (tool.tool_type === 'api' && tool.config.api) {
           try {
-            const parsedSchema = parseYaml(tool.config.api.schema)
+            const parsedSchema = tool.config.api.schema ? parseYaml(tool.config.api.schema) : null
             if (!parsedSchema || typeof parsedSchema !== 'object') {
               errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`)
             }

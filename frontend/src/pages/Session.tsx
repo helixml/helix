@@ -601,14 +601,16 @@ const Session: FC = () => {
   ])
 
   const onHandleFilterDocument = useCallback(async (docId: string) => {
+    // Only pass the filter document handler to the citation component if we have an app ID
     if (!appID) {
-      snackbar.error('Unable to filter document, no app ID found')
-      return
+      console.warn('Filter document requested but no appID is available', { docId });
+      snackbar.error('Unable to filter document, no app ID available in standalone session view');
+      return;
     }
 
     // Make a call to the API to get the correct format and ensure the user has access to the document
     const result = await api.getApiClient().v1ContextMenuList({
-      app_id: appID || '',
+      app_id: appID,
     })
     if (result.status !== 200) {
       snackbar.error(`Unable to filter document, error from API: ${result.statusText}`)
@@ -620,7 +622,7 @@ const Session: FC = () => {
       return
     }
     setInputValue(current => current + filterAction.value);
-  }, [setInputValue]);
+  }, [appID, api, setInputValue, snackbar]);
 
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
@@ -628,44 +630,11 @@ const Session: FC = () => {
     
     // Create a stable reference for interactions
     const interactionIds = session.data.interactions.map(i => i.id).join(',');
-    
     return {
-      id: session.data.id,
-      name: session.data.name,
-      created: session.data.created,
-      updated: session.data.updated,
-      parent_session: session.data.parent_session,
-      parent_app: session.data.parent_app,
-      interactions: session.data.interactions,
-      owner: session.data.owner,
-      owner_type: session.data.owner_type,
-      type: session.data.type,
-      mode: session.data.mode,
-      model_name: session.data.model_name,
-      lora_dir: session.data.lora_dir,
-      config: {
-        ...session.data.config
-      }
+      ...session.data,
+      interactionIds, // add this to use for memoization
     }
-  }, [
-    session.data?.id,
-    session.data?.name,
-    session.data?.created,
-    session.data?.updated,
-    session.data?.parent_session,
-    session.data?.parent_app,
-    // Use stable references for interactions to prevent unnecessary rerenders
-    session.data?.interactions.length,
-    session.data?.interactions.map(i => i.id).join(','),
-    session.data?.owner,
-    session.data?.owner_type,
-    session.data?.type,
-    session.data?.mode,
-    session.data?.model_name,
-    session.data?.lora_dir,
-    // Deep compare the config object
-    JSON.stringify(session.data?.config)
-  ])
+  }, [session.data]);
 
   // Modify the container styles
   const containerStyles = useMemo(() => ({
@@ -909,7 +878,7 @@ const Session: FC = () => {
                     onClone={onClone}
                     onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
                     onRestart={isLastInteraction ? onRestart : undefined}
-                    onFilterDocument={onHandleFilterDocument}
+                    onFilterDocument={appID ? onHandleFilterDocument : undefined}
                     headerButtons={isLastInteraction ? (
                       <Tooltip title="Restart Session">
                         <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
@@ -933,7 +902,7 @@ const Session: FC = () => {
                         serverConfig={account.serverConfig}
                         hasSubscription={account.userConfig.stripe_subscription_active || false}
                         onMessageUpdate={isLastInteraction ? scrollToBottom : undefined}
-                        onFilterDocument={onHandleFilterDocument}
+                        onFilterDocument={appID ? onHandleFilterDocument : undefined}
                       />
                     )}
                   </Interaction>
@@ -967,6 +936,7 @@ const Session: FC = () => {
     isLoadingBlock,
     scrollToBottom,
     onHandleFilterDocument,
+    appID,
   ])
 
   useEffect(() => {

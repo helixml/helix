@@ -27,7 +27,7 @@ const ToolDetail: FC<React.PropsWithChildren<{
           </Typography>
         </Box>
         {
-          tool.config.api.actions.map((action, index) => {
+          tool.config.api.actions?.map((action, index) => {
             return (
               <Box key={index}>
                 <Row>
