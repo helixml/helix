@@ -34,7 +34,7 @@ import {
 } from '../../types'
 
 import Avatar from '@mui/material/Avatar'
-import { SessionContext } from '../../contexts/sessions'
+import { SessionsContext } from '../../contexts/sessions'
 import SmallSpinner from '../system/SmallSpinner'
 
 // Menu identifier constant

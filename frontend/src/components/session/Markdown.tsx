@@ -74,6 +74,10 @@ export interface CitationData {
     snippet: string;
     title?: string;
     page?: number;
+    filename: string;
+    fileUrl: string;
+    isPartial: boolean;
+    citationNumber?: number;
   }[];
   isStreaming?: boolean;
 }
@@ -151,7 +155,10 @@ export class MessageProcessor {
         this.citationData = {
           excerpts: [{
             docId: "loading",
-            snippet: "Loading source information..."
+            snippet: "Loading source information...",
+            filename: "Loading...",
+            fileUrl: "#",
+            isPartial: true
           }],
           isStreaming: true
         };
@@ -180,11 +187,30 @@ export class MessageProcessor {
       if (docIdMatch && snippetMatch) {
         const docId = docIdMatch[1];
         const snippet = snippetMatch[1];
+        // Find associated filename for this document ID
+        let filename = "Document";
+        let fileUrl = "#";
+        
+        if (this.options.session.config?.document_ids) {
+          // Find the filename for this docId by checking the document_ids object
+          const docIdsMap = this.options.session.config.document_ids;
+          for (const fname in docIdsMap) {
+            if (docIdsMap[fname] === docId) {
+              // Extract just the basename from the path
+              filename = fname.split('/').pop() || fname;
+              fileUrl = this.options.getFileURL(fname);
+              break;
+            }
+          }
+        }
         
         // Add to citation data
         this.citationData.excerpts.push({
-            docId,
-          snippet
+          docId,
+          snippet,
+          filename,
+          fileUrl,
+          isPartial: false
         });
       }
     }
@@ -227,7 +253,10 @@ export class MessageProcessor {
         this.citationData.excerpts.push({
           docId: "quoted_passage",
           snippet: "This is a quoted passage",
-          title: "Citation"
+          title: "Citation",
+          filename: "Citation",
+          fileUrl: "#",
+          isPartial: false
         });
       } else {
         // Combine quotes with sources
@@ -235,13 +264,20 @@ export class MessageProcessor {
           const snippet = quoteMatches[i][1].replace(/^"|"$/g, ''); // Remove surrounding quotes
           const filename = sourceMatches[i][1];
           
+          // Extract just the basename from the path
+          const displayName = filename.split('/').pop() || filename;
+          
           // Find document ID for this filename if available
           const docId = this.options.session.config?.document_ids?.[filename] || filename;
+          const fileUrl = this.options.getFileURL(filename);
           
           // Add to citation data
           this.citationData.excerpts.push({
             docId,
-            snippet
+            snippet,
+            filename: displayName,
+            fileUrl,
+            isPartial: false
           });
         }
       }
@@ -261,19 +297,40 @@ export class MessageProcessor {
     
     // Process document IDs
     let docCounter = 1;
+    
+    // Create a map to associate docIds with citation numbers
+    const citationMap: Record<string, number> = {};
+    
     for (const [filename, docId] of docIds) {
-      const docRegex = new RegExp(`\\b(DOC_ID:)?${docId}\\b`, 'g');
+      // Match the entire pattern with brackets: [DOC_ID:id]
+      const docRegex = new RegExp(`\\[DOC_ID:${escapeRegExp(docId)}\\]`, 'g');
       
       if (processedMessage.match(docRegex)) {
         const fileUrl = this.options.getFileURL(filename);
+        citationMap[docId] = docCounter;
         
-        // Replace document ID with link
+        // Replace the entire pattern including brackets
         processedMessage = processedMessage.replace(
           docRegex,
-          `<a target="_blank" href="${fileUrl}" class="doc-link">[${docCounter}]</a>`
+          `<a target="_blank" href="${fileUrl}" class="doc-citation">[${docCounter}]</a>`
         );
         
         docCounter++;
+      }
+    }
+    
+    // Add citation numbers to excerpts if we have citation data
+    if (this.citationData && this.citationData.excerpts) {
+      for (let i = 0; i < this.citationData.excerpts.length; i++) {
+        const excerpt = this.citationData.excerpts[i];
+        const citationNumber = citationMap[excerpt.docId];
+        if (citationNumber) {
+          // Create a new object with the citationNumber added
+          this.citationData.excerpts[i] = {
+            ...excerpt,
+            citationNumber
+          };
+        }
       }
     }
     
@@ -391,12 +448,12 @@ ${content}
   }
 
   private sanitizeHtml(message: string): string {
-    // This would use a proper HTML sanitizer library in a real implementation
-    // For the test, we'll assume it removes unsafe tags but keeps safe ones
-    
-    // Placeholder implementation - in a real app, use DOMPurify or similar
-    return message.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
+    // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
+    return DOMPurify.sanitize(message, {
+      ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary'],
+      ALLOWED_ATTR: ['href', 'target', 'class', 'style', 'title', 'id', 'aria-hidden', 'aria-label', 'role'],
+      ADD_ATTR: ['target']
+    });
   }
 
   private addBlinker(message: string): string {
@@ -518,6 +575,15 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)',
             fontWeight: 'normal',
             userSelect: 'none',
+          },
+          '& .doc-citation': {
+            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            textDecoration: 'none',
+            '&:hover': {
+              backgroundColor: 'rgba(88, 166, 255, 0.1)',
+            }
           },
           display: 'flow-root',
         }}
