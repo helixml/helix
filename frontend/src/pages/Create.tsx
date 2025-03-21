@@ -104,19 +104,8 @@ const Create: FC = () => {
     return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
   }, [models, type])
 
-  useEffect(() => {
-    // Set the first model as default if current model is not set or not in the list
-    if (!initialModelSetRef.current && filteredModels.length > 0 && !model) {
-      initialModelSetRef.current = true
-      const newUrl = new URL(window.location.href)
-      newUrl.searchParams.set('model', filteredModels[0].id)
-      window.history.replaceState({}, '', newUrl.toString())
-    }
-  }, [filteredModels, model])
-
   // Then, in the Create component, we'll add a check to see if the current user owns the app
   // This should be added near the top of the component, after the existing useEffect hooks
-
   const userOwnsApp = useMemo(() => {
     if (!apps.app || !account.user) return false
     return apps.app.owner === account.user.id
@@ -153,14 +142,19 @@ const Create: FC = () => {
     let assistantID = urlParams.get('assistant_id') || ''
     const ragSourceID = urlParams.get('rag_source_id') || ''
     let useModel = urlParams.get('model') || ''
+    let orgId = ''
 
     // if we have an app but no assistant ID let's default to the first one
-    if(appID && !assistantID) {
+    if (appID && !assistantID) {
       assistantID = '0'
     }
 
     if (!useModel) {
       useModel = filteredModels[0].id
+    }
+
+    if (account.organizationTools.organization?.id) {
+      orgId = account.organizationTools.organization.id
     }
 
     try {
@@ -172,6 +166,7 @@ const Create: FC = () => {
         ragSourceId: ragSourceID,
         modelName: useModel,
         loraDir: '',
+        orgId,
       });
 
       if (!session) return
@@ -181,7 +176,7 @@ const Create: FC = () => {
       })
       await sessions.loadSessions()
       setLoading(false)
-      router.navigate('session', { session_id: session.id })
+      account.orgNavigate('session', { session_id: session.id })
     } catch (error) {
       console.error('Error in onInference:', error);
       snackbar.error('Failed to start inference');
@@ -267,7 +262,6 @@ const Create: FC = () => {
   useEffect(() => {
     inputs.setFinetuneFiles([])
     inputs.setLabels({})
-    router.removeParams(['imageFineTuneStep'])
   }, [
     mode,
     type,
@@ -275,13 +269,23 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (!account.user) return
-    if (!appID) return
+
+    // Clear the app state if there's no appID
+    if (!appID) {
+      apps.setApp(undefined)
+      return
+    }
+
     setIsLoadingApp(true)
     apps.loadApp(appID).finally(() => {
       setIsLoadingApp(false)
     })
+
     return () => apps.setApp(undefined)
-  }, [account.user, appID])
+    // we include the user's id in the dependency array to filter out changes to
+    // the user token which refreshes regularly (to avoid flickering the page)
+    // we also include organization ID to ensure app state is reset when switching orgs
+  }, [account.user?.id, appID, account.organizationTools.organization?.id])
 
   // Reset focusInput after it's been used
   useEffect(() => {
@@ -343,6 +347,7 @@ const Create: FC = () => {
     >
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
+          appId={appID}
           loading={loading}
           type={type}
           focus={focusInput ? 'true' : activeAssistantID}
@@ -563,7 +568,7 @@ const Create: FC = () => {
         >
           <Tooltip title="Edit App">
             <IconButton
-              onClick={() => router.navigate('app', { app_id: apps.app?.id })}
+              onClick={() => account.orgNavigate('app', { app_id: apps.app?.id })}
               sx={{
                 color: 'white',
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -623,6 +628,7 @@ const Create: FC = () => {
 
   return (
     <Page
+      orgBreadcrumbs={true}
       breadcrumbs={
         getNewSessionBreadcrumbs({
           mode,

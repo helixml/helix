@@ -243,15 +243,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	var gse gptscript.Executor
-
 	if cfg.GPTScript.TestFaster.URL != "" {
-		log.Info().Msg("using firecracker based GPTScript executor")
-		gse = gptscript.NewTestFasterExecutor(cfg)
-	} else {
-		log.Info().Msg("using runner based GPTScript executor")
-		gse = gptscript.NewExecutor(cfg, ps)
+		return fmt.Errorf("HELIX_TESTFASTER_URL is deprecated, please use runner based GPTScript executor")
 	}
+	log.Info().Msg("using runner based GPTScript executor")
+	gse := gptscript.NewExecutor(cfg, ps)
 
 	var extractor extract.Extractor
 
@@ -323,6 +319,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)
+
+	// Connect the runner controller to the provider manager
+	providerManager.SetRunnerController(runnerController)
+	log.Info().Msg("Connected runner controller to provider manager to enable hiding Helix provider when no runners are available")
 
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)

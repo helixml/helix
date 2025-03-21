@@ -421,6 +421,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/context-menu": {
+            "get": {
+                "description": "contextMenuHandler",
+                "tags": [
+                    "ui"
+                ],
+                "summary": "contextMenuHandler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Query string",
+                        "name": "q",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ContextMenuResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -473,6 +505,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/knowledge/{id}/complete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Complete knowledge preparation and move to pending state for indexing",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Complete knowledge preparation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge/{id}/refresh": {
             "post": {
                 "security": [
@@ -515,6 +569,54 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.KnowledgeVersion"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/license": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the license key for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get license key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LicenseKeyRequest"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the license key for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Set license key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LicenseKeyRequest"
                         }
                     }
                 }
@@ -590,7 +692,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Create a new organization",
+                "description": "Create a new organization. Only admin users can create organizations.",
                 "tags": [
                     "organizations"
                 ],
@@ -1069,6 +1171,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search knowledges for a given app and prompt",
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Search knowledges",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Knowledge ID",
+                        "name": "knowledge_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search prompt",
+                        "name": "prompt",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.KnowledgeSearchResult"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/secrets": {
             "get": {
                 "security": [
@@ -1250,6 +1399,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search users by email, name, or username",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Search users",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserSearchResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -1335,9 +1533,6 @@ const docTemplate = `{
                 "config": {
                     "$ref": "#/definitions/types.ToolConfig"
                 },
-                "created": {
-                    "type": "string"
-                },
                 "description": {
                     "type": "string"
                 },
@@ -1350,23 +1545,8 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "owner": {
-                    "description": "uuid of owner entity",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
                 "tool_type": {
                     "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ToolType"
-                },
-                "updated": {
-                    "type": "string"
                 }
             }
         },
@@ -1976,6 +2156,14 @@ const docTemplate = `{
                 }
             }
         },
+        "server.LicenseKeyRequest": {
+            "type": "object",
+            "properties": {
+                "license_key": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AccessGrant": {
             "type": "object",
             "properties": {
@@ -2103,9 +2291,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.OwnerType"
                         }
                     ]
-                },
-                "shared": {
-                    "type": "boolean"
                 },
                 "updated": {
                     "type": "string"
@@ -2449,6 +2634,34 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ContextMenuAction": {
+            "type": "object",
+            "properties": {
+                "action_label": {
+                    "description": "Forms the grouping in the UI",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "The label that will be shown in the UI",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value written to the text area when the action is selected",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ContextMenuResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContextMenuAction"
+                    }
+                }
+            }
+        },
         "types.CrawledSources": {
             "type": "object",
             "properties": {
@@ -2463,6 +2676,9 @@ const docTemplate = `{
         "types.CrawledURL": {
             "type": "object",
             "properties": {
+                "document_id": {
+                    "type": "string"
+                },
                 "duration_ms": {
                     "type": "integer"
                 },
@@ -2922,6 +3138,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.KnowledgeSearchResult": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "knowledge": {
+                    "$ref": "#/definitions/types.Knowledge"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
+                }
+            }
+        },
         "types.KnowledgeSource": {
             "type": "object",
             "properties": {
@@ -3014,12 +3247,14 @@ const docTemplate = `{
         "types.KnowledgeState": {
             "type": "string",
             "enum": [
+                "preparing",
                 "pending",
                 "indexing",
                 "ready",
                 "error"
             ],
             "x-enum-varnames": [
+                "KnowledgeStatePreparing",
                 "KnowledgeStatePending",
                 "KnowledgeStateIndexing",
                 "KnowledgeStateReady",
@@ -3764,6 +3999,10 @@ const docTemplate = `{
                     "description": "name that goes in the UI - ideally autogenerated by AI but for now can be\nnamed manually",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "the organization this session belongs to, if any",
+                    "type": "string"
+                },
                 "owner": {
                     "description": "uuid of owner entity",
                     "type": "string"
@@ -3825,6 +4064,10 @@ const docTemplate = `{
                     "description": "The model to use",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
                 "provider": {
                     "description": "The provider to use",
                     "allOf": [
@@ -3874,6 +4117,10 @@ const docTemplate = `{
                 },
                 "default_rag_model": {
                     "description": "When doing RAG, allow the resulting inference session model to be specified",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "The organization this session belongs to, if any",
                     "type": "string"
                 },
                 "rag_enabled": {
@@ -3992,9 +4239,6 @@ const docTemplate = `{
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
                 },
-                "shared": {
-                    "type": "boolean"
-                },
                 "stream": {
                     "type": "boolean"
                 },
@@ -4082,6 +4326,12 @@ const docTemplate = `{
                 },
                 "interaction_id": {
                     "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "session_id": {
                     "type": "string"
@@ -4217,6 +4467,7 @@ const docTemplate = `{
                 "",
                 "runner",
                 "keycloak",
+                "oidc",
                 "api_key",
                 "socket"
             ],
@@ -4224,6 +4475,7 @@ const docTemplate = `{
                 "TokenTypeNone",
                 "TokenTypeRunner",
                 "TokenTypeKeycloak",
+                "TokenTypeOIDC",
                 "TokenTypeAPIKey",
                 "TokenTypeSocket"
             ]
@@ -4400,7 +4652,7 @@ const docTemplate = `{
                     "description": "if the ID of the user is contained in the env setting",
                     "type": "boolean"
                 },
-                "appID": {
+                "app_id": {
                     "description": "if the token is associated with an app",
                     "type": "string"
                 },
@@ -4413,7 +4665,7 @@ const docTemplate = `{
                 "email": {
                     "type": "string"
                 },
-                "fullName": {
+                "full_name": {
                     "type": "string"
                 },
                 "id": {
@@ -4423,7 +4675,7 @@ const docTemplate = `{
                     "description": "the actual token used and its type",
                     "type": "string"
                 },
-                "tokenType": {
+                "token_type": {
                     "description": "none, runner. keycloak, api_key",
                     "allOf": [
                         {
@@ -4461,6 +4713,26 @@ const docTemplate = `{
                 },
                 "token": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UserSearchResponse": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "total_count": {
+                    "type": "integer"
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.User"
+                    }
                 }
             }
         },

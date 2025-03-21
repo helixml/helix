@@ -41,6 +41,11 @@ var inspectCmd = &cobra.Command{
 		// only show app.Config.Helix since that is the thing that roundtrips with helix apply -f
 		appConfig := app.Config.Helix
 
+		// Remove tools section from all assistants
+		for i := range appConfig.Assistants {
+			appConfig.Assistants[i].Tools = nil
+		}
+
 		// Convert to CRD format for both JSON and YAML output
 		crd := types.AppHelixConfigCRD{
 			APIVersion: "app.aispec.org/v1alpha1",
@@ -50,6 +55,7 @@ var inspectCmd = &cobra.Command{
 			},
 			Spec: appConfig,
 		}
+
 		// Clear the name from the spec since it's now in metadata
 		crd.Spec.Name = ""
 

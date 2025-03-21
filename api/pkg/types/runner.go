@@ -47,8 +47,9 @@ const (
 )
 
 type CreateRunnerSlotAttributes struct {
-	Runtime Runtime `json:"runtime"`
-	Model   string  `json:"model"`
+	Runtime       Runtime `json:"runtime"`
+	Model         string  `json:"model"`
+	ContextLength int64   `json:"context_length,omitempty"` // Optional: Context length to use for the model
 }
 
 type CreateRunnerSlotRequest struct {
@@ -57,13 +58,14 @@ type CreateRunnerSlotRequest struct {
 }
 
 type RunnerSlot struct {
-	ID      uuid.UUID `json:"id"`
-	Runtime Runtime   `json:"runtime"`
-	Model   string    `json:"model"`
-	Version string    `json:"version"`
-	Active  bool      `json:"active"`
-	Ready   bool      `json:"ready"`
-	Status  string    `json:"status"`
+	ID            uuid.UUID `json:"id"`
+	Runtime       Runtime   `json:"runtime"`
+	Model         string    `json:"model"`
+	ContextLength int64     `json:"context_length,omitempty"` // Context length used for the model, if specified
+	Version       string    `json:"version"`
+	Active        bool      `json:"active"`
+	Ready         bool      `json:"ready"`
+	Status        string    `json:"status"`
 }
 
 type ListRunnerSlotsResponse struct {

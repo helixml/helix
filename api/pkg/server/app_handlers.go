@@ -169,9 +169,9 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 	return authorizedApps, nil
 }
 
-// createTool godoc
+// createApp godoc
 // @Summary Create new app
-// @Description Create new app. Apps are pre-configured to spawn sessions with specific tools and config.
+// @Description Create new app. Helix apps are configured with tools and knowledge.
 // @Tags    apps
 
 // @Success 200 {object} types.App
@@ -182,7 +182,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	user := getRequestUser(r)
 	ctx := r.Context()
 
-	var app types.App
+	var app *types.App
 	body, err := io.ReadAll(r.Body)
 
 	if err != nil {
@@ -216,7 +216,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
 
-	err = s.validateProviderAndModel(ctx, user, &app)
+	err = s.validateProviderAndModel(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -245,6 +245,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError400(err.Error())
 		}
 
+		app, err = store.ParseAppTools(app)
+		if err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+
 		// Validate and default tools
 		for idx := range app.Config.Helix.Assistants {
 			assistant := &app.Config.Helix.Assistants[idx]
@@ -264,22 +269,22 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			}
 		}
 
-		created, err = s.Store.CreateApp(ctx, &app)
+		created, err = s.Store.CreateApp(ctx, app)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceHelix)).Msg("Created Helix app")
 	case types.AppSourceGithub:
 		if app.Config.Github.Repo == "" {
 			return nil, system.NewHTTPError400("github repo is required")
 		}
-		created, err = s.Store.CreateApp(ctx, &app)
+		created, err = s.Store.CreateApp(ctx, app)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceGithub)).Msg("Created Github app")
 
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
@@ -436,7 +441,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
-					State:           types.KnowledgeStatePreparing,
+					State:           determineInitialState(k.Source),
 					RAGSettings:     k.RAGSettings,
 					Source:          k.Source,
 					RefreshEnabled:  k.RefreshEnabled,
@@ -487,6 +492,17 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	return nil
 }
 
+// determineInitialState decides whether a new knowledge source should start in the 'preparing' or 'pending' state
+// Only file-based knowledge sources should start in 'preparing' state, all others should start in 'pending'
+func determineInitialState(source types.KnowledgeSource) types.KnowledgeState {
+	// If the source is file-based, it requires user to upload files first
+	if source.Filestore != nil {
+		return types.KnowledgeStatePreparing
+	}
+	// For all other sources (web, S3, GCS, direct content), start in pending state
+	return types.KnowledgeStatePending
+}
+
 // what the user can change about a github app fromm the frontend
 type AppUpdatePayload struct {
 	Name           string            `json:"name"`
@@ -494,7 +510,6 @@ type AppUpdatePayload struct {
 	ActiveTools    []string          `json:"active_tools"`
 	Secrets        map[string]string `json:"secrets"`
 	AllowedDomains []string          `json:"allowed_domains"`
-	Shared         bool              `json:"shared"`
 	Global         bool              `json:"global"`
 }
 
@@ -519,24 +534,9 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if app.Global {
-		return app, nil
-	}
-
-	if app.Shared {
-		return app, nil
-	}
-
-	if app.OrganizationID != "" {
-		err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-		return app, nil
-	}
-
-	if app.Owner != user.ID {
-		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	return app, nil
@@ -580,23 +580,9 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
 
-	if existing.OrganizationID != "" {
-		// Org mode
-		err := s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-	} else {
-		// Single-player mode
-		if existing.Global {
-			if !isAdmin(user) {
-				return nil, system.NewHTTPError403("only admin users can update global apps")
-			}
-		} else {
-			if existing.Owner != user.ID {
-				return nil, system.NewHTTPError403("you do not have permission to update this app")
-			}
-		}
+	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	err = s.validateProviderAndModel(r.Context(), user, &update)
@@ -609,10 +595,15 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	update.Updated = time.Now()
+	updatedWithTools, err := store.ParseAppTools(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	updatedWithTools.Updated = time.Now()
 
 	// Validate and default tools
-	for idx := range update.Config.Helix.Assistants {
+	for idx := range updatedWithTools.Config.Helix.Assistants {
 		assistant := &update.Config.Helix.Assistants[idx]
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
@@ -631,7 +622,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	// Updating the app
-	updated, err := s.Store.UpdateApp(r.Context(), &update)
+	updated, err := s.Store.UpdateApp(r.Context(), updatedWithTools)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
@@ -727,7 +718,6 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 	existing.Updated = time.Now()
 	existing.Config.Secrets = appUpdate.Secrets
 	existing.Config.AllowedDomains = appUpdate.AllowedDomains
-	existing.Shared = appUpdate.Shared
 	existing.Global = appUpdate.Global
 
 	// Updating the app
@@ -763,23 +753,9 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.OrganizationID != "" {
-		// Org mode
-		err := s.authorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
-		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
-		}
-
-	} else {
-		if existing.Global {
-			if !isAdmin(user) {
-				return nil, system.NewHTTPError403("only admin users can delete global apps")
-			}
-		} else {
-			if existing.Owner != user.ID {
-				return nil, system.NewHTTPError403("you do not have permission to delete this app")
-			}
-		}
+	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionDelete)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	if !keepKnowledge {

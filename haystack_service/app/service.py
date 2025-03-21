@@ -38,7 +38,7 @@ class HaystackService:
                 table_name=settings.PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
                 search_strategy="vchordrq", # Enable for faster vector search
-                recreate_table=True # XXX disable to avoid data loss?
+                recreate_table=False
             )
             logger.info(f"Connected to VectorchordDocumentStore: {settings.PGVECTOR_TABLE}")
             
@@ -87,12 +87,13 @@ class HaystackService:
         splitter = DocumentSplitter(
             split_length=settings.CHUNK_SIZE,
             split_overlap=settings.CHUNK_OVERLAP,
-            split_by="word",
+            split_by=settings.CHUNK_UNIT,
             respect_sentence_boundary=True
         )
         splitter.warm_up()
         
         # Writer for the vector store (which now handles both embeddings and BM25)
+        # NUL bytes are filtered out in VectorchordDocumentStore.write_documents method
         vector_writer = DocumentWriter(
             document_store=self.document_store,
             policy=DuplicatePolicy.OVERWRITE  # Use overwrite policy to handle duplicate documents
@@ -173,6 +174,7 @@ class HaystackService:
         # Save retrievers for parameter updates
         self.vector_retriever = vector_retriever
         self.bm25_retriever = bm25_retriever
+        self.document_joiner = document_joiner
         
         logger.info("Initialized query pipeline")
 
@@ -284,11 +286,16 @@ class HaystackService:
         """
         if metadata is None:
             metadata = {}
-            
-        logger.info(f"Processing and indexing {os.path.basename(file_path)} with metadata: {metadata}")
         
-        # Add the file path to metadata
-        metadata["source"] = os.path.basename(file_path)
+        # Get the original filename from metadata
+        original_filename = metadata.get("filename")
+        if not original_filename:
+            raise ValueError("Original filename must be provided in metadata for process_and_index")
+        
+        logger.info(f"Processing and indexing {original_filename} with metadata: {metadata}")
+        
+        # Use the original filename as the source, never the temp path
+        metadata["source"] = original_filename
         
         # Set up the parameters for the indexing pipeline
         params = {
@@ -303,7 +310,7 @@ class HaystackService:
             
             # Return stats
             return {
-                "filename": os.path.basename(file_path),
+                "filename": original_filename,
                 "indexed": True,
                 "chunks": num_chunks,
                 "metadata": metadata,
@@ -325,6 +332,16 @@ class HaystackService:
         Returns:
             List of dictionaries with document data
         """
+        # Remove NUL bytes from query if present
+        if "\x00" in query_text:
+            logger.warning("Query contained NUL bytes that will be removed")
+            query_text = query_text.replace("\x00", "")
+        
+        # Validate query text after sanitizing
+        if not query_text or query_text.strip() == "":
+            logger.error("Empty query text received or contained only NUL bytes")
+            raise ValueError("Query text cannot be empty")
+            
         logger.info(f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}")
         
         # Format filters correctly if they're provided
@@ -361,6 +378,10 @@ class HaystackService:
         
         self.bm25_retriever.top_k = top_k
         self.bm25_retriever.filters = formatted_filters
+        # At this point there are 2*top_k results from the retrievers
+
+        logger.info(f"Chopping joined results in half to meet the request for top_k: {top_k}")
+        self.document_joiner.top_k = top_k
         
         # Set up the parameters for the query pipeline
         params = {
@@ -516,6 +537,12 @@ class HaystackService:
                 # Get the results from the document joiner
                 documents = output.get("document_joiner", {}).get("documents", [])
                 logger.info(f"Document joiner returned {len(documents)} documents")
+                
+                # Filter out NUL bytes from document content
+                for doc in documents:
+                    if doc.content and '\x00' in doc.content:
+                        logger.warning(f"Filtering NUL bytes from retrieval result document: {doc.id}")
+                        doc.content = doc.content.replace('\x00', '')
                 
                 # Debug the joined results
                 for i, doc in enumerate(documents):

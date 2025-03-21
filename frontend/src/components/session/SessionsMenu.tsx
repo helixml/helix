@@ -40,23 +40,16 @@ export const SessionsMenu: FC<{
 }) => {
   const sessions = useSessions()
   const lightTheme = useLightTheme()
+  const account = useAccount()
   const {
     navigate,
     params,
   } = useRouter()
-  const apps = useApps()
-  const account = useAccount() // Add this line
-
-  useEffect(() => {
-    // Only load apps data if it hasn't been loaded yet and the user is logged in
-    if (apps.data.length === 0 && account.user) {
-      apps.loadData()
-    }
-  }, [apps, account.user])
+  const {apps} = useApps()
 
   const getSessionIcon = (session: ISession | ISessionSummary) => {
-    if ('app_id' in session && session.app_id && apps.data) {
-      const app = apps.data.find((app: IApp) => app.id === session.app_id)
+    if ('app_id' in session && session.app_id && apps) {
+      const app = apps.find((app: IApp) => app.id === session.app_id)
       if (app && app.config.helix.avatar) {
         return (
           <Avatar
@@ -95,7 +88,7 @@ export const SessionsMenu: FC<{
                 }}
                 key={ session.session_id }
                 onClick={ () => {
-                  navigate("session", {session_id: session.session_id})
+                  account.orgNavigate('session', {session_id: session.session_id})
                   onOpenSession()
                 }}
               >

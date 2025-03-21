@@ -19,11 +19,12 @@ type OwnerQuery struct {
 }
 
 type GetSessionsQuery struct {
-	Owner         string          `json:"owner"`
-	OwnerType     types.OwnerType `json:"owner_type"`
-	ParentSession string          `json:"parent_session"`
-	Offset        int             `json:"offset"`
-	Limit         int             `json:"limit"`
+	Owner          string          `json:"owner"`
+	OwnerType      types.OwnerType `json:"owner_type"`
+	ParentSession  string          `json:"parent_session"`
+	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
+	Offset         int             `json:"offset"`
+	Limit          int             `json:"limit"`
 }
 
 type ListAPIKeysQuery struct {
@@ -76,6 +77,14 @@ type ListUsersQuery struct {
 	Type      types.OwnerType `json:"type"`
 	Email     string          `json:"email"`
 	Username  string          `json:"username"`
+}
+
+// SearchUsersQuery defines parameters for searching users with partial matching
+type SearchUsersQuery struct {
+	Query          string `json:"query"`           // Query to match against email, name, or username (LIKE query)
+	OrganizationID string `json:"organization_id"` // Organization ID to filter users that are members of the org
+	Limit          int    `json:"limit"`           // Maximum number of results to return
+	Offset         int    `json:"offset"`          // Offset for pagination
 }
 
 var _ Store = &PostgresStore{}
@@ -137,6 +146,7 @@ type Store interface {
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
+	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 
 	// usermeta
@@ -150,13 +160,6 @@ type Store interface {
 	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
-
-	// tools
-	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	GetTool(ctx context.Context, id string) (*types.Tool, error)
-	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
-	DeleteTool(ctx context.Context, id string) error
 
 	// provider endpoints
 	CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)

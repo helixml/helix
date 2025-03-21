@@ -201,7 +201,6 @@ export interface ISessionOrigin {
 export interface ISessionConfig {
   original_mode: ISessionMode,
   origin: ISessionOrigin,
-  shared?: boolean,
   avatar: string,
   priority: boolean,
   document_ids: Record<string, string>,
@@ -344,7 +343,7 @@ export interface ISessionFilter {
   older?: string,
 }
 
-export interface  IGlobalSchedulingDecision {
+export interface IGlobalSchedulingDecision {
   created: string,
   runner_id: string,
   session_id: string,
@@ -513,7 +512,7 @@ export interface IToolGptScriptConfig {
 
 export interface IToolZapierConfig {
   api_key?: string,
-  model?: string, 
+  model?: string,
   max_iterations?: number,
 }
 
@@ -538,7 +537,7 @@ export interface ITool {
 }
 
 export interface IKeyPair {
-	type: string,
+  type: string,
   private_key: string,
   public_key: string,
 }
@@ -688,6 +687,7 @@ export interface ISessionRAGResult {
   source: string;
   document_id: string;
   document_group_id: string;
+  metadata?: Record<string, string>;
   // Add any other properties that your API returns
 }
 
@@ -707,7 +707,7 @@ export interface IAppGithubConfigUpdate {
   hash: string,
   error: string,
 }
- 
+
 export interface IAppGithubConfig {
   repo: string,
   hash: string,
@@ -724,8 +724,8 @@ export interface IAppConfig {
 
 export interface IApp {
   id: string,
+  organization_id?: string,
   config: IAppConfig;
-  shared: boolean;
   global: boolean;
   created: Date;
   updated: Date;
@@ -742,10 +742,26 @@ export interface IAppUpdate {
     allowed_domains: string[];
     github?: IAppGithubConfig;
   };
-  shared: boolean;
   global: boolean;
   owner: string;
   owner_type: IOwnerType;
+}
+
+export interface IAppFlatState {
+  name?: string
+  description?: string
+  avatar?: string
+  image?: string
+  global?: boolean
+  secrets?: Record<string, string>
+  allowedDomains?: string[]
+  systemPrompt?: string
+  model?: string
+  provider?: string
+  knowledge?: IKnowledgeSource[] // Added knowledge parameter
+  apiTools?: IAssistantApi[]
+  zapierTools?: IAssistantZapier[]
+  gptscriptTools?: IAssistantGPTScript[]
 }
 
 export interface IGithubStatus {
@@ -772,7 +788,7 @@ export interface ICreateSessionConfig {
   activeToolIDs: string[],
   finetuneEnabled: boolean,
   ragEnabled: boolean,
-  ragDistanceFunction: IRagDistanceFunction, 
+  ragDistanceFunction: IRagDistanceFunction,
   ragThreshold: number,
   ragResultsCount: number,
   ragChunkSize: number,
@@ -837,6 +853,7 @@ export interface IMessage {
 
 export interface ISessionChatRequest {
   app_id?: string,
+  organization_id?: string,
   assistant_id?: string,
   session_id?: string,
   stream?: boolean,
@@ -923,4 +940,54 @@ export interface IProviderEndpoint {
   api_key: string
   api_key_file?: string
   default: boolean
+}
+
+// Resource type for access grants
+export enum Resource {
+  Application = "application",
+  Dataset = "dataset",
+  ProviderEndpoint = "provider_endpoint",
+  Knowledge = "knowledge",
+}
+
+// User type used in access grants
+export interface IUser {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  token_type?: string;
+  email?: string;
+  username?: string;
+  full_name?: string;
+}
+
+// Role type used in access grants
+export interface IRole {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  organization_id: string;
+  name: string;
+  description: string;
+}
+
+// Access grant for apps to users or teams
+export interface IAccessGrant {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  resource_type: Resource;
+  resource_id: string;
+  organization_id: string;
+  team_id?: string;
+  user_id?: string;
+  user?: IUser;
+  roles?: IRole[];
+}
+
+// Request to create a new access grant
+export interface CreateAccessGrantRequest {
+  user_reference?: string; // User ID or email
+  team_id?: string;        // Team ID
+  roles: string[];         // Role names
 }

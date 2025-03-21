@@ -441,8 +441,7 @@ type GPTScript struct {
 	}
 
 	TestFaster struct {
-		URL   string `envconfig:"HELIX_TESTFASTER_URL" description:"The URL to the testfaster cluster."`
-		Token string `envconfig:"HELIX_TESTFASTER_TOKEN"`
+		URL string `envconfig:"HELIX_TESTFASTER_URL" description:"(Deprecated) The URL to the testfaster cluster."`
 	}
 }
 

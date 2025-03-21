@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,7 @@ type Client interface {
 func New(apiKey string, baseURL string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
+	config.HTTPClient = &openAIClientInterceptor{}
 
 	client := openai.NewClientWithConfig(config)
 
@@ -238,4 +240,46 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 	)
 
 	return
+}
+
+type openAIClientInterceptor struct {
+	http.Client
+}
+
+// Do intercepts requests to the OpenAI API and modifies the body to be compatible with TogetherAI,
+// or others
+func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
+	if req.URL.Host == "api.together.xyz" && req.URL.Path == "/v1/embeddings" && req.Body != nil {
+		// Parse the original embedding request body
+		embeddingRequest := openai.EmbeddingRequest{}
+		if err := json.NewDecoder(req.Body).Decode(&embeddingRequest); err != nil {
+			return nil, fmt.Errorf("failed to decode embedding request body: %w", err)
+		}
+		req.Body.Close()
+
+		// Create a new request with the modified body
+		type togetherEmbeddingRequest struct {
+			Model string `json:"model"`
+			Input any    `json:"input"`
+		}
+		togetherRequest := togetherEmbeddingRequest{
+			Model: string(embeddingRequest.Model),
+			Input: embeddingRequest.Input,
+		}
+
+		newBytes, err := json.Marshal(togetherRequest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal together embedding request: %w", err)
+		}
+
+		newReq, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), bytes.NewBuffer(newBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create new request: %w", err)
+		}
+		newReq.Header = req.Header
+
+		return c.Client.Do(newReq)
+	}
+
+	return c.Client.Do(req)
 }

@@ -8,9 +8,13 @@ import Divider from '@mui/material/Divider'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
+import ListItem from '@mui/material/ListItem'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemText from '@mui/material/ListItemText'
 
 import WebhookIcon from '@mui/icons-material/Webhook'
-import AddIcon from '@mui/icons-material/Add'
 import HomeIcon from '@mui/icons-material/Home'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
@@ -21,32 +25,53 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SchoolIcon from '@mui/icons-material/School'
 import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
+import PeopleIcon from '@mui/icons-material/People'
+import AddIcon from '@mui/icons-material/Add'
 
 import SidebarMainLink from './SidebarMainLink'
+import UserOrgSelector from '../orgs/UserOrgSelector'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
+import useApps from '../../hooks/useApps'
 import { AccountContext } from '../../contexts/account'
 
 import {
-  ICreateSessionConfig,
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
-  ISessionType,
 } from '../../types'
 
-const Sidebar: React.FC = ({
+const RESOURCE_TYPES = [
+  'chat',
+  'apps',
+]
+
+const Sidebar: React.FC<{
+  showTopLinks?: boolean,
+}> = ({
   children,
+  showTopLinks = true,
 }) => {
 
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
   const router = useRouter()
   const account = useAccount()
+  const apps = useApps()
   const { models } = useContext(AccountContext)
+  const activeTab = useMemo(() => {
+    // Always respect resource_type if it's present
+    const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
+    if (activeIndex >= 0) return activeIndex
+    // If no resource_type specified but app_id is present, default to apps tab
+    if (router.params.app_id) {
+      return RESOURCE_TYPES.findIndex(type => type === 'apps')
+    }
+    // Default to first tab (chats)
+    return 0
+  }, [
+    router.params,
+  ])
 
   const filteredModels = useMemo(() => {
     return models.filter(m => m.type === "text" || m.type === "chat")
@@ -69,10 +94,45 @@ const Sidebar: React.FC = ({
     window.open("https://docs.helix.ml/docs/overview", "_blank")
   }
 
-  const navigateTo = (path: string, params: Record<string, any> = {}) => {
-    router.navigate(path, params)
+  const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
     setAccountMenuAnchorEl(null)
+  }
+
+  const navigateTo = (path: string, params: Record<string, any> = {}) => {
+    router.navigate(path, params)
+    postNavigateTo()
+  }
+
+  const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
+    account.orgNavigate(path, params)
+    postNavigateTo()
+  }
+
+  // Handle tab change between CHATS and APPS
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    // When switching to the apps tab and we have an app_id, preserve it
+    // When switching to chats tab, we can optionally remove app_id
+    const newParams: Record<string, any> = {
+      resource_type: RESOURCE_TYPES[newValue],
+    };
+    
+    // If we're switching to apps tab and there's an app_id in the URL, keep it
+    if (RESOURCE_TYPES[newValue] === 'apps' && router.params.app_id) {
+      newParams.app_id = router.params.app_id;
+    }
+    
+    router.mergeParams(newParams);
+  }
+
+  // Handle creating new chat or app based on active tab
+  const handleCreateNew = () => {
+    const resourceType = RESOURCE_TYPES[activeTab]
+    if (resourceType === 'chat') {
+      account.orgNavigate('home')
+    } else if (resourceType === 'apps') {
+      apps.createOrgApp()
+    }
   }
 
   return (
@@ -91,23 +151,105 @@ const Sidebar: React.FC = ({
           flexGrow: 0,
           width: '100%',
         }}
-        >
-        <List disablePadding>
-          <SidebarMainLink
-            id="home-link"
-            routeName="home"
-            title="Home"
-            icon={ <HomeIcon/> }
-          />
-          {/* <Divider />
-          <SidebarMainLink
-            routeName="new"
-            id="new-session-link"
-            title="New Session"
-            icon={ <AddIcon/> }
-          /> */}
-          <Divider />
-        </List>
+      >
+        {
+          showTopLinks && (
+            <List disablePadding>
+              {
+                account.user && (
+                  <>
+                    <UserOrgSelector />
+                    <Divider />
+                  </>
+                  
+                )
+              }
+              
+              {/* Tabs for CHATS and APPS */}
+              <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs 
+                  value={activeTab} 
+                  onChange={handleTabChange}
+                  aria-label="content tabs"
+                  sx={{ 
+                    '& .MuiTab-root': {
+                      minWidth: 'auto',
+                      flex: 1,
+                      color: lightTheme.textColorFaded,
+                      fontSize: '16px',
+                    },
+                    '& .Mui-selected': {
+                      color: '#00E5FF',
+                      fontWeight: 'bold',
+                    },
+                    '& .MuiTabs-indicator': {
+                      backgroundColor: '#00E5FF',
+                      height: 3,
+                    },
+                  }}
+                >
+                  {
+                    RESOURCE_TYPES.map((type) => (
+                      <Tab key={type} label={type.charAt(0).toUpperCase() + type.slice(1)} />
+                    ))
+                  }
+                </Tabs>
+              </Box>
+              
+              {/* New resource creation button */}
+              <ListItem
+                disablePadding
+                dense
+              >
+                <ListItemButton
+                  id="create-link"
+                  onClick={handleCreateNew}
+                  sx={{
+                    height: '64px',
+                    display: 'flex',
+                    '&:hover': {
+                      '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                    },
+                  }}
+                >
+                  <ListItemText
+                    sx={{
+                      ml: 2,
+                      p: 1,
+                    }}
+                    primary={
+                      RESOURCE_TYPES[activeTab] === 'apps' 
+                        ? 'New App' 
+                        : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
+                    }
+                    primaryTypographyProps={{
+                      fontWeight: 'bold',
+                      color: '#FFFFFF',
+                      fontSize: '16px',
+                    }}
+                  />
+                  <Box 
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: 'transparent',
+                      border: '2px solid #00E5FF',
+                      borderRadius: '50%',
+                      width: 32,
+                      height: 32,
+                      mr: 2,
+                    }}
+                  >
+                    <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
+                  </Box>
+                </ListItemButton>
+              </ListItem>
+              
+              <Divider />
+            </List>
+          )
+        }
       </Box>
       <Box
         sx={{
@@ -224,7 +366,7 @@ const Sidebar: React.FC = ({
                     >
 
                     <MenuItem onClick={ () => {
-                      navigateTo('new')
+                      orgNavigateTo('home')
                     }}>
                       <ListItemIcon>
                         <HomeIcon fontSize="small" />
@@ -233,7 +375,7 @@ const Sidebar: React.FC = ({
                     </MenuItem>
 
                     <MenuItem onClick={ () => {
-                      navigateTo('appstore')
+                      orgNavigateTo('appstore')
                     }}>
                       <ListItemIcon>
                         <AppsIcon fontSize="small" />
@@ -257,7 +399,7 @@ const Sidebar: React.FC = ({
                     {
                       account.serverConfig.apps_enabled && (
                         <MenuItem onClick={ () => {
-                          navigateTo('apps')
+                          orgNavigateTo('apps')
                         }}>
                           <ListItemIcon>
                             <WebhookIcon fontSize="small" />
@@ -268,7 +410,7 @@ const Sidebar: React.FC = ({
                     }
 
                     <MenuItem onClick={ () => {
-                      navigateTo('new', {
+                      orgNavigateTo('new', {
                         model: defaultModel,
                         mode: SESSION_MODE_FINETUNE,
                         rag: true,

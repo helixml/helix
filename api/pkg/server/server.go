@@ -302,6 +302,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
 
+	// User search endpoint
+	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
+
 	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		// disable directory listings
 		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Cfg.WebServer.LocalFilestorePath)})
@@ -409,6 +412,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}/complete", system.Wrapper(apiServer.completeKnowledgePreparation)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
 
+	// UI @ functionality
+	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
+
 	// User auth, BFF
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
@@ -453,7 +459,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		runnerID := vars["runner_id"]
 		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
 		log.Debug().Interface("request", r).Msg("nats request")
-		fmt.Printf("proxying runner websocket request to nats for runner %s", runnerID)
 
 		// Upgrade the incoming HTTP connection to a WebSocket connection.
 		upgrader := websocket.Upgrader{
@@ -666,7 +671,6 @@ func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
 
 func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 	rw.Header().Set("Content-Type", "application/json")
-
 	rw.WriteHeader(statusCode)
 
 	_ = json.NewEncoder(rw).Encode(&system.HTTPError{

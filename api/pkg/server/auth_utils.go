@@ -72,11 +72,20 @@ func getQueryToken(r *http.Request) string {
 }
 
 func getRequestToken(r *http.Request) string {
+	// First try to get from Authorization header
 	token := getBearerToken(r)
-	if token == "" {
-		token = getQueryToken(r)
+	if token != "" {
+		return token
 	}
-	return token
+
+	// Then try to get from cookie
+	cookie, err := r.Cookie("access_token")
+	if err == nil && cookie != nil && cookie.Value != "" {
+		return cookie.Value
+	}
+
+	// Finally fall back to query parameter
+	return getQueryToken(r)
 }
 
 /*
@@ -148,14 +157,7 @@ func doesOwnSession(user *types.User, session *types.Session) bool {
 }
 
 func canSeeSession(user *types.User, session *types.Session) bool {
-	canEdit := canEditSession(user, session)
-	if canEdit {
-		return true
-	}
-	if session.Metadata.Shared {
-		return true
-	}
-	return false
+	return canEditSession(user, session)
 }
 
 func canEditSession(user *types.User, session *types.Session) bool {

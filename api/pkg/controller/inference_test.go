@@ -250,7 +250,8 @@ func (suite *ControllerSuite) Test_EvaluateSecrets() {
 	app, err := suite.controller.evaluateSecrets(suite.ctx, suite.user, app)
 	suite.NoError(err)
 
-	suite.Equal(app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"], "secret_value")
+	// After evaluateSecrets, ${API_KEY} should be replaced with secret_value
+	suite.Equal("secret_value", app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"])
 }
 
 func Test_setSystemPrompt(t *testing.T) {

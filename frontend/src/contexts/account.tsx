@@ -1,11 +1,11 @@
 import bluebird from 'bluebird'
 import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
 import useApi from '../hooks/useApi'
-import { useOrganizations } from '../hooks/useOrganisations'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
 
 import {
   IApiKey,
@@ -20,6 +20,9 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   admin: boolean,
+  organizationTools: IOrganizationTools,
+  isOrgAdmin: boolean,
+  isOrgMember: boolean,
   user?: IKeycloakUser,
   token?: string,
   tokenUrlEscaped?: string,
@@ -27,6 +30,7 @@ export interface IAccountContext {
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
   apiKeys: IApiKey[],
+  appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
   setMobileMenuOpen: (val: boolean) => void,
   showLoginWindow: boolean,
@@ -34,17 +38,25 @@ export interface IAccountContext {
   onLogin: () => void,
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
+  addAppAPIKey: (appId: string) => Promise<void>,
+  loadAppApiKeys: (appId: string) => Promise<void>,
   models: IHelixModel[],
   hasImageModels: boolean,
   fetchModels: (provider?: string) => Promise<void>,
   providerEndpoints: IProviderEndpoint[],
   fetchProviderEndpoints: () => Promise<void>,
+  // an org aware navigate function that will prepend `org_` to the route name
+  // and include the org_id in the params if we are currently looking at an org
+  orgNavigate: (routeName: string, params?: Record<string, string | undefined>) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
   admin: false,
+  organizationTools: defaultOrganizationTools,
+  isOrgAdmin: false,
+  isOrgMember: false,
   loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
@@ -57,6 +69,7 @@ export const AccountContext = createContext<IAccountContext>({
   },
   userConfig: {},
   apiKeys: [],
+  appApiKeys: [],
   mobileMenuOpen: false,
   setMobileMenuOpen: () => { },
   showLoginWindow: false,
@@ -64,11 +77,14 @@ export const AccountContext = createContext<IAccountContext>({
   onLogin: () => { },
   onLogout: () => { },
   loadApiKeys: () => { },
+  addAppAPIKey: async () => { },
+  loadAppApiKeys: async () => { },
   models: [],
   fetchModels: async () => { },
   providerEndpoints: [],
   fetchProviderEndpoints: async () => {},
   hasImageModels: false,
+  orgNavigate: () => {},
 })
 
 export const useAccount = () => {
@@ -77,19 +93,19 @@ export const useAccount = () => {
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
-  const organizations = useOrganizations()
   const snackbar = useSnackbar()
   const loading = useLoading()
   const router = useRouter()
-  const [admin, setAdmin] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [showLoginWindow, setShowLoginWindow] = useState(false)
-  const [initialized, setInitialized] = useState(false)
-  const [user, setUser] = useState<IKeycloakUser>()
-  const [credits, setCredits] = useState(0)
-  const [loggingOut, setLoggingOut] = useState(false)
-  const [userConfig, setUserConfig] = useState<IUserConfig>({})
-  const [serverConfig, setServerConfig] = useState<IServerConfig>({
+  const organizationTools = useOrganizations()
+  const [ admin, setAdmin ] = useState(false)
+  const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
+  const [ showLoginWindow, setShowLoginWindow ] = useState(false)
+  const [ initialized, setInitialized ] = useState(false)
+  const [ user, setUser ] = useState<IKeycloakUser>()
+  const [ credits, setCredits ] = useState(0)
+  const [ loggingOut, setLoggingOut ] = useState(false)
+  const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
+  const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
     stripe_enabled: false,
     sentry_dsn_frontend: '',
@@ -99,6 +115,7 @@ export const useAccountContext = (): IAccountContext => {
     apps_enabled: true,
   })
   const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
+  const [appApiKeys, setAppApiKeys] = useState<IApiKey[]>([])
   const [models, setModels] = useState<IHelixModel[]>([])
   const [providerEndpoints, setProviderEndpoints] = useState<IProviderEndpoint[]>([])
   const [hasImageModels, setHasImageModels] = useState(false)
@@ -113,17 +130,51 @@ export const useAccountContext = (): IAccountContext => {
     user,
   ])
 
+  const isOrgAdmin = useMemo(() => {
+    if(admin) return true
+    if(!organizationTools.organization) return false
+    if(!user) return false
+    return organizationTools.organization?.memberships?.some(
+      m => m.user_id === user?.id && m.role === 'owner'
+    ) ? true : false
+  }, [
+    admin,
+    organizationTools.organization,
+    user,
+  ])
+  
+  const isOrgMember = useMemo(() => {
+    if(admin) return true
+    if(isOrgAdmin) return true
+    if(!user) return false
+    if(!organizationTools.organization) return false
+    return organizationTools.organization?.memberships?.some(
+      m => m.user_id === user?.id
+    ) ? true : false
+  }, [
+    admin,
+    organizationTools.organization,
+    user,
+    isOrgAdmin,
+  ])
+
   const tokenUrlEscaped = useMemo(() => {
     if (!token) return '';
     return encodeURIComponent(token);
   }, [token]);
 
   const loadStatus = useCallback(async () => {
-    const statusResult = await api.get('/api/v1/status')
-    if (!statusResult) return
-    setCredits(statusResult.credits)
-    setAdmin(statusResult.admin)
-    setUserConfig(statusResult.config)
+    try {
+      const statusResult = await api.get('/api/v1/status')
+      if (!statusResult) return
+      setCredits(statusResult.credits)
+      setAdmin(statusResult.admin)
+      setUserConfig(statusResult.config)
+      await organizationTools.loadOrganizations()
+    } catch (error) {
+      console.error('Error loading status:', error)
+      // Don't propagate error - allow app to continue functioning
+    }
   }, [])
 
   const loadServerConfig = useCallback(async () => {
@@ -140,6 +191,47 @@ export const useAccountContext = (): IAccountContext => {
     setApiKeys(result)
   }, [])
 
+  const loadAppApiKeys = useCallback(async (appId: string) => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
+      params: {
+        types: 'app',
+        app_id: appId,
+      },
+    })
+    if (!result) return
+    setAppApiKeys(result)
+  }, [])
+
+  /**
+   * Adds a new API key for the app
+   */
+  const addAppAPIKey = useCallback(async (appId: string) => {
+    try {
+      const res = await api.post('/api/v1/api_keys', {
+        name: `api key ${apiKeys.length + 1}`,
+        type: 'app',
+        app_id: appId,
+      }, {}, {
+        snackbar: true,
+      })
+      
+      if (!res) return
+      
+      snackbar.success('API Key added')
+
+      await loadAppApiKeys(appId)
+    } catch (error) {
+      console.error('Error adding API key:', error)
+      snackbar.error('Failed to add API key')
+    }
+  }, [
+    api,
+    snackbar,
+    apiKeys,
+    loadAppApiKeys,
+  ])
+  
+
   const fetchProviderEndpoints = useCallback(async () => {
     const response = await api.get('/api/v1/provider-endpoints')
     if (!response) return
@@ -147,12 +239,16 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const loadAll = useCallback(async () => {
-    await bluebird.all([
-      loadStatus(),
-      loadServerConfig(),
-      fetchProviderEndpoints(),
-      organizations.loadData(),
-    ])
+    try {
+      await bluebird.all([
+        loadStatus(),
+        loadServerConfig(),
+        fetchProviderEndpoints(),
+      ])
+    } catch (error) {
+      console.error('Error loading data:', error)
+      // Don't crash the app on data loading errors
+    }
   }, [
     loadStatus,
     loadServerConfig,
@@ -224,8 +320,9 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
-        // Set up token refresh interval
-        setInterval(async () => {
+        // Set up token refresh interval - using 30 seconds instead of 10
+        // to reduce server load and prevent potential race conditions
+        const refreshInterval = setInterval(async () => {
           try {
             const innerClient = api.getApiClient()
             await innerClient.v1AuthRefreshCreate()
@@ -240,21 +337,32 @@ export const useAccountContext = (): IAccountContext => {
             }
           } catch (e) {
             console.error('Error refreshing token:', e)
-            onLogin()
+            // Instead of immediately calling onLogin, clear interval and try one more time
+            clearInterval(refreshInterval)
+            // Only call onLogin if we're really unauthorized, not for network issues
+            if ((e as any).response && (e as any).response.status === 401) {
+              onLogin()
+            }
           }
-        }, 10 * 1000)
+        }, 30 * 1000) // 30 seconds instead of 10
+        
+        // Clean up interval on component unmount
+        return () => clearInterval(refreshInterval)
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       snackbar.error(errorMessage)
+    } finally {
+      loading.setLoading(false)
+      setInitialized(true)
     }
-    loading.setLoading(false)
-    setInitialized(true)
   }, [])
 
   const fetchModels = useCallback(async (provider?: string) => {
+    let loadingModels = false;
     try {
+      loadingModels = true;
       const url = provider ? `/v1/models?provider=${encodeURIComponent(provider)}` : '/v1/models'
       const response = await api.get(url)
 
@@ -282,19 +390,42 @@ export const useAccountContext = (): IAccountContext => {
     } catch (error) {
       console.error('Error fetching models:', error)
       setModels([])
+    } finally {
+      loadingModels = false;
     }
   }, [api])
+
+  const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}) => {
+    if(organizationTools.organization || params.org_id) {
+      const useOrgID = organizationTools.organization?.name || params.org_id
+      router.navigate(`org_${routeName}`, {
+        ...params,
+        org_id: useOrgID,
+      })
+    } else {
+      router.navigate(routeName, params)
+    }
+  }
 
   useEffect(() => {
     initialize()
   }, [])
 
   useEffect(() => {
-    fetchModels()
-    if (user) {
-      loadAll()
-    } else {
-      loadServerConfig()
+    try {
+      // Only fetch models if we haven't already done so
+      if (models.length === 0) {
+        fetchModels()
+      }
+      
+      if (user) {
+        loadAll()
+      } else {
+        loadServerConfig()
+      }
+    } catch (error) {
+      console.error('Error in data loading useEffect:', error)
+      // Ensure any loading states are cleared even on error
     }
   }, [user])
 
@@ -313,14 +444,21 @@ export const useAccountContext = (): IAccountContext => {
     setShowLoginWindow,
     credits,
     apiKeys,
+    appApiKeys,
     onLogin,
     onLogout,
     loadApiKeys,
+    addAppAPIKey,
+    loadAppApiKeys,
     models,
     fetchModels,
     fetchProviderEndpoints,
     providerEndpoints,
+    organizationTools,
+    isOrgAdmin,
+    isOrgMember,
     hasImageModels,
+    orgNavigate,
   }
 }
 

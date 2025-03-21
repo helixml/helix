@@ -31,19 +31,6 @@ const Apps: FC = () => {
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
-  const onCreateNewApp = useCallback(async () => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-    const newApp = await apps.createEmptyHelixApp()
-    if(!newApp) return false
-    apps.loadData()
-    navigate('app', {
-      app_id: newApp.id,
-    })
-  }, [account.user, account.setShowLoginWindow, navigate])
-
   const onConnectRepo = useCallback(async (repo: string) => {
     if (!account.user) {
       account.setShowLoginWindow(true)
@@ -53,7 +40,7 @@ const Apps: FC = () => {
     if(!newApp) return false
     removeParams(['add_app'])
     snackbar.success('app created')
-    apps.loadData()
+    apps.loadApps()
     navigate('app', {
       app_id: newApp.id,
     })
@@ -62,29 +49,22 @@ const Apps: FC = () => {
     apps.createApp,
   ])
 
-  const onEditApp = useCallback((app: IApp) => {
-    navigate('app', {
+  const onEditApp = (app: IApp) => {
+    account.orgNavigate('app', {
       app_id: app.id,
     })
-  }, [])
+  }
 
   const onDeleteApp = useCallback(async () => {
     if(!deletingApp) return
     const result = await apps.deleteApp(deletingApp.id)
     if(!result) return
     setDeletingApp(undefined)
-    apps.loadData()
+    apps.loadApps()
     snackbar.success('app deleted')
   }, [
     deletingApp,
     apps.deleteApp,
-  ])
-
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
   ])
 
   useEffect(() => {
@@ -110,9 +90,16 @@ const Apps: FC = () => {
     params.snackbar_message,
   ])
 
+  useEffect(() => {
+    apps.loadApps()
+  }, [
+    apps.loadApps,
+  ])
+
   return (
     <Page
       breadcrumbTitle="Apps"
+      orgBreadcrumbs={ true }
       topbarContent={(
         <div>
           <Button
@@ -131,7 +118,7 @@ const Apps: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
-            onClick={onCreateNewApp}
+            onClick={apps.createOrgApp}
             sx={{ mr: 2 }}
           >
             New App
@@ -161,7 +148,7 @@ const Apps: FC = () => {
         }}
       >
         <AppsTable
-          data={ apps.data }
+          data={ apps.apps }
           onEdit={ onEditApp }
           onDelete={ setDeletingApp }
         />

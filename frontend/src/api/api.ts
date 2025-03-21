@@ -15,17 +15,11 @@ export interface GithubComHelixmlHelixApiPkgTypesConfig {
 
 export interface GithubComHelixmlHelixApiPkgTypesTool {
   config?: TypesToolConfig;
-  created?: string;
   description?: string;
   global?: boolean;
   id?: string;
   name?: string;
-  /** uuid of owner entity */
-  owner?: string;
-  /** e.g. user, system, org */
-  owner_type?: TypesOwnerType;
   tool_type?: GithubComHelixmlHelixApiPkgTypesToolType;
-  updated?: string;
 }
 
 export enum GithubComHelixmlHelixApiPkgTypesToolType {
@@ -331,6 +325,10 @@ export interface OpenaiEmbeddingResponse {
   usage?: GithubComSashabaranovGoOpenaiUsage;
 }
 
+export interface ServerLicenseKeyRequest {
+  license_key?: string;
+}
+
 export interface TypesAccessGrant {
   created_at?: string;
   id?: string;
@@ -381,7 +379,6 @@ export interface TypesApp {
   owner?: string;
   /** e.g. user, system, org */
   owner_type?: TypesOwnerType;
-  shared?: boolean;
   updated?: string;
   /** Owner user struct, populated by the server for organization views */
   user?: TypesUser;
@@ -520,11 +517,25 @@ export interface TypesChoice {
   text?: string;
 }
 
+export interface TypesContextMenuAction {
+  /** Forms the grouping in the UI */
+  action_label?: string;
+  /** The label that will be shown in the UI */
+  label?: string;
+  /** The value written to the text area when the action is selected */
+  value?: string;
+}
+
+export interface TypesContextMenuResponse {
+  data?: TypesContextMenuAction[];
+}
+
 export interface TypesCrawledSources {
   urls?: TypesCrawledURL[];
 }
 
 export interface TypesCrawledURL {
+  document_id?: string;
   duration_ms?: number;
   message?: string;
   status_code?: number;
@@ -730,6 +741,12 @@ export interface TypesKnowledgeProgress {
   step?: string;
 }
 
+export interface TypesKnowledgeSearchResult {
+  duration_ms?: number;
+  knowledge?: TypesKnowledge;
+  results?: TypesSessionRAGResult[];
+}
+
 export interface TypesKnowledgeSource {
   filestore?: TypesKnowledgeSourceHelixFilestore;
   gcs?: TypesKnowledgeSourceGCS;
@@ -766,6 +783,7 @@ export interface TypesKnowledgeSourceWebAuth {
 }
 
 export enum TypesKnowledgeState {
+  KnowledgeStatePreparing = "preparing",
   KnowledgeStatePending = "pending",
   KnowledgeStateIndexing = "indexing",
   KnowledgeStateReady = "ready",
@@ -1087,6 +1105,8 @@ export interface TypesSession {
    * named manually
    */
   name?: string;
+  /** the organization this session belongs to, if any */
+  organization_id?: string;
   /** uuid of owner entity */
   owner?: string;
   /** e.g. user, system, org */
@@ -1111,6 +1131,8 @@ export interface TypesSessionChatRequest {
   messages?: TypesMessage[];
   /** The model to use */
   model?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
   rag_source_id?: string;
@@ -1131,6 +1153,8 @@ export interface TypesSessionLearnRequest {
   data_entity_id?: string;
   /** When doing RAG, allow the resulting inference session model to be specified */
   default_rag_model?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
   /**
    * Do we want to create a RAG data entity from this session?
    * You must provide a data entity ID for the uploaded documents if yes
@@ -1186,7 +1210,6 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
-  shared?: boolean;
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
@@ -1223,6 +1246,7 @@ export interface TypesSessionRAGResult {
   filename?: string;
   id?: string;
   interaction_id?: string;
+  metadata?: Record<string, string>;
   session_id?: string;
   source?: string;
 }
@@ -1281,6 +1305,7 @@ export enum TypesTokenType {
   TokenTypeNone = "",
   TokenTypeRunner = "runner",
   TokenTypeKeycloak = "keycloak",
+  TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
 }
@@ -1358,16 +1383,16 @@ export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
   /** if the token is associated with an app */
-  appID?: string;
+  app_id?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
   email?: string;
-  fullName?: string;
+  full_name?: string;
   id?: string;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
-  tokenType?: TypesTokenType;
+  token_type?: TypesTokenType;
   /**
    * these are set by the keycloak user based on the token
    * if it's an app token - the keycloak user is loaded from the owner of the app
@@ -1383,6 +1408,13 @@ export interface TypesUserResponse {
   id?: string;
   name?: string;
   token?: string;
+}
+
+export interface TypesUserSearchResponse {
+  limit?: number;
+  offset?: number;
+  total_count?: number;
+  users?: TypesUser[];
 }
 
 export interface TypesWebsiteCrawler {
@@ -1812,6 +1844,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description contextMenuHandler
+     *
+     * @tags ui
+     * @name V1ContextMenuList
+     * @summary contextMenuHandler
+     * @request GET:/api/v1/context-menu
+     */
+    v1ContextMenuList: (
+      query: {
+        /** App ID */
+        app_id: string;
+        /** Query string */
+        q?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesContextMenuResponse, any>({
+        path: `/api/v1/context-menu`,
+        method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -1857,6 +1913,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Complete knowledge preparation and move to pending state for indexing
+     *
+     * @tags knowledge
+     * @name V1KnowledgeCompleteCreate
+     * @summary Complete knowledge preparation
+     * @request POST:/api/v1/knowledge/{id}/complete
+     * @secure
+     */
+    v1KnowledgeCompleteCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledge, any>({
+        path: `/api/v1/knowledge/${id}/complete`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Refresh knowledge
      *
      * @tags knowledge
@@ -1887,6 +1960,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the license key for the current user
+     *
+     * @name V1LicenseList
+     * @summary Get license key
+     * @request GET:/api/v1/license
+     * @secure
+     */
+    v1LicenseList: (params: RequestParams = {}) =>
+      this.request<ServerLicenseKeyRequest, any>({
+        path: `/api/v1/license`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the license key for the current user
+     *
+     * @name V1LicenseCreate
+     * @summary Set license key
+     * @request POST:/api/v1/license
+     * @secure
+     */
+    v1LicenseCreate: (params: RequestParams = {}) =>
+      this.request<ServerLicenseKeyRequest, any>({
+        path: `/api/v1/license`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -1935,7 +2044,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new organization
+     * @description Create a new organization. Only admin users can create organizations.
      *
      * @tags organizations
      * @name V1OrganizationsCreate
@@ -2293,6 +2402,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Search knowledges for a given app and prompt
+     *
+     * @tags knowledge
+     * @name V1SearchList
+     * @summary Search knowledges
+     * @request GET:/api/v1/search
+     * @secure
+     */
+    v1SearchList: (
+      query: {
+        /** App ID */
+        app_id: string;
+        /** Knowledge ID */
+        knowledge_id?: string;
+        /** Search prompt */
+        prompt: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesKnowledgeSearchResult[], any>({
+        path: `/api/v1/search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List secrets for the user.
      *
      * @tags secrets
@@ -2395,6 +2532,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Search users by email, name, or username
+     *
+     * @tags users
+     * @name V1UsersSearchList
+     * @summary Search users
+     * @request GET:/api/v1/users/search
+     * @secure
+     */
+    v1UsersSearchList: (
+      query: {
+        /** Query */
+        query: string;
+        /** Organization ID */
+        organization_id?: string;
+        /** Limit */
+        limit?: number;
+        /** Offset */
+        offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesUserSearchResponse, any>({
+        path: `/api/v1/users/search`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
   };
