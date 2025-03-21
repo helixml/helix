@@ -25,15 +25,6 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
     if (sessionId) {
       const currentResponse = currentResponses.get(sessionId);
       if (currentResponse) {
-        console.log('fox: useLiveInteraction - Received update from currentResponses', {
-          sessionId,
-          interactionId: currentResponse.id,
-          state: currentResponse.state,
-          finished: currentResponse.finished,
-          previousState: interaction?.state,
-          previousFinished: interaction?.finished
-        });
-        
         setInteraction((prevInteraction: IInteraction | null): IInteraction => {
           if (prevInteraction === null) {
             return currentResponse as IInteraction;
@@ -76,20 +67,9 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
     message: interaction?.message || '',
     status: interaction?.status || '',
     progress: interaction?.progress || 0,
-    isComplete: (() => {
-      const complete = interaction?.state === INTERACTION_STATE_COMPLETE && interaction?.finished === true;
-      console.log('fox: useLiveInteraction isComplete calculation:', {
-        complete,
-        state: interaction?.state,
-        stateMatches: interaction?.state === INTERACTION_STATE_COMPLETE,
-        finished: interaction?.finished,
-        finishedIsTrue: interaction?.finished === true,
-        interactionId: interaction?.id
-      });
-      return complete;
-    })(),
+    isComplete: interaction?.state === INTERACTION_STATE_COMPLETE && interaction?.finished === true,
     isStale,
-    stepInfos: stepInfos.get(sessionId) || [], // Add this line
+    stepInfos: stepInfos.get(sessionId) || [],
   };
 };
 

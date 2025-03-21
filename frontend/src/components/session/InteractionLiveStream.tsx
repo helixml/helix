@@ -81,7 +81,6 @@ export const InteractionLiveStream: FC<{
     (message: string): void,
   },
   onMessageUpdate?: () => void,
-  onStreamingComplete?: () => void,
   onFilterDocument?: (docId: string) => void,
 }> = ({
   session_id,
@@ -91,7 +90,6 @@ export const InteractionLiveStream: FC<{
   hasSubscription = false,
   onMessageChange,
   onMessageUpdate,
-  onStreamingComplete,
   onFilterDocument,
 }) => {
     const account = useAccount()
@@ -124,28 +122,8 @@ export const InteractionLiveStream: FC<{
       return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`;
     }, [serverConfig]);
 
-    useEffect(() => {
-      console.log('tomato: Component mounted with isActivelyStreaming =', isActivelyStreaming);
-      
-      // Add cleanup to detect unmounts
-      return () => {
-        console.log('tomato: Component unmounted');
-        // Clean up any timers
-        if (noChangeTimer) {
-          clearTimeout(noChangeTimer);
-        }
-      }
-    }, []);
-
     // Reset streaming state when a new interaction starts or interaction ID changes
     useEffect(() => {
-      console.log('fox: InteractionLiveStream - Interaction ID changed or component mounted', {
-        interactionId: interaction?.id,
-        resetToStreaming: true,
-        isActivelyStreaming,
-        prevMessageLength
-      });
-      
       // Always reset to streaming state when interaction ID changes
       setIsActivelyStreaming(true);
       setPrevMessageLength(0);
@@ -157,29 +135,10 @@ export const InteractionLiveStream: FC<{
 
     // Effect to detect completion from the server (WebSocket)
     useEffect(() => {
-      console.log('fox: InteractionLiveStream - Completion check', { 
-        isComplete, 
-        isActivelyStreaming,
-        state: interaction?.state,
-        finished: interaction?.finished,
-        interactionId: interaction?.id,
-        messageLength: message?.length,
-        isFirstInteractionInSession: session?.interactions?.indexOf(interaction) === 0,
-        sessionInteractionsCount: session?.interactions?.length
-      });
-      
       if (isComplete && isActivelyStreaming) {
-        console.log('fox: InteractionLiveStream - STOPPING STREAMING - Server reported completion', {
-          interactionId: interaction?.id,
-          state: interaction?.state,
-          finished: interaction?.finished
-        });
         setIsActivelyStreaming(false);
-        if (onStreamingComplete) {
-          onStreamingComplete();
-        }
       }
-    }, [isComplete, interaction?.state, interaction?.finished, isActivelyStreaming, onStreamingComplete, session?.interactions]);
+    }, [isComplete, isActivelyStreaming]);
 
     // Safety mechanism to detect when streaming has stopped by monitoring message length
     useEffect(() => {
@@ -197,15 +156,7 @@ export const InteractionLiveStream: FC<{
         
         // Set a new timer
         const timer = setTimeout(() => {
-          console.log('fox: InteractionLiveStream - Message unchanged timeout triggered', {
-            interactionId: interaction?.id,
-            messageLength: currentLength,
-            prevMessageLength
-          });
           setIsActivelyStreaming(false);
-          if (onStreamingComplete) {
-            onStreamingComplete();
-          }
         }, 15000);
         
         setNoChangeTimer(timer);
@@ -226,7 +177,7 @@ export const InteractionLiveStream: FC<{
           clearTimeout(noChangeTimer);
         }
       };
-    }, [message, isActivelyStreaming, prevMessageLength, onStreamingComplete]);
+    }, [message, isActivelyStreaming, prevMessageLength]);
 
     useEffect(() => {
       if (!message) return
@@ -257,11 +208,6 @@ export const InteractionLiveStream: FC<{
     }, [isActivelyStreaming, isComplete, message?.length, interaction?.id, 
         interaction?.state, interaction?.finished, session?.interactions]);
     
-    // Log only when the values we're actually tracking change
-    useEffect(() => {
-      console.log('fox: InteractionLiveStream - Component rendering with:', shouldLogRender);
-    }, [shouldLogRender]);
-
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
     const blinker = `<span class="blinker-class">┃</span>`
