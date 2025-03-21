@@ -258,8 +258,17 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                 if (!sessionData) {
                   sessionData = parsedData;
                   if (sessionData?.id) {
+                    // Set the current session ID first
                     setCurrentSessionId(sessionData.id);
+
+                    // Explicitly clear any existing data for this session
                     messageBufferRef.current.set(sessionData.id, []);
+                    messageHistoryRef.current.set(sessionId, '');
+
+                    // Initialize with empty response until we get content
+                    setCurrentResponses(prev => {
+                      return new Map(prev).set(sessionData!.id, { message: '' });
+                    });
                     
                     if (parsedData.choices?.[0]?.delta?.content) {
                       addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
