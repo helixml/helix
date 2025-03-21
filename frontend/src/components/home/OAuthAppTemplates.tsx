@@ -155,7 +155,7 @@ const OAuthAppTemplates: FC = () => {
       account.orgNavigate('apps', { 
         create: 'true',
         template: template.templateId,
-        provider_id: template.provider.id,
+        provider_name: template.provider.name,
         oauth: 'true'
       });
     } catch (err) {

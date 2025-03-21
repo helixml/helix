@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -31,6 +31,7 @@ import { exchangeratesSchema } from './exchangerates_schema';
 import Avatar from '@mui/material/Avatar';
 import IconButton from '@mui/material/IconButton';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
+import useApi from '../../hooks/useApi';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
@@ -38,6 +39,14 @@ interface ApiIntegrationsProps {
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
   onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
+}
+
+// Interface for OAuth provider objects from the API
+interface OAuthProvider {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
@@ -53,6 +62,26 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
   const [oauthProvider, setOAuthProvider] = useState('');
   const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
+  const [configuredProviders, setConfiguredProviders] = useState<OAuthProvider[]>([]);
+  const api = useApi();
+
+  // Fetch configured OAuth providers from the API
+  useEffect(() => {
+    const fetchOAuthProviders = async () => {
+      try {
+        const providers = await api.get('/api/v1/oauth/providers');
+        const enabledProviders = Array.isArray(providers) 
+          ? providers.filter((p: OAuthProvider) => p.enabled)
+          : [];
+        setConfiguredProviders(enabledProviders);
+      } catch (error) {
+        console.error('Error fetching OAuth providers:', error);
+        setConfiguredProviders([]);
+      }
+    };
+
+    fetchOAuthProviders();
+  }, []);
 
   const onAddApiTool = useCallback(() => {
     const newTool: IAssistantApi = {
@@ -80,12 +109,11 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const handleEditTool = (apiTool: IAssistantApi, index: number) => {
     console.log('ApiIntegrations - editing tool at index:', index);
     
-    // Find the corresponding tool to get OAuth settings
-    const matchingTool = tools.find(t => t.name === apiTool.name);
-    const oauthProvider = matchingTool?.config?.api?.oauth_provider || '';
-    const oauthScopes = matchingTool?.config?.api?.oauth_scopes || [];
+    // Look for OAuth settings directly on the API tool
+    let providerName = apiTool.oauth_provider || '';
+    let oauthScopes = apiTool.oauth_scopes || [];
     
-    setOAuthProvider(oauthProvider);
+    setOAuthProvider(providerName);
     setOAuthScopes(oauthScopes);
     setEditingTool({tool: apiTool, index});
   };
@@ -98,7 +126,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     }
     setShowErrors(false);
     
-    // Include OAuth settings in the tool being saved
+    // Include OAuth settings directly in the IAssistantApi tool
     const updatedTool = {
       ...editingTool.tool,
       oauth_provider: oauthProvider || undefined,
@@ -376,21 +404,21 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     disabled={isReadOnly}
                   >
                     <MenuItem value="">None</MenuItem>
-                    {Object.keys(PROVIDER_ICONS).map((provider) => (
-                      <MenuItem key={provider} value={provider}>
+                    {configuredProviders.map((provider) => (
+                      <MenuItem key={provider.id} value={provider.name}>
                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
                           <Avatar 
                             sx={{ 
-                              bgcolor: PROVIDER_COLORS[provider] || PROVIDER_COLORS.custom,
+                              bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
                               color: 'white',
                               mr: 1,
                               width: 24,
                               height: 24
                             }}
                           >
-                            {PROVIDER_ICONS[provider]}
+                            {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
                           </Avatar>
-                          <span>{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
+                          <span>{provider.name}</span>
                         </Box>
                       </MenuItem>
                     ))}

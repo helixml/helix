@@ -951,6 +951,10 @@ type AssistantAPI struct {
 	RequestPrepTemplate     string `json:"request_prep_template,omitempty" yaml:"request_prep_template,omitempty"`
 	ResponseSuccessTemplate string `json:"response_success_template,omitempty" yaml:"response_success_template,omitempty"`
 	ResponseErrorTemplate   string `json:"response_error_template,omitempty" yaml:"response_error_template,omitempty"`
+
+	// OAuth configuration
+	OAuthProvider OAuthProviderType `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`
 }
 
 // apps are a collection of assistants
