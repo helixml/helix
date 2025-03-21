@@ -495,7 +495,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       <Box
         sx={{
           '& pre': {
-            backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
+            // backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
             padding: '1em',
             borderRadius: '4px',
             overflowX: 'auto',
@@ -506,7 +506,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           '& :not(pre) > code': {
             backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
-            padding: '0.2em 0.4em',
+            padding: '0',
             borderRadius: '3px',
           },
           '& a': {
