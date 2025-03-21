@@ -23,6 +23,7 @@ export interface ISessionsContext {
   hasMoreSessions: boolean,
   advancePage: () => void,
   loadSessions: (query?: ISessionsQuery) => Promise<void>,
+  loadSessionsIfChanged: (query?: ISessionsQuery) => Promise<void>,
   addSesssion: (session: ISession) => void,
   deleteSession: (id: string) => Promise<boolean>,
   renameSession: (id: string, name: string) => Promise<boolean>,
@@ -45,6 +46,7 @@ export const SessionsContext = createContext<ISessionsContext>({
   sessions: [],
   advancePage: () => {},
   loadSessions: async () => {},
+  loadSessionsIfChanged: async () => {},
   addSesssion: (session: ISession) => {},
   deleteSession: (id: string) => Promise.resolve(false),
   renameSession: (id: string, name: string) => Promise.resolve(false),
@@ -107,6 +109,74 @@ export const useSessionsContext = (): ISessionsContext => {
     account.organizationTools.orgID,
     account.organizationTools.organization,
   ])
+
+  const loadSessionsIfChanged = useCallback(async (query: ISessionsQuery = {}) => {
+    // default query params
+    const params: Record<string, any> = {
+      offset: (page - 1) * SESSION_PAGINATION_PAGE_LIMIT,
+      limit: SESSION_PAGINATION_PAGE_LIMIT,
+    }
+
+    // if we have a search filter - apply it
+    if(query.search_filter) {
+      params.search_filter = query.search_filter
+    }
+
+    // Determine the organization_id parameter value
+    if (query.org_id) {
+      // If specific org_id is provided, use it
+      params.organization_id = query.org_id;
+    } else if (account.organizationTools.organization) {
+      // If we're in an org context, use the org ID
+      params.organization_id = account.organizationTools.organization.id;
+    }
+
+    // Don't set loading state to avoid UI flicker
+    const result = await api.get<ISessionsList>('/api/v1/sessions', {
+      params,
+    })
+    
+    if(!result) return
+    
+    // Check if the data has actually changed before updating state
+    const newSessions = result.sessions || [];
+    const currentIds = new Set(sessions.map(s => s.session_id));
+    const newIds = new Set(newSessions.map(s => s.session_id));
+    
+    const hasChanges = 
+      newSessions.length !== sessions.length || 
+      newSessions.some(newSession => {
+        // Check if this session exists in the current set
+        if (!currentIds.has(newSession.session_id)) return true;
+        
+        // Find the current version to compare
+        const current = sessions.find(s => s.session_id === newSession.session_id);
+        
+        // Compare relevant fields that would affect display
+        return current?.name !== newSession.name || 
+               current?.updated !== newSession.updated ||
+               current?.interaction_id !== newSession.interaction_id;
+      });
+    
+    // Only update state if there are actual changes
+    if (hasChanges) {
+      console.log('banana: Sessions data changed, updating state');
+      setSessions(newSessions);
+      setPagination({
+        total: result.counter.count,
+        limit: SESSION_PAGINATION_PAGE_LIMIT,
+        offset: (page - 1) * SESSION_PAGINATION_PAGE_LIMIT,
+      });
+    } else {
+      console.log('banana: Sessions data unchanged, skipping update');
+    }
+  }, [
+    api,
+    page,
+    sessions,
+    account.organizationTools.orgID,
+    account.organizationTools.organization,
+  ]);
 
   const hasMoreSessions = useMemo(() => {
     return sessions.length < pagination.total
@@ -173,6 +243,7 @@ export const useSessionsContext = (): ISessionsContext => {
     hasMoreSessions,
     advancePage,
     loadSessions,
+    loadSessionsIfChanged,
     addSesssion,
     deleteSession,
     renameSession,

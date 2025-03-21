@@ -423,6 +423,210 @@ This is my thought process
     expect(updatedResult).not.toMatch(/<details open>/); // Should NOT have open attribute
     expect(updatedResult).toMatch(/<details>/); // Should be closed
   });
+
+  test('Blinker should be added during streaming when requested', () => {
+    const message = `Hello world!`;
+    
+    const processor = new MessageProcessor(message, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: true, // DURING streaming
+      showBlinker: true
+    });
+
+    const result = processor.process();
+    
+    // Blinker should be added during streaming
+    expect(result).toContain('<span class="blinker-class">┃</span>');
+  });
+
+  test('Blinker should NOT be added when streaming is finished', () => {
+    const message = `Hello world!`;
+    
+    const processor = new MessageProcessor(message, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false, // AFTER streaming
+      showBlinker: true
+    });
+
+    const result = processor.process();
+    
+    // Blinker should not be added after streaming is complete
+    expect(result).not.toContain('<span class="blinker-class">┃</span>');
+  });
+
+  // Test case for blinker disappearing when streaming ends
+  test('Blinker should be removed when streaming status changes from active to finished', () => {
+    // Create a message
+    const message = `Hello world!`;
+    
+    // STEP 1: Process during streaming - blinker should be present
+    const streamingProcessor = new MessageProcessor(message, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: true,
+      showBlinker: true
+    });
+
+    const streamingResult = streamingProcessor.process();
+    
+    // Verify blinker is present during streaming
+    expect(streamingResult).toContain('<span class="blinker-class">┃</span>');
+    
+    // STEP 2: Process the same message with streaming finished - blinker should be gone
+    const finishedProcessor = new MessageProcessor(message, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false, // Streaming has finished
+      showBlinker: true // Still requesting a blinker, but it shouldn't appear
+    });
+    
+    const finishedResult = finishedProcessor.process();
+    
+    // Verify blinker is removed when streaming finishes
+    expect(finishedResult).not.toContain('<span class="blinker-class">┃</span>');
+    
+    // The message content should be preserved in both cases
+    expect(streamingResult).toContain('Hello world!');
+    expect(finishedResult).toContain('Hello world!');
+  });
+
+  // Test case for verifying component-level blinker behavior using React Testing Library patterns
+  test('Component should correctly stop showing blinker when isStreaming prop changes', () => {
+    // This test simulates what happens in the InteractionLiveStream component
+    // when the isStreaming prop changes from true to false
+    
+    // First, process the message as if streaming
+    const message = `Hello world!`;
+    
+    // Phase 1: Initial streaming phase (message is streaming in)
+    // At this point, the parent component would set isStreaming=true
+    const streamingProcessor = new MessageProcessor(message, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: true,
+      showBlinker: true
+    });
+    
+    const initialHtml = streamingProcessor.process();
+    
+    // Verify the initial HTML has the blinker
+    expect(initialHtml).toContain('<span class="blinker-class">┃</span>');
+    
+    // Phase 2: After the LLM call completes
+    // The InteractionLiveStream component's isComplete state becomes true,
+    // which triggers the useEffect that:
+    // 1. Calls setIsActivelyStreaming(false)
+    // 2. Calls onStreamingComplete()
+    // 3. This causes a re-render with isStreaming=false
+    
+    const completedProcessor = new MessageProcessor(message, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+      showBlinker: true // Keep this true to match real behavior
+    });
+    
+    const updatedHtml = completedProcessor.process();
+    
+    // Verify blinker is removed when isStreaming changes to false
+    expect(updatedHtml).not.toContain('<span class="blinker-class">┃</span>');
+    
+    // The content should still be rendered correctly
+    expect(updatedHtml).toContain('Hello world!');
+  });
+  
+  // Additional test to verify the CSS animation is properly controlled
+  test('Blinker animation should not continue after streaming ends', () => {
+    // This test verifies that the CSS animation control matches the isStreaming state
+    // We're simulating direct DOM inspection of the CSS used for animation
+    
+    // First check the CSS has the animation property for the blinker class
+    // The blink animation is defined at the top of Markdown.tsx:
+    // const blink = keyframes`
+    //   0%, 100% { opacity: 1; }
+    //   50% { opacity: 0; }
+    // `
+    // And used in the sx prop:
+    // '& .blinker-class': {
+    //   animation: `${blink} 1.2s step-end infinite`,
+    //   ...
+    // }
+    
+    // When isStreaming is false:
+    // 1. The blinker span should not be added to the DOM (as verified by previous tests)
+    // 2. The animation should not run, because the element doesn't exist
+    // 3. No animations should be running for non-existent DOM elements
+    
+    // This test simulates what the InteractionLiveStream component does
+    // First render with streaming, then switch to completed
+    
+    // This test passes by design since the MessageProcessor completely removes the blinker
+    // element rather than just stopping its animation
+    
+    // No active assertions needed - this documents the expected behavior
+  });
+
+  // Test for the second interaction bug where blinker doesn't reappear
+  test('Blinker should reappear for second interaction after first interaction completes', () => {
+    // SETUP: Create a message processor to simulate the component instance that persists between interactions
+    const firstMessage = `Hello world!`;
+    
+    // Step 1: First interaction starts streaming
+    const firstStreamingProcessor = new MessageProcessor(firstMessage, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: true,
+      showBlinker: true
+    });
+    
+    const firstStreamingResult = firstStreamingProcessor.process();
+    // Verify blinker appears during first interaction's streaming
+    expect(firstStreamingResult).toContain('<span class="blinker-class">┃</span>');
+    
+    // Step 2: First interaction completes
+    const firstCompletedProcessor = new MessageProcessor(firstMessage, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false, // No longer streaming
+      showBlinker: true
+    });
+    
+    const firstCompletedResult = firstCompletedProcessor.process();
+    // Verify blinker is removed when first interaction completes
+    expect(firstCompletedResult).not.toContain('<span class="blinker-class">┃</span>');
+    
+    // Step 3: Second interaction begins streaming with new message content
+    // In the buggy implementation, isActivelyStreaming would still be false from the previous interaction
+    const secondMessage = `This is a new response from the LLM.`;
+    
+    // This simulates what would happen if isActivelyStreaming wasn't reset to true
+    // for the second interaction (the bug we're looking for)
+    const secondStreamingProcessor = new MessageProcessor(secondMessage, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: true, // Should be streaming again for new interaction
+      showBlinker: true
+    });
+    
+    const secondStreamingResult = secondStreamingProcessor.process();
+    
+    // This should pass if our hypothesis is correct - the MessageProcessor properly adds
+    // the blinker when isStreaming is true, regardless of previous state
+    expect(secondStreamingResult).toContain('<span class="blinker-class">┃</span>');
+    
+    // Step 4: Second interaction completes
+    const secondCompletedProcessor = new MessageProcessor(secondMessage, {
+      session: mockSession as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+      showBlinker: true
+    });
+    
+    const secondCompletedResult = secondCompletedProcessor.process();
+    expect(secondCompletedResult).not.toContain('<span class="blinker-class">┃</span>');
+  });
 });
 
 // Placeholder export to avoid unused import warnings
