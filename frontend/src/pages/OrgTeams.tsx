@@ -110,6 +110,7 @@ const OrgTeams: FC = () => {
               onDelete={handleDelete}
               loading={account.organizationTools.loading}
               isOrgAdmin={isOrgOwner}
+              orgName={account.organizationTools.organization.name}
             />
           )}
         </Box>

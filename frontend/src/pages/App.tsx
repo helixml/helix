@@ -21,6 +21,7 @@ import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
 import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
+import AccessDenied from '../components/system/AccessDenied'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import SavingToast from '../components/widgets/SavingToast'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
@@ -49,6 +50,7 @@ const App: FC = () => {
   const appTools = useApp(params.app_id)
 
   const [deletingAPIKey, setDeletingAPIKey] = useState('')
+  const [isAccessDenied, setIsAccessDenied] = useState(false)
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
@@ -91,7 +93,26 @@ const App: FC = () => {
     endpointProviders.loadData()
   }, [])
 
+  useEffect(() => {
+    const checkAccess = async () => {
+      try {
+        const result = await api.getApiClient().v1AppsDetail(params.app_id)        
+        if (!result) {
+          setIsAccessDenied(true)
+        }
+      } catch (error: any) {
+        if (error.response?.status === 403) {
+          setIsAccessDenied(true)
+        }
+      }
+    }
+    if (account.user) {
+      checkAccess()
+    }
+  }, [account.user, params.app_id])
+
   if (!account.user) return null
+  if (isAccessDenied) return <AccessDenied />
   if (!appTools.app) return null
 
   return (
