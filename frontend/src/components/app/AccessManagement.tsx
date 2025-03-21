@@ -25,6 +25,7 @@ import RadioGroup from '@mui/material/RadioGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Radio from '@mui/material/Radio'
 import FormLabel from '@mui/material/FormLabel'
+import Link from '@mui/material/Link'
 // Import icons
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -35,6 +36,8 @@ import LockPersonIcon from '@mui/icons-material/LockPerson'
 import useAccount from '../../hooks/useAccount'
 import { IAccessGrant, CreateAccessGrantRequest, IRole } from '../../types'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
+import useRouter from '../../hooks/useRouter'
+import useTheme from '@mui/material/styles/useTheme'
 
 interface AccessManagementProps {
   appId: string;
@@ -57,6 +60,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const account = useAccount();
   const orgTools = account.organizationTools;
   const organization = orgTools.organization;
+  const router = useRouter();
+  const theme = useTheme();
 
   // Local state
   const [openTeamDialog, setOpenTeamDialog] = useState(false);
@@ -320,7 +325,26 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                     const team = teams.find(t => t.id === teamId);
                     return (
                       <TableRow key={grant.id}>
-                        <TableCell>{team?.name || teamId}</TableCell>
+                        <TableCell>
+                          <Link
+                            sx={{
+                              textDecoration: 'none',
+                              fontWeight: 'bold',
+                              color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                            }}
+                            href={`/orgs/${organization?.name}/teams/${teamId}/people`}
+                            onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              router.navigate('team_people', {
+                                org_id: organization?.name,
+                                team_id: teamId,
+                              })
+                            }}
+                          >
+                            {team?.name || teamId}
+                          </Link>
+                        </TableCell>
                         <TableCell>
                           {grant.roles && grant.roles.map(role => (
                             <Chip 

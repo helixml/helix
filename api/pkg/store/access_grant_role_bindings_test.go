@@ -77,7 +77,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 	// Create a test access grant
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		UserID:         "test-user",
 	}
@@ -110,7 +109,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 
 	teamAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		TeamID:         "test-TestCreateAccessGrantRoleBinding",
 	}
@@ -179,7 +177,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrant_Validation()
 func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		UserID:         "test-user",
 	}
@@ -201,7 +198,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 
 	teamAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		TeamID:         "test-TestCreateAccessGrantRoleBinding",
 	}
@@ -241,7 +237,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding() {
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-app-id",
 		UserID:         "test-TestDeleteAccessGrantRoleBinding",
 	}
@@ -267,7 +262,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding()
 	// Get the access grant and check whether the binding is present
 	accessGrants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     userAccessGrant.ResourceID,
 		UserID:         userAccessGrant.UserID,
 	})
