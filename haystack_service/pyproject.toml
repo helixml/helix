@@ -1,0 +1,25 @@
+[project]
+name = "haystack-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.11",
+    "haystack-ai>=2.11.2",
+    "httpx>=0.28.1",
+    "nltk>=3.9.1",
+    "pgvector-haystack>=3.1.0",
+    "psycopg2-binary>=2.9.10",
+    "pydantic>=2.10.6",
+    "python-multipart>=0.0.20",
+    "unstructured-fileconverter-haystack>=0.4.2",
+    "unstructured[all-docs]>=0.17.2",
+    "uvicorn>=0.34.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "ruff>=0.11.1",
+]
