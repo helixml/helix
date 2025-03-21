@@ -160,7 +160,7 @@ func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *t
 // authorizeUserToResource loads RBAC configuration for the
 func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error {
 	// Load all authz configs for the user (teams, direct to user grants)
-	authzConfigs, err := getAuthzConfigs(ctx, apiServer.Store, user, orgID, resourceID, resourceType)
+	authzConfigs, err := getAuthzConfigs(ctx, apiServer.Store, user, orgID, resourceID)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, us
 	return fmt.Errorf("user is not authorized to perform this action")
 }
 
-func getAuthzConfigs(ctx context.Context, db store.Store, user *types.User, orgID, resourceID string, resourceType types.Resource) ([]types.Config, error) {
+func getAuthzConfigs(ctx context.Context, db store.Store, user *types.User, orgID, resourceID string) ([]types.Config, error) {
 	var authzConfigs []types.Config
 
 	// Get all teams
@@ -193,7 +193,6 @@ func getAuthzConfigs(ctx context.Context, db store.Store, user *types.User, orgI
 	grants, err := db.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
-		ResourceType:   resourceType,
 		ResourceID:     resourceID,
 		TeamIDs:        teamIDs,
 	})

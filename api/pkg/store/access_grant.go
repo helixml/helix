@@ -15,7 +15,6 @@ import (
 
 type ListAccessGrantsQuery struct {
 	OrganizationID string
-	ResourceType   types.Resource
 	ResourceID     string
 	UserID         string
 	TeamIDs        []string
@@ -27,12 +26,9 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 		return nil, fmt.Errorf("organization_id not specified")
 	}
 
+	// Normally this is an app ID, but it can be secret ID, knowledge ID (if we expose them as first class resources)
 	if resourceAccess.ResourceID == "" {
 		return nil, fmt.Errorf("resource_id not specified")
-	}
-
-	if resourceAccess.ResourceType == "" {
-		return nil, fmt.Errorf("resource not specified")
 	}
 
 	if resourceAccess.UserID == "" && resourceAccess.TeamID == "" {
@@ -112,8 +108,8 @@ func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrant
 	query := s.gdb.WithContext(ctx).
 		Where(&types.AccessGrant{
 			OrganizationID: q.OrganizationID,
-			ResourceType:   q.ResourceType,
-			ResourceID:     q.ResourceID,
+			// ResourceType:   q.ResourceType,
+			ResourceID: q.ResourceID,
 		})
 
 	// Build OR condition for user_id or team_id

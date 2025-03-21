@@ -153,7 +153,6 @@ type AccessGrant struct {
 	ID             string    `json:"id" yaml:"id" gorm:"primaryKey"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
-	ResourceType   Resource  `json:"resource_type" yaml:"resource_type"`     // Kind of resource (app, knowledge, provider endpoint, etc)
 	ResourceID     string    `json:"resource_id" yaml:"resource_id"`         // App ID, Knowledge ID, etc
 	OrganizationID string    `json:"organization_id" yaml:"organization_id"` // If granted to an organization
 	TeamID         string    `json:"team_id" yaml:"team_id"`                 // If granted to a team
