@@ -64,6 +64,72 @@ async def get_service():
         service = HaystackService()
     return service
 
+@app.post("/process-image", response_model=ProcessResponse)
+async def process_image(
+    file: UploadFile = File(...),
+    metadata: Optional[str] = Form(None),
+    service: HaystackService = Depends(get_service)
+):
+    """Process and index an image"""
+    logger.info(f"Received image: {file.filename}")
+
+    # Parse metadata if provided
+    meta_dict = {}
+    if metadata:
+        try:
+            meta_dict = json.loads(metadata)
+            logger.debug(f"Parsed metadata: {meta_dict}")
+        except json.JSONDecodeError:
+            logger.error("Invalid metadata JSON")
+            raise HTTPException(status_code=400, detail="Invalid metadata JSON")
+    
+    # Get file extension
+    _, ext = os.path.splitext(file.filename)
+    
+    # Read the file content
+    content = await file.read()
+    
+    # Check for empty content
+    if not content:
+        logger.error("Empty file content received")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty")
+    
+    # For binary files like PDFs, we should NOT sanitize content as it will corrupt the file
+    # PDF files and other binary formats may contain NUL bytes as part of their format
+    # NUL bytes will be handled after text extraction in the converter
+    
+    # Only check if the content is ONLY NUL bytes (which would be invalid)
+    if content == b'\x00' * len(content):
+        logger.error("File contained only NUL bytes")
+        raise HTTPException(status_code=422, detail="Input validation error: File content cannot be empty (contained only NUL bytes)")
+    
+    # Save file temporarily with original binary content intact
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
+        temp.write(content)
+        temp_path = temp.name
+    
+    try:
+        # Set the original filename in metadata - this is the only field we need
+        meta_dict["filename"] = file.filename
+        
+        # Process and index
+        result = await service.process_and_index(temp_path, meta_dict)
+        
+        # Ensure response matches ProcessResponse schema with a status field
+        response = {
+            "status": "success",
+            "documents_processed": 1,
+            "chunks_indexed": result.get("chunks", 0),
+            "message": f"Successfully processed {file.filename}"
+        }
+        return response
+    except Exception as e:
+        logger.error(f"Error processing file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+    finally:
+        # Clean up
+        os.unlink(temp_path)
+
 @app.post("/process", response_model=ProcessResponse)
 async def process_file(
     file: UploadFile = File(...),
