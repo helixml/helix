@@ -173,7 +173,6 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 	grants, err := apiServer.Store.CreateAccessGrant(r.Context(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceApplication,
 		UserID:         userID,
 		TeamID:         req.TeamID,
 	}, roles)
