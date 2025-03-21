@@ -23,3 +23,7 @@ class Settings:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
 settings = Settings() 
+
+# Check if LOG_LEVEL is set to TRACE. If it is, set it to DEBUG
+if settings.LOG_LEVEL == "TRACE":
+    settings.LOG_LEVEL = "DEBUG"
