@@ -21,6 +21,7 @@ steps:
   commands:
     - cd frontend
     - yarn install
+    - yarn test
     - yarn build
   depends_on: []
 
