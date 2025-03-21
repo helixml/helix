@@ -36,52 +36,48 @@ const Apps: FC = () => {
 
   useEffect(() => {
     const handleOAuthAppCreation = async () => {
-      if (
-        params.create === 'true' && 
-        params.template && 
-        params.provider_id && 
-        params.oauth === 'true'
-      ) {
+      if (params.create === 'true' && params.template && params.provider_name && params.oauth === 'true') {
+        const timeoutId = setTimeout(() => {
+          snackbar.info('App creation is taking longer than expected...');
+        }, 3000);
+        
         try {
-          console.log('Detected OAuth app creation parameters:', {
-            template: params.template,
-            provider_id: params.provider_id
-          });
-          
-          // Set a timeout to prevent the app from getting stuck in a loading state
-          const timeoutId = setTimeout(() => {
-            console.error('OAuth app creation timed out');
-            snackbar.error('App creation timed out. Please try again.');
-            removeParams(['create', 'template', 'provider_id', 'oauth']);
-          }, 30000); // 30 second timeout
-          
-          await createOAuthApp(params.template, params.provider_id);
-          
+          await createOAuthApp(params.template, params.provider_name);
           // Clear the timeout if createOAuthApp completes successfully
           clearTimeout(timeoutId);
         } catch (err) {
-          console.error('Error in OAuth app creation:', err);
-          snackbar.error('Failed to process OAuth app creation parameters');
-          removeParams(['create', 'template', 'provider_id', 'oauth']);
+          clearTimeout(timeoutId);
+          console.error('Error during OAuth app creation:', err);
+          snackbar.error('Failed to create app with OAuth integration');
         }
+        
+        // Clean up URL parameters regardless of outcome
+        removeParams(['create', 'template', 'provider_name', 'oauth']);
       }
     };
     
     handleOAuthAppCreation();
-  }, [params.create, params.template, params.provider_id, params.oauth]);
+  }, [params.create, params.template, params.provider_name, params.oauth]);
 
-  const createOAuthApp = async (templateId: string, providerId: string) => {
+  const createOAuthApp = async (templateId: string, providerName: string) => {
     try {
-      console.log('Creating OAuth app with template:', templateId, 'provider ID:', providerId);
+      console.log('Creating OAuth app with template:', templateId, 'provider name:', providerName);
       
       // Add loading state indication
       snackbar.success('Initializing app creation...');
       
-      // Fetch provider details with error checking
-      const provider = await api.get(`/api/v1/oauth/providers/${providerId}`);
+      // Fetch provider details with error checking - look up by name
+      const providersResponse = await api.get('/api/v1/oauth/providers');
+      if (!Array.isArray(providersResponse)) {
+        console.error('Failed to load OAuth providers');
+        snackbar.error('Could not load OAuth providers');
+        return;
+      }
+      
+      const provider = providersResponse.find((p: any) => p.name === providerName);
       if (!provider) {
-        console.error('Failed to load OAuth provider with ID:', providerId);
-        snackbar.error('Could not load OAuth provider');
+        console.error('Failed to find OAuth provider with name:', providerName);
+        snackbar.error('Could not find OAuth provider');
         return;
       }
       
@@ -286,7 +282,7 @@ const Apps: FC = () => {
               description: `Access ${provider.name} data and functionality`,
               url: apiUrl,
               schema: schema, // <-- Using the schema we generated
-              oauth_provider: provider.type, // <-- Use the provider type (e.g., 'github') instead of the provider ID
+              oauth_provider: provider.name, // Use provider name instead of type
               oauth_scopes: provider.default_scopes || []
             }],
             gptscripts: [],
@@ -314,7 +310,7 @@ const Apps: FC = () => {
       console.log('Successfully created app:', newApp);
       
       // Clean up URL params and navigate to the new app
-      removeParams(['create', 'template', 'provider_id', 'oauth']);
+      removeParams(['create', 'template', 'provider_name', 'oauth']);
       navigate('app', { app_id: newApp.id });
       snackbar.success(`Created new ${provider.name} app`);
     } catch (err) {
@@ -338,7 +334,7 @@ const Apps: FC = () => {
       snackbar.error(errorMessage);
       
       // Clean up URL params even on error
-      removeParams(['create', 'template', 'provider_id', 'oauth']);
+      removeParams(['create', 'template', 'provider_name', 'oauth']);
     }
   };
 
