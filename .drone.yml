@@ -17,7 +17,7 @@ steps:
   depends_on: []
 
 - name: build-frontend
-  image: node:21-alpine
+  image: node:23-alpine
   commands:
     - cd frontend
     - yarn install
