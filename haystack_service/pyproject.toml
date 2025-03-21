@@ -12,6 +12,7 @@ dependencies = [
     "pgvector-haystack>=3.1.0",
     "psycopg2-binary>=2.9.10",
     "pydantic>=2.10.6",
+    "pymupdf>=1.25.4",
     "python-multipart>=0.0.20",
     "unstructured-fileconverter-haystack>=0.4.2",
     "unstructured[all-docs]>=0.17.2",
