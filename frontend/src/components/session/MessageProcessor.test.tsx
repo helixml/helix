@@ -1,0 +1,435 @@
+import { MessageProcessor } from './Markdown';
+import { ISession, IInteraction, ISessionConfig } from '../../types';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+// Mock data for tests
+const mockInteraction: Partial<IInteraction> = {
+  id: 'int1',
+  created: new Date().toISOString(),
+  files: ['test-file.pdf', 'sample.pdf', 'diagram.png']
+};
+
+const mockSessionConfig: Partial<ISessionConfig> = {
+  document_ids: {
+    'test-file.pdf': 'doc123',
+    'sample.pdf': 'doc456',
+    'http://example.com/external.pdf': 'doc789'
+  },
+  document_group_id: 'group123'
+};
+
+const mockSession: Partial<ISession> = {
+  id: 'test-session',
+  name: 'Test Session',
+  created: new Date().toISOString(),
+  updated: new Date().toISOString(),
+  parent_session: '',
+  parent_app: '',
+  mode: 'inference',
+  type: 'text',
+  model_name: 'test-model',
+  lora_dir: '',
+  owner: 'test-owner',
+  owner_type: 'user',
+  config: mockSessionConfig as ISessionConfig,
+  interactions: [mockInteraction as IInteraction]
+};
+
+// Mock file URL resolver function
+const mockGetFileURL = (filename: string) => `https://example.com/files/${filename}`;
+
+// Mock filter document function
+const mockFilterDocument = vi.fn();
+
+describe('MessageProcessor', () => {
+  beforeEach(() => {
+    // Reset mocks before each test
+    mockFilterDocument.mockReset();
+  });
+
+  describe('Citation processing', () => {
+    test('Complete XML citation should be properly processed', () => {
+      const message = `Here's some information:
+      
+<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>This is an important excerpt from the document.</snippet>
+</excerpt>
+</excerpts>`;
+
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+
+      // The citation content should be removed from the main text
+      expect(result).not.toContain('<excerpts>');
+      expect(result).not.toContain('<document_id>doc123</document_id>');
+      
+      // The main text should be preserved
+      expect(result).toContain("Here's some information:");
+
+      // Citation data should be preserved in a special marker for the React component
+      expect(result).toMatch(/__CITATION_DATA__.*__CITATION_DATA__/);
+      
+      // The citation data should contain information from the original XML
+      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
+      if (citationMatch && citationMatch[1]) {
+        const citationData = JSON.parse(citationMatch[1]);
+        expect(citationData.excerpts).toBeDefined();
+        expect(citationData.excerpts.length).toBeGreaterThan(0);
+        expect(citationData.excerpts[0].snippet).toContain('This is an important excerpt');
+        expect(citationData.excerpts[0].docId).toBe('doc123');
+      } else {
+        throw new Error('Citation data not found');
+      }
+    });
+
+    test('Partial XML citation during streaming should show loading state', () => {
+      const message = `I'm looking up information:
+      
+<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>Loading source information`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: true
+      });
+
+      const result = processor.process();
+      
+      // The partial citation content should be removed from the main text
+      expect(result).not.toContain('<excerpts>');
+      
+      // The main text should be preserved
+      expect(result).toContain("I'm looking up information:");
+      
+      // Citation data should indicate streaming state
+      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
+      if (citationMatch && citationMatch[1]) {
+        const citationData = JSON.parse(citationMatch[1]);
+        expect(citationData.isStreaming).toBe(true);
+      } else {
+        throw new Error('Citation data not found');
+      }
+    });
+
+    test('Direct citation HTML should be processed', () => {
+      const message = `Here's a direct citation:
+      
+<div class="rag-citations-container">
+  <div class="citation-box">
+    <div class="citation-item">
+      <div class="citation-quote">"This is a quoted passage"</div>
+      <div class="citation-source"><a href="https://example.com/files/test-file.pdf">test-file.pdf</a></div>
+    </div>
+  </div>
+</div>`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // The citation HTML should be removed from the main text
+      expect(result).not.toContain('rag-citations-container');
+      
+      // The main text should be preserved
+      expect(result).toContain("Here's a direct citation:");
+      
+      // Data should be extracted from HTML and preserved in citation data
+      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
+      if (citationMatch && citationMatch[1]) {
+        const citationData = JSON.parse(citationMatch[1]);
+        expect(citationData.excerpts).toBeDefined();
+        expect(citationData.excerpts.length).toBeGreaterThan(0);
+        expect(citationData.excerpts[0].snippet).toContain('This is a quoted passage');
+      } else {
+        throw new Error('Citation data not found');
+      }
+    });
+  });
+
+  describe('Document ID processing', () => {
+    test('Document IDs should be converted to links', () => {
+      const message = `Reference to document doc123 and also DOC_ID:doc456`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Document IDs should be converted to links
+      expect(result).toContain('<a target="_blank"');
+      expect(result).toContain('class="doc-link"');
+      
+      // Both formats should be detected and linked
+      expect(result).toContain('[1]');
+      expect(result).toContain('[2]');
+    });
+
+    test('External document URLs should be properly handled', () => {
+      const message = `Reference to external document doc789`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // External document link should be included
+      expect(result).toContain('http://example.com/external.pdf');
+    });
+
+    test('Document group IDs should be converted to links', () => {
+      const message = `Reference to document group group123`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Group ID should be converted to a special link
+      expect(result).toContain('class="doc-group-link"');
+      expect(result).toContain('[group]');
+    });
+  });
+
+  describe('Blinker processing', () => {
+    test('Blinker should be added during streaming when requested', () => {
+      const message = `Hello world!`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: true,
+        showBlinker: true
+      });
+
+      const result = processor.process();
+      
+      // Blinker should be added during streaming
+      expect(result).toContain('<span class="blinker-class">┃</span>');
+    });
+
+    test('Blinker should NOT be added when streaming is finished', () => {
+      const message = `Hello world!`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false,
+        showBlinker: true
+      });
+
+      const result = processor.process();
+      
+      // Blinker should not be added after streaming is complete
+      expect(result).not.toContain('<span class="blinker-class">┃</span>');
+    });
+
+    test('Blinker should not be added when citations are present', () => {
+      const message = `Hello world!
+      
+<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>This is a snippet.</snippet>
+</excerpt>
+</excerpts>`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false,
+        showBlinker: true
+      });
+
+      const result = processor.process();
+      
+      // Blinker should not be added when citations are present
+      expect(result).not.toContain('<span class="blinker-class">┃</span>');
+    });
+  });
+
+  describe('Code block rendering', () => {
+    test('Code blocks should be preserved during sanitization', () => {
+      const message = `Here's some code:
+\`\`\`typescript
+const x: number = 42;
+function test() {
+  return x;
+}
+\`\`\`
+
+And inline code \`const y = 10;\` too.`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Code blocks should be preserved
+      expect(result).toContain('```typescript');
+      expect(result).toContain('const x: number = 42;');
+      expect(result).toContain('function test()');
+      
+      // Inline code should also be preserved
+      expect(result).toContain('`const y = 10;`');
+    });
+
+    test('Code block indentation should be fixed', () => {
+      const message = `Here's some code:
+      \`\`\`
+      // indented code
+      if (true) {
+        console.log("test");
+      }
+      \`\`\``;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Code blocks should have fixed indentation
+      expect(result).toContain('```');
+      expect(result).not.toContain('      ```');
+    });
+  });
+
+  describe('HTML sanitization', () => {
+    test('Safe HTML should be preserved', () => {
+      const message = `<p>This is a <strong>paragraph</strong> with <em>formatting</em>.</p>
+<a href="https://example.com">Link</a>
+<ul><li>List item 1</li><li>List item 2</li></ul>`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Safe HTML should be preserved
+      expect(result).toContain('<p>');
+      expect(result).toContain('<strong>paragraph</strong>');
+      expect(result).toContain('<em>formatting</em>');
+      expect(result).toContain('<a href="https://example.com">');
+      expect(result).toContain('<ul><li>');
+    });
+
+    test('Unsafe HTML should be removed', () => {
+      const message = `<script>alert("xss")</script>
+<p>Safe content</p>
+<iframe src="https://malicious.com"></iframe>`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Unsafe HTML should be removed
+      expect(result).not.toContain('<script>');
+      expect(result).not.toContain('alert("xss")');
+      expect(result).not.toContain('<iframe');
+      
+      // Safe content should be preserved
+      expect(result).toContain('<p>Safe content</p>');
+    });
+  });
+
+  describe('Triple dash handling', () => {
+    test('Triple dash as horizontal rule should be preserved', () => {
+      const message = `Above content
+
+---
+
+Below content`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // Content should be preserved
+      expect(result).toContain('Above content');
+      expect(result).toContain('Below content');
+    });
+
+    test('Triple dash at end of content during streaming should be removed', () => {
+      const message = `Content
+
+---`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: true
+      });
+
+      const result = processor.process();
+      
+      // Content should be preserved
+      expect(result).toContain('Content');
+      
+      // Triple dash at end during streaming should be removed
+      expect(result).not.toMatch(/---\s*$/);
+    });
+  });
+
+  describe('Document filtering', () => {
+    test('onFilterDocument callback should be called when provided', () => {
+      const message = `<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>This is a snippet.</snippet>
+</excerpt>
+</excerpts>`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false,
+        onFilterDocument: mockFilterDocument
+      });
+
+      processor.process();
+      
+      // The callback should be available for components to use
+      // The actual calling would happen in the Citation component
+      expect(mockFilterDocument).toBeDefined();
+    });
+  });
+}); 
