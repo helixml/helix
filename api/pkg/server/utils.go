@@ -515,9 +515,8 @@ func (apiServer *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, pa
 
 	// Now check RBAC permissions through access grants
 	accessGrants, err := apiServer.Store.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
-		ResourceType: types.ResourceApplication,
-		ResourceID:   appID,
-		UserID:       user.ID,
+		ResourceID: appID,
+		UserID:     user.ID,
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("Error querying access grants")

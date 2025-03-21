@@ -193,7 +193,6 @@ func getAuthzConfigs(ctx context.Context, db store.Store, user *types.User, orgI
 	grants, err := db.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
 		OrganizationID: orgID,
 		UserID:         user.ID,
-		ResourceType:   resourceType,
 		ResourceID:     resourceID,
 		TeamIDs:        teamIDs,
 	})
