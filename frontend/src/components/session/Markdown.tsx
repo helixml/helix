@@ -775,19 +775,47 @@ export class MessageProcessor {
     const showGlow = this.isStreaming && isThinking;
     const thinkingClass = showGlow ? ' thinking' : '';
     
+    // First handle properly closed think tags
     this.resultContent = this.resultContent.replace(
       /<think>([\s\S]*?)<\/think>/g,
       (_, content) => {
         const trimmedContent = content.trim();
         if (!trimmedContent) return ''; // Skip empty think tags
 
-        return `<div class="think-container${thinkingClass}"><details open><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
+        // When the LLM provides a closing tag, auto-collapse the details
+        // Don't include the 'open' attribute
+        return `<div class="think-container"><details><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
 
 ${trimmedContent}
 
 </div></details></div>`;
       }
     );
+
+    // Now handle unclosed thinking tags during streaming
+    if (this.isStreaming && isThinking) {
+      // Find the position of the last <think> tag without a closing tag
+      const lastThinkTagMatch = this.resultContent.match(/<think>([\s\S]*)$/);
+      
+      if (lastThinkTagMatch) {
+        const content = lastThinkTagMatch[1].trim();
+        if (content) {
+          // Replace the unclosed <think> tag and its content with our styled container
+          // But add the 'thinking' class to show the rainbow glow
+          // And keep it expanded with the 'open' attribute
+          const replacement = `<div class="think-container thinking"><details open><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
+
+${content}
+
+</div></details></div>`;
+
+          this.resultContent = this.resultContent.replace(
+            /<think>([\s\S]*)$/,
+            replacement
+          );
+        }
+      }
+    }
 
     // After think tag processing, check for any remaining <hr> tags when streaming
     // and remove those at the end that might be incomplete
