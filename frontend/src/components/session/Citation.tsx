@@ -289,7 +289,7 @@ const Citation: React.FC<CitationProps> = ({
                                 {'\u201C'}
                             </Box>
 
-                            {excerpt.snippet}
+                            <span dangerouslySetInnerHTML={{ __html: excerpt.snippet }}></span>
 
                             <Box
                                 component="span"
