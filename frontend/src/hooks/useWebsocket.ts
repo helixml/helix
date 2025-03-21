@@ -39,6 +39,8 @@ export const useWebsocket = (
     const wsHost = window.location.host
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${session_id}`
     
+    console.log('fox: useWebsocket - Connecting to websocket', { session_id, url });
+    
     const rws = new ReconnectingWebSocket(url, [], {
       maxRetries: 10,
       reconnectionDelayGrowFactor: 1.3,
@@ -50,7 +52,18 @@ export const useWebsocket = (
 
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent
-      if(parsedData.session_id != session_id) return
+      
+      console.log('fox: useWebsocket - Received message', { 
+        type: parsedData.type, 
+        session_id: parsedData.session_id,
+        hasSessionData: !!parsedData.session,
+        interactionCount: parsedData.session?.interactions?.length
+      });
+      
+      if(parsedData.session_id != session_id) {
+        console.log('fox: useWebsocket - Ignoring message for different session');
+        return
+      }
 
       // Add message to queue
       messageQueue.current.push(parsedData)
@@ -62,6 +75,7 @@ export const useWebsocket = (
     rws.addEventListener('message', messageHandler)
 
     return () => {
+      console.log('fox: useWebsocket - Disconnecting websocket', { session_id });
       if (wsRef.current) {
         wsRef.current.removeEventListener('message', messageHandler)
         wsRef.current.close()

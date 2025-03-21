@@ -1,4 +1,4 @@
-import React, { FC, useEffect } from 'react'
+import React, { FC, useEffect, useState, useMemo, useCallback } from 'react'
 import Typography from '@mui/material/Typography'
 import Progress from '../widgets/Progress'
 import WaitingInQueue from './WaitingInQueue'
@@ -103,8 +103,130 @@ export const InteractionLiveStream: FC<{
       stepInfos,
       isComplete,
     } = useLiveInteraction(session_id, interaction)
+    
+    // Add state to track if we're still in streaming mode or completed
+    const [isActivelyStreaming, setIsActivelyStreaming] = useState(true);
+    
+    // Track previous message length to detect when streaming stops
+    const [prevMessageLength, setPrevMessageLength] = useState(0);
+    const [noChangeTimer, setNoChangeTimer] = useState<NodeJS.Timeout | null>(null);
 
-    const showLoading = !message && progress === 0 && !status && stepInfos.length === 0
+    // Memoize values that don't change frequently to prevent unnecessary re-renders
+    const showLoading = useMemo(() => 
+      !message && progress === 0 && !status && stepInfos.length === 0,
+      [message, progress, status, stepInfos.length]
+    );
+
+    // Memoize the useClientURL function
+    const useClientURL = useCallback((url: string) => {
+      if (!url) return '';
+      if (!serverConfig) return '';
+      return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`;
+    }, [serverConfig]);
+
+    useEffect(() => {
+      console.log('tomato: Component mounted with isActivelyStreaming =', isActivelyStreaming);
+      
+      // Add cleanup to detect unmounts
+      return () => {
+        console.log('tomato: Component unmounted');
+        // Clean up any timers
+        if (noChangeTimer) {
+          clearTimeout(noChangeTimer);
+        }
+      }
+    }, []);
+
+    // Reset streaming state when a new interaction starts or interaction ID changes
+    useEffect(() => {
+      console.log('fox: InteractionLiveStream - Interaction ID changed or component mounted', {
+        interactionId: interaction?.id,
+        resetToStreaming: true,
+        isActivelyStreaming,
+        prevMessageLength
+      });
+      
+      // Always reset to streaming state when interaction ID changes
+      setIsActivelyStreaming(true);
+      setPrevMessageLength(0);
+      if (noChangeTimer) {
+        clearTimeout(noChangeTimer);
+        setNoChangeTimer(null);
+      }
+    }, [interaction?.id]);
+
+    // Effect to detect completion from the server (WebSocket)
+    useEffect(() => {
+      console.log('fox: InteractionLiveStream - Completion check', { 
+        isComplete, 
+        isActivelyStreaming,
+        state: interaction?.state,
+        finished: interaction?.finished,
+        interactionId: interaction?.id,
+        messageLength: message?.length,
+        isFirstInteractionInSession: session?.interactions?.indexOf(interaction) === 0,
+        sessionInteractionsCount: session?.interactions?.length
+      });
+      
+      if (isComplete && isActivelyStreaming) {
+        console.log('fox: InteractionLiveStream - STOPPING STREAMING - Server reported completion', {
+          interactionId: interaction?.id,
+          state: interaction?.state,
+          finished: interaction?.finished
+        });
+        setIsActivelyStreaming(false);
+        if (onStreamingComplete) {
+          onStreamingComplete();
+        }
+      }
+    }, [isComplete, interaction?.state, interaction?.finished, isActivelyStreaming, onStreamingComplete, session?.interactions]);
+
+    // Safety mechanism to detect when streaming has stopped by monitoring message length
+    useEffect(() => {
+      // Only run this when we have a message and are streaming
+      if (!message || !isActivelyStreaming) return;
+
+      const currentLength = message?.length || 0;
+      
+      // If message length hasn't changed in 1.5 seconds, consider streaming complete
+      if (currentLength > 0 && currentLength === prevMessageLength) {
+        // Clear any existing timer
+        if (noChangeTimer) {
+          clearTimeout(noChangeTimer);
+        }
+        
+        // Set a new timer
+        const timer = setTimeout(() => {
+          console.log('fox: InteractionLiveStream - Message unchanged timeout triggered', {
+            interactionId: interaction?.id,
+            messageLength: currentLength,
+            prevMessageLength
+          });
+          setIsActivelyStreaming(false);
+          if (onStreamingComplete) {
+            onStreamingComplete();
+          }
+        }, 15000);
+        
+        setNoChangeTimer(timer);
+      } else {
+        // Message length changed, update the previous length
+        setPrevMessageLength(currentLength);
+        
+        // Clear any existing timer
+        if (noChangeTimer) {
+          clearTimeout(noChangeTimer);
+          setNoChangeTimer(null);
+        }
+      }
+      
+      // Cleanup timer on unmount
+      return () => {
+        if (noChangeTimer) {
+          clearTimeout(noChangeTimer);
+        }
+      };
+    }, [message, isActivelyStreaming, prevMessageLength, onStreamingComplete]);
 
     useEffect(() => {
       if (!message) return
@@ -120,19 +242,25 @@ export const InteractionLiveStream: FC<{
       onMessageUpdate()
     }, [message, onMessageUpdate])
 
+    // Only log when component actually needs to re-render due to important prop changes
+    const shouldLogRender = useMemo(() => {
+      // Create a stable identifier for this render to reduce unnecessary logging
+      return {
+        isActivelyStreaming,
+        isComplete,
+        messageLength: message?.length,
+        interactionId: interaction?.id,
+        state: interaction?.state,
+        finished: interaction?.finished,
+        isSecondOrLaterInteraction: session?.interactions?.indexOf(interaction) > 0
+      };
+    }, [isActivelyStreaming, isComplete, message?.length, interaction?.id, 
+        interaction?.state, interaction?.finished, session?.interactions]);
+    
+    // Log only when the values we're actually tracking change
     useEffect(() => {
-      if (!isComplete || !onStreamingComplete) return
-      const timer = setTimeout(() => {
-        onStreamingComplete()
-      }, 100)
-      return () => clearTimeout(timer)
-    }, [isComplete, onStreamingComplete])
-
-    const useClientURL = (url: string) => {
-      if (!url) return ''
-      if (!serverConfig) return ''
-      return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`
-    }
+      console.log('fox: InteractionLiveStream - Component rendering with:', shouldLogRender);
+    }, [shouldLogRender]);
 
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -166,7 +294,7 @@ export const InteractionLiveStream: FC<{
               session={session}
               getFileURL={useClientURL}
               showBlinker={true}
-              isStreaming={true}
+              isStreaming={isActivelyStreaming} // Now reactive to completion state
               onFilterDocument={onFilterDocument}
             />
           </div>
@@ -191,4 +319,4 @@ export const InteractionLiveStream: FC<{
     )
   }
 
-export default InteractionLiveStream
+export default React.memo(InteractionLiveStream)

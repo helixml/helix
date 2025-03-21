@@ -866,7 +866,16 @@ const Session: FC = () => {
   // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
-
+    
+    console.log('fox: Session - Rendering interactions', {
+      sessionId: sessionData.id,
+      interactionCount: sessionData.interactions.length,
+      lastInteractionState: sessionData.interactions[sessionData.interactions.length - 1]?.state,
+      lastInteractionFinished: sessionData.interactions[sessionData.interactions.length - 1]?.finished,
+      isComplete: sessionData.interactions[sessionData.interactions.length - 1]?.state === 'complete' && 
+                 sessionData.interactions[sessionData.interactions.length - 1]?.finished === true
+    });
+    
     // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
     if (isStreaming) {
       const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
@@ -1182,6 +1191,16 @@ const Session: FC = () => {
       const newSession: ISession = parsedData.session
       // Save scroll position before updating session data
       saveScrollPosition()
+      
+      console.log('fox: Session - Received session update via useWebsocket', {
+        sessionId: newSession.id,
+        interactionCount: newSession.interactions.length,
+        lastInteractionState: newSession.interactions[newSession.interactions.length - 1]?.state,
+        lastInteractionFinished: newSession.interactions[newSession.interactions.length - 1]?.finished,
+        isComplete: newSession.interactions[newSession.interactions.length - 1]?.state === 'complete' && 
+                   newSession.interactions[newSession.interactions.length - 1]?.finished === true
+      });
+      
       session.setData(newSession)
       // Restore scroll position after updating session data
       setTimeout(restoreScrollPosition, 0)
@@ -1242,10 +1261,23 @@ const Session: FC = () => {
     if (!session.data) return
     const systemInteraction = getAssistantInteraction(session.data)
     if (!systemInteraction) return
+    
+    console.log('fox: Session - Checking if reload needed', {
+      interactionId: systemInteraction.id,
+      state: systemInteraction.state,
+      finished: systemInteraction.finished,
+      isComplete: systemInteraction.state === 'complete' && systemInteraction.finished === true
+    });
+    
     if (systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
     
     // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
     const timer = setTimeout(() => {
+      console.log('fox: Session - Triggering reload due to unfinished interaction', {
+        interactionId: systemInteraction.id,
+        state: systemInteraction.state,
+        finished: systemInteraction.finished
+      });
       safeReloadSession()
     }, 5000)
 
