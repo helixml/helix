@@ -19,13 +19,14 @@ import Citation, { Excerpt } from './Citation'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
+// Create a rainbow shadow animation
 const rainbowShadow = keyframes`
-  0% { filter: drop-shadow(0 0 2px #ff0000) drop-shadow(0 0 4px #ff00ff); }
-  20% { filter: drop-shadow(0 0 2px #ff00ff) drop-shadow(0 0 4px #0000ff); }
-  40% { filter: drop-shadow(0 0 2px #0000ff) drop-shadow(0 0 4px #00ffff); }
-  60% { filter: drop-shadow(0 0 2px #00ffff) drop-shadow(0 0 4px #00ff00); }
-  80% { filter: drop-shadow(0 0 2px #00ff00) drop-shadow(0 0 4px #ffff00); }
-  100% { filter: drop-shadow(0 0 2px #ffff00) drop-shadow(0 0 4px #ff0000); }
+  0% { box-shadow: 0 0 12px 4px rgba(255, 0, 0, 0.5), 0 0 20px 8px rgba(255, 0, 255, 0.3); }
+  20% { box-shadow: 0 0 12px 4px rgba(255, 0, 255, 0.5), 0 0 20px 8px rgba(0, 0, 255, 0.3); }
+  40% { box-shadow: 0 0 12px 4px rgba(0, 0, 255, 0.5), 0 0 20px 8px rgba(0, 255, 255, 0.3); }
+  60% { box-shadow: 0 0 12px 4px rgba(0, 255, 255, 0.5), 0 0 20px 8px rgba(0, 255, 0, 0.3); }
+  80% { box-shadow: 0 0 12px 4px rgba(0, 255, 0, 0.5), 0 0 20px 8px rgba(255, 255, 0, 0.3); }
+  100% { box-shadow: 0 0 12px 4px rgba(255, 255, 0, 0.5), 0 0 20px 8px rgba(255, 0, 0, 0.3); }
 `
 
 // Create a blinking animation for the cursor
@@ -71,7 +72,7 @@ interface MessageProcessorOptions {
  * Central message processor that handles all text formatting
  * Including document links, citations, thinking tags and blinkers
  */
-class MessageProcessor {
+export class MessageProcessor {
   private session: ISession;
   private getFileURL: (filename: string) => string;
   private showBlinker: boolean;
@@ -126,8 +127,9 @@ class MessageProcessor {
     this.processDocumentIDLinks();
     this.processGroupIDLinks();
     this.addBlinkerIfNeeded();
-    this.sanitizeHTML();
+    // Process thinking tags before sanitization to ensure they're not escaped
     this.processThinkingTags();
+    this.sanitizeHTML();
     this.restorePreservedContent();
 
     return this.resultContent;
@@ -375,13 +377,16 @@ class MessageProcessor {
               snippet += ' ...';
             }
 
-            // Ensure we properly escape any HTML in the snippet
-            snippet = snippet
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#039;');
+            // FIXED: Don't escape HTML entities if they're already escaped
+            // This prevents double-escaping of code segments and citations
+            if (!snippet.includes('&lt;') && !snippet.includes('&gt;') && !snippet.includes('&amp;')) {
+              snippet = snippet
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+            }
 
             // Handle inline code with backticks
             snippet = snippet.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -659,15 +664,48 @@ class MessageProcessor {
     }
 
     // Continue with normal sanitization
+    // FIXED: Temporarily protect code blocks from DOMPurify processing to avoid double-escaping
+    const codeBlocks: Map<string, string> = new Map();
+    let codeBlockCounter = 0;
+    
+    // Extract and save code blocks
+    this.resultContent = this.resultContent.replace(/```[\s\S]*?```|`[^`]+`/g, (match) => {
+      const placeholder = `__CODE_BLOCK_${codeBlockCounter++}__`;
+      codeBlocks.set(placeholder, match);
+      return placeholder;
+    });
+
+    // FIXED: Also preserve thinking container elements
+    const thinkContainers: Map<string, string> = new Map();
+    let thinkCounter = 0;
+    
+    // Extract and save thinking containers
+    this.resultContent = this.resultContent.replace(/<div class="think-container[^>]*>[\s\S]*?<\/div><\/details><\/div>/g, (match) => {
+      const placeholder = `__THINK_CONTAINER_${thinkCounter++}__`;
+      thinkContainers.set(placeholder, match);
+      return placeholder;
+    });
+
     // Use DOMPurify to remove unsafe elements but keep our special ones
     this.resultContent = DOMPurify.sanitize(this.resultContent, {
       ALLOWED_TAGS: ['b', 'i', 'u', 'strong', 'em', 'code', 'pre', 'a', 'span', 'div', 'p',
         'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'details', 'summary',
-        'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr'],
-      ALLOWED_ATTR: ['href', 'class', 'target', 'rel', 'id', 'style'],
+        'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'br'],
+      ALLOWED_ATTR: ['href', 'class', 'target', 'rel', 'id', 'style', 'lang', 'open'],
+      ADD_ATTR: ['target'],
       KEEP_CONTENT: true,
       RETURN_DOM: false,
       RETURN_DOM_FRAGMENT: false
+    });
+
+    // Restore code blocks
+    codeBlocks.forEach((value, key) => {
+      this.resultContent = this.resultContent.replace(key, value);
+    });
+
+    // Restore thinking containers
+    thinkContainers.forEach((value, key) => {
+      this.resultContent = this.resultContent.replace(key, value);
     });
 
     // Re-add our temp markers for citations (they were sanitized out)
@@ -723,19 +761,27 @@ class MessageProcessor {
     const closeTagCount = (this.resultContent.match(/<\/think>/g) || []).length;
     const isThinking = openTagCount > closeTagCount;
 
-    if (isThinking) {
-      // If there's an unclosed tag, add the closing tag
+    // Only auto-close thinking tags when we're done streaming
+    // Only add the </think> tag if we have an unclosed tag and we're not in streaming mode
+    if (isThinking && !this.isStreaming) {
+      // If there's an unclosed tag and we're not streaming, add the closing tag
       this.resultContent += '\n</think>';
     }
 
-    // Convert <think> tags to styled divs, skipping empty ones
+    // FIXED WITH CORRECT LOGIC:
+    // Show the rainbow glow ONLY when:
+    // 1. We are streaming AND 
+    // 2. There's an unclosed thinking tag
+    const showGlow = this.isStreaming && isThinking;
+    const thinkingClass = showGlow ? ' thinking' : '';
+    
     this.resultContent = this.resultContent.replace(
       /<think>([\s\S]*?)<\/think>/g,
       (_, content) => {
         const trimmedContent = content.trim();
         if (!trimmedContent) return ''; // Skip empty think tags
 
-        return `<div class="think-container${isThinking ? ' thinking' : ''}"><details${isThinking ? ' open' : ''}><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
+        return `<div class="think-container${thinkingClass}"><details open><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
 
 ${trimmedContent}
 
@@ -843,7 +889,7 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     // Process the message content
     let content: string;
     if (session) {
-      console.debug(`Markdown: Processing message for session ${session.id} with MessageProcessor`);
+      // console.debug(`Markdown: Processing message for session ${session.id} with MessageProcessor`);
       const processor = new MessageProcessor(text, {
         session,
         getFileURL,
@@ -882,6 +928,7 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const processBasicContent = (content: string): string => {
     // Process think tags, code blocks, and sanitize HTML
     let processed = content;
+    const localIsStreaming = false; // Basic processing is never streaming
 
     // Fix code block indentation
     processed = processed.replace(/^\s*```/gm, '```');
@@ -915,13 +962,39 @@ export const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         const trimmedContent = content.trim();
         if (!trimmedContent) return ''; // Skip empty think tags
 
-        return `<div class="think-container${isThinking ? ' thinking' : ''}"><details${isThinking ? ' open' : ''}><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
+        // Apply the same logic as in processThinkingTags
+        // Show glow only when streaming AND thinking tag is unclosed
+        const showGlow = localIsStreaming && isThinking;
+        const thinkingClass = showGlow ? ' thinking' : '';
+        
+        return `<div class="think-container${thinkingClass}"><details open><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
 
 ${trimmedContent}
 
 </div></details></div>`;
       }
     );
+
+    // FIXED: Extract and preserve code blocks and thinking containers before sanitizing HTML
+    const codeBlocks: Map<string, string> = new Map();
+    let codeBlockCounter = 0;
+    
+    // Save code blocks
+    processed = processed.replace(/```[\s\S]*?```|`[^`]+`/g, (match) => {
+      const placeholder = `__CODE_BLOCK_${codeBlockCounter++}__`;
+      codeBlocks.set(placeholder, match);
+      return placeholder;
+    });
+
+    // Save thinking containers
+    const thinkContainers: Map<string, string> = new Map();
+    let thinkCounter = 0;
+    
+    processed = processed.replace(/<div class="think-container[^>]*>[\s\S]*?<\/div><\/details><\/div>/g, (match) => {
+      const placeholder = `__THINK_CONTAINER_${thinkCounter++}__`;
+      thinkContainers.set(placeholder, match);
+      return placeholder;
+    });
 
     // Sanitize HTML - escape non-standard tags
     processed = processed.replace(
@@ -935,6 +1008,16 @@ ${trimmedContent}
         return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
       }
     );
+
+    // Restore code blocks
+    codeBlocks.forEach((value, key) => {
+      processed = processed.replace(key, value);
+    });
+
+    // Restore thinking containers
+    thinkContainers.forEach((value, key) => {
+      processed = processed.replace(key, value);
+    });
 
     return processed;
   };
@@ -961,16 +1044,20 @@ ${trimmedContent}
           '& a': {
             color: theme.palette.mode === 'light' ? '#333' : '#bbb',
           },
+          // Thinking container styles with sufficient margin for box-shadow
           '& .think-container': {
-            margin: '1em 0',
-            padding: '1em',
+            margin: '2em 1.2em', // Further increased margins to prevent shadow clipping
+            padding: '1.2em',     // Maintain good padding
             borderRadius: '8px',
             backgroundColor: theme.palette.mode === 'light' ? '#f5f5f5' : '#2a2a2a',
             border: `1px solid ${theme.palette.mode === 'light' ? '#ddd' : '#444'}`,
+            transition: 'box-shadow 0.3s ease', // Smooth transition for shadow effect
           },
+          // Animation applied to thinking containers
           '& .think-container.thinking': {
             animation: `${rainbowShadow} 10s linear infinite`,
           },
+          // Thinking header styles
           '& .think-header': {
             display: 'flex',
             alignItems: 'center',
