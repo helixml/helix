@@ -45,6 +45,7 @@ func startAPIServer() {
 			"RUNNER_TOKEN=oh-hallo-insecure-token",
 			"SERVER_URL=http://localhost:8080",
 			"FILESTORE_LOCALFS_PATH=/tmp",
+			"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
 		)
 
 		if err := cmd.Run(); err != nil {
