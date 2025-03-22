@@ -1193,7 +1193,7 @@ const Session: FC = () => {
                 backgroundPosition: 'top',
                 backgroundRepeat: 'no-repeat',
                 backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
-                p: 2,
+                p: 1,
               }}
             >
               {appID && apps.app.config.helix.image && (
@@ -1214,40 +1214,49 @@ const Session: FC = () => {
                   position: 'relative',
                   zIndex: 2,
                   display: 'flex',
-                  flexDirection: 'column',
+                  flexDirection: 'row',
                   alignItems: 'center',
-                  pt: 4,
+                  justifyContent: 'center',
+                  py: 1,
                   px: 2,
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <IconButton
-                    onClick={handleBackToCreate}
+                <IconButton
+                  onClick={handleBackToCreate}
+                  size="small"
+                  sx={{
+                    color: 'white',
+                    mr: 1,
+                  }}
+                >
+                  <ArrowBackIcon />
+                </IconButton>
+                {activeAssistantAvatar && (
+                  <Avatar
+                    src={activeAssistantAvatar}
                     sx={{
-                      color: 'white',
-                      mr: 2,
+                      width: '32px',
+                      height: '32px',
+                      mr: 1,
+                      border: '1px solid #fff',
+                    }}
+                  />
+                )}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <Typography variant="subtitle1" sx={{ color: 'white' }}>
+                    {activeAssistantName}
+                  </Typography>
+                  <Typography 
+                    variant="caption" 
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      display: { xs: 'none', sm: 'block' },
+                      textAlign: 'center'
                     }}
                   >
-                    <ArrowBackIcon />
-                  </IconButton>
-                  {activeAssistantAvatar && (
-                    <Avatar
-                      src={activeAssistantAvatar}
-                      sx={{
-                        width: '80px',
-                        height: '80px',
-                        mb: 2,
-                        border: '2px solid #fff',
-                      }}
-                    />
-                  )}
+                    {activeAssistantDescription}
+                  </Typography>
                 </Box>
-                <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                  {activeAssistantName}
-                </Typography>
-                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
-                  {activeAssistantDescription}
-                </Typography>
               </Box>
             </Box>
           )}

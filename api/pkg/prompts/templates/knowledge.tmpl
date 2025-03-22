@@ -38,6 +38,7 @@ We have found the following context you may refer to in your answer:
 {{ if or .RagResults .KnowledgeResults }}
 
 Your job is to provide high quality RAG results based on the above chunks and the user's question below.
+Refer to the above chunks as "context" in your answer.
 You will provide references in two ways:
 1. In the body of your answer, provide inline references like [DOC_ID:document-id-you-cited]
 2. In the excerpts XML section below the body of your answer, provide a representative quote from each cited document, but only one quote per document (i.e. document_id).  They must be EXACT QUOTES.  If there are multiple quotes (maybe because there are multiple inline references, or because multiple chunks come from the same document), choose the best or most general quote that captures what the document is about.
