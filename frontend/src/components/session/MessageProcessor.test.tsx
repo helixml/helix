@@ -206,8 +206,11 @@ describe('MessageProcessor', () => {
 
       const result = processor.process();
       
-      // External document link should be included
-      expect(result).toContain('https://example.com/files/http://example.com/external.pdf');
+      // External document URL should now be linked directly, not through filestore
+      expect(result).toContain('href="http://example.com/external.pdf"');
+      
+      // It should NOT link through the filestore
+      expect(result).not.toContain('https://example.com/files/http://example.com/external.pdf');
     });
 
     test('Document group IDs should be converted to links', () => {
@@ -224,6 +227,37 @@ describe('MessageProcessor', () => {
       // Group ID should be converted to a special link
       expect(result).toContain('class="doc-group-link"');
       expect(result).toContain('[group]');
+    });
+
+    test('Web URLs should link directly to the URL, not through filestore viewer', () => {
+      // Set up a session with a web URL in document_ids
+      const sessionWithWebUrl = {
+        ...mockSession,
+        config: {
+          ...mockSessionConfig,
+          document_ids: {
+            ...mockSessionConfig.document_ids,
+            'https://aispec.org': 'web-doc-123',
+          }
+        }
+      };
+
+      const message = `Reference to web URL [DOC_ID:web-doc-123]`;
+      
+      const processor = new MessageProcessor(message, {
+        session: sessionWithWebUrl as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: false
+      });
+
+      const result = processor.process();
+      
+      // The URL should be linked directly, not through filestore viewer
+      expect(result).toContain('href="https://aispec.org"');
+      
+      // It should NOT contain a link to the filestore viewer
+      expect(result).not.toContain('href="https://example.com/files/https://aispec.org"');
+      expect(result).not.toContain('/api/v1/filestore/viewer/');
     });
   });
 

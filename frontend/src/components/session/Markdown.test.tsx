@@ -683,13 +683,14 @@ and finally the third doc [DOC_ID:doc-id-3].`;
 then the first doc [DOC_ID:doc-id-1].
 
 <excerpts>
-<document_id>doc-id-1</document_id>
-<snippet>Content from the first document</snippet>
-</excerpts>
-
-<excerpts>
-<document_id>doc-id-2</document_id>
-<snippet>Content from the second document</snippet>
+  <excerpt>
+    <document_id>doc-id-1</document_id>
+    <snippet>Content from the first document</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>doc-id-2</document_id>
+    <snippet>Content from the second document</snippet>
+  </excerpt>
 </excerpts>`;
 
     // Setup document_ids with a different order: first, second
@@ -858,6 +859,68 @@ and document two [DOC_ID:doc-id-2].
     // The citation numbers should match message appearance order
     expect(doc1Excerpt?.citationNumber).toBe(1); // doc-id-1 appears first in the message
     expect(doc2Excerpt?.citationNumber).toBe(2); // doc-id-2 appears second in the message
+  });
+
+  // Test case 13: Excerpts should be sorted by citation number
+  test('Excerpts should be sorted by citation number regardless of processing order', () => {
+    // Create a message where document IDs are referenced in reverse order of their appearance in excerpts
+    const message = `This references the second doc [DOC_ID:doc-id-2], 
+then the first doc [DOC_ID:doc-id-1].
+
+<excerpts>
+  <excerpt>
+    <document_id>doc-id-1</document_id>
+    <snippet>Content from the first document</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>doc-id-2</document_id>
+    <snippet>Content from the second document</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Setup document_ids
+    const mockSessionWithDocs = {
+      ...mockSession,
+      config: {
+        document_ids: {
+          'first.txt': 'doc-id-1',
+          'second.txt': 'doc-id-2',
+        }
+      }
+    };
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithDocs as unknown as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Debug output
+    console.log("Sorted excerpts test result:", JSON.stringify(citationData, null, 2));
+    
+    // EXPECTATIONS:
+    // The excerpts should be sorted by citation number, not by the order they appear in the XML:
+    // - doc-id-2's excerpt should appear first (citationNumber: 1)
+    // - doc-id-1's excerpt should appear second (citationNumber: 2)
+    
+    // Check citation data exists with two excerpts
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(2);
+    
+    // The first excerpt in the array should now be doc-id-2 because it has citation number 1
+    expect(citationData?.excerpts[0].docId).toBe('doc-id-2');
+    expect(citationData?.excerpts[0].citationNumber).toBe(1);
+    
+    // The second excerpt in the array should be doc-id-1 because it has citation number 2
+    expect(citationData?.excerpts[1].docId).toBe('doc-id-1');
+    expect(citationData?.excerpts[1].citationNumber).toBe(2);
   });
 });
 
