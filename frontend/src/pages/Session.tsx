@@ -1048,9 +1048,9 @@ const Session: FC = () => {
 
   const handleBackToCreate = () => {
     if (apps.app) {
-      router.navigate('new', { app_id: apps.app.id })
+      account.orgNavigate('new', { app_id: apps.app.id })
     } else {
-      router.navigate('new')
+      account.orgNavigate('new')
     }
   }
 
