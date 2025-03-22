@@ -38,7 +38,8 @@ const SlideMenuContainer: FC<SlideMenuContainerProps> = ({
     };
   }, [menuType]);
   
-  // Listen for menu change events
+  // Listen for menu change events - DISABLED due to animation bugs
+  /*
   useEffect(() => {
     const handleMenuChange = (e: CustomEvent) => {
       if (!e.detail) return;
@@ -87,6 +88,7 @@ const SlideMenuContainer: FC<SlideMenuContainerProps> = ({
       window.removeEventListener('menu-change' as any, handleMenuChange);
     };
   }, [menuType]);
+  */
   
   // Apply transitions with cubic bezier for smooth animation
   const transitionDuration = `${ANIMATION_DURATION/1000}s`;
@@ -122,6 +124,11 @@ export const triggerMenuChange = (
   direction: 'left' | 'right' = 'right', 
   isOrgSwitch: boolean = false
 ) => {
+  // DISABLED: Animation system temporarily disabled due to bugs
+  console.log(`[ANIMATION DISABLED] Would have animated from "${from}" to "${to}" with direction "${direction}"`);
+  
+  // Original code commented out:
+  /*
   console.log(`[ANIMATION TRIGGER] From "${from}" to "${to}". Direction: "${direction}". isOrgSwitch: ${isOrgSwitch}. What this means:`);
   console.log(`[ANIMATION TRIGGER] - Menu "${from}" will exit by moving ${direction.toUpperCase()}`);
   console.log(`[ANIMATION TRIGGER] - Menu "${to}" will enter from the ${direction === 'left' ? 'RIGHT' : 'LEFT'}`);
@@ -142,6 +149,7 @@ export const triggerMenuChange = (
   } else {
     console.log(`[ANIMATION TRIGGER] Animation NOT triggered - menus not ready. Active menus:`, window._activeMenus);
   }
+  */
 }
 
 // Simple wrapper for menu containers
