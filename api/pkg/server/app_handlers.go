@@ -840,7 +840,7 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
-func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
+func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
 	start := time.Now()
 	user := getRequestUser(r)
 	id := getID(r)
