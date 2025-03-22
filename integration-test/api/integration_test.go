@@ -79,14 +79,11 @@ func getApiClient() (*client.HelixClient, error) {
 }
 
 func getStoreClient() (*store.PostgresStore, error) {
-	cfg := config.Store{
-		Host:     "localhost",
-		Port:     5432,
-		Database: "helix",
-		Username: "helix",
-		Password: "helix",
+	cfg, err := config.LoadServerConfig()
+	if err != nil {
+		return nil, err
 	}
-	store, err := store.NewPostgresStore(cfg)
+	store, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return nil, err
 	}
