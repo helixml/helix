@@ -15,7 +15,7 @@ func (suite *PostgresStoreTestSuite) TestCreateApp() {
 	}
 
 	createdApp, err := suite.db.CreateApp(suite.ctx, app)
-	suite.NoError(err)
+	suite.Require().NoError(err)
 	suite.NotNil(createdApp)
 	suite.Equal(app.Owner, createdApp.Owner)
 	suite.Equal(app.OwnerType, createdApp.OwnerType)
