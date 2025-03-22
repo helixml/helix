@@ -293,29 +293,43 @@ export class MessageProcessor {
     }
     
     let processedMessage = message;
-    const docIds = Object.entries(this.options.session.config.document_ids);
+    const docIdsMap = this.options.session.config.document_ids;
     
-    // Process document IDs
+    // Create reverse mapping from docId to filename
+    const docIdToFilename: Record<string, string> = {};
+    for (const [filename, docId] of Object.entries(docIdsMap)) {
+      docIdToFilename[docId] = filename;
+    }
+    
+    // Find all document ID references in the message
+    const docIdPattern = /\[DOC_ID:([^\]]+)\]/g;
+    const matches = [...processedMessage.matchAll(docIdPattern)];
+    
+    // Process document IDs in the order they appear in the message
     let docCounter = 1;
     
     // Create a map to associate docIds with citation numbers
     const citationMap: Record<string, number> = {};
     
-    for (const [filename, docId] of docIds) {
-      // Match the entire pattern with brackets: [DOC_ID:id]
-      const docRegex = new RegExp(`\\[DOC_ID:${escapeRegExp(docId)}\\]`, 'g');
+    // Process each match in the order they appear in the message
+    for (const match of matches) {
+      const docId = match[1];
+      const filename = docIdToFilename[docId];
       
-      if (processedMessage.match(docRegex)) {
+      if (filename) {
         const fileUrl = this.options.getFileURL(filename);
-        citationMap[docId] = docCounter;
         
-        // Replace the entire pattern including brackets
-        processedMessage = processedMessage.replace(
-          docRegex,
-          `<a target="_blank" href="${fileUrl}" class="doc-citation">[${docCounter}]</a>`
-        );
+        // Only add to citation map if not already there
+        if (!citationMap[docId]) {
+          citationMap[docId] = docCounter++;
+        }
         
-        docCounter++;
+        // Replace the document ID with a link
+        const citation = citationMap[docId];
+        const replacement = `<a target="_blank" href="${fileUrl}" class="doc-citation">[${citation}]</a>`;
+        
+        // Replace just this specific match
+        processedMessage = processedMessage.replace(match[0], replacement);
       }
     }
     
