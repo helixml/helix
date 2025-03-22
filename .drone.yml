@@ -69,6 +69,41 @@ steps:
     KEYCLOAK_PASSWORD: REPLACE_ME
     
   commands:
+    - cd api
+    - go test -v ./...
+  when:
+    event:
+    - push
+  depends_on: []
+
+- name: api-integration-test
+  image: golang:1.23.4-alpine3.21
+  environment:
+    OPENAI_API_KEY:
+      from_secret: openai_tools
+    TOGETHER_API_KEY:
+      from_secret: openai_api_key
+    TOGETHER_BASE_URL:
+      from_secret: openai_base_url
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    
+  commands:
+    # Build API server
+    - go install ./api/..
+    # Run tests
+    - cd integration-test/api
     - go test -v ./...
   when:
     event:
