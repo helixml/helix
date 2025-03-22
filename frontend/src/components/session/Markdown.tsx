@@ -216,7 +216,12 @@ export class MessageProcessor {
           if (docIdsMap[fname] === docId) {
             // Extract just the basename from the path
             filename = fname.split('/').pop() || fname;
-            fileUrl = this.options.getFileURL(fname);
+            
+            // Check if fname is a URL
+            const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+            
+            // Use direct URL for web links, otherwise use filestore URL
+            fileUrl = isURL ? fname : this.options.getFileURL(fname);
             break;
           }
         }
@@ -285,7 +290,12 @@ export class MessageProcessor {
           
           // Find document ID for this filename if available
           const docId = this.options.session.config?.document_ids?.[filename] || filename;
-          const fileUrl = this.options.getFileURL(filename);
+          
+          // Check if filename is a URL
+          const isURL = filename.startsWith('http://') || filename.startsWith('https://');
+          
+          // Use direct URL for web links, otherwise use filestore URL
+          const fileUrl = isURL ? filename : this.options.getFileURL(filename);
           
           // Add to citation data
           this.citationData.excerpts.push({
@@ -333,7 +343,11 @@ export class MessageProcessor {
       const filename = docIdToFilename[docId];
       
       if (filename) {
-        const fileUrl = this.options.getFileURL(filename);
+        // Check if filename is a URL
+        const isURL = filename.startsWith('http://') || filename.startsWith('https://');
+        
+        // Use direct URL for web links, otherwise use filestore URL
+        const fileUrl = isURL ? filename : this.options.getFileURL(filename);
         
         // Only add to citation map if not already there
         if (!citationMap[docId]) {
@@ -362,6 +376,18 @@ export class MessageProcessor {
           };
         }
       }
+      
+      // Sort excerpts by citation number
+      this.citationData.excerpts.sort((a, b) => {
+        // Use the citation number if available
+        if (a.citationNumber && b.citationNumber) {
+          return a.citationNumber - b.citationNumber;
+        }
+        
+        // If citation numbers not available for some excerpts,
+        // keep original order by returning 0 (no change in sort order)
+        return 0;
+      });
     }
     
     return processedMessage;
