@@ -337,7 +337,7 @@ func (s *HelixAPIServer) handleDeleteOAuthConnection(_ http.ResponseWriter, r *h
 }
 
 // handleRefreshOAuthConnection manually refreshes an OAuth connection
-func (s *HelixAPIServer) handleRefreshOAuthConnection(w http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
+func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
 	// Extract the connection ID from the URL
@@ -533,7 +533,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 }
 
 // handleTestOAuthConnection tests an OAuth connection by making an API call to the provider
-func (s *HelixAPIServer) handleTestOAuthConnection(w http.ResponseWriter, r *http.Request) (map[string]interface{}, error) {
+func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *http.Request) (map[string]interface{}, error) {
 	ctx := r.Context()
 
 	// Get the connection ID from the URL
