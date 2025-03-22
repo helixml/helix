@@ -922,6 +922,67 @@ then the first doc [DOC_ID:doc-id-1].
     expect(citationData?.excerpts[1].docId).toBe('doc-id-1');
     expect(citationData?.excerpts[1].citationNumber).toBe(2);
   });
+
+  // Test case 14: Special HTML characters in citations should not be double escaped
+  test('Special HTML characters in citations should not be double escaped', () => {
+    // Create a message with document IDs containing special HTML characters
+    const message = `This references a document with special characters [DOC_ID:doc-id-1].
+
+<excerpts>
+  <excerpt>
+    <document_id>doc-id-1</document_id>
+    <snippet>Content with special characters: &lt;div&gt; and &amp; and &quot;quotes&quot;</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Setup document_ids
+    const mockSessionWithDocs = {
+      ...mockSession,
+      config: {
+        document_ids: {
+          'special-chars.txt': 'doc-id-1',
+        }
+      }
+    };
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithDocs as unknown as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Debug output
+    console.log("Special characters test:", JSON.stringify(citationData, null, 2));
+    
+    // EXPECTATIONS:
+    // The special HTML characters in the citation should be preserved correctly
+    // and not double-escaped when rendered
+    
+    // Check citation data exists
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // Check the special characters are preserved correctly in the citation data
+    const excerpt = citationData?.excerpts[0];
+    expect(excerpt?.docId).toBe('doc-id-1');
+    
+    // The special characters should be preserved as HTML entities in the data
+    // This verifies they aren't being double-escaped in the data structure
+    expect(excerpt?.snippet).toBe('Content with special characters: &lt;div&gt; and &amp; and &quot;quotes&quot;');
+    
+    // When this would be rendered to the DOM, we'd expect:
+    // - &lt;div&gt; to render as the text "<div>" (not "&lt;div&gt;")
+    // - &amp; to render as the text "&" (not "&amp;")
+    // - &quot;quotes&quot; to render as the text ""quotes"" (not "&quot;quotes&quot;")
+    // But we can't test the actual DOM rendering here since this is a unit test
+  });
 });
 
 // Placeholder export to avoid unused import warnings
