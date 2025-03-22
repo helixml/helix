@@ -627,6 +627,119 @@ This is my thought process
     const secondCompletedResult = secondCompletedProcessor.process();
     expect(secondCompletedResult).not.toContain('<span class="blinker-class">┃</span>');
   });
+
+  // Test case 9: Citation ordering based on appearance in message rather than document_ids order
+  test('Citations should be numbered in the order they appear in message, not document_ids order', () => {
+    // Create a message with document IDs referenced in order: second, first, third
+    const message = `This references the second doc [DOC_ID:doc-id-2], 
+then the first doc [DOC_ID:doc-id-1], 
+and finally the third doc [DOC_ID:doc-id-3].`;
+
+    // Setup document_ids with a different order: first, second, third
+    const mockSessionWithOrderedDocs = {
+      ...mockSession,
+      config: {
+        document_ids: {
+          'first.txt': 'doc-id-1',   // This is document 1 in metadata
+          'second.txt': 'doc-id-2',  // This is document 2 in metadata
+          'third.txt': 'doc-id-3',   // This is document 3 in metadata
+        }
+      }
+    };
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithOrderedDocs as unknown as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    const result = processor.process();
+    
+    // Debug output
+    console.log("Citation test result:", result);
+    
+    // EXPECTATIONS:
+    // The citation numbers should match the order they appear in the message:
+    // - [DOC_ID:doc-id-2] should become [1] (appears first in the message)
+    // - [DOC_ID:doc-id-1] should become [2] (appears second in the message)
+    // - [DOC_ID:doc-id-3] should become [3] (appears third in the message)
+    
+    // The second document (referenced first) should be citation [1]
+    expect(result).toMatch(/second doc \<a .*?\>\[1\]\<\/a\>/);
+    
+    // The first document (referenced second) should be citation [2]
+    expect(result).toMatch(/first doc \<a .*?\>\[2\]\<\/a\>/);
+    
+    // The third document (referenced third) should be citation [3]
+    expect(result).toMatch(/third doc \<a .*?\>\[3\]\<\/a\>/);
+  });
+
+  // Test case 10: Citation data should also reflect correct ordering based on message appearance
+  test('Citation data should have citation numbers matching appearance order in message', () => {
+    // Create a message with document IDs and excerpts that will be processed into citation data
+    const message = `This references the second doc [DOC_ID:doc-id-2], 
+then the first doc [DOC_ID:doc-id-1].
+
+<excerpts>
+<document_id>doc-id-1</document_id>
+<snippet>Content from the first document</snippet>
+</excerpts>
+
+<excerpts>
+<document_id>doc-id-2</document_id>
+<snippet>Content from the second document</snippet>
+</excerpts>`;
+
+    // Setup document_ids with a different order: first, second
+    const mockSessionWithOrderedDocs = {
+      ...mockSession,
+      config: {
+        document_ids: {
+          'first.txt': 'doc-id-1',   // This is document 1 in metadata
+          'second.txt': 'doc-id-2',  // This is document 2 in metadata
+        }
+      }
+    };
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithOrderedDocs as unknown as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Debug output
+    console.log("Citation data test:", JSON.stringify(citationData, null, 2));
+    
+    // EXPECTATIONS:
+    // The citation numbers in the data should match the order they appear in the message:
+    // - doc-id-2's excerpt should have citationNumber: 1 (referenced first in the message)
+    // - doc-id-1's excerpt should have citationNumber: 2 (referenced second in the message)
+    
+    // We should have citation data with two excerpts
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(2);
+    
+    // Find excerpts by docId
+    const doc1Excerpt = citationData?.excerpts.find(e => e.docId === 'doc-id-1');
+    const doc2Excerpt = citationData?.excerpts.find(e => e.docId === 'doc-id-2');
+    
+    // Verify they exist
+    expect(doc1Excerpt).toBeDefined();
+    expect(doc2Excerpt).toBeDefined();
+    
+    // The citation numbers should match message appearance order, not metadata order
+    expect(doc2Excerpt?.citationNumber).toBe(1); // doc-id-2 appears first in the message
+    expect(doc1Excerpt?.citationNumber).toBe(2); // doc-id-1 appears second in the message
+  });
 });
 
 // Placeholder export to avoid unused import warnings

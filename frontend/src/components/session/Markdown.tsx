@@ -577,12 +577,15 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             userSelect: 'none',
           },
           '& .doc-citation': {
-            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+            color: theme.palette.mode === 'light' ? '#333' : '#fff',
+            backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#333',
+            padding: '0px 4px',
+            borderRadius: '4px',
             fontWeight: 'bold',
             cursor: 'pointer',
             textDecoration: 'none',
             '&:hover': {
-              backgroundColor: 'rgba(88, 166, 255, 0.1)',
+              backgroundColor: 'rgba(88, 166, 255, 0.3)',
             }
           },
           display: 'flow-root',
