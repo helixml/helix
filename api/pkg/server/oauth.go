@@ -259,7 +259,7 @@ func (s *HelixAPIServer) handleUpdateOAuthProvider(_ http.ResponseWriter, r *htt
 }
 
 // handleDeleteOAuthProvider deletes an OAuth provider
-func (s *HelixAPIServer) handleDeleteOAuthProvider(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (s *HelixAPIServer) handleDeleteOAuthProvider(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	user := getRequestUser(r)
 
 	// Only admin users can delete providers
@@ -281,7 +281,7 @@ func (s *HelixAPIServer) handleDeleteOAuthProvider(w http.ResponseWriter, r *htt
 }
 
 // handleGetOAuthConnection returns a specific OAuth connection
-func (s *HelixAPIServer) handleGetOAuthConnection(w http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
+func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
 	// Extract the connection ID from the URL
@@ -309,7 +309,7 @@ func (s *HelixAPIServer) handleGetOAuthConnection(w http.ResponseWriter, r *http
 }
 
 // handleDeleteOAuthConnection deletes an OAuth connection
-func (s *HelixAPIServer) handleDeleteOAuthConnection(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (s *HelixAPIServer) handleDeleteOAuthConnection(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	user := getRequestUser(r)
 
 	// Extract the connection ID from the URL
