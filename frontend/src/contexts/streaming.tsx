@@ -46,6 +46,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
 
+  // Clear stepInfos when setting a new session
+  const clearSessionData = useCallback((sessionId: string | null) => {
+    // Don't clear anything if setting to the same session ID
+    if (sessionId === currentSessionId) return;
+    
+    if (sessionId) {
+      // Clear stepInfos for the new session
+      setStepInfos(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(sessionId);
+        return newMap;
+      });
+    }
+    
+    setCurrentSessionId(sessionId);
+  }, [currentSessionId]);
+
   // Function to flush message buffer to state
   const flushMessageBuffer = useCallback((sessionId: string) => {
     const chunks = messageBufferRef.current.get(sessionId);
@@ -192,6 +209,15 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
     messageHistoryRef.current.delete(sessionId);
+    
+    // Clear stepInfos for the session to reset the Glowing Orb list between interactions
+    setStepInfos(prev => {
+      const newMap = new Map(prev);
+      if (sessionId) {
+        newMap.delete(sessionId);
+      }
+      return newMap;
+    });
 
     const sessionChatRequest: ISessionChatRequest = {
       type,
@@ -275,7 +301,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                   sessionData = parsedData;
                   if (sessionData?.id) {
                     // Set the current session ID first
-                    setCurrentSessionId(sessionData.id);
+                    clearSessionData(sessionData.id);
 
                     // Explicitly clear any existing data for this session
                     messageBufferRef.current.set(sessionData.id, []);
@@ -379,7 +405,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
   const value = {
     NewInference,
-    setCurrentSessionId,
+    setCurrentSessionId: clearSessionData,
     currentResponses,
     updateCurrentResponse,
     stepInfos,
