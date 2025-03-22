@@ -740,6 +740,125 @@ then the first doc [DOC_ID:doc-id-1].
     expect(doc2Excerpt?.citationNumber).toBe(1); // doc-id-2 appears first in the message
     expect(doc1Excerpt?.citationNumber).toBe(2); // doc-id-1 appears second in the message
   });
+
+  // Test case 11: Repeated document IDs should get the same citation number
+  test('Repeated document IDs should get the same citation number', () => {
+    // Create a message with document IDs where some are repeated
+    const message = `This references the first doc [DOC_ID:doc-id-1], 
+then the second doc [DOC_ID:doc-id-2].
+Later, we reference the first doc again [DOC_ID:doc-id-1] and 
+again reference the second doc [DOC_ID:doc-id-2].`;
+
+    // Setup document_ids
+    const mockSessionWithDocs = {
+      ...mockSession,
+      config: {
+        document_ids: {
+          'first.txt': 'doc-id-1',
+          'second.txt': 'doc-id-2',
+        }
+      }
+    };
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithDocs as unknown as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    const result = processor.process();
+    
+    // Debug output
+    console.log("Repeated citation test result:", result);
+    
+    // EXPECTATIONS:
+    // - First occurrence of doc-id-1 should be [1]
+    // - First occurrence of doc-id-2 should be [2]
+    // - Second occurrence of doc-id-1 should also be [1] (same number)
+    // - Second occurrence of doc-id-2 should also be [2] (same number)
+    
+    // First occurrence checks
+    expect(result).toContain('first doc <a target="_blank" href="https://example.com/first.txt" class="doc-citation">[1]</a>');
+    expect(result).toContain('second doc <a target="_blank" href="https://example.com/second.txt" class="doc-citation">[2]</a>');
+    
+    // Second occurrence checks - should use the same numbers
+    expect(result).toContain('first doc again <a target="_blank" href="https://example.com/first.txt" class="doc-citation">[1]</a>');
+    expect(result).toContain('second doc <a target="_blank" href="https://example.com/second.txt" class="doc-citation">[2]</a>');
+    
+    // Make sure we don't have any [3] or [4] citations in the result
+    expect(result).not.toContain('[3]');
+    expect(result).not.toContain('[4]');
+  });
+
+  // Test case 12: Multiple excerpts with nested tag structure should all be processed
+  test('Multiple excerpts with nested tag structure should all be processed', () => {
+    // Create a message with document IDs and nested excerpts format as seen in the real example
+    const message = `This references document one [DOC_ID:doc-id-1] 
+and document two [DOC_ID:doc-id-2].
+
+<excerpts>
+  <excerpt>
+    <document_id>doc-id-1</document_id>
+    <snippet>Content from the first document</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>doc-id-2</document_id>
+    <snippet>Content from the second document</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Setup document_ids
+    const mockSessionWithDocs = {
+      ...mockSession,
+      config: {
+        document_ids: {
+          'first.txt': 'doc-id-1',
+          'second.txt': 'doc-id-2',
+        }
+      }
+    };
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithDocs as unknown as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Debug output
+    console.log("Nested excerpt test result:", JSON.stringify(citationData, null, 2));
+    
+    // EXPECTATIONS:
+    // Both excerpts should be processed and included in the citation data
+    
+    // We should have citation data with two excerpts
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(2); // SHOULD HAVE BOTH EXCERPTS
+    
+    // Find excerpts by docId
+    const doc1Excerpt = citationData?.excerpts.find(e => e.docId === 'doc-id-1');
+    const doc2Excerpt = citationData?.excerpts.find(e => e.docId === 'doc-id-2');
+    
+    // Verify both excerpts exist
+    expect(doc1Excerpt).toBeDefined();
+    expect(doc2Excerpt).toBeDefined();
+    
+    // Verify the content of the excerpts
+    expect(doc1Excerpt?.snippet).toBe('Content from the first document');
+    expect(doc2Excerpt?.snippet).toBe('Content from the second document');
+    
+    // The citation numbers should match message appearance order
+    expect(doc1Excerpt?.citationNumber).toBe(1); // doc-id-1 appears first in the message
+    expect(doc2Excerpt?.citationNumber).toBe(2); // doc-id-2 appears second in the message
+  });
 });
 
 // Placeholder export to avoid unused import warnings
