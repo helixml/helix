@@ -33,6 +33,20 @@ func startAPIServer() {
 		cmd := exec.Command("helix", "serve")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
+		// Get the main env variables for keycloak, database, etc.
+		cmd.Env = os.Environ()
+
+		// Define the rest env variables, similarly to what we set in docker-compose.dev.yaml
+		cmd.Env = append(cmd.Env,
+			"SERVER_PORT=8080",
+			"LOG_LEVEL=debug",
+			"APP_URL=http://localhost:8080",
+			"RUNNER_TOKEN=oh-hallo-insecure-token",
+			"SERVER_URL=http://localhost:8080",
+			"FILESTORE_LOCALFS_PATH=/tmp",
+		)
+
 		if err := cmd.Run(); err != nil {
 			log.Printf("Failed to start API server: %v", err)
 		}
@@ -55,7 +69,7 @@ func waitForAPIServer() error {
 		case <-timeout:
 			return fmt.Errorf("timeout waiting for API server to start")
 		case <-tick.C:
-			resp, err := client.Get("http://localhost:80/api/v1/healthz")
+			resp, err := client.Get("http://localhost:8080/api/v1/healthz")
 			if err != nil {
 				log.Printf("API not ready yet: %v", err)
 				continue
