@@ -180,31 +180,50 @@ export class MessageProcessor {
     
     // Process each citation match
     for (const match of citationMatches) {
-      // Extract document ID and snippet from the XML
-      const docIdMatch = match.match(/<document_id>(.*?)<\/document_id>/);
-      const snippetMatch = match.match(/<snippet>([\s\S]*?)<\/snippet>/);
+      // Check for the newer nested <excerpt> tags format
+      const excerptTags = match.match(/<excerpt>[\s\S]*?<\/excerpt>/g);
       
-      if (docIdMatch && snippetMatch) {
-        const docId = docIdMatch[1];
-        const snippet = snippetMatch[1];
-        // Find associated filename for this document ID
-        let filename = "Document";
-        let fileUrl = "#";
-        
-        if (this.options.session.config?.document_ids) {
-          // Find the filename for this docId by checking the document_ids object
-          const docIdsMap = this.options.session.config.document_ids;
-          for (const fname in docIdsMap) {
-            if (docIdsMap[fname] === docId) {
-              // Extract just the basename from the path
-              filename = fname.split('/').pop() || fname;
-              fileUrl = this.options.getFileURL(fname);
-              break;
-            }
+      if (excerptTags && excerptTags.length > 0) {
+        // Process each individual excerpt
+        for (const excerptTag of excerptTags) {
+          this.processExcerptTag(excerptTag);
+        }
+      } else {
+        // Handle the old format (direct children of <excerpts> tag)
+        this.processExcerptTag(match);
+      }
+    }
+    
+    // Remove citation XML from the message
+    return message.replace(citationRegex, '');
+  }
+  
+  private processExcerptTag(excerptContent: string): void {
+    const docIdMatch = excerptContent.match(/<document_id>(.*?)<\/document_id>/);
+    const snippetMatch = excerptContent.match(/<snippet>([\s\S]*?)<\/snippet>/);
+    
+    if (docIdMatch && snippetMatch) {
+      const docId = docIdMatch[1];
+      const snippet = snippetMatch[1];
+      // Find associated filename for this document ID
+      let filename = "Document";
+      let fileUrl = "#";
+      
+      if (this.options.session.config?.document_ids) {
+        // Find the filename for this docId by checking the document_ids object
+        const docIdsMap = this.options.session.config.document_ids;
+        for (const fname in docIdsMap) {
+          if (docIdsMap[fname] === docId) {
+            // Extract just the basename from the path
+            filename = fname.split('/').pop() || fname;
+            fileUrl = this.options.getFileURL(fname);
+            break;
           }
         }
-        
-        // Add to citation data
+      }
+      
+      // Add to citation data
+      if (this.citationData) {
         this.citationData.excerpts.push({
           docId,
           snippet,
@@ -214,9 +233,6 @@ export class MessageProcessor {
         });
       }
     }
-    
-    // Remove citation XML from the message
-    return message.replace(citationRegex, '');
   }
 
   private processHtmlCitations(message: string): string {
