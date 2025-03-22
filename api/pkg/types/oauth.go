@@ -127,13 +127,13 @@ func (c *OAuthConnection) BeforeCreate(_ *gorm.DB) error {
 }
 
 // BeforeUpdate sets updated_at before updating connections
-func (c *OAuthConnection) BeforeUpdate(tx *gorm.DB) error {
+func (c *OAuthConnection) BeforeUpdate(_ *gorm.DB) error {
 	c.UpdatedAt = time.Now()
 	return nil
 }
 
 // BeforeCreate sets default values for new request tokens
-func (t *OAuthRequestToken) BeforeCreate(tx *gorm.DB) error {
+func (t *OAuthRequestToken) BeforeCreate(_ *gorm.DB) error {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = time.Now()
 	}

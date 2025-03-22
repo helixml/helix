@@ -157,7 +157,7 @@ func (s *HelixAPIServer) handleListOAuthConnections(_ http.ResponseWriter, r *ht
 }
 
 // handleStartOAuthFlow initiates the OAuth flow
-func (s *HelixAPIServer) handleStartOAuthFlow(w http.ResponseWriter, r *http.Request) (map[string]string, error) {
+func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Request) (map[string]string, error) {
 	user := getRequestUser(r)
 
 	// Extract the provider ID from the URL
@@ -190,7 +190,7 @@ func (s *HelixAPIServer) handleStartOAuthFlow(w http.ResponseWriter, r *http.Req
 }
 
 // handleGetOAuthProvider returns a specific OAuth provider by ID
-func (s *HelixAPIServer) handleGetOAuthProvider(w http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
+func (s *HelixAPIServer) handleGetOAuthProvider(_ http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
 	// Extract the provider ID from the URL
@@ -215,7 +215,7 @@ func (s *HelixAPIServer) handleGetOAuthProvider(w http.ResponseWriter, r *http.R
 }
 
 // handleUpdateOAuthProvider updates an existing OAuth provider
-func (s *HelixAPIServer) handleUpdateOAuthProvider(w http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
+func (s *HelixAPIServer) handleUpdateOAuthProvider(_ http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
 	// Only admin users can update providers
