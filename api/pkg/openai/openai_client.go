@@ -61,6 +61,14 @@ type RetryableClient struct {
 	apiKey     string
 }
 
+// AddOAuthToken adds an OAuth token to the client headers
+func (c *RetryableClient) AddOAuthToken(providerType string, _ string) {
+	// Currently not implemented as the sashabaranov/go-openai library doesn't directly
+	// support custom headers. In the future, this could be implemented via a custom HTTP client
+	// that adds the necessary headers before requests are sent.
+	log.Debug().Str("provider", providerType).Msg("OAuth token received but not applied to OpenAI client")
+}
+
 // APIKey - returns the API key used by the client, used for testing
 func (c *RetryableClient) APIKey() string {
 	return c.apiKey
@@ -150,11 +158,11 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return false
 		}
 
-		// Second priority: Meta-Llama-3.1-8B-Instruct-Turbo
-		if models[i].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
+		// Second priority: meta-llama/Llama-3.3-70B-Instruct-Turbo
+		if models[i].ID == "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
 			return true
 		}
-		if models[j].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
+		if models[j].ID == "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
 			return false
 		}
 

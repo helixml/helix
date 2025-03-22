@@ -187,28 +187,15 @@ const Session: FC = () => {
 
     const totalInteractions = session.data.interactions.length
 
-    // If we're streaming, we want to show a continuous block from the most recent visible interaction
-    if (isStreaming) {
-      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1]
-      const startIndex = lastVisibleBlock
-        ? lastVisibleBlock.startIndex
-        : Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-
-      setVisibleBlocks([{
-        startIndex,
-        endIndex: totalInteractions,
-        isGhost: false
-      }])
-    } else {
-      // Normal initialization for non-streaming state
-      const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-      setVisibleBlocks([{
-        startIndex,
-        endIndex: totalInteractions,
-        isGhost: false
-      }])
-    }
-  }, [session.data?.interactions, isStreaming, visibleBlocks])
+    // Create a consistent block structure regardless of streaming state
+    const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
+    
+    setVisibleBlocks([{
+      startIndex,
+      endIndex: totalInteractions,
+      isGhost: false
+    }])
+  }, [session.data?.interactions])
 
   // Handle streaming state
   useEffect(() => {
@@ -217,17 +204,10 @@ const Session: FC = () => {
     const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
     const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
 
+    // Only update streaming state
     setIsStreaming(isCurrentlyStreaming)
-
-    if (isCurrentlyStreaming) {
-      // When streaming, initialize the visible blocks to show just the current interaction
-      const currentIndex = session.data.interactions.length - 1
-      setVisibleBlocks([{
-        startIndex: currentIndex,
-        endIndex: currentIndex + 1,
-        isGhost: false
-      }])
-    }
+    
+    // Don't change block structure here - maintain consistency
   }, [session.data?.interactions])
 
   // Track which blocks are in viewport - simplify to just track visibility
@@ -621,14 +601,16 @@ const Session: FC = () => {
   ])
 
   const onHandleFilterDocument = useCallback(async (docId: string) => {
+    // Only pass the filter document handler to the citation component if we have an app ID
     if (!appID) {
-      snackbar.error('Unable to filter document, no app ID found')
-      return
+      console.warn('Filter document requested but no appID is available', { docId });
+      snackbar.error('Unable to filter document, no app ID available in standalone session view');
+      return;
     }
 
     // Make a call to the API to get the correct format and ensure the user has access to the document
     const result = await api.getApiClient().v1ContextMenuList({
-      app_id: appID || '',
+      app_id: appID,
     })
     if (result.status !== 200) {
       snackbar.error(`Unable to filter document, error from API: ${result.statusText}`)
@@ -640,7 +622,7 @@ const Session: FC = () => {
       return
     }
     setInputValue(current => current + filterAction.value);
-  }, [setInputValue]);
+  }, [appID, api, setInputValue, snackbar]);
 
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
@@ -648,44 +630,11 @@ const Session: FC = () => {
     
     // Create a stable reference for interactions
     const interactionIds = session.data.interactions.map(i => i.id).join(',');
-    
     return {
-      id: session.data.id,
-      name: session.data.name,
-      created: session.data.created,
-      updated: session.data.updated,
-      parent_session: session.data.parent_session,
-      parent_app: session.data.parent_app,
-      interactions: session.data.interactions,
-      owner: session.data.owner,
-      owner_type: session.data.owner_type,
-      type: session.data.type,
-      mode: session.data.mode,
-      model_name: session.data.model_name,
-      lora_dir: session.data.lora_dir,
-      config: {
-        ...session.data.config
-      }
+      ...session.data,
+      interactionIds, // add this to use for memoization
     }
-  }, [
-    session.data?.id,
-    session.data?.name,
-    session.data?.created,
-    session.data?.updated,
-    session.data?.parent_session,
-    session.data?.parent_app,
-    // Use stable references for interactions to prevent unnecessary rerenders
-    session.data?.interactions.length,
-    session.data?.interactions.map(i => i.id).join(','),
-    session.data?.owner,
-    session.data?.owner_type,
-    session.data?.type,
-    session.data?.mode,
-    session.data?.model_name,
-    session.data?.lora_dir,
-    // Deep compare the config object
-    JSON.stringify(session.data?.config)
-  ])
+  }, [session.data]);
 
   // Modify the container styles
   const containerStyles = useMemo(() => ({
@@ -866,79 +815,13 @@ const Session: FC = () => {
   // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
-
-    // During streaming, show the last INTERACTIONS_PER_BLOCK interactions plus the current one
-    if (isStreaming) {
-      const currentInteraction = sessionData.interactions[sessionData.interactions.length - 1]
-
-      // Calculate how many previous interactions to show
-      const startIndex = Math.max(0, sessionData.interactions.length - 1 - INTERACTIONS_PER_BLOCK)
-      const previousInteractions = sessionData.interactions.slice(startIndex, sessionData.interactions.length - 1)
-
-      return (
-        <Container maxWidth="lg" sx={{ py: 2 }}>
-          {startIndex > 0 && (
-            <Typography
-              variant="body2"
-              sx={{
-                textAlign: 'center',
-                color: 'text.secondary',
-                mb: 2
-              }}
-            >
-              Previous messages hidden...
-            </Typography>
-          )}
-
-          {previousInteractions.map(interaction => (
-            <Interaction
-              key={interaction.id}
-              serverConfig={account.serverConfig}
-              interaction={interaction}
-              session={sessionData}
-              highlightAllFiles={highlightAllFiles}
-              retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={safeReloadSession}
-              onClone={onClone}
-              onAddDocuments={undefined}
-              onRestart={undefined}
-              onFilterDocument={onHandleFilterDocument}
-            />
-          ))}
-
-          <Interaction
-            key={currentInteraction.id}
-            serverConfig={account.serverConfig}
-            interaction={currentInteraction}
-            session={sessionData}
-            highlightAllFiles={highlightAllFiles}
-            retryFinetuneErrors={retryFinetuneErrors}
-            onReloadSession={safeReloadSession}
-            onClone={onClone}
-            onAddDocuments={onAddDocuments}
-            onRestart={onRestart}
-            onFilterDocument={onHandleFilterDocument}
-          >
-            <InteractionLiveStream
-              session_id={sessionData.id}
-              interaction={currentInteraction}
-              session={sessionData}
-              serverConfig={account.serverConfig}
-              hasSubscription={account.userConfig.stripe_subscription_active || false}
-              onMessageUpdate={scrollToBottom}
-              onFilterDocument={onHandleFilterDocument}
-            />
-          </Interaction>
-        </Container>
-      )
-    }
-
-    // Normal virtualized rendering for non-streaming state
+    
+    // Use a consistent approach regardless of streaming state
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
-
+    
     return (
       <Container maxWidth="lg" sx={{ py: 2 }}>
-        {hasMoreAbove && !isStreaming && (
+        {hasMoreAbove && (
           <div
             id="virtual-space-above"
             style={{
@@ -980,7 +863,7 @@ const Session: FC = () => {
               {interactions.map((interaction, index) => {
                 const absoluteIndex = block.startIndex + index
                 const isLastInteraction = absoluteIndex === sessionData.interactions.length - 1
-                const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+                const isLive = isLastInteraction && !interaction.finished && interaction.state !== INTERACTION_STATE_EDITING
                 const isOwner = account.user?.id === sessionData.owner
 
                 return (
@@ -995,7 +878,7 @@ const Session: FC = () => {
                     onClone={onClone}
                     onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
                     onRestart={isLastInteraction ? onRestart : undefined}
-                    onFilterDocument={onHandleFilterDocument}
+                    onFilterDocument={appID ? onHandleFilterDocument : undefined}
                     headerButtons={isLastInteraction ? (
                       <Tooltip title="Restart Session">
                         <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
@@ -1018,6 +901,8 @@ const Session: FC = () => {
                         session={sessionData}
                         serverConfig={account.serverConfig}
                         hasSubscription={account.userConfig.stripe_subscription_active || false}
+                        onMessageUpdate={isLastInteraction ? scrollToBottom : undefined}
+                        onFilterDocument={appID ? onHandleFilterDocument : undefined}
                       />
                     )}
                   </Interaction>
@@ -1049,9 +934,9 @@ const Session: FC = () => {
     themeConfig.darkIconHover,
     getBlockKey,
     isLoadingBlock,
-    isStreaming,
     scrollToBottom,
     onHandleFilterDocument,
+    appID,
   ])
 
   useEffect(() => {
@@ -1182,6 +1067,7 @@ const Session: FC = () => {
       const newSession: ISession = parsedData.session
       // Save scroll position before updating session data
       saveScrollPosition()
+      
       session.setData(newSession)
       // Restore scroll position after updating session data
       setTimeout(restoreScrollPosition, 0)
@@ -1307,7 +1193,7 @@ const Session: FC = () => {
                 backgroundPosition: 'top',
                 backgroundRepeat: 'no-repeat',
                 backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
-                p: 2,
+                p: 1,
               }}
             >
               {appID && apps.app.config.helix.image && (
@@ -1328,40 +1214,49 @@ const Session: FC = () => {
                   position: 'relative',
                   zIndex: 2,
                   display: 'flex',
-                  flexDirection: 'column',
+                  flexDirection: 'row',
                   alignItems: 'center',
-                  pt: 4,
+                  justifyContent: 'center',
+                  py: 1,
                   px: 2,
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <IconButton
-                    onClick={handleBackToCreate}
+                <IconButton
+                  onClick={handleBackToCreate}
+                  size="small"
+                  sx={{
+                    color: 'white',
+                    mr: 1,
+                  }}
+                >
+                  <ArrowBackIcon />
+                </IconButton>
+                {activeAssistantAvatar && (
+                  <Avatar
+                    src={activeAssistantAvatar}
                     sx={{
-                      color: 'white',
-                      mr: 2,
+                      width: '32px',
+                      height: '32px',
+                      mr: 1,
+                      border: '1px solid #fff',
+                    }}
+                  />
+                )}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <Typography variant="subtitle1" sx={{ color: 'white' }}>
+                    {activeAssistantName}
+                  </Typography>
+                  <Typography 
+                    variant="caption" 
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      display: { xs: 'none', sm: 'block' },
+                      textAlign: 'center'
                     }}
                   >
-                    <ArrowBackIcon />
-                  </IconButton>
-                  {activeAssistantAvatar && (
-                    <Avatar
-                      src={activeAssistantAvatar}
-                      sx={{
-                        width: '80px',
-                        height: '80px',
-                        mb: 2,
-                        border: '2px solid #fff',
-                      }}
-                    />
-                  )}
+                    {activeAssistantDescription}
+                  </Typography>
                 </Box>
-                <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                  {activeAssistantName}
-                </Typography>
-                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', maxWidth: '600px' }}>
-                  {activeAssistantDescription}
-                </Typography>
               </Box>
             </Box>
           )}
@@ -1401,102 +1296,68 @@ const Session: FC = () => {
               bgcolor: theme.palette.background.default,
             }}
           >
-            {!loading && (
-              <Container maxWidth="lg">
-                <Box sx={{ py: 2 }}>
-                  <Row>
-                    <Cell flexGrow={1}>
-                      <ContextMenuModal
-                        appId={appID || ''}
-                        textAreaRef={textFieldRef}
-                        onInsertText={handleInsertText}
-                      />
-                      <TextField
-                        id="textEntry"
-                        fullWidth
-                        inputRef={textFieldRef}
-                        autoFocus={true}
-                        label={(
-                          (
-                            session.data?.type == SESSION_TYPE_TEXT ?
-                              session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
-                              'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                          ) + " (shift+enter to add a newline)"
-                        )}
-                        value={inputValue}
-                        disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                        onChange={handleInputChange}
-                        name="ai_submit"
-                        multiline={true}
-                        onKeyDown={handleKeyDown}
-                        InputProps={{
-                          startAdornment: isBigScreen && (
-                            activeAssistant ? (
-                              activeAssistantAvatar ? (
-                                <Avatar
-                                  src={activeAssistantAvatar}
-                                  sx={{
-                                    width: '30px',
-                                    height: '30px',
-                                    mr: 1,
-                                  }}
-                                />
-                              ) : null
-                            ) : null
-                          ),
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                id="send-button"
-                                aria-label="send"
-                                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                                onClick={() => onSend(inputValue)}
+            <Container maxWidth="lg">
+              <Box sx={{ py: 2 }}>
+                <Row>
+                  <Cell flexGrow={1}>
+                    <ContextMenuModal
+                      appId={appID || ''}
+                      textAreaRef={textFieldRef}
+                      onInsertText={handleInsertText}
+                    />
+                    <TextField
+                      id="textEntry"
+                      fullWidth
+                      inputRef={textFieldRef}
+                      autoFocus={true}
+                      label={(
+                        (
+                          session.data?.type == SESSION_TYPE_TEXT ?
+                            session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
+                            'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                        ) + " (shift+enter to add a newline)"
+                      )}
+                      value={inputValue}
+                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                      onChange={handleInputChange}
+                      name="ai_submit"
+                      multiline={true}
+                      onKeyDown={handleKeyDown}
+                      InputProps={{
+                        startAdornment: isBigScreen && (
+                          activeAssistant ? (
+                            activeAssistantAvatar ? (
+                              <Avatar
+                                src={activeAssistantAvatar}
                                 sx={{
-                                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                                  width: '30px',
+                                  height: '30px',
+                                  mr: 1,
                                 }}
-                              >
-                                <SendIcon />
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </Cell>
-                    {isBigScreen && (
-                      <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
-                        <Button
-                          onClick={() => {
-                            onUpdateSessionConfig({
-                              eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                            }, `Thank you for your feedback!`)
-                          }}
-                        >
-                          {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            onUpdateSessionConfig({
-                              eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                            }, `Sorry! We will use your feedback to improve`)
-                          }}
-                        >
-                          {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
-                        </Button>
-                      </Cell>
-                    )}
-                  </Row>
-
-                  {!isBigScreen && (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mt: 2,
+                              />
+                            ) : null
+                          ) : null
+                        ),
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              id="send-button"
+                              aria-label="send"
+                              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                              onClick={() => onSend(inputValue)}
+                              sx={{
+                                color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                              }}
+                            >
+                              <SendIcon />
+                            </IconButton>
+                          </InputAdornment>
+                        ),
                       }}
-                    >
+                    />
+                  </Cell>
+                  {isBigScreen && (
+                    <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
                       <Button
                         onClick={() => {
                           onUpdateSessionConfig({
@@ -1515,45 +1376,77 @@ const Session: FC = () => {
                       >
                         {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
                       </Button>
-                    </Box>
+                    </Cell>
                   )}
+                </Row>
 
-                  {session.data?.config.eval_user_score != "" && (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mt: 2,
+                {!isBigScreen && (
+                  <Box
+                    sx={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mt: 2,
+                    }}
+                  >
+                    <Button
+                      onClick={() => {
+                        onUpdateSessionConfig({
+                          eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                        }, `Thank you for your feedback!`)
                       }}
                     >
-                      <TextField
-                        id="feedback"
-                        label="Please explain why"
-                        value={feedbackValue}
-                        onChange={handleFeedbackChange}
-                        name="ai_feedback"
-                      />
-                      <Button
-                        variant="contained"
-                        disabled={loading}
-                        onClick={() => onUpdateSessionConfig({
-                          eval_user_reason: feedbackValue,
-                        }, `Thanks, you are awesome`)}
-                        sx={{ ml: 2 }}
-                      >
-                        Save
-                      </Button>
-                    </Box>
-                  )}
-                  <Box sx={{ mt: 2 }}>
-                    <Disclaimer />
+                      {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        onUpdateSessionConfig({
+                          eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                        }, `Sorry! We will use your feedback to improve`)
+                      }}
+                    >
+                      {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
+                    </Button>
                   </Box>
+                )}
+
+                {session.data?.config.eval_user_score != "" && (
+                  <Box
+                    sx={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mt: 2,
+                    }}
+                  >
+                    <TextField
+                      id="feedback"
+                      label="Please explain why"
+                      value={feedbackValue}
+                      onChange={handleFeedbackChange}
+                      name="ai_feedback"
+                    />
+                    <Button
+                      variant="contained"
+                      disabled={loading}
+                      onClick={() => onUpdateSessionConfig({
+                        eval_user_reason: feedbackValue,
+                      }, `Thanks, you are awesome`)}
+                      sx={{ ml: 2 }}
+                    >
+                      Save
+                    </Button>
+                  </Box>
+                )}
+                <Box sx={{ mt: 2 }}>
+                  <Disclaimer />
                 </Box>
-              </Container>
-            )}
+              </Box>
+            </Container>
           </Box>
         </Box>
       </Box>

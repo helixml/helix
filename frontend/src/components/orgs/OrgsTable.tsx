@@ -115,7 +115,7 @@ const OrgsTable: FC<{
             <>
               <ClickLink
                 sx={{ml:2}}
-                onClick={() => router.navigate('org_teams', {org_id: org._data.name})}
+                onClick={() => router.navigate('org_people', {org_id: org._data.name})}
               >
                 <Tooltip title="Settings">
                   <SettingsIcon />
@@ -125,7 +125,7 @@ const OrgsTable: FC<{
           ) : (
             <ClickLink
               sx={{ml:2}}
-              onClick={() => router.navigate('org_teams', {org_id: org._data.name})}
+              onClick={() => router.navigate('org_people', {org_id: org._data.name})}
             >
               <Tooltip title="View">
                 <VisibilityIcon />

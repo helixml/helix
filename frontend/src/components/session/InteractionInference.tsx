@@ -59,7 +59,7 @@ export const InteractionInference: FC<{
     }
 
     // Add less detailed logging since processing is moved to Markdown component
-    console.debug(`InteractionInference: Processing message for session ${session.id}`);
+    // console.debug(`InteractionInference: Processing message for session ${session.id}`);
 
     return (
       <>

@@ -32,6 +32,7 @@ import {
   ISessionSummary
 } from '../types'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
+import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
 
 const START_ACTIVE = true
 
@@ -101,10 +102,16 @@ const Dashboard: FC = () => {
   useEffect(() => {
     switch (tab) {
       case 'llm_calls':
-        setActiveTab(1)
+        setActiveTab(0)
         break
       case 'providers':
+        setActiveTab(1)
+        break
+      case 'oauth_providers':
         setActiveTab(2)
+        break
+      case 'runners':
+        setActiveTab(3)
         break
       default:
         setActiveTab(0)
@@ -120,11 +127,17 @@ const Dashboard: FC = () => {
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
     switch (newValue) {
-      case 1:
+      case 0:
         router.setParams({ tab: 'llm_calls' })
         break
-      case 2:
+      case 1:
         router.setParams({ tab: 'providers' })
+        break
+      case 2:
+        router.setParams({ tab: 'oauth_providers' })
+        break
+      case 3:
+        router.setParams({ tab: 'runners' })
         break
       default:
         router.removeParams(['tab'])
@@ -176,12 +189,64 @@ const Dashboard: FC = () => {
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="LLM Calls" />
-            <Tab label="Dashboard" />
-            <Tab label="Providers" />
+            <Tab label="Inference Providers" />
+            <Tab label="OAuth Providers" />
+            <Tab label="Runners" />
           </Tabs>
         </Box>
 
+        {activeTab === 0 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(200vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+              <TextField
+                label="Filter by Session ID"
+                variant="outlined"
+                value={sessionFilter}
+                onChange={handleFilterChange}
+                sx={{ flexGrow: 1, mr: 1 }}
+              />
+              {sessionFilter && (
+                <IconButton onClick={clearFilter} size="small">
+                  <ClearIcon />
+                </IconButton>
+              )}
+            </Box>
+            <LLMCallsTable sessionFilter={sessionFilter} />
+          </Box>
+        )}
+
         {activeTab === 1 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <ProviderEndpointsTable />
+          </Box>
+        )}
+
+        {activeTab === 2 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+              p: 2,
+            }}
+          >
+            <OAuthProvidersTable />
+          </Box>
+        )}
+
+        {activeTab === 3 && (
           <Box
             sx={{
               width: '100%',
@@ -318,44 +383,6 @@ const Dashboard: FC = () => {
                 </Grid>
               </Box>
             </Box>
-          </Box>
-        )}
-
-        {activeTab === 0 && (
-          <Box
-            sx={{
-              width: '100%',
-              height: 'calc(200vh - 200px)',
-              overflow: 'auto',
-            }}
-          >
-            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-              <TextField
-                label="Filter by Session ID"
-                variant="outlined"
-                value={sessionFilter}
-                onChange={handleFilterChange}
-                sx={{ flexGrow: 1, mr: 1 }}
-              />
-              {sessionFilter && (
-                <IconButton onClick={clearFilter} size="small">
-                  <ClearIcon />
-                </IconButton>
-              )}
-            </Box>
-            <LLMCallsTable sessionFilter={sessionFilter} />
-          </Box>
-        )}
-
-        {activeTab === 2 && (
-          <Box
-            sx={{
-              width: '100%',
-              height: 'calc(100vh - 200px)',
-              overflow: 'auto',
-            }}
-          >
-            <ProviderEndpointsTable />
           </Box>
         )}
 

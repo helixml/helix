@@ -9,7 +9,9 @@
     "tsc": "tsc -b tsconfig.json",
     "build-frontend": "vite build",
     "build": "yarn tsc && yarn build-frontend",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@babel/core": "^7.0.0",
@@ -69,11 +71,16 @@
     "yup": "^1.1.1"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
     "@types/react": "^17.0.33",
     "@types/react-dom": "^17.0.10",
-    "@vitejs/plugin-react": "^1.0.7",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.0.0",
     "typescript": "^4.5.5",
-    "vite": "^4.5.6"
+    "vite": "^4.5.6",
+    "vitest": "^3.0.9"
   },
   "resolutions": {
     "d3-color": "3.1.0"

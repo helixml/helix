@@ -46,6 +46,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
 
+  // Clear stepInfos when setting a new session
+  const clearSessionData = useCallback((sessionId: string | null) => {
+    // Don't clear anything if setting to the same session ID
+    if (sessionId === currentSessionId) return;
+    
+    if (sessionId) {
+      // Clear stepInfos for the new session
+      setStepInfos(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(sessionId);
+        return newMap;
+      });
+    }
+    
+    setCurrentSessionId(sessionId);
+  }, [currentSessionId]);
+
   // Function to flush message buffer to state
   const flushMessageBuffer = useCallback((sessionId: string) => {
     const chunks = messageBufferRef.current.get(sessionId);
@@ -125,18 +142,33 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         });
       });
     }
-  }, [currentSessionId]);
-
-  // Use a debounced effect to update sessions
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (currentSessionId) {
-        sessions.loadSessions();
+    
+    // If there's a session update with state changes
+    if (parsedData.type === "session_update" && parsedData.session) {
+      const lastInteraction = parsedData.session.interactions[parsedData.session.interactions.length - 1];
+      
+      // Update currentResponses with the latest interaction state
+      // This ensures useLiveInteraction will receive the updated state
+      if (lastInteraction.id) {
+        requestAnimationFrame(() => {
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId) || {};
+            const updatedInteraction: Partial<IInteraction> = {
+              ...current,
+              id: lastInteraction.id,
+              state: lastInteraction.state,
+              finished: lastInteraction.finished,
+              // Copy any other important fields from the interaction
+              message: lastInteraction.message || current.message
+            };
+            
+            const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
+            return newMap;
+          });
+        });
       }
-    }, 2000); // Update every 2 seconds instead of on every message
-
-    return () => clearInterval(timer);
-  }, [currentSessionId, sessions]);
+    }
+  }, [currentSessionId]);
 
   useEffect(() => {
     if (!account.token || !currentSessionId) return;
@@ -149,6 +181,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
+      
       // Reload all sessions to refresh the name in the sidebar
       sessions.loadSessions()
       handleWebsocketEvent(parsedData);
@@ -176,6 +209,15 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
     messageHistoryRef.current.delete(sessionId);
+    
+    // Clear stepInfos for the session to reset the Glowing Orb list between interactions
+    setStepInfos(prev => {
+      const newMap = new Map(prev);
+      if (sessionId) {
+        newMap.delete(sessionId);
+      }
+      return newMap;
+    });
 
     const sessionChatRequest: ISessionChatRequest = {
       type,
@@ -258,8 +300,17 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                 if (!sessionData) {
                   sessionData = parsedData;
                   if (sessionData?.id) {
-                    setCurrentSessionId(sessionData.id);
+                    // Set the current session ID first
+                    clearSessionData(sessionData.id);
+
+                    // Explicitly clear any existing data for this session
                     messageBufferRef.current.set(sessionData.id, []);
+                    messageHistoryRef.current.set(sessionId, '');
+
+                    // Initialize with empty response until we get content
+                    setCurrentResponses(prev => {
+                      return new Map(prev).set(sessionData!.id, { message: '' });
+                    });
                     
                     if (parsedData.choices?.[0]?.delta?.content) {
                       addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
@@ -354,7 +405,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
   const value = {
     NewInference,
-    setCurrentSessionId,
+    setCurrentSessionId: clearSessionData,
     currentResponses,
     updateCurrentResponse,
     stepInfos,

@@ -6,6 +6,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Avatar from '@mui/material/Avatar'
 import AppsIcon from '@mui/icons-material/Apps'
+import SlideMenuContainer from '../system/SlideMenuContainer'
 
 import useApps from '../../hooks/useApps'
 import useAccount from '../../hooks/useAccount'
@@ -15,6 +16,9 @@ import useLightTheme from '../../hooks/useLightTheme'
 import {
   IApp,
 } from '../../types'
+
+// Menu identifier constant
+const MENU_TYPE = 'apps'
 
 export const AppsMenu: FC<{
   onOpenApp: () => void,
@@ -49,7 +53,7 @@ export const AppsMenu: FC<{
   }
 
   return (
-    <>
+    <SlideMenuContainer menuType={MENU_TYPE}>
       <List
         sx={{
           py: 1,
@@ -114,7 +118,7 @@ export const AppsMenu: FC<{
         // Note: Pagination code removed as it appears the apps API doesn't use the same pagination model
         // Can be added back if needed with appropriate implementation
       */}
-    </>
+    </SlideMenuContainer>
   )
 }
 

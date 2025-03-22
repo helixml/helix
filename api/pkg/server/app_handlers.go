@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -782,28 +783,69 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return existing, nil
 }
 
+// getAppOAuthTokenEnv retrieves OAuth tokens for the app and returns them as environment variables
+func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.App) []string {
+	envPairs := []string{}
+
+	// Skip if OAuth manager is not available
+	if s.oauthManager == nil {
+		return envPairs
+	}
+
+	// First check each tool for OAuth provider requirements
+	for _, assistant := range appRecord.Config.Helix.Assistants {
+		// Check each tool for OAuth requirements
+		for _, tool := range assistant.Tools {
+			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+				providerType := tool.Config.API.OAuthProvider
+				requiredScopes := tool.Config.API.OAuthScopes
+
+				token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerType, requiredScopes)
+				if err == nil && token != "" {
+					// Add the token as an environment variable
+					envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
+					envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
+					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
+				} else {
+					var scopeErr *oauth.ScopeError
+					if errors.As(err, &scopeErr) {
+						log.Warn().
+							Str("app_id", appRecord.ID).
+							Str("user_id", user.ID).
+							Str("provider", string(providerType)).
+							Strs("missing_scopes", scopeErr.Missing).
+							Msg("Missing required OAuth scopes for tool")
+					} else {
+						log.Debug().
+							Err(err).
+							Str("provider", string(providerType)).
+							Msg("Failed to get OAuth token for tool")
+					}
+				}
+			}
+		}
+	}
+
+	return envPairs
+}
+
 // appRunScript godoc
-// @Summary Run a GPT script inside a github app
-// @Description Run a GPT script inside a github app.
-// @Tags    apps
-
+// @Summary Run a GptScript
+// @Description Runs a gptscript for an app
+// @Accept json
+// @Produce json
+// @Param request body types.GptScriptRequest true "Request"
 // @Success 200 {object} types.GptScriptResponse
-// @Param request    body types.GptScriptRequest true "Request body with script configuration.")
-// @Router /api/v1/apps/{id}/gptscript [post]
+// @Failure 400 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
-func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
-	// TODO: authenticate the referer based on app settings
-	addCorsHeaders(w)
-	if r.Method == "OPTIONS" {
-		return nil, nil
-	}
+func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
+	start := time.Now()
 	user := getRequestUser(r)
+	id := getID(r)
 
-	if user.AppID == "" {
-		return nil, system.NewHTTPError403("no api key for app found")
-	}
-
-	appRecord, err := s.Store.GetApp(r.Context(), user.AppID)
+	appRecord, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("app not found")
@@ -811,7 +853,10 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// load the body of the request
+	if user.ID != appRecord.Owner && !appRecord.Global {
+		return nil, system.NewHTTPError403("you do not have permission to run this script")
+	}
+
 	var req types.GptScriptRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -822,6 +867,10 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 	for key, value := range appRecord.Config.Secrets {
 		envPairs = append(envPairs, key+"="+value)
 	}
+
+	// Get OAuth tokens as environment variables
+	oauthEnvPairs := s.getAppOAuthTokenEnv(r.Context(), user, appRecord)
+	envPairs = append(envPairs, oauthEnvPairs...)
 
 	logger := log.With().
 		Str("app_id", user.AppID).
@@ -840,11 +889,8 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		KeyPair:    appRecord.Config.Github.KeyPair,
 	}
 
-	start := time.Now()
-
 	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
 	if err != nil {
-
 		logger.Warn().Err(err).Str("duration", time.Since(start).String()).Msg("app execution failed")
 
 		// Log error
@@ -896,13 +942,15 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 }
 
 // appRunAPIAction godoc
-// @Summary Run an API action with parameters
-// @Description Run an API action with parameters
-// @Tags    apps
-
+// @Summary Run an API action
+// @Description Runs an API action for an app
+// @Accept json
+// @Produce json
+// @Param request body types.RunAPIActionRequest true "Request"
 // @Success 200 {object} types.RunAPIActionResponse
-// @Param request    body types.RunAPIActionRequest true "Request body with API action name and parameters.")
-// @Router /api/v1/apps/{id}/api-actions [post]
+// @Failure 400 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
 func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request) (*types.RunAPIActionResponse, *system.HTTPError) {
 	user := getRequestUser(r)
@@ -936,13 +984,16 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 	}
 
 	// Validate whether action is valid
-
 	tool, ok := tools.GetToolFromAction(app.Config.Helix.Assistants[0].Tools, req.Action)
 	if !ok {
 		return nil, system.NewHTTPError400(fmt.Sprintf("action %s not found in the assistant tools", req.Action))
 	}
 
 	req.Tool = tool
+
+	// Get OAuth tokens as environment variables
+	oauthEnvVars := s.getAppOAuthTokenEnv(r.Context(), user, app)
+	req.OAuthEnvVars = oauthEnvVars
 
 	response, err := s.Controller.ToolsPlanner.RunAPIActionWithParameters(r.Context(), &req)
 	if err != nil {

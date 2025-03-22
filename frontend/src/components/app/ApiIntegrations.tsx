@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -28,6 +28,10 @@ import EditIcon from '@mui/icons-material/Edit';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { exchangeratesSchema } from './exchangerates_schema';
+import Avatar from '@mui/material/Avatar';
+import IconButton from '@mui/material/IconButton';
+import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
+import useApi from '../../hooks/useApi';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
@@ -35,6 +39,14 @@ interface ApiIntegrationsProps {
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
   onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
+}
+
+// Interface for OAuth provider objects from the API
+interface OAuthProvider {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
@@ -48,6 +60,28 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
+  const [oauthProvider, setOAuthProvider] = useState('');
+  const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
+  const [configuredProviders, setConfiguredProviders] = useState<OAuthProvider[]>([]);
+  const api = useApi();
+
+  // Fetch configured OAuth providers from the API
+  useEffect(() => {
+    const fetchOAuthProviders = async () => {
+      try {
+        const providers = await api.get('/api/v1/oauth/providers');
+        const enabledProviders = Array.isArray(providers) 
+          ? providers.filter((p: OAuthProvider) => p.enabled)
+          : [];
+        setConfiguredProviders(enabledProviders);
+      } catch (error) {
+        console.error('Error fetching OAuth providers:', error);
+        setConfiguredProviders([]);
+      }
+    };
+
+    fetchOAuthProviders();
+  }, []);
 
   const onAddApiTool = useCallback(() => {
     const newTool: IAssistantApi = {
@@ -59,6 +93,8 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       query: {},
     };
     setEditingTool({tool: newTool, index: -1});
+    setOAuthProvider('');
+    setOAuthScopes([]);
   }, []);
 
   const validate = () => {
@@ -70,6 +106,18 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     return true;
   };
 
+  const handleEditTool = (apiTool: IAssistantApi, index: number) => {
+    console.log('ApiIntegrations - editing tool at index:', index);
+    
+    // Look for OAuth settings directly on the API tool
+    let providerName = apiTool.oauth_provider || '';
+    let oauthScopes = apiTool.oauth_scopes || [];
+    
+    setOAuthProvider(providerName);
+    setOAuthScopes(oauthScopes);
+    setEditingTool({tool: apiTool, index});
+  };
+
   const handleSaveTool = () => {
     if (isReadOnly || !editingTool) return;
     if (!validate()) {
@@ -77,13 +125,39 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       return;
     }
     setShowErrors(false);
+    
+    // Include OAuth settings directly in the IAssistantApi tool
+    const updatedTool = {
+      ...editingTool.tool,
+      oauth_provider: oauthProvider || undefined,
+      oauth_scopes: oauthScopes.filter(s => s.trim() !== '')
+    };
+    
     console.log('ApiIntegrations - saving tool:', {
-      tool: editingTool.tool,
+      tool: updatedTool,
       index: editingTool.index,
-      isNew: editingTool.index === -1
+      isNew: editingTool.index === -1,
+      oauthSettings: { provider: oauthProvider, scopes: oauthScopes }
     });
-    onSaveApiTool(editingTool.tool, editingTool.index >= 0 ? editingTool.index : undefined);
+    
+    onSaveApiTool(updatedTool, editingTool.index >= 0 ? editingTool.index : undefined);
     setEditingTool(null);
+  };
+  
+  const addScope = () => {
+    setOAuthScopes([...oauthScopes, '']);
+  };
+
+  const removeScope = (index: number) => {
+    const newScopes = [...oauthScopes];
+    newScopes.splice(index, 1);
+    setOAuthScopes(newScopes);
+  };
+
+  const handleScopeChange = (index: number, value: string) => {
+    const newScopes = [...oauthScopes];
+    newScopes[index] = value;
+    setOAuthScopes(newScopes);
   };
 
   const updateEditingTool = (updates: Partial<IAssistantApi>) => {
@@ -191,7 +265,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   variant="outlined"
                   onClick={() => {
                     console.log('ApiIntegrations - editing tool at index:', index);
-                    setEditingTool({tool: apiTool, index})
+                    handleEditTool(apiTool, index)
                   }}
                   sx={{ mr: 1 }}
                   disabled={isReadOnly}
@@ -314,6 +388,85 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   entityTitle="query parameter"
                   disabled={isReadOnly}
                 />
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
+                  OAuth Configuration
+                </Typography>
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="oauth-provider-label">OAuth Provider</InputLabel>
+                  <Select
+                    labelId="oauth-provider-label"
+                    id="oauth-provider"
+                    value={oauthProvider}
+                    label="OAuth Provider"
+                    onChange={(e) => setOAuthProvider(e.target.value)}
+                    disabled={isReadOnly}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {configuredProviders.map((provider) => (
+                      <MenuItem key={provider.id} value={provider.name}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Avatar 
+                            sx={{ 
+                              bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
+                              color: 'white',
+                              mr: 1,
+                              width: 24,
+                              height: 24
+                            }}
+                          >
+                            {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
+                          </Avatar>
+                          <span>{provider.name}</span>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {oauthProvider && (
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle1">Required Scopes</Typography>
+                      <Button 
+                        startIcon={<AddIcon />} 
+                        onClick={addScope}
+                        disabled={isReadOnly}
+                        variant="outlined"
+                        size="small"
+                      >
+                        Add Scope
+                      </Button>
+                    </Box>
+                    
+                    {oauthScopes.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No scopes defined. Add scopes to request specific permissions.
+                      </Typography>
+                    ) : (
+                      oauthScopes.map((scope, index) => (
+                        <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <TextField
+                            value={scope}
+                            onChange={(e) => handleScopeChange(index, e.target.value)}
+                            fullWidth
+                            placeholder="Enter scope"
+                            size="small"
+                            disabled={isReadOnly}
+                          />
+                          <IconButton 
+                            onClick={() => removeScope(index)}
+                            disabled={isReadOnly}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      ))
+                    )}
+                  </Box>
+                )}
               </Grid>
               <Grid item xs={12}>
                 <Accordion>

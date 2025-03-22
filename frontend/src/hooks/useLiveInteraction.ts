@@ -15,7 +15,7 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
   const [interaction, setInteraction] = useState<IInteraction | null>(initialInteraction);
   const { currentResponses, stepInfos } = useStreaming();
   const [recentTimestamp, setRecentTimestamp] = useState(Date.now());
-  const [staleCounter, setStaleCounter] = useState(0);
+  const [isStale, setIsStale] = useState(false);
 
   const isAppTryHelixDomain = useMemo(() => {
     return window.location.hostname === 'app.tryhelix.ai';
@@ -35,31 +35,41 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
           };
         });
         setRecentTimestamp(Date.now());
+        // Reset stale state when we get an update
+        if (isStale) {
+          setIsStale(false);
+        }
       }
     }
-  }, [sessionId, currentResponses]);
+  }, [sessionId, currentResponses, isStale]);
 
+  // Check for stale state, but only update when it changes from non-stale to stale
   useEffect(() => {
-    const intervalID = setInterval(() => {
-      setStaleCounter(c => c + 1);
-    }, 1000);
+    // Only run stale check if we're on the tryhelix domain
+    if (!isAppTryHelixDomain) return;
+    
+    const checkStale = () => {
+      const shouldBeStale = (Date.now() - recentTimestamp) > staleThreshold;
+      // Only update state if it's different (prevents unnecessary re-renders)
+      if (shouldBeStale !== isStale) {
+        setIsStale(shouldBeStale);
+      }
+    };
+    
+    // Check immediately and then set up interval
+    checkStale();
+    const intervalID = setInterval(checkStale, 1000);
+    
     return () => clearInterval(intervalID);
-  }, []);
-
-  const isStale = useMemo(() => {
-    if (!isAppTryHelixDomain) {
-      return false;
-    }
-    return (Date.now() - recentTimestamp) > staleThreshold;
-  }, [recentTimestamp, staleThreshold, staleCounter, isAppTryHelixDomain]);
+  }, [recentTimestamp, staleThreshold, isStale, isAppTryHelixDomain]);
 
   return {
     message: interaction?.message || '',
     status: interaction?.status || '',
     progress: interaction?.progress || 0,
-    isComplete: interaction?.state === INTERACTION_STATE_COMPLETE && interaction?.finished,
+    isComplete: interaction?.state === INTERACTION_STATE_COMPLETE && interaction?.finished === true,
     isStale,
-    stepInfos: stepInfos.get(sessionId) || [], // Add this line
+    stepInfos: stepInfos.get(sessionId) || [],
   };
 };
 

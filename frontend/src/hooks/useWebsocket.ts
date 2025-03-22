@@ -50,7 +50,10 @@ export const useWebsocket = (
 
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent
-      if(parsedData.session_id != session_id) return
+      
+      if(parsedData.session_id != session_id) {
+        return
+      }
 
       // Add message to queue
       messageQueue.current.push(parsedData)
