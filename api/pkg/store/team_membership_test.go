@@ -113,6 +113,39 @@ func (suite *TeamMembershipTestSuite) TestCreateTeamMembership() {
 	suite.Error(err)
 }
 
+func (suite *TeamMembershipTestSuite) TestCreateTeamMembership_UserID_NotSpecified() {
+	membership := &types.TeamMembership{
+		OrganizationID: suite.org.ID,
+		TeamID:         suite.team.ID,
+	}
+
+	_, err := suite.db.CreateTeamMembership(suite.ctx, membership)
+	suite.Error(err)
+	suite.Contains(err.Error(), "user_id not specified")
+}
+
+func (suite *TeamMembershipTestSuite) TestCreateTeamMembership_TeamID_NotSpecified() {
+	membership := &types.TeamMembership{
+		OrganizationID: suite.org.ID,
+		UserID:         suite.user.ID,
+	}
+
+	_, err := suite.db.CreateTeamMembership(suite.ctx, membership)
+	suite.Error(err)
+	suite.Contains(err.Error(), "team_id not specified")
+}
+
+func (suite *TeamMembershipTestSuite) TestCreateTeamMembership_OrganizationID_NotSpecified() {
+	membership := &types.TeamMembership{
+		UserID: suite.user.ID,
+		TeamID: suite.team.ID,
+	}
+
+	_, err := suite.db.CreateTeamMembership(suite.ctx, membership)
+	suite.Error(err)
+	suite.Contains(err.Error(), "organization_id not specified")
+}
+
 func (suite *TeamMembershipTestSuite) TestGetTeamMembership() {
 	membership := &types.TeamMembership{
 		OrganizationID: suite.org.ID,

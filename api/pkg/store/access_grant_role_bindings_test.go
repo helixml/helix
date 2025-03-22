@@ -174,6 +174,16 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrant_Validation()
 	}
 }
 
+func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings_EmptyID() {
+
+	_, err := suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
+		AccessGrantID:  "",
+		OrganizationID: suite.org.ID,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "access_grant_id must be specified")
+}
+
 func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
@@ -220,7 +230,8 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 
 	// Test getting by access grant ID
 	bindings, err := suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		AccessGrantID: createdUserGrant.ID,
+		AccessGrantID:  createdUserGrant.ID,
+		OrganizationID: suite.org.ID,
 	})
 	suite.NoError(err)
 	suite.Len(bindings, 1, "should have 1 binding, team should have another one")
