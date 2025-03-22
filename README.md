@@ -72,4 +72,3 @@ Contributions to the source code are welcome, and by contributing you confirm th
 * We don't want cloud providers to take our open source code and build a rebranded service on top of it.
 
 If you would like to use some part of this code under a more permissive license, please [get in touch](mailto:founders@helix.ml).
-

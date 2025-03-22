@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -78,6 +79,7 @@ type HelixAPIServer struct {
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
 	oidcClient        auth.OIDC
+	oauthManager      *oauth.Manager
 }
 
 func NewServer(
@@ -94,6 +96,7 @@ func NewServer(
 	knowledgeManager knowledge.Manager,
 	scheduler *scheduler.Scheduler,
 	pingService *version.PingService,
+	oauthManager *oauth.Manager,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -182,6 +185,7 @@ func NewServer(
 		scheduler:        scheduler,
 		pingService:      pingService,
 		oidcClient:       oidcClient,
+		oauthManager:     oauthManager,
 	}, nil
 }
 
@@ -262,6 +266,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// admin auth requires a user with admin flag
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
+
+	// Setup OAuth routes with the auth router (except for callback)
+	apiServer.setupOAuthRoutes(authRouter)
+
+	// Setup OAuth callback route (no auth required)
+	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
 
 	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
@@ -541,6 +551,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// only admins can manage licenses
 	adminRouter.HandleFunc("/license", apiServer.handleGetLicenseKey).Methods("GET")
 	adminRouter.HandleFunc("/license", apiServer.handleSetLicenseKey).Methods("POST")
+
+	// OAuth routes
+	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
 
 	apiServer.router = router
 

@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -35,6 +36,7 @@ type Options struct {
 	DataprepOpenAIClient openai.Client
 	Scheduler            *scheduler.Scheduler
 	RunnerController     *scheduler.RunnerController
+	OAuthManager         *oauth.Manager
 }
 
 type Controller struct {

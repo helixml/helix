@@ -12,6 +12,7 @@ package store
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	license "github.com/helixml/helix/api/pkg/license"
 	types "github.com/helixml/helix/api/pkg/types"
@@ -175,6 +176,51 @@ func (m *MockStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*ty
 func (mr *MockStoreMockRecorder) CreateLLMCall(ctx, call any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateLLMCall", reflect.TypeOf((*MockStore)(nil).CreateLLMCall), ctx, call)
+}
+
+// CreateOAuthConnection mocks base method.
+func (m *MockStore) CreateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateOAuthConnection", ctx, connection)
+	ret0, _ := ret[0].(*types.OAuthConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateOAuthConnection indicates an expected call of CreateOAuthConnection.
+func (mr *MockStoreMockRecorder) CreateOAuthConnection(ctx, connection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOAuthConnection", reflect.TypeOf((*MockStore)(nil).CreateOAuthConnection), ctx, connection)
+}
+
+// CreateOAuthProvider mocks base method.
+func (m *MockStore) CreateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateOAuthProvider", ctx, provider)
+	ret0, _ := ret[0].(*types.OAuthProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateOAuthProvider indicates an expected call of CreateOAuthProvider.
+func (mr *MockStoreMockRecorder) CreateOAuthProvider(ctx, provider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOAuthProvider", reflect.TypeOf((*MockStore)(nil).CreateOAuthProvider), ctx, provider)
+}
+
+// CreateOAuthRequestToken mocks base method.
+func (m *MockStore) CreateOAuthRequestToken(ctx context.Context, token *types.OAuthRequestToken) (*types.OAuthRequestToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateOAuthRequestToken", ctx, token)
+	ret0, _ := ret[0].(*types.OAuthRequestToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateOAuthRequestToken indicates an expected call of CreateOAuthRequestToken.
+func (mr *MockStoreMockRecorder) CreateOAuthRequestToken(ctx, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOAuthRequestToken", reflect.TypeOf((*MockStore)(nil).CreateOAuthRequestToken), ctx, token)
 }
 
 // CreateOrganization mocks base method.
@@ -440,6 +486,48 @@ func (mr *MockStoreMockRecorder) DeleteKnowledgeVersion(ctx, id any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).DeleteKnowledgeVersion), ctx, id)
 }
 
+// DeleteOAuthConnection mocks base method.
+func (m *MockStore) DeleteOAuthConnection(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOAuthConnection", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOAuthConnection indicates an expected call of DeleteOAuthConnection.
+func (mr *MockStoreMockRecorder) DeleteOAuthConnection(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOAuthConnection", reflect.TypeOf((*MockStore)(nil).DeleteOAuthConnection), ctx, id)
+}
+
+// DeleteOAuthProvider mocks base method.
+func (m *MockStore) DeleteOAuthProvider(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOAuthProvider", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOAuthProvider indicates an expected call of DeleteOAuthProvider.
+func (mr *MockStoreMockRecorder) DeleteOAuthProvider(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOAuthProvider", reflect.TypeOf((*MockStore)(nil).DeleteOAuthProvider), ctx, id)
+}
+
+// DeleteOAuthRequestToken mocks base method.
+func (m *MockStore) DeleteOAuthRequestToken(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOAuthRequestToken", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOAuthRequestToken indicates an expected call of DeleteOAuthRequestToken.
+func (mr *MockStoreMockRecorder) DeleteOAuthRequestToken(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOAuthRequestToken", reflect.TypeOf((*MockStore)(nil).DeleteOAuthRequestToken), ctx, id)
+}
+
 // DeleteOrganization mocks base method.
 func (m *MockStore) DeleteOrganization(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -596,6 +684,21 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureUserMeta", reflect.TypeOf((*MockStore)(nil).EnsureUserMeta), ctx, UserMeta)
 }
 
+// GenerateRandomState mocks base method.
+func (m *MockStore) GenerateRandomState(ctx context.Context) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GenerateRandomState", ctx)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GenerateRandomState indicates an expected call of GenerateRandomState.
+func (mr *MockStoreMockRecorder) GenerateRandomState(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateRandomState", reflect.TypeOf((*MockStore)(nil).GenerateRandomState), ctx)
+}
+
 // GetAPIKey mocks base method.
 func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
 	m.ctrl.T.Helper()
@@ -729,6 +832,96 @@ func (m *MockStore) GetLicenseKey(ctx context.Context) (*types.LicenseKey, error
 func (mr *MockStoreMockRecorder) GetLicenseKey(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLicenseKey", reflect.TypeOf((*MockStore)(nil).GetLicenseKey), ctx)
+}
+
+// GetOAuthConnection mocks base method.
+func (m *MockStore) GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOAuthConnection", ctx, id)
+	ret0, _ := ret[0].(*types.OAuthConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOAuthConnection indicates an expected call of GetOAuthConnection.
+func (mr *MockStoreMockRecorder) GetOAuthConnection(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthConnection", reflect.TypeOf((*MockStore)(nil).GetOAuthConnection), ctx, id)
+}
+
+// GetOAuthConnectionByUserAndProvider mocks base method.
+func (m *MockStore) GetOAuthConnectionByUserAndProvider(ctx context.Context, userID, providerID string) (*types.OAuthConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOAuthConnectionByUserAndProvider", ctx, userID, providerID)
+	ret0, _ := ret[0].(*types.OAuthConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOAuthConnectionByUserAndProvider indicates an expected call of GetOAuthConnectionByUserAndProvider.
+func (mr *MockStoreMockRecorder) GetOAuthConnectionByUserAndProvider(ctx, userID, providerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthConnectionByUserAndProvider", reflect.TypeOf((*MockStore)(nil).GetOAuthConnectionByUserAndProvider), ctx, userID, providerID)
+}
+
+// GetOAuthConnectionsNearExpiry mocks base method.
+func (m *MockStore) GetOAuthConnectionsNearExpiry(ctx context.Context, threshold time.Time) ([]*types.OAuthConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOAuthConnectionsNearExpiry", ctx, threshold)
+	ret0, _ := ret[0].([]*types.OAuthConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOAuthConnectionsNearExpiry indicates an expected call of GetOAuthConnectionsNearExpiry.
+func (mr *MockStoreMockRecorder) GetOAuthConnectionsNearExpiry(ctx, threshold any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthConnectionsNearExpiry", reflect.TypeOf((*MockStore)(nil).GetOAuthConnectionsNearExpiry), ctx, threshold)
+}
+
+// GetOAuthProvider mocks base method.
+func (m *MockStore) GetOAuthProvider(ctx context.Context, id string) (*types.OAuthProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOAuthProvider", ctx, id)
+	ret0, _ := ret[0].(*types.OAuthProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOAuthProvider indicates an expected call of GetOAuthProvider.
+func (mr *MockStoreMockRecorder) GetOAuthProvider(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthProvider", reflect.TypeOf((*MockStore)(nil).GetOAuthProvider), ctx, id)
+}
+
+// GetOAuthRequestToken mocks base method.
+func (m *MockStore) GetOAuthRequestToken(ctx context.Context, userID, providerID string) ([]*types.OAuthRequestToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOAuthRequestToken", ctx, userID, providerID)
+	ret0, _ := ret[0].([]*types.OAuthRequestToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOAuthRequestToken indicates an expected call of GetOAuthRequestToken.
+func (mr *MockStoreMockRecorder) GetOAuthRequestToken(ctx, userID, providerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthRequestToken", reflect.TypeOf((*MockStore)(nil).GetOAuthRequestToken), ctx, userID, providerID)
+}
+
+// GetOAuthRequestTokenByState mocks base method.
+func (m *MockStore) GetOAuthRequestTokenByState(ctx context.Context, state string) ([]*types.OAuthRequestToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOAuthRequestTokenByState", ctx, state)
+	ret0, _ := ret[0].([]*types.OAuthRequestToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOAuthRequestTokenByState indicates an expected call of GetOAuthRequestTokenByState.
+func (mr *MockStoreMockRecorder) GetOAuthRequestTokenByState(ctx, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthRequestTokenByState", reflect.TypeOf((*MockStore)(nil).GetOAuthRequestTokenByState), ctx, state)
 }
 
 // GetOrganization mocks base method.
@@ -1017,6 +1210,36 @@ func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, q)
 }
 
+// ListOAuthConnections mocks base method.
+func (m *MockStore) ListOAuthConnections(ctx context.Context, query *ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOAuthConnections", ctx, query)
+	ret0, _ := ret[0].([]*types.OAuthConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOAuthConnections indicates an expected call of ListOAuthConnections.
+func (mr *MockStoreMockRecorder) ListOAuthConnections(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOAuthConnections", reflect.TypeOf((*MockStore)(nil).ListOAuthConnections), ctx, query)
+}
+
+// ListOAuthProviders mocks base method.
+func (m *MockStore) ListOAuthProviders(ctx context.Context, query *ListOAuthProvidersQuery) ([]*types.OAuthProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOAuthProviders", ctx, query)
+	ret0, _ := ret[0].([]*types.OAuthProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOAuthProviders indicates an expected call of ListOAuthProviders.
+func (mr *MockStoreMockRecorder) ListOAuthProviders(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOAuthProviders", reflect.TypeOf((*MockStore)(nil).ListOAuthProviders), ctx, query)
+}
+
 // ListOrganizationMemberships mocks base method.
 func (m *MockStore) ListOrganizationMemberships(ctx context.Context, query *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error) {
 	m.ctrl.T.Helper()
@@ -1254,6 +1477,36 @@ func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state t
 func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message)
+}
+
+// UpdateOAuthConnection mocks base method.
+func (m *MockStore) UpdateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOAuthConnection", ctx, connection)
+	ret0, _ := ret[0].(*types.OAuthConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateOAuthConnection indicates an expected call of UpdateOAuthConnection.
+func (mr *MockStoreMockRecorder) UpdateOAuthConnection(ctx, connection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOAuthConnection", reflect.TypeOf((*MockStore)(nil).UpdateOAuthConnection), ctx, connection)
+}
+
+// UpdateOAuthProvider mocks base method.
+func (m *MockStore) UpdateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOAuthProvider", ctx, provider)
+	ret0, _ := ret[0].(*types.OAuthProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateOAuthProvider indicates an expected call of UpdateOAuthProvider.
+func (mr *MockStoreMockRecorder) UpdateOAuthProvider(ctx, provider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOAuthProvider", reflect.TypeOf((*MockStore)(nil).UpdateOAuthProvider), ctx, provider)
 }
 
 // UpdateOrganization mocks base method.

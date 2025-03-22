@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -194,6 +195,32 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		Str("tool", req.Tool.Name).
 		Str("action", req.Action).
 		Msg("API request parameters prepared")
+
+	// Process OAuth environment variables if provided
+	if len(req.OAuthEnvVars) > 0 {
+		log.Debug().Int("count", len(req.OAuthEnvVars)).Msg("Adding OAuth tokens to API request")
+		for _, envVar := range req.OAuthEnvVars {
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 {
+				envKey, envValue := parts[0], parts[1]
+				// Only process OAUTH_TOKEN_ variables
+				if strings.HasPrefix(envKey, "OAUTH_TOKEN_") {
+					// Extract provider type from env var name (e.g., OAUTH_TOKEN_GITHUB -> github)
+					providerType := strings.ToLower(strings.TrimPrefix(envKey, "OAUTH_TOKEN_"))
+					// Add the token to headers if not already in headers
+					authHeaderKey := "Authorization"
+					if _, exists := req.Tool.Config.API.Headers[authHeaderKey]; !exists {
+						// Add OAuth token as Bearer token if the tool doesn't already have an auth header
+						if req.Tool.Config.API.Headers == nil {
+							req.Tool.Config.API.Headers = make(map[string]string)
+						}
+						req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", envValue)
+						log.Debug().Str("provider", providerType).Msg("Added OAuth token to API request headers")
+					}
+				}
+			}
+		}
+	}
 
 	httpRequest, err := c.prepareRequest(ctx, req.Tool, req.Action, req.Parameters)
 	if err != nil {

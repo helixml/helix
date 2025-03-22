@@ -86,7 +86,7 @@ const App: FC = () => {
       snackbar.error('We have no app to launch')
       return
     }
-    navigate('new', { app_id: appTools.id })
+    account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
   }
 
   useEffect(() => {

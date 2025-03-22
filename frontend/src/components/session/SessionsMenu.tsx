@@ -1,10 +1,12 @@
-import React, { FC, useCallback, useState, useEffect } from 'react'
+import React, { FC, useCallback, useState, useEffect, Fragment, useContext, useRef } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
 
 import ImageIcon from '@mui/icons-material/Image'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
@@ -14,13 +16,13 @@ import PermMediaIcon from '@mui/icons-material/PermMedia'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
+import SlideMenuContainer from '../system/SlideMenuContainer'
 
 import useSessions from '../../hooks/useSessions'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useApps from '../../hooks/useApps'
-import useAccount from '../../hooks/useAccount' // Add this import
-
+import useAccount from '../../hooks/useAccount'
 import {
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
@@ -28,10 +30,15 @@ import {
   SESSION_TYPE_TEXT,
   ISession,
   IApp,
-  ISessionSummary,  // Add this import
+  ISessionSummary,
 } from '../../types'
 
 import Avatar from '@mui/material/Avatar'
+import { SessionsContext } from '../../contexts/sessions'
+import SmallSpinner from '../system/SmallSpinner'
+
+// Menu identifier constant
+const MENU_TYPE = 'chat'
 
 export const SessionsMenu: FC<{
   onOpenSession: () => void,
@@ -70,7 +77,7 @@ export const SessionsMenu: FC<{
   }
 
   return (
-    <>
+    <SlideMenuContainer menuType={MENU_TYPE}>
       <List
         sx={{
           py: 1,
@@ -162,7 +169,7 @@ export const SessionsMenu: FC<{
           </Row>
         )
       }
-    </>
+    </SlideMenuContainer>
   )
 }
 

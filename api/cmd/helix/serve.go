@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -383,6 +384,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		RunnerController:     runnerController,
 	}
 
+	// Create the OAuth manager
+	oauthManager := oauth.NewManager(postgresStore)
+	if err := oauthManager.LoadProviders(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to load oauth providers")
+	}
+
+	// Update controller options with the OAuth manager
+	controllerOptions.OAuthManager = oauthManager
+
 	appController, err = controller.NewController(ctx, controllerOptions)
 	if err != nil {
 		return err
@@ -443,6 +453,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		knowledgeReconciler,
 		scheduler,
 		pingService,
+		oauthManager,
 	)
 	if err != nil {
 		return err

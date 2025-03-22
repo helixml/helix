@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/types"
@@ -91,6 +92,12 @@ var _ Store = &PostgresStore{}
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
+var (
+	ErrNotFound = errors.New("not found")
+	ErrMultiple = errors.New("multiple found")
+	ErrConflict = errors.New("conflict")
+)
+
 type Store interface {
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
@@ -121,7 +128,6 @@ type Store interface {
 	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
 	DeleteRole(ctx context.Context, id string) error
 	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
-
 	CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error)
 	ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error)
 	DeleteAccessGrant(ctx context.Context, id string) error
@@ -215,6 +221,31 @@ type Store interface {
 	SetLicenseKey(ctx context.Context, licenseKey string) error
 
 	GetDecodedLicense(ctx context.Context) (*license.License, error)
+
+	// OAuth Provider methods
+	// ListOAuthProvidersQuery contains filters for listing OAuth providers
+	// ListOAuthConnectionsQuery contains filters for listing OAuth connections
+	CreateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error)
+	GetOAuthProvider(ctx context.Context, id string) (*types.OAuthProvider, error)
+	UpdateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error)
+	DeleteOAuthProvider(ctx context.Context, id string) error
+	ListOAuthProviders(ctx context.Context, query *ListOAuthProvidersQuery) ([]*types.OAuthProvider, error)
+
+	// OAuth Connection methods
+	CreateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error)
+	GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error)
+	GetOAuthConnectionByUserAndProvider(ctx context.Context, userID, providerID string) (*types.OAuthConnection, error)
+	UpdateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error)
+	DeleteOAuthConnection(ctx context.Context, id string) error
+	ListOAuthConnections(ctx context.Context, query *ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error)
+	GetOAuthConnectionsNearExpiry(ctx context.Context, threshold time.Time) ([]*types.OAuthConnection, error)
+
+	// OAuth Request Token methods
+	CreateOAuthRequestToken(ctx context.Context, token *types.OAuthRequestToken) (*types.OAuthRequestToken, error)
+	GetOAuthRequestToken(ctx context.Context, userID, providerID string) ([]*types.OAuthRequestToken, error)
+	GetOAuthRequestTokenByState(ctx context.Context, state string) ([]*types.OAuthRequestToken, error)
+	DeleteOAuthRequestToken(ctx context.Context, id string) error
+	GenerateRandomState(ctx context.Context) (string, error)
 }
 
 type EmbeddingsStore interface {
@@ -222,5 +253,3 @@ type EmbeddingsStore interface {
 	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
 	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
 }
-
-var ErrNotFound = errors.New("not found")
