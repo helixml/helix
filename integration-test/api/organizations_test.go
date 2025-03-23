@@ -62,7 +62,7 @@ func (suite *OrganizationsTestSuite) TestCreateOrganization() {
 	suite.Require().NotNil(user)
 	suite.Require().NotNil(apiKey)
 
-	client, err := getApiClient(apiKey)
+	client, err := getAPIClient(apiKey)
 	suite.Require().NoError(err)
 
 	name := "test-org-" + time.Now().Format("20060102150405")
