@@ -93,8 +93,6 @@ func ensureConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloa
 		retry.Attempts(3),
 		retry.Delay(3*time.Second),
 	)
-
-	return nil
 }
 
 func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
