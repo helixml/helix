@@ -11,7 +11,6 @@ import (
 
 	"log"
 
-	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
@@ -111,11 +110,11 @@ func getStoreClient() (*store.PostgresStore, error) {
 }
 
 // createUser - creates user in the database and returns the user and api key
-func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenticator, email string) (user *types.User, apiKey string, err error) {
+func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenticator, id, email string) (user *types.User, apiKey string, err error) {
 	t.Helper()
 	// Create user in Keycloak
 	user = &types.User{
-		ID:       uuid.New().String(),
+		ID:       id,
 		Email:    email,
 		Username: email,
 		FullName: "test user " + time.Now().Format("20060102150405"),
