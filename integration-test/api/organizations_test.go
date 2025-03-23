@@ -57,7 +57,7 @@ func (suite *OrganizationsTestSuite) TestCreateOrganization() {
 	// Create a user
 	userEmail := fmt.Sprintf("test-create-org-%s@test.com", uuid.New().String())
 
-	user, apiKey, err := createUser(suite.db, suite.keycloak, userEmail)
+	user, apiKey, err := createUser(suite.T(), suite.db, suite.keycloak, userEmail)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(user)
 	suite.Require().NotNil(apiKey)
