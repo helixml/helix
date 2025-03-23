@@ -126,6 +126,21 @@ func (s *PostgresStore) DeleteUser(ctx context.Context, userID string) error {
 	if err != nil {
 		return err
 	}
+
+	// Delete all API keys for the user
+	err = s.gdb.WithContext(ctx).Where("owner = ?", userID).Delete(&types.ApiKey{}).Error
+	if err != nil {
+		return err
+	}
+
+	// Delete user meta
+	err = s.gdb.WithContext(ctx).Delete(&types.UserMeta{
+		ID: userID,
+	}).Error
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
