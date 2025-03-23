@@ -11,7 +11,6 @@ import (
 
 	"log"
 
-	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
@@ -90,8 +89,8 @@ func waitForAPIServer() error {
 	}
 }
 
-func getApiClient(apiKey string) (*client.HelixClient, error) {
-	apiClient, err := client.NewClient("http://localhost:8080", apiKey)
+func getAPIClient(userAPIKey string) (*client.HelixClient, error) {
+	apiClient, err := client.NewClient("http://localhost:8080", userAPIKey)
 	if err != nil {
 		return nil, err
 	}
@@ -112,22 +111,22 @@ func getStoreClient() (*store.PostgresStore, error) {
 
 // createUser - creates user in the database and returns the user and api key
 func createUser(db *store.PostgresStore, kc *auth.KeycloakAuthenticator, email string) (user *types.User, apiKey string, err error) {
-	userID := uuid.New().String()
-
+	// Create user in Keycloak
 	user = &types.User{
-		ID:    userID,
-		Email: email,
+		Email:    email,
+		Username: email,
+		FullName: "test user " + time.Now().Format("20060102150405"),
 	}
+	createdUser, err := kc.CreateKeycloakUser(context.Background(), user)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create user in Keycloak: %w", err)
+	}
+
+	user.ID = createdUser.ID
 
 	user, err = db.CreateUser(context.Background(), user)
 	if err != nil {
 		return nil, "", err
-	}
-
-	// Create user in Keycloak
-	_, err = kc.CreateKeycloakUser(context.Background(), user)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create user in Keycloak: %w", err)
 	}
 
 	apiKey, err = system.GenerateAPIKey()
@@ -138,7 +137,7 @@ func createUser(db *store.PostgresStore, kc *auth.KeycloakAuthenticator, email s
 	_, err = db.CreateAPIKey(context.Background(), &types.ApiKey{
 		Name:      "first-test-key",
 		Key:       apiKey,
-		Owner:     userID,
+		Owner:     user.ID,
 		OwnerType: types.OwnerTypeUser,
 		Type:      types.APIkeytypeAPI,
 	})
