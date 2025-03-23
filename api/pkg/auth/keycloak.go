@@ -327,7 +327,11 @@ func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
 		default:
 			token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
 			if err != nil {
-				log.Warn().Err(err).Msg("failed getting admin token, retrying in 5 seconds....")
+				log.Warn().
+					Str("username", cfg.Username).
+					Str("realm", cfg.AdminRealm).
+					Err(err).
+					Msg("failed getting admin token, retrying in 5 seconds....")
 				time.Sleep(5 * time.Second)
 				continue
 			}
