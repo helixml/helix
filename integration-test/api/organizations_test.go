@@ -2,10 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/client"
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -17,9 +18,8 @@ func TestOrganizationsTestSuite(t *testing.T) {
 
 type OrganizationsTestSuite struct {
 	suite.Suite
-	ctx    context.Context
-	db     *store.PostgresStore
-	client *client.HelixClient
+	ctx context.Context
+	db  *store.PostgresStore
 }
 
 func (suite *OrganizationsTestSuite) SetupTest() {
@@ -27,16 +27,23 @@ func (suite *OrganizationsTestSuite) SetupTest() {
 	store, err := getStoreClient()
 	suite.Require().NoError(err)
 	suite.db = store
-
-	client, err := getApiClient()
-	suite.Require().NoError(err)
-	suite.client = client
 }
 
 func (suite *OrganizationsTestSuite) TestCreateOrganization() {
+	// Create a user
+	userEmail := fmt.Sprintf("test-create-org-%s@test.com", uuid.New().String())
+
+	user, apiKey, err := createUser(suite.db, userEmail)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(user)
+	suite.Require().NotNil(apiKey)
+
+	client, err := getApiClient(apiKey)
+	suite.Require().NoError(err)
+
 	name := "test-org-" + time.Now().Format("20060102150405")
 
-	org, err := suite.client.CreateOrganization(suite.ctx, &types.Organization{
+	org, err := client.CreateOrganization(suite.ctx, &types.Organization{
 		Name: name,
 	})
 	suite.Require().NoError(err)
@@ -44,7 +51,7 @@ func (suite *OrganizationsTestSuite) TestCreateOrganization() {
 	suite.Require().Equal(name, org.Name)
 
 	suite.T().Cleanup(func() {
-		err := suite.client.DeleteOrganization(suite.ctx, org.ID)
+		err := client.DeleteOrganization(suite.ctx, org.ID)
 		suite.Require().NoError(err)
 	})
 }
