@@ -97,7 +97,14 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			if !strings.Contains(err.Error(), "409") {
+				return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			}
+			// Client already exists, get it
+			idOfClient, err = getIDOfKeycloakClient(gck, token, cfg.Realm, cfg.APIClientID)
+			if err != nil {
+				return fmt.Errorf("getKeycloakClient: error getting clients: %s", err.Error())
+			}
 		}
 	}
 	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, idOfClient)
