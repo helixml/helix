@@ -224,7 +224,10 @@ func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *co
 		}
 		_, err = gck.CreateClient(context.Background(), token, cfg.Realm, frontendClient)
 		if err != nil {
-			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			if !strings.Contains(err.Error(), "409") {
+				return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			}
+			// Client already exists, OK
 		}
 	}
 
