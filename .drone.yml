@@ -108,7 +108,7 @@ steps:
   when:
     event:
     - push
-  depends_on: []
+  depends_on: [unit-test]
 
 - name: release-backend
   image: golang:1.23.4-bullseye
