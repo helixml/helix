@@ -43,6 +43,10 @@ func (suite *OrganizationsTestSuite) SetupTest() {
 		ServerURL:           keycloakCfg.ServerURL,
 		APIClientID:         keycloakCfg.APIClientID,
 		FrontEndClientID:    keycloakCfg.FrontEndClientID,
+		AdminRealm:          keycloakCfg.AdminRealm,
+		Realm:               keycloakCfg.Realm,
+		Username:            keycloakCfg.Username,
+		Password:            keycloakCfg.Password,
 	}, suite.db)
 	suite.Require().NoError(err)
 
