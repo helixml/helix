@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,9 +11,12 @@ import (
 
 	"log"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestMain(m *testing.M) {
@@ -85,8 +89,8 @@ func waitForAPIServer() error {
 	}
 }
 
-func getApiClient() (*client.HelixClient, error) {
-	apiClient, err := client.NewClientFromEnv()
+func getApiClient(apiKey string) (*client.HelixClient, error) {
+	apiClient, err := client.NewClient("http://localhost:8080", apiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -103,4 +107,37 @@ func getStoreClient() (*store.PostgresStore, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+// createUser - creates user in the database and returns the user and api key
+func createUser(db *store.PostgresStore, email string) (user *types.User, apiKey string, err error) {
+	userID := uuid.New().String()
+
+	user = &types.User{
+		ID:    userID,
+		Email: email,
+	}
+
+	user, err = db.CreateUser(context.Background(), user)
+	if err != nil {
+		return nil, "", err
+	}
+
+	apiKey, err = system.GenerateAPIKey()
+	if err != nil {
+		return nil, "", err
+	}
+
+	_, err = db.CreateAPIKey(context.Background(), &types.ApiKey{
+		Name:      "first-test-key",
+		Key:       apiKey,
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+		Type:      types.APIkeytypeAPI,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	return user, apiKey, nil
 }
