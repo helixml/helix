@@ -271,7 +271,10 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 
 		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
 		if err != nil {
-			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
+			if !strings.Contains(err.Error(), "409") {
+				return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
+			}
+			// Realm already exists, get it
 		}
 		// OK, get again
 		realm, err = gck.GetRealm(context.Background(), token, cfg.Realm)
