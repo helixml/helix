@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
+	"github.com/avast/retry-go/v4"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 
@@ -50,24 +51,7 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 		return nil, err
 	}
 
-	err = setRealmConfigurations(gck, token.AccessToken, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	err = setFrontEndClientConfigurations(gck, token.AccessToken, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	if cfg.ClientSecret == "" {
-		err = setAPIClientConfigurations(gck, token.AccessToken, cfg)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err = ensureAPIClientRedirectURIs(gck, token.AccessToken, cfg)
+	err = ensureConfiguration(gck, token.AccessToken, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +62,39 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 		adminTokenMu: &sync.Mutex{},
 		store:        store,
 	}, nil
+}
+
+func ensureConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
+	return retry.Do(func() error {
+		err := setRealmConfigurations(gck, token, cfg)
+		if err != nil {
+			return err
+		}
+
+		err = setFrontEndClientConfigurations(gck, token, cfg)
+		if err != nil {
+			return err
+		}
+
+		if cfg.ClientSecret == "" {
+			err = setAPIClientConfigurations(gck, token, cfg)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = ensureAPIClientRedirectURIs(gck, token, cfg)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	},
+		retry.Attempts(3),
+		retry.Delay(3*time.Second),
+	)
+
+	return nil
 }
 
 func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
