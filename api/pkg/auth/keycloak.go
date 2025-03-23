@@ -430,6 +430,25 @@ func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
 	return nil
 }
 
+// CreateKeycloakUser creates a user in Keycloak, used in API integration tests
+func (k *KeycloakAuthenticator) CreateKeycloakUser(ctx context.Context, user *types.User) (*types.User, error) {
+	adminToken, err := k.getAdminToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = k.gocloak.CreateUser(ctx, adminToken.AccessToken, k.cfg.Realm, gocloak.User{
+		Email:     &user.Email,
+		Username:  &user.Username,
+		FirstName: &user.FullName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
 func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {
 	j, _, err := k.gocloak.DecodeAccessToken(ctx, token, k.cfg.Realm)
 	if err != nil {
