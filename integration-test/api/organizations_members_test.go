@@ -147,6 +147,14 @@ func (suite *OrganizationsMembersTestSuite) TestManageOrganizationMembers() {
 		suite.Require().Error(err)
 	})
 
+	suite.T().Run("MemberCantRemoveOtherMembers", func(_ *testing.T) {
+		user1Client, err := getAPIClient(suite.userMember1APIKey)
+		suite.Require().NoError(err)
+
+		err = user1Client.RemoveOrganizationMember(suite.ctx, suite.organization.ID, suite.userOrgOwner.ID)
+		suite.Require().Error(err)
+	})
+
 	// userMember1 should be able to view organization members
 	suite.T().Run("MemberCanViewMembers", func(_ *testing.T) {
 		user1Client, err := getAPIClient(suite.userMember1APIKey)
