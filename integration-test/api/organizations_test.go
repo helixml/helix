@@ -55,10 +55,10 @@ func (suite *OrganizationsTestSuite) SetupTest() {
 
 func (suite *OrganizationsTestSuite) TestCreateOrganization() {
 	// Create a user
-	userID := uuid.New().String()
-	userEmail := fmt.Sprintf("test-create-org-%s@test.com", userID)
+	emailID := uuid.New().String()
+	userEmail := fmt.Sprintf("test-create-org-%s@test.com", emailID)
 
-	user, apiKey, err := createUser(suite.T(), suite.db, suite.keycloak, userID, userEmail)
+	user, apiKey, err := createUser(suite.T(), suite.db, suite.keycloak, userEmail)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(user)
 	suite.Require().NotNil(apiKey)
