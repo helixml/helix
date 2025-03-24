@@ -33,6 +33,7 @@ type ServerConfig struct {
 	GPTScript          GPTScript
 	Triggers           Triggers
 	SSL                SSL
+	Organizations      Organizations
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
@@ -470,4 +471,8 @@ type SSL struct {
 	// It is a colon separated list of directories.
 	// See https://www.openssl.org/docs/man1.0.2/man1/c_rehash.html.
 	SSLCertDir string `envconfig:"SSL_CERT_DIR"`
+}
+
+type Organizations struct {
+	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"false"`
 }
