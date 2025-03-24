@@ -386,6 +386,11 @@ func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) 
 
 	user, err := k.gocloak.GetUserByID(ctx, adminToken.AccessToken, k.cfg.Realm, userID)
 	if err != nil {
+		log.Warn().
+			Str("user_id", userID).
+			Str("realm", k.cfg.Realm).
+			Err(err).
+			Msg("failed to get user from Keycloak")
 		return nil, err
 	}
 
