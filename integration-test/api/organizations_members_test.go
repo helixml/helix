@@ -99,6 +99,48 @@ func (suite *OrganizationsMembersTestSuite) SetupTest() {
 	suite.userMember2APIKey = userMember2APIKey
 }
 
-func (suite *OrganizationsMembersTestSuite) TestAddMemberToOrganization() {
+func (suite *OrganizationsMembersTestSuite) TestManageOrganizationMembers() {
+	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
 
+	// Add userMember1 to the organization
+	_, err = ownerClient.AddOrganizationMember(suite.ctx, suite.organization.ID, &types.AddOrganizationMemberRequest{
+		UserReference: suite.userMember1.ID,
+		Role:          types.OrganizationRoleMember,
+	})
+	suite.Require().NoError(err)
+
+	// Check memberships
+	memberships, err := ownerClient.ListOrganizationMembers(suite.ctx, suite.organization.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(memberships)
+	suite.Require().Equal(2, len(memberships), "should be 2 members (owner and member)")
+
+	// Find owner ID and member ID
+	var (
+		ownerFound  bool
+		memberFound bool
+	)
+
+	for _, membership := range memberships {
+		if membership.Role == types.OrganizationRoleOwner {
+			ownerFound = true
+		} else {
+			memberFound = true
+		}
+	}
+
+	suite.Require().True(ownerFound, "owner should be found")
+	suite.Require().True(memberFound, "member should be found")
+
+	// Remove userMember1 from the organization
+	err = ownerClient.RemoveOrganizationMember(suite.ctx, suite.organization.ID, suite.userMember1.ID)
+	suite.Require().NoError(err)
+
+	// Check memberships
+	memberships, err = ownerClient.ListOrganizationMembers(suite.ctx, suite.organization.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(memberships)
+	suite.Require().Equal(1, len(memberships), "should be 1 member (owner)")
+	suite.Require().Equal(memberships[0].Role, types.OrganizationRoleOwner, "owner should be the only member")
 }
