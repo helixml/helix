@@ -98,6 +98,7 @@ steps:
     KEYCLOAK_URL: http://keycloak:8080/auth
     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
     KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
     
   commands:
     # Build API server
