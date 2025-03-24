@@ -97,8 +97,16 @@ const Apps: FC = () => {
           console.log('Loaded template configuration:', templateConfig);
         }
       } catch (error) {
-        console.warn('Could not load template from API, using fallback configuration', error);
-        // We'll continue with fallback configuration
+        console.error('Could not load template from API', error);
+        snackbar.error('Failed to load template configuration');
+        return;
+      }
+      
+      // Template configuration is required
+      if (!templateConfig) {
+        console.error('No template configuration available');
+        snackbar.error('No template configuration available');
+        return;
       }
       
       // Ensure we have a default model
@@ -117,176 +125,43 @@ const Apps: FC = () => {
         return `${baseName} ${timestamp}`;
       };
       
-      let baseAppName, appDescription;
-      
-      if (templateConfig) {
-        // Use the template configuration if available
-        baseAppName = templateConfig.name;
-        appDescription = templateConfig.description;
-      } else {
-        // Fallback to hardcoded values
-        baseAppName = templateId.includes('github') ? 'GitHub Repository Analyzer' : 
-                      templateId.includes('jira') ? 'Jira Project Manager' :
-                      templateId.includes('slack') ? 'Slack Channel Assistant' :
-                      templateId.includes('google') ? 'Google Drive Navigator' :
-                      `${provider.name} Assistant`;
-                      
-        appDescription = templateId.includes('github') ? 'Analyze GitHub repositories, issues, and PRs' : 
-                        templateId.includes('jira') ? 'Manage and analyze Jira projects and issues' :
-                        templateId.includes('slack') ? 'Answer questions and perform tasks in Slack channels' :
-                        templateId.includes('google') ? 'Search and summarize documents in Google Drive' :
-                        `AI assistant that connects to your ${provider.name} account`;
-      }
-      
-      const appName = getUniqueAppName(baseAppName);
+      // Use the template configuration
+      const appName = getUniqueAppName(templateConfig.name);
+      const appDescription = templateConfig.description;
       
       // Create API tool configuration
       const toolName = `${provider.name} API`;
       
-      // Determine API URL based on provider type
-      const getProviderApiUrl = (provider: any): string => {
-        // Use provider.api_url if available
-        if (provider.api_url) {
-          return provider.api_url;
-        }
-        
-        // Default API URLs for known provider types
-        switch (provider.type) {
-          case 'github':
-            return 'https://api.github.com';
-          case 'slack':
-            return 'https://slack.com/api';
-          case 'google':
-            return 'https://www.googleapis.com';
-          case 'jira':
-          case 'atlassian':
-            return 'https://api.atlassian.com';
-          case 'microsoft':
-            return 'https://graph.microsoft.com/v1.0';
-          default:
-            console.warn(`No default API URL for provider type: ${provider.type}`);
-            return '';
-        }
-      };
-      
-      // Get the API URL
-      const apiUrl = getProviderApiUrl(provider);
+      // Get the API URL from the template
+      const apiUrl = templateConfig.api_url || '';
       
       // Log the API URL for debugging
-      console.log('Provider API URL:', apiUrl);
+      console.log('Provider API URL from template:', apiUrl);
       
       // Validation check - API URL is required
       if (!apiUrl) {
-        console.error('API URL is required but not available for provider:', provider);
+        console.error('API URL is required but not available in template config');
         snackbar.error('API URL is required for API tools');
         return;
       }
       
-      // Get an appropriate API schema for this provider
-      const getProviderSchema = (provider: any): string => {
-        // Try to use schema from provider if available
-        if (provider.api_schema) {
-          return provider.api_schema;
-        }
-        
-        // Generate default schema for known providers
-        switch (provider.type) {
-          case 'github':
-            return JSON.stringify({
-              openapi: "3.0.0",
-              info: {
-                title: "GitHub API",
-                version: "1.0.0",
-                description: "API for GitHub"
-              },
-              paths: {
-                "/users/{username}": {
-                  get: {
-                    operationId: "getUser",
-                    summary: "Get a user",
-                    parameters: [
-                      {
-                        name: "username",
-                        in: "path",
-                        required: true,
-                        schema: { type: "string" }
-                      }
-                    ]
-                  }
-                },
-                "/repos/{owner}/{repo}": {
-                  get: {
-                    operationId: "getRepo",
-                    summary: "Get a repository",
-                    parameters: [
-                      {
-                        name: "owner",
-                        in: "path",
-                        required: true,
-                        schema: { type: "string" }
-                      },
-                      {
-                        name: "repo",
-                        in: "path",
-                        required: true,
-                        schema: { type: "string" }
-                      }
-                    ]
-                  }
-                }
-              }
-            });
-          case 'slack':
-            return JSON.stringify({
-              openapi: "3.0.0",
-              info: {
-                title: "Slack API",
-                version: "1.0.0",
-                description: "API for Slack"
-              },
-              paths: {
-                "/chat.postMessage": {
-                  post: {
-                    operationId: "postMessage",
-                    summary: "Post a message to a channel"
-                  }
-                }
-              }
-            });
-          case 'google':
-            return JSON.stringify({
-              openapi: "3.0.0",
-              info: {
-                title: "Google Drive API",
-                version: "1.0.0",
-                description: "API for Google Drive"
-              },
-              paths: {
-                "/files": {
-                  get: {
-                    operationId: "listFiles",
-                    summary: "List files"
-                  }
-                }
-              }
-            });
-          default:
-            // Return a minimal schema for unknown provider types
-            return JSON.stringify({
-              openapi: "3.0.0",
-              info: {
-                title: `${provider.name} API`,
-                version: "1.0.0",
-                description: `API for ${provider.name}`
-              },
-              paths: {}
-            });
-        }
-      };
+      // Get schema from template
+      let schema = '';
       
-      // Get the schema for this provider
-      const schema = getProviderSchema(provider);
-      console.log(`Using schema for provider type ${provider.type}:`, schema.length > 100 ? schema.substring(0, 100) + '...' : schema);
+      // If we have template assistants and APIs, use that schema
+      if (templateConfig.assistants && 
+          templateConfig.assistants.length > 0 && 
+          templateConfig.assistants[0].apis && 
+          templateConfig.assistants[0].apis.length > 0) {
+        schema = templateConfig.assistants[0].apis[0].schema;
+        console.log('Using schema from template config');
+      } else {
+        console.error('No schema available in template configuration');
+        snackbar.error('No API schema available');
+        return;
+      }
+      
+      console.log(`Schema from template:`, schema.length > 100 ? schema.substring(0, 100) + '...' : schema);
       
       // Prepare app configuration
       const appConfig = {
