@@ -117,12 +117,12 @@ class LocalUnstructuredConverter:
 
 @component
 class PDFToImagesConverter:
-    """Converts PDF documents to images of each page"""
+    """Converts PDFs to a Haystack Document comprising of a list of images"""
 
     def __init__(
         self,
         output_dir: str = "./pdf_images",
-        dpi: int = 300,
+        dpi: int = 90,
         format: str = "png",
         prefix: str = "page_",
     ):
@@ -160,7 +160,6 @@ class PDFToImagesConverter:
         if meta is None:
             meta = {}
 
-        all_image_paths = []
         documents = []
 
         for pdf_path in paths:
@@ -193,9 +192,6 @@ class PDFToImagesConverter:
                     pix.save(image_path)
                     pdf_image_paths.append(image_path)
 
-                # Add all image paths to the result list
-                all_image_paths.extend(pdf_image_paths)
-
                 # Create a document with metadata
                 doc_meta = meta.copy()
                 doc_meta["file_path"] = pdf_path
@@ -215,7 +211,4 @@ class PDFToImagesConverter:
                 logger.error(f"Failed to process PDF file {pdf_path}: {str(e)}")
                 raise RuntimeError(f"Failed to process PDF file {pdf_path}: {str(e)}")
 
-        if not all_image_paths:
-            raise RuntimeError("No PDF files were successfully processed")
-
-        return {"image_paths": all_image_paths, "documents": documents}
+        return {"documents": documents}
