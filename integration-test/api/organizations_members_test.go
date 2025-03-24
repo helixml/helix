@@ -136,6 +136,26 @@ func (suite *OrganizationsMembersTestSuite) TestManageOrganizationMembers() {
 	suite.Require().True(ownerFound, "owner should be found")
 	suite.Require().True(memberFound, "member should be found")
 
+	// userMember1 should be able to view organization members
+	suite.T().Run("userMember1 should be able to view organization members", func(_ *testing.T) {
+		user1Client, err := getAPIClient(suite.userMember1APIKey)
+		suite.Require().NoError(err)
+
+		memberships, err = user1Client.ListOrganizationMembers(suite.ctx, suite.organization.ID)
+		suite.Require().NoError(err)
+		suite.Require().NotNil(memberships)
+		suite.Require().Equal(2, len(memberships), "should be 2 members (owner and member)")
+	})
+
+	suite.T().Run("userMember2 should not be able to view organization members", func(_ *testing.T) {
+		user2Client, err := getAPIClient(suite.userMember2APIKey)
+		suite.Require().NoError(err)
+
+		memberships, err = user2Client.ListOrganizationMembers(suite.ctx, suite.organization.ID)
+		suite.Require().Error(err)
+		suite.Require().Nil(memberships)
+	})
+
 	// Remove userMember1 from the organization
 	err = ownerClient.RemoveOrganizationMember(suite.ctx, suite.organization.ID, suite.userMember1.ID)
 	suite.Require().NoError(err)
