@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -23,7 +24,7 @@ var serverCmd *exec.Cmd
 
 func TestMain(m *testing.M) {
 	// Start server
-	startAPIServer()
+	buf := startAPIServer()
 
 	// Wait for server to be ready
 	if err := waitForAPIServer(); err != nil {
@@ -40,14 +41,19 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(runTests)
+
+	// Print the server logs
+	log.Printf("Server logs: %s", buf.String())
 }
 
-func startAPIServer() {
+func startAPIServer() *bytes.Buffer {
+	buf := bytes.NewBuffer(nil)
 	serverCmd = exec.Command("helix", "serve")
 	go func() {
 		cmd := exec.Command("helix", "serve")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+
+		cmd.Stdout = buf
+		cmd.Stderr = buf
 
 		// Get the main env variables for keycloak, database, etc.
 		cmd.Env = os.Environ()
@@ -68,6 +74,8 @@ func startAPIServer() {
 			return
 		}
 	}()
+
+	return buf
 }
 
 // Wait for API to be ready
