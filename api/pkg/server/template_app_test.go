@@ -101,8 +101,8 @@ func TestTemplateAppEndpoints(t *testing.T) {
 
 		// Verify the GitHub API tool configuration
 		assert.GreaterOrEqual(t, len(template.Assistants), 1)
-		assert.GreaterOrEqual(t, len(template.Assistants[0].Tools), 1)
-		assert.Equal(t, types.OAuthProviderTypeGitHub, template.Assistants[0].Tools[0].OAuthProvider)
+		assert.GreaterOrEqual(t, len(template.Assistants[0].APIs), 1)
+		assert.Equal(t, types.OAuthProviderTypeGitHub, template.Assistants[0].APIs[0].OAuthProvider)
 	})
 
 	// Test non-existent template
@@ -160,11 +160,11 @@ func TestTemplateAppEndpoints(t *testing.T) {
 		assert.Equal(t, template.Assistants[0].SystemPrompt, appConfig.Helix.Assistants[0].SystemPrompt)
 
 		// Verify the tools
-		assert.Len(t, appConfig.Helix.Assistants[0].Tools, len(template.Assistants[0].Tools))
-		assert.Equal(t, template.Assistants[0].Tools[0].Name, appConfig.Helix.Assistants[0].Tools[0].Name)
-		assert.Equal(t, template.Assistants[0].Tools[0].Description, appConfig.Helix.Assistants[0].Tools[0].Description)
-		assert.Equal(t, template.Assistants[0].Tools[0].URL, appConfig.Helix.Assistants[0].Tools[0].Config.API.URL)
-		assert.Equal(t, template.Assistants[0].Tools[0].OAuthProvider, appConfig.Helix.Assistants[0].Tools[0].Config.API.OAuthProvider)
+		assert.Len(t, appConfig.Helix.Assistants[0].Tools, 1)
+		assert.Equal(t, template.Assistants[0].APIs[0].Name, appConfig.Helix.Assistants[0].Tools[0].Name)
+		assert.Equal(t, template.Assistants[0].APIs[0].Description, appConfig.Helix.Assistants[0].Tools[0].Description)
+		assert.Equal(t, template.Assistants[0].APIs[0].URL, appConfig.Helix.Assistants[0].Tools[0].Config.API.URL)
+		assert.Equal(t, template.Assistants[0].APIs[0].OAuthProvider, appConfig.Helix.Assistants[0].Tools[0].Config.API.OAuthProvider)
 	})
 
 	// TestGitHubTemplateOAuth verifies that the GitHub template app has the correct OAuth provider configuration
@@ -180,14 +180,14 @@ func TestTemplateAppEndpoints(t *testing.T) {
 		// Check that the template has assistants
 		assert.NotEmpty(t, template.Assistants)
 
-		// Check the first assistant has tools
-		assert.NotEmpty(t, template.Assistants[0].Tools)
+		// Check the first assistant has APIs
+		assert.NotEmpty(t, template.Assistants[0].APIs)
 
 		// Verify the OAuth configuration for GitHub API tool
-		tool := template.Assistants[0].Tools[0]
-		assert.Equal(t, "GitHub API", tool.Name)
-		assert.Equal(t, types.OAuthProviderTypeGitHub, tool.OAuthProvider)
-		assert.Contains(t, tool.OAuthScopes, "repo")
+		api := template.Assistants[0].APIs[0]
+		assert.Equal(t, "GitHub API", api.Name)
+		assert.Equal(t, types.OAuthProviderTypeGitHub, api.OAuthProvider)
+		assert.Contains(t, api.OAuthScopes, "repo")
 
 		// Create app config from template
 		appConfig := types.CreateAppConfigFromTemplate(template)

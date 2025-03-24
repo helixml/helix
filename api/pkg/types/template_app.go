@@ -19,31 +19,8 @@ type TemplateAppConfig struct {
 	Type        TemplateAppType        `json:"type"`
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
-	Assistants  []TemplateAssistant    `json:"assistants"`
+	Assistants  []AssistantConfig      `json:"assistants"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// TemplateAssistant represents a template assistant configuration
-type TemplateAssistant struct {
-	Name         string              `json:"name"`
-	Description  string              `json:"description"`
-	SystemPrompt string              `json:"system_prompt"`
-	Provider     string              `json:"provider,omitempty"`
-	Model        string              `json:"model,omitempty"`
-	Tools        []TemplateAPITool   `json:"tools"`
-	Knowledge    []TemplateKnowledge `json:"knowledge,omitempty"`
-}
-
-// TemplateAPITool represents a template API tool configuration
-type TemplateAPITool struct {
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	URL           string            `json:"url"`
-	OAuthProvider OAuthProviderType `json:"oauth_provider"`
-	OAuthScopes   []string          `json:"oauth_scopes"`
-	Schema        string            `json:"schema,omitempty"`
-	Headers       map[string]string `json:"headers,omitempty"`
-	Query         map[string]string `json:"query,omitempty"`
 }
 
 // TemplateKnowledge represents template knowledge configuration
@@ -58,7 +35,7 @@ func GetGitHubIssuesTemplate() *TemplateAppConfig {
 		Type:        TemplateAppTypeGitHub,
 		Name:        "GitHub Repository Analyzer",
 		Description: "Analyze GitHub repositories, issues, and PRs",
-		Assistants: []TemplateAssistant{
+		Assistants: []AssistantConfig{
 			{
 				Name:        "GitHub Assistant",
 				Description: "AI assistant that helps manage GitHub repositories and issues",
@@ -66,7 +43,7 @@ func GetGitHubIssuesTemplate() *TemplateAppConfig {
 You can access GitHub repositories, issues, and pull requests using the GitHub API.
 Help the user analyze code, issues, and pull requests in their repositories.
 When asked about GitHub repositories, use the API to fetch actual data.`,
-				Tools: []TemplateAPITool{
+				APIs: []AssistantAPI{
 					{
 						Name:          "GitHub API",
 						Description:   "GitHub API for accessing repositories, issues, and pull requests",
@@ -217,44 +194,42 @@ func CreateAppConfigFromTemplate(template *TemplateAppConfig) *AppConfig {
 		Helix: AppHelixConfig{
 			Name:        template.Name,
 			Description: template.Description,
-			Assistants:  make([]AssistantConfig, 0, len(template.Assistants)),
+			Assistants:  make([]AssistantConfig, len(template.Assistants)),
 		},
 		Secrets: make(map[string]string),
 	}
 
-	for _, assistant := range template.Assistants {
-		assistantConfig := AssistantConfig{
+	// Copy assistants and convert APIs to Tools
+	for i, assistant := range template.Assistants {
+		config.Helix.Assistants[i] = AssistantConfig{
 			Name:         assistant.Name,
 			Description:  assistant.Description,
 			SystemPrompt: assistant.SystemPrompt,
 			Provider:     assistant.Provider,
 			Model:        assistant.Model,
-			Tools:        make([]*Tool, 0, len(assistant.Tools)),
+			Tools:        make([]*Tool, 0, len(assistant.APIs)),
+			Knowledge:    assistant.Knowledge,
 		}
 
-		for _, tool := range assistant.Tools {
-			apiConfig := &ToolAPIConfig{
-				URL:           tool.URL,
-				Schema:        tool.Schema,
-				OAuthProvider: tool.OAuthProvider,
-				OAuthScopes:   tool.OAuthScopes,
-				Headers:       tool.Headers,
-				Query:         tool.Query,
-			}
-
-			toolConfig := &Tool{
-				Name:        tool.Name,
-				Description: tool.Description,
+		// Convert APIs to Tools
+		for _, api := range assistant.APIs {
+			tool := &Tool{
+				Name:        api.Name,
+				Description: api.Description,
 				ToolType:    ToolTypeAPI,
 				Config: ToolConfig{
-					API: apiConfig,
+					API: &ToolAPIConfig{
+						URL:           api.URL,
+						Schema:        api.Schema,
+						OAuthProvider: api.OAuthProvider,
+						OAuthScopes:   api.OAuthScopes,
+						Headers:       api.Headers,
+						Query:         api.Query,
+					},
 				},
 			}
-
-			assistantConfig.Tools = append(assistantConfig.Tools, toolConfig)
+			config.Helix.Assistants[i].Tools = append(config.Helix.Assistants[i].Tools, tool)
 		}
-
-		config.Helix.Assistants = append(config.Helix.Assistants, assistantConfig)
 	}
 
 	return config

@@ -783,13 +783,13 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return existing, nil
 }
 
-// getAppOAuthTokenEnv retrieves OAuth tokens for the app and returns them as environment variables
-func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.App) []string {
-	envPairs := []string{}
+// getAppOAuthTokenEnv retrieves OAuth tokens for the app
+func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.App) map[string]string {
+	oauthTokens := make(map[string]string)
 
 	// Skip if OAuth manager is not available
 	if s.oauthManager == nil {
-		return envPairs
+		return oauthTokens
 	}
 
 	// First check each tool for OAuth provider requirements
@@ -802,9 +802,9 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 
 				token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerType, requiredScopes)
 				if err == nil && token != "" {
-					// Add the token as an environment variable
-					envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-					envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
+					// Add the token directly to the map
+					providerKey := strings.ToLower(string(providerType))
+					oauthTokens[providerKey] = token
 					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
 				} else {
 					var scopeErr *oauth.ScopeError
@@ -826,7 +826,7 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 		}
 	}
 
-	return envPairs
+	return oauthTokens
 }
 
 // appRunScript godoc
@@ -868,9 +868,14 @@ func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*
 		envPairs = append(envPairs, key+"="+value)
 	}
 
-	// Get OAuth tokens as environment variables
-	oauthEnvPairs := s.getAppOAuthTokenEnv(r.Context(), user, appRecord)
-	envPairs = append(envPairs, oauthEnvPairs...)
+	// Get OAuth tokens as a map
+	oauthTokensMap := s.getAppOAuthTokenEnv(r.Context(), user, appRecord)
+
+	// Convert OAuth tokens map to environment variables format
+	for provider, token := range oauthTokensMap {
+		envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(provider))
+		envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
+	}
 
 	logger := log.With().
 		Str("app_id", user.AppID).
@@ -991,9 +996,8 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 
 	req.Tool = tool
 
-	// Get OAuth tokens as environment variables
-	oauthEnvVars := s.getAppOAuthTokenEnv(r.Context(), user, app)
-	req.OAuthEnvVars = oauthEnvVars
+	// Get OAuth tokens directly as a map
+	req.OAuthTokens = s.getAppOAuthTokenEnv(r.Context(), user, app)
 
 	response, err := s.Controller.ToolsPlanner.RunAPIActionWithParameters(r.Context(), &req)
 	if err != nil {

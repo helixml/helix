@@ -27,12 +27,12 @@ import (
 )
 
 type ChatCompletionOptions struct {
-	AppID        string
-	AssistantID  string
-	RAGSourceID  string
-	Provider     string
-	QueryParams  map[string]string
-	OAuthEnvVars []string // OAuth environment variables
+	AppID       string
+	AssistantID string
+	RAGSourceID string
+	Provider    string
+	QueryParams map[string]string
+	OAuthTokens map[string]string // OAuth tokens mapped by provider type (lowercase)
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -934,19 +934,19 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	return nil
 }
 
-func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) ([]string, error) {
-	// Initialize empty slice for environment variables
-	var envVars []string
+func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) (map[string]string, error) {
+	// Initialize empty map for OAuth tokens
+	oauthTokens := make(map[string]string)
 
 	// Only proceed if we have an OAuth manager
 	if c.Options.OAuthManager == nil {
 		log.Debug().Msg("No OAuth manager available")
-		return nil, nil
+		return oauthTokens, nil
 	}
 
-	// If app is nil, return empty slice
+	// If app is nil, return empty map
 	if app == nil {
-		return nil, nil
+		return oauthTokens, nil
 	}
 
 	// Keep track of providers we've seen to avoid duplicates
@@ -967,8 +967,8 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 
 				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
 				if err == nil && token != "" {
-					envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-					envVars = append(envVars, fmt.Sprintf("%s=%s", envName, token))
+					providerKey := strings.ToLower(string(providerType))
+					oauthTokens[providerKey] = token
 					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
 				} else {
 					var scopeErr *oauth.ScopeError
@@ -987,12 +987,12 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 		}
 	}
 
-	return envVars, nil
+	return oauthTokens, nil
 }
 
 func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Client, opts *ChatCompletionOptions, user *types.User) error {
 	// If we already have OAuth tokens, use them
-	if len(opts.OAuthEnvVars) > 0 {
+	if len(opts.OAuthTokens) > 0 {
 		return nil
 	}
 
@@ -1004,32 +1004,23 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 			return nil // Continue without OAuth tokens
 		}
 
-		// Get OAuth tokens as environment variables
-		oauthEnvVars, err := c.getAppOAuthTokens(ctx, user.ID, app)
+		// Get OAuth tokens directly as a map
+		oauthTokens, err := c.getAppOAuthTokens(ctx, user.ID, app)
 		if err != nil {
 			log.Debug().Err(err).Str("app_id", opts.AppID).Msg("Failed to get OAuth tokens for app")
 			return nil // Continue without OAuth tokens
 		}
 
 		// Add OAuth tokens to the options
-		opts.OAuthEnvVars = oauthEnvVars
+		opts.OAuthTokens = oauthTokens
 
 		// If we have tokens, add them to the client as well
-		if len(oauthEnvVars) > 0 {
-			for _, envVar := range oauthEnvVars {
-				parts := strings.SplitN(envVar, "=", 2)
-				if len(parts) == 2 {
-					envKey, envValue := parts[0], parts[1]
-					// Only process OAUTH_TOKEN_ variables
-					if strings.HasPrefix(envKey, "OAUTH_TOKEN_") {
-						// Extract provider type from env var name (e.g., OAUTH_TOKEN_GITHUB -> github)
-						providerType := strings.ToLower(strings.TrimPrefix(envKey, "OAUTH_TOKEN_"))
-						log.Debug().Str("provider", providerType).Msg("Added OAuth token to API client HTTP headers")
-						// Add OAuth token to client (if supported)
-						if retryableClient, ok := client.(*oai.RetryableClient); ok {
-							retryableClient.AddOAuthToken(providerType, envValue)
-						}
-					}
+		if len(oauthTokens) > 0 {
+			for providerType, token := range oauthTokens {
+				log.Debug().Str("provider", providerType).Msg("Added OAuth token to API client HTTP headers")
+				// Add OAuth token to client (if supported)
+				if retryableClient, ok := client.(*oai.RetryableClient); ok {
+					retryableClient.AddOAuthToken(providerType, token)
 				}
 			}
 		}
