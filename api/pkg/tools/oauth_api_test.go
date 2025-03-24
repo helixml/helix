@@ -26,7 +26,10 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 		}
 		responseJSON, _ := json.Marshal(response)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(responseJSON)
+		_, err := w.Write(responseJSON)
+		if err != nil {
+			t.Fatalf("Failed to write response: %v", err)
+		}
 	}))
 	defer ts.Close()
 
@@ -136,7 +139,10 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 			assert.Equal(t, "Basic dXNlcjpwYXNz", authHeader)
 
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"message": "success"}`))
+			_, err := w.Write([]byte(`{"message": "success"}`))
+			if err != nil {
+				t.Fatalf("Failed to write response: %v", err)
+			}
 		}))
 		defer ts.Close()
 

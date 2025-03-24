@@ -31,7 +31,8 @@ func TestTemplateAppEndpoints(t *testing.T) {
 
 			// Write the response
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(templates)
+			err = json.NewEncoder(w).Encode(templates)
+			assert.NoError(t, err)
 		})
 
 		// Serve the request
@@ -77,7 +78,8 @@ func TestTemplateAppEndpoints(t *testing.T) {
 
 			// Write the response
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(template)
+			err = json.NewEncoder(w).Encode(template)
+			assert.NoError(t, err)
 		})
 
 		// Create a ResponseRecorder to record the response
@@ -120,13 +122,15 @@ func TestTemplateAppEndpoints(t *testing.T) {
 			template, err := server.getTemplateApp(w, r)
 			if err != nil {
 				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"error": "template not found"})
+				err = json.NewEncoder(w).Encode(map[string]string{"error": "template not found"})
+				assert.NoError(t, err)
 				return
 			}
 
 			// Write the response
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(template)
+			err = json.NewEncoder(w).Encode(template)
+			assert.NoError(t, err)
 		})
 
 		// Create a ResponseRecorder to record the response
