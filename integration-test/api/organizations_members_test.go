@@ -72,8 +72,11 @@ func (suite *OrganizationsMembersTestSuite) SetupTest() {
 	suite.userOrgOwner = userOrgOwner
 	suite.userOrgOwnerAPIKey = userOrgOwnerAPIKey
 
+	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+
 	// Create test organization
-	organization, err := suite.db.CreateOrganization(suite.ctx, &types.Organization{
+	organization, err := ownerClient.CreateOrganization(suite.ctx, &types.Organization{
 		Name: "test-org-" + time.Now().Format("2006-01-02-15-04-05"),
 	})
 	suite.Require().NoError(err)
