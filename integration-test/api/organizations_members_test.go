@@ -136,8 +136,19 @@ func (suite *OrganizationsMembersTestSuite) TestManageOrganizationMembers() {
 	suite.Require().True(ownerFound, "owner should be found")
 	suite.Require().True(memberFound, "member should be found")
 
+	suite.T().Run("MemberCantAddMembers", func(_ *testing.T) {
+		user1Client, err := getAPIClient(suite.userMember1APIKey)
+		suite.Require().NoError(err)
+
+		_, err = user1Client.AddOrganizationMember(suite.ctx, suite.organization.ID, &types.AddOrganizationMemberRequest{
+			UserReference: suite.userMember2.ID,
+			Role:          types.OrganizationRoleMember,
+		})
+		suite.Require().Error(err)
+	})
+
 	// userMember1 should be able to view organization members
-	suite.T().Run("userMember1 should be able to view organization members", func(_ *testing.T) {
+	suite.T().Run("MemberCanViewMembers", func(_ *testing.T) {
 		user1Client, err := getAPIClient(suite.userMember1APIKey)
 		suite.Require().NoError(err)
 
@@ -147,7 +158,7 @@ func (suite *OrganizationsMembersTestSuite) TestManageOrganizationMembers() {
 		suite.Require().Equal(2, len(memberships), "should be 2 members (owner and member)")
 	})
 
-	suite.T().Run("userMember2 should not be able to view organization members", func(_ *testing.T) {
+	suite.T().Run("NonMemberCantViewMembers", func(_ *testing.T) {
 		user2Client, err := getAPIClient(suite.userMember2APIKey)
 		suite.Require().NoError(err)
 
