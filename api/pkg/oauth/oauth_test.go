@@ -58,7 +58,7 @@ func (suite *OAuthTestSuite) SetupTest() {
 	// Mock UpdateOAuthConnection to avoid unexpected call errors
 	suite.store.EXPECT().
 		UpdateOAuthConnection(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, conn *types.OAuthConnection) (*types.OAuthConnection, error) {
+		DoAndReturn(func(_ context.Context, conn *types.OAuthConnection) (*types.OAuthConnection, error) {
 			return conn, nil
 		}).
 		AnyTimes()
@@ -201,7 +201,10 @@ func (suite *OAuthTestSuite) TestIntegrationWithTools() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuthHeader = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"success": true}`))
+		_, err := w.Write([]byte(`{"success": true}`))
+		if err != nil {
+			suite.T().Fatalf("Failed to write response: %v", err)
+		}
 	}))
 	defer ts.Close()
 
