@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -169,7 +170,7 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 // 4. Checks that userNonMember cannot see the app
 // 5. Checks that userMember3 can see the app
 // 6. Checks that userMember3 can see the app in the team
-// 7. Checks that userNonMember cannot see the app in the team
+// 7. Checks that userNonMember cannot see the app in the organization
 
 func (suite *OrganizationsRBACTestSuite) TestAppVisibilityWithoutGrantingAccess() {
 	// Create the app as userMember1
@@ -195,4 +196,50 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibilityWithoutGrantingAccess(
 	suite.Require().NoError(err)
 	suite.Require().NotNil(app)
 
+	// Org owner should see the app
+	orgOwnerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+
+	suite.True(assertAppVisibility(suite, orgOwnerClient, suite.organization.ID, app.ID), "org owner should see the app")
+
+	// userMember1 should see the app (he created the app)
+	suite.True(assertAppVisibility(suite, userMember1Client, suite.organization.ID, app.ID), "userMember1 should see the app (creator)")
+
+	// userMember2 should not see the app (access not granted)
+	userMember2Client, err := getAPIClient(suite.userMember2APIKey)
+	suite.Require().NoError(err)
+	suite.False(assertAppVisibility(suite, userMember2Client, suite.organization.ID, app.ID), "userMember2 should not see the app (access not granted)")
+
+	// userMember3 should not see the app (access not granted)
+	userMember3Client, err := getAPIClient(suite.userMember3APIKey)
+	suite.Require().NoError(err)
+	suite.False(assertAppVisibility(suite, userMember3Client, suite.organization.ID, app.ID), "userMember3 should not see the app (access not granted)")
+
+	// userNonMember should not see the app (not in the organization, no way to grant access)
+	userNonMemberClient, err := getAPIClient(suite.userNonMemberAPIKey)
+	suite.Require().NoError(err)
+	_, err = userNonMemberClient.ListApps(context.Background(), &client.AppFilter{
+		OrganizationID: suite.organization.ID,
+	})
+	suite.Require().Error(err)
+}
+
+func assertAppVisibility(suite *OrganizationsRBACTestSuite, userClient *client.HelixClient, orgID, appID string) bool {
+	suite.T().Helper()
+
+	var found bool
+
+	apps, err := userClient.ListApps(context.Background(), &client.AppFilter{
+		OrganizationID: orgID,
+	})
+	suite.Require().NoError(err)
+
+	for _, app := range apps {
+		if app.ID == appID {
+			found = true
+			break
+		}
+	}
+
+	return found
 }
