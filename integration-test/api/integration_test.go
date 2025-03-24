@@ -172,3 +172,9 @@ func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenti
 
 	return user, apiKey, nil
 }
+
+// Use configurable API port for flexibility
+apiPort := os.Getenv("API_PORT")
+if apiPort == "" {
+	apiPort = "18080" // Default to 18080 if not specified (high port to avoid conflicts)
+}
