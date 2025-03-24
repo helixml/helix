@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
+	"github.com/avast/retry-go/v4"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 
@@ -50,24 +51,7 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 		return nil, err
 	}
 
-	err = setRealmConfigurations(gck, token.AccessToken, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	err = setFrontEndClientConfigurations(gck, token.AccessToken, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	if cfg.ClientSecret == "" {
-		err = setAPIClientConfigurations(gck, token.AccessToken, cfg)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err = ensureAPIClientRedirectURIs(gck, token.AccessToken, cfg)
+	err = ensureConfiguration(gck, token.AccessToken, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +62,37 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 		adminTokenMu: &sync.Mutex{},
 		store:        store,
 	}, nil
+}
+
+func ensureConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
+	return retry.Do(func() error {
+		err := setRealmConfigurations(gck, token, cfg)
+		if err != nil {
+			return err
+		}
+
+		err = setFrontEndClientConfigurations(gck, token, cfg)
+		if err != nil {
+			return err
+		}
+
+		if cfg.ClientSecret == "" {
+			err = setAPIClientConfigurations(gck, token, cfg)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = ensureAPIClientRedirectURIs(gck, token, cfg)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	},
+		retry.Attempts(3),
+		retry.Delay(3*time.Second),
+	)
 }
 
 func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
@@ -97,7 +112,14 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			if !strings.Contains(err.Error(), "409") {
+				return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			}
+			// Client already exists, get it
+			idOfClient, err = getIDOfKeycloakClient(gck, token, cfg.Realm, cfg.APIClientID)
+			if err != nil {
+				return fmt.Errorf("getKeycloakClient: error getting clients: %s", err.Error())
+			}
 		}
 	}
 	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, idOfClient)
@@ -217,7 +239,10 @@ func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *co
 		}
 		_, err = gck.CreateClient(context.Background(), token, cfg.Realm, frontendClient)
 		if err != nil {
-			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			if !strings.Contains(err.Error(), "409") {
+				return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+			}
+			// Client already exists, OK
 		}
 	}
 
@@ -271,7 +296,10 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 
 		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
 		if err != nil {
-			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
+			if !strings.Contains(err.Error(), "409") {
+				return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
+			}
+			// Realm already exists, get it
 		}
 		// OK, get again
 		realm, err = gck.GetRealm(context.Background(), token, cfg.Realm)
@@ -314,7 +342,11 @@ func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
 		default:
 			token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
 			if err != nil {
-				log.Warn().Err(err).Msg("failed getting admin token, retrying in 5 seconds....")
+				log.Warn().
+					Str("username", cfg.Username).
+					Str("realm", cfg.AdminRealm).
+					Err(err).
+					Msg("failed getting admin token, retrying in 5 seconds....")
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -354,6 +386,11 @@ func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) 
 
 	user, err := k.gocloak.GetUserByID(ctx, adminToken.AccessToken, k.cfg.Realm, userID)
 	if err != nil {
+		log.Warn().
+			Str("user_id", userID).
+			Str("realm", k.cfg.Realm).
+			Err(err).
+			Msg("failed to get user from Keycloak")
 		return nil, err
 	}
 
@@ -415,6 +452,36 @@ func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
 	}
 
 	return nil
+}
+
+// CreateKeycloakUser creates a user in Keycloak, used in API integration tests
+func (k *KeycloakAuthenticator) CreateKeycloakUser(ctx context.Context, user *types.User) (*types.User, error) {
+	adminToken, err := k.getAdminToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("email", user.Email).
+		Str("realm", k.cfg.Realm).
+		Str("username", user.Username).Msg("creating user in Keycloak")
+
+	userID, err := k.gocloak.CreateUser(ctx, adminToken.AccessToken, k.cfg.Realm, gocloak.User{
+		ID:            &user.ID,
+		Enabled:       addr(true),
+		Email:         &user.Email,
+		Username:      &user.Username,
+		FirstName:     &user.FullName,
+		EmailVerified: addr(true),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	user.ID = userID
+
+	return user, nil
 }
 
 func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {
