@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -17,6 +18,7 @@ import (
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestKeycloakSuite(t *testing.T) {
@@ -26,7 +28,7 @@ func TestKeycloakSuite(t *testing.T) {
 type KeycloakTestSuite struct {
 	suite.Suite
 	ctx   context.Context
-	store store.Store
+	store *store.MockStore
 	auth  *KeycloakAuthenticator
 }
 
@@ -72,6 +74,30 @@ func (suite *KeycloakTestSuite) SetupSuite() {
 	}
 
 	suite.auth = keycloakAuthenticator
+}
+
+func (suite *KeycloakTestSuite) TestCreateUser() {
+	userID := uuid.New().String()
+	userEmail := fmt.Sprintf("test-create-user-%s@test.com", userID)
+	user, err := suite.auth.CreateKeycloakUser(suite.ctx, &types.User{
+		ID:       userID,
+		Email:    userEmail,
+		Username: "username",
+	})
+	suite.NoError(err)
+	suite.NotNil(user)
+	suite.NotEmpty(user.ID)
+	suite.Equal(userEmail, user.Email)
+
+	// Setup get user mock
+	suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil)
+	suite.store.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(user, nil)
+
+	// Get the user from Keycloak
+	user, err = suite.auth.GetUserByID(suite.ctx, user.ID)
+	suite.NoError(err)
+	suite.NotNil(user)
+	suite.Equal(userEmail, user.Email)
 }
 
 func (suite *KeycloakTestSuite) TestValidateUserToken() {

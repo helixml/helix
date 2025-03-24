@@ -467,7 +467,7 @@ func (k *KeycloakAuthenticator) CreateKeycloakUser(ctx context.Context, user *ty
 		Str("realm", k.cfg.Realm).
 		Str("username", user.Username).Msg("creating user in Keycloak")
 
-	_, err = k.gocloak.CreateUser(ctx, adminToken.AccessToken, k.cfg.Realm, gocloak.User{
+	userID, err := k.gocloak.CreateUser(ctx, adminToken.AccessToken, k.cfg.Realm, gocloak.User{
 		ID:            &user.ID,
 		Enabled:       addr(true),
 		Email:         &user.Email,
@@ -478,6 +478,8 @@ func (k *KeycloakAuthenticator) CreateKeycloakUser(ctx context.Context, user *ty
 	if err != nil {
 		return nil, err
 	}
+
+	user.ID = userID
 
 	return user, nil
 }
