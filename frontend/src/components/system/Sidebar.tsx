@@ -197,6 +197,14 @@ const SidebarContent: React.FC<{
     console.log('[SIDEBAR HANDLER] Switching from', fromResourceType, 'to', toResourceType)
     console.log('[SIDEBAR HANDLER] Current router params:', router.params)
     
+    // If switching to chat tab, navigate to home screen directly
+    if (toResourceType === 'chat') {
+      console.log('[SIDEBAR HANDLER] Navigating to home for chat tab')
+      account.orgNavigate('home')
+      return
+    }
+    
+    // For other cases (apps tab), proceed with normal parameter updates
     // Create a new params object with all existing params except resource_type
     const newParams: Record<string, any> = {
       ...router.params
