@@ -262,14 +262,24 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	updatedOrganization.ID = orgID
+	existingOrg, err := apiServer.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{
+		ID: orgID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error getting organization")
+		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	updatedOrganization, err = apiServer.Store.UpdateOrganization(r.Context(), updatedOrganization)
+	existingOrg.DisplayName = updatedOrganization.DisplayName
+	existingOrg.Name = updatedOrganization.Name
+
+	existingOrg, err = apiServer.Store.UpdateOrganization(r.Context(), existingOrg)
 	if err != nil {
 		log.Err(err).Msg("error updating organization")
 		http.Error(rw, "Could not update organization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	writeResponse(rw, updatedOrganization, http.StatusOK)
+	writeResponse(rw, existingOrg, http.StatusOK)
 }
