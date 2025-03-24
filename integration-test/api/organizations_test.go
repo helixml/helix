@@ -75,6 +75,43 @@ func (suite *OrganizationsTestSuite) TestCreateOrganization() {
 	suite.Require().NotNil(org)
 	suite.Require().Equal(name, org.Name)
 
+	// Get organization
+	org, err = client.GetOrganization(suite.ctx, org.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(org)
+	suite.Require().Equal(name, org.Name)
+
+	// List organizations
+	orgs, err := client.ListOrganizations(suite.ctx)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(orgs)
+	suite.Require().Greater(len(orgs), 0)
+
+	// Find our organization in the list
+	var foundOrg *types.Organization
+	for _, o := range orgs {
+		if o.ID == org.ID {
+			foundOrg = o
+		}
+	}
+	suite.Require().NotNil(foundOrg)
+	suite.Require().Equal(org.ID, foundOrg.ID)
+	suite.Require().Equal(org.Name, foundOrg.Name)
+
+	// Update organization display name
+	displayName := "test-org-display-name-" + time.Now().Format("20060102150405")
+	org, err = client.UpdateOrganization(suite.ctx, org.ID, &types.Organization{
+		DisplayName: displayName,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(org)
+
+	// Get it again
+	org, err = client.GetOrganization(suite.ctx, org.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(org)
+	suite.Require().Equal(displayName, org.DisplayName)
+
 	suite.T().Cleanup(func() {
 		err := client.DeleteOrganization(suite.ctx, org.ID)
 		suite.Require().NoError(err)
