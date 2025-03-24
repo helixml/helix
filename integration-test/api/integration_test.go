@@ -19,6 +19,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+var serverCmd *exec.Cmd
+
 func TestMain(m *testing.M) {
 	// Start server
 	startAPIServer()
@@ -29,10 +31,19 @@ func TestMain(m *testing.M) {
 	}
 
 	runTests := m.Run()
+
+	// Clean up the server process
+	if serverCmd != nil && serverCmd.Process != nil {
+		if err := serverCmd.Process.Kill(); err != nil {
+			log.Printf("Failed to kill server process: %v", err)
+		}
+	}
+
 	os.Exit(runTests)
 }
 
 func startAPIServer() {
+	serverCmd = exec.Command("helix", "serve")
 	go func() {
 		cmd := exec.Command("helix", "serve")
 		cmd.Stdout = os.Stdout
@@ -52,11 +63,11 @@ func startAPIServer() {
 			"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
 		)
 
-		if err := cmd.Run(); err != nil {
+		if err := cmd.Start(); err != nil {
 			log.Printf("Failed to start API server: %v", err)
+			return
 		}
 	}()
-
 }
 
 // Wait for API to be ready
