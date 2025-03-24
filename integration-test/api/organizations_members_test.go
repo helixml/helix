@@ -77,7 +77,7 @@ func (suite *OrganizationsMembersTestSuite) SetupTest() {
 
 	// Create test organization
 	organization, err := ownerClient.CreateOrganization(suite.ctx, &types.Organization{
-		Name: "test-org-" + time.Now().Format("2006-01-02-15-04-05"),
+		Name: "test-member-" + time.Now().Format("2006-01-02-15-04-05"),
 	})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(organization)
