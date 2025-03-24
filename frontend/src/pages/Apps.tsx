@@ -83,6 +83,24 @@ const Apps: FC = () => {
       
       console.log('Loaded provider details:', provider);
       
+      // Get the template app configuration
+      let templateConfig;
+      try {
+        // Extract the template type from the templateId
+        const templateType = templateId.includes('github') ? 'github' :
+                             templateId.includes('jira') ? 'jira' :
+                             templateId.includes('slack') ? 'slack' :
+                             templateId.includes('google') ? 'google' : '';
+        
+        if (templateType) {
+          templateConfig = await api.get(`/api/v1/template_apps/${templateType}`);
+          console.log('Loaded template configuration:', templateConfig);
+        }
+      } catch (error) {
+        console.warn('Could not load template from API, using fallback configuration', error);
+        // We'll continue with fallback configuration
+      }
+      
       // Ensure we have a default model
       const defaultModel = account.models && account.models.length > 0 
         ? account.models[0].id 
@@ -99,19 +117,28 @@ const Apps: FC = () => {
         return `${baseName} ${timestamp}`;
       };
       
-      const baseAppName = templateId.includes('github') ? 'GitHub Repository Analyzer' : 
+      let baseAppName, appDescription;
+      
+      if (templateConfig) {
+        // Use the template configuration if available
+        baseAppName = templateConfig.name;
+        appDescription = templateConfig.description;
+      } else {
+        // Fallback to hardcoded values
+        baseAppName = templateId.includes('github') ? 'GitHub Repository Analyzer' : 
                       templateId.includes('jira') ? 'Jira Project Manager' :
                       templateId.includes('slack') ? 'Slack Channel Assistant' :
                       templateId.includes('google') ? 'Google Drive Navigator' :
                       `${provider.name} Assistant`;
                       
-      const appName = getUniqueAppName(baseAppName);
+        appDescription = templateId.includes('github') ? 'Analyze GitHub repositories, issues, and PRs' : 
+                        templateId.includes('jira') ? 'Manage and analyze Jira projects and issues' :
+                        templateId.includes('slack') ? 'Answer questions and perform tasks in Slack channels' :
+                        templateId.includes('google') ? 'Search and summarize documents in Google Drive' :
+                        `AI assistant that connects to your ${provider.name} account`;
+      }
       
-      const appDescription = templateId.includes('github') ? 'Analyze GitHub repositories, issues, and PRs' : 
-                            templateId.includes('jira') ? 'Manage and analyze Jira projects and issues' :
-                            templateId.includes('slack') ? 'Answer questions and perform tasks in Slack channels' :
-                            templateId.includes('google') ? 'Search and summarize documents in Google Drive' :
-                            `AI assistant that connects to your ${provider.name} account`;
+      const appName = getUniqueAppName(baseAppName);
       
       // Create API tool configuration
       const toolName = `${provider.name} API`;

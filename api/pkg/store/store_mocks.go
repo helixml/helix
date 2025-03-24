@@ -1375,6 +1375,21 @@ func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
 }
 
+// LookupKnowledge mocks base method.
+func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LookupKnowledge", ctx, q)
+	ret0, _ := ret[0].(*types.Knowledge)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LookupKnowledge indicates an expected call of LookupKnowledge.
+func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
+}
+
 // SearchUsers mocks base method.
 func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
@@ -1389,21 +1404,6 @@ func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([
 func (mr *MockStoreMockRecorder) SearchUsers(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchUsers", reflect.TypeOf((*MockStore)(nil).SearchUsers), ctx, query)
-}
-
-// LookupKnowledge mocks base method.
-func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LookupKnowledge", ctx, q)
-	ret0, _ := ret[0].(*types.Knowledge)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// LookupKnowledge indicates an expected call of LookupKnowledge.
-func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
 // SetLicenseKey mocks base method.
