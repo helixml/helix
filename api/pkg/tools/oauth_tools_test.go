@@ -51,12 +51,12 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenInAPIRequest() {
 	}
 
 	// Create the API request with OAuth token
-	oauthEnvVars := []string{
-		"OAUTH_TOKEN_GITHUB=" + suite.oauthToken,
+	oauthTokens := map[string]string{
+		string(types.OAuthProviderTypeGitHub): suite.oauthToken,
 	}
 
 	// Process the OAuth token directly
-	processOAuthTokens(githubTool, oauthEnvVars)
+	processOAuthTokens(githubTool, oauthTokens)
 
 	// Create and send a request manually to test if the header was properly set
 	req, err := http.NewRequest("GET", ts.URL, nil)
@@ -110,18 +110,25 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotOverridingExistingAuth() {
 	}
 
 	// Create the API request with OAuth token
-	oauthEnvVars := []string{
-		"OAUTH_TOKEN_GITHUB=" + suite.oauthToken,
+	oauthTokens := map[string]string{
+		string(types.OAuthProviderTypeGitHub): suite.oauthToken,
 	}
 
+	// Store the original auth header value for comparison
+	originalAuthHeader := githubTool.Config.API.Headers["Authorization"]
+
 	// Process the OAuth token directly
-	processOAuthTokens(githubTool, oauthEnvVars)
+	processOAuthTokens(githubTool, oauthTokens)
+
+	// First, verify that the Authorization header wasn't changed in the tool
+	suite.Equal(originalAuthHeader, githubTool.Config.API.Headers["Authorization"],
+		"The Authorization header in the tool should not be changed")
 
 	// Create and send a request manually to test if the header was properly set
 	req, err := http.NewRequest("GET", ts.URL, nil)
 	suite.NoError(err)
 
-	// Add the Authorization header if it exists
+	// Add the Authorization header from the tool
 	if githubTool.Config.API.Headers != nil {
 		if authHeader, exists := githubTool.Config.API.Headers["Authorization"]; exists {
 			req.Header.Set("Authorization", authHeader)
@@ -164,12 +171,12 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotSetForWrongProvider() {
 	}
 
 	// Create the API request with GitHub OAuth token (should be ignored for Slack)
-	oauthEnvVars := []string{
-		"OAUTH_TOKEN_GITHUB=" + suite.oauthToken, // GitHub token for Slack tool (wrong provider)
+	oauthTokens := map[string]string{
+		string(types.OAuthProviderTypeGitHub): suite.oauthToken, // GitHub token for Slack tool (wrong provider)
 	}
 
 	// Process the OAuth token directly
-	processOAuthTokens(slackTool, oauthEnvVars)
+	processOAuthTokens(slackTool, oauthTokens)
 
 	// Create and send a request manually to test if the header was properly set
 	req, err := http.NewRequest("GET", ts.URL, nil)
@@ -218,12 +225,12 @@ func (suite *OAuthToolsTestSuite) TestAppRunAPIAction() {
 	}
 
 	// Create the API request with OAuth token
-	oauthEnvVars := []string{
-		"OAUTH_TOKEN_GITHUB=" + suite.oauthToken,
+	oauthTokens := map[string]string{
+		string(types.OAuthProviderTypeGitHub): suite.oauthToken,
 	}
 
 	// Process the OAuth token directly
-	processOAuthTokens(githubTool, oauthEnvVars)
+	processOAuthTokens(githubTool, oauthTokens)
 
 	// Create and send a request manually to test if the header was properly set
 	req, err := http.NewRequest("GET", ts.URL, nil)
@@ -277,14 +284,14 @@ func (suite *OAuthToolsTestSuite) TestMultipleOAuthTokens() {
 	googleToken := "google-oauth-token"
 
 	// Create the API request with multiple OAuth tokens
-	oauthEnvVars := []string{
-		"OAUTH_TOKEN_SLACK=" + slackToken,   // Should be ignored
-		"OAUTH_TOKEN_GITHUB=" + githubToken, // Should be used
-		"OAUTH_TOKEN_GOOGLE=" + googleToken, // Should be ignored
+	oauthTokens := map[string]string{
+		string(types.OAuthProviderTypeSlack):  slackToken,  // Should be ignored
+		string(types.OAuthProviderTypeGitHub): githubToken, // Should be used
+		string(types.OAuthProviderTypeGoogle): googleToken, // Should be ignored
 	}
 
 	// Process the OAuth token directly
-	processOAuthTokens(githubTool, oauthEnvVars)
+	processOAuthTokens(githubTool, oauthTokens)
 
 	// Create and send a request manually to test if the header was properly set
 	req, err := http.NewRequest("GET", ts.URL, nil)

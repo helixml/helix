@@ -1482,7 +1482,7 @@ type RunAPIActionRequest struct {
 
 	Tool *Tool `json:"-"` // Set internally
 
-	OAuthEnvVars []string `json:"-"` // OAuth environment variables
+	OAuthTokens map[string]string `json:"-"` // OAuth tokens mapped by provider type (lowercase)
 }
 
 type RunAPIActionResponse struct {
