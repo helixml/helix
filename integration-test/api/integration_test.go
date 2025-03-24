@@ -18,11 +18,14 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/joho/godotenv"
 )
 
 var serverCmd *exec.Cmd
 
 func TestMain(m *testing.M) {
+	// Load file
+	_ = godotenv.Load(".test.env")
 	// Start server
 	buf := startAPIServer()
 
