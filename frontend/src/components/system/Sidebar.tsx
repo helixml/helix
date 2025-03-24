@@ -1,4 +1,4 @@
-import React, { useState, useContext, useMemo } from 'react'
+import React, { useState, useContext, useMemo, useEffect } from 'react'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -35,6 +35,7 @@ import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApps from '../../hooks/useApps'
+import useSessions from '../../hooks/useSessions'
 import { AccountContext } from '../../contexts/account'
 import SlideMenuContainer, { triggerMenuChange } from './SlideMenuContainer'
 
@@ -61,6 +62,7 @@ const SidebarContent: React.FC<{
   const router = useRouter()
   const account = useAccount()
   const apps = useApps()
+  const sessions = useSessions()
   const { models } = useContext(AccountContext)
   const activeTab = useMemo(() => {
     // Always respect resource_type if it's present
@@ -75,6 +77,40 @@ const SidebarContent: React.FC<{
   }, [
     router.params,
   ])
+
+  // Ensure apps are loaded when apps tab is selected
+  useEffect(() => {
+    console.log(`[SIDEBAR] Active tab changed to ${activeTab}`)
+    const currentResourceType = RESOURCE_TYPES[activeTab]
+    
+    // Make sure the URL reflects the correct resource type
+    const urlResourceType = router.params.resource_type || 'chat'
+    
+    // If there's a mismatch between activeTab and URL resource_type, update the URL
+    if (currentResourceType !== urlResourceType) {
+      console.log(`[SIDEBAR] Fixing resource_type mismatch: URL has ${urlResourceType}, should be ${currentResourceType}`)
+      
+      // Create a copy of the params with the correct resource_type
+      const newParams = { ...router.params } as Record<string, string>;
+      newParams.resource_type = currentResourceType;
+      
+      // If switching to chat tab, remove app_id if present
+      if (currentResourceType === 'chat' && router.params.app_id) {
+        delete newParams.app_id;
+      }
+      
+      // Update the URL without triggering a reload
+      router.replaceParams(newParams)
+    }
+    
+    // Load the appropriate content for the tab
+    if (currentResourceType === 'apps') {
+      apps.loadApps()
+    } else if (currentResourceType === 'chat') {
+      // Load sessions/chats when on the chat tab
+      sessions.loadSessions()
+    }
+  }, [activeTab, router.params])
 
   const filteredModels = useMemo(() => {
     return models.filter(m => m.type === "text" || m.type === "chat")
@@ -158,19 +194,27 @@ const SidebarContent: React.FC<{
     const fromResourceType = RESOURCE_TYPES[activeTab]
     const toResourceType = RESOURCE_TYPES[newValue]
     
-    // When switching to the apps tab and we have an app_id, preserve it
+    console.log('[SIDEBAR HANDLER] Switching from', fromResourceType, 'to', toResourceType)
+    console.log('[SIDEBAR HANDLER] Current router params:', router.params)
+    
+    // Create a new params object with all existing params except resource_type
     const newParams: Record<string, any> = {
-      resource_type: RESOURCE_TYPES[newValue],
+      ...router.params
     };
     
-    // If we're switching to apps tab and there's an app_id in the URL, keep it
-    if (RESOURCE_TYPES[newValue] === 'apps' && router.params.app_id) {
-      newParams.app_id = router.params.app_id;
+    // Update resource_type
+    newParams.resource_type = RESOURCE_TYPES[newValue];
+    
+    // If switching to chat tab, remove app_id if present
+    if (RESOURCE_TYPES[newValue] === 'chat' && newParams.app_id) {
+      delete newParams.app_id;
     }
     
-    // Direct navigation without animation for tab changes
-    // We don't want slide animations between tabs as they're in the same component
-    router.mergeParams(newParams);
+    console.log('[SIDEBAR HANDLER] About to navigate with params:', newParams)
+    
+    // Use a more forceful navigation method instead of just merging params
+    // This will trigger a full route change
+    router.navigate(router.name, newParams);
   }
 
   // Handle creating new chat or app based on active tab
