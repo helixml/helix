@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useEffect } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -25,13 +25,18 @@ export const AppsMenu: FC<{
 }> = ({
   onOpenApp,
 }) => {
-  const { apps } = useApps()
+  const { apps, loadApps } = useApps()
   const account = useAccount()
   const lightTheme = useLightTheme()
   const {
     navigate,
     params,
   } = useRouter()
+
+  // Load apps when component mounts
+  useEffect(() => {
+    loadApps()
+  }, [])
 
   // Helper function to get the icon for an app
   const getAppIcon = (app: IApp) => {
