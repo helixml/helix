@@ -982,7 +982,7 @@ class VectorchordDocumentStore:
 
         # Use the provided vector_function or fall back to the default
         vector_function = vector_function or self.vector_function
-        
+
         # Define score based on vector function
         if vector_function == "cosine_similarity":
             score_definition = SQL("1 - (embedding <=> %s::vector) AS score")
@@ -997,8 +997,13 @@ class VectorchordDocumentStore:
         # Convert query_embedding to proper PostgreSQL vector format
         try:
             query_embedding_str = f"[{','.join(str(val) for val in query_embedding)}]"
-            if not (query_embedding_str.startswith("[") and query_embedding_str.endswith("]")):
-                raise ValueError(f"Failed to create valid vector string, got: {query_embedding_str}")
+            if not (
+                query_embedding_str.startswith("[")
+                and query_embedding_str.endswith("]")
+            ):
+                raise ValueError(
+                    f"Failed to create valid vector string, got: {query_embedding_str}"
+                )
         except Exception as e:
             raise ValueError(f"Error formatting query_embedding as vector: {str(e)}")
 
@@ -1010,10 +1015,13 @@ class VectorchordDocumentStore:
         if filters:
             try:
                 from .filters import _convert_filters_to_where_clause_and_params
-                filter_where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
-                where_clause = SQL("{filter_where_clause} AND embedding IS NOT NULL").format(
-                    filter_where_clause=filter_where_clause
+
+                filter_where_clause, filter_params = (
+                    _convert_filters_to_where_clause_and_params(filters)
                 )
+                where_clause = SQL(
+                    "{filter_where_clause} AND embedding IS NOT NULL"
+                ).format(filter_where_clause=filter_where_clause)
                 # Add filter parameters
                 if isinstance(filter_params, tuple):
                     params.extend(filter_params)
