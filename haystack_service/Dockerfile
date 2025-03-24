@@ -28,10 +28,6 @@ RUN uv run python -m nltk.downloader -d /usr/share/nltk_data punkt_tab averaged_
 RUN ls -la /usr/share/nltk_data/tokenizers/ || echo "Tokenizers directory not found or empty"
 RUN ls -la /usr/share/nltk_data/taggers/ || echo "Taggers directory not found or empty"
 
-ADD . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
-
 FROM python:3.11-slim
 
 # Install system dependencies for unstructured
@@ -64,4 +60,5 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 # Copy the diffusers build environment including Python
 COPY --from=uv /uv /bin/uv
 COPY --from=diffusers-build-env /usr/share/nltk_data /usr/share/nltk_data
-COPY --from=diffusers-build-env /app /app
+COPY --from=diffusers-build-env /app/.venv /app/.venv
+ADD . /app
