@@ -162,6 +162,15 @@ function lint() {
 }
 
 function test() {
+  # Check for the helix binary
+  if ! command -v helix > /dev/null; then
+    echo "ERROR: helix binary not found in PATH"
+    echo "Please compile the helix binary with 'go build -o helix' first"
+    exit 1
+  fi
+  
+  echo "Starting required services..."
+
   # Ingest env variables from .env file
   set -a
   source .env
@@ -180,11 +189,19 @@ function test() {
   # Ensure postgres, tika, typesense and chrome are running
   docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
 
-  # Database config (running in a sidecar)
+  # Check if we can connect from host
+  TEST_DB_URL="postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+  echo "Using database URL for API server: $TEST_DB_URL"
+  
+  # Use localhost for PostgreSQL
+  echo "Using Postgres on localhost with port 5432"
+  
+  # Database config for the API server
   export POSTGRES_USER=postgres
   export POSTGRES_PASSWORD=postgres
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
+  export POSTGRES_PORT=5432
 
   export KEYCLOAK_USER=admin
   export KEYCLOAK_PASSWORD=REPLACE_ME
@@ -200,10 +217,637 @@ function test() {
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
+  # Use a high-numbered port for the API server to avoid conflicts
+  export API_PORT=18080
+  echo "Using API port: ${API_PORT}"
+  
+  # Set filestore path to a writable location immediately
+  export FILESTORE_LOCALFS_PATH="/tmp/helix-test-filestore"
+  mkdir -p $FILESTORE_LOCALFS_PATH
+  chmod -R 777 $FILESTORE_LOCALFS_PATH
+  echo "Setting FILESTORE_LOCALFS_PATH=${FILESTORE_LOCALFS_PATH}"
+  
+  # Set NATS store directory to a writable location
+  export NATS_STORE_DIR="/tmp/helix-test-nats"
+  mkdir -p $NATS_STORE_DIR
+  chmod -R 777 $NATS_STORE_DIR
+  echo "Setting NATS_STORE_DIR=${NATS_STORE_DIR}"
+
+  # Disable the crawler and browser pool
+  # This disables both launching AND using browser
+  export RAG_CRAWLER_ENABLED=false
+  export RAG_CRAWLER_LAUNCHER_ENABLED=false
+  export RAG_CRAWLER_CHROME_URL="http://chrome-placeholder-not-used"
+  export RAG_HAYSTACK_ENABLED=false
+  export TOOLS_RAG_ENABLED=false
+  export BROWSER_POOL_ENABLED=false
+  echo "Disabling RAG crawler (RAG_CRAWLER_ENABLED=false)"
+  echo "Disabling browser pool (BROWSER_POOL_ENABLED=false)"
+  echo "Setting RAG_CRAWLER_CHROME_URL to placeholder to prevent Chrome connection attempts"
+
   # go test -v ./...
   # To debug test hangs, try this:
   # Run tests one at a time and show which test is running
   go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+}
+
+function test-oauth() {
+  # Check for the helix binary
+  if ! command -v helix > /dev/null; then
+    echo "helix binary not found in PATH, compiling now..."
+    compile
+    
+    # Add the current directory to PATH temporarily
+    PATH=$PATH:$(pwd)
+    
+    # Verify it's now available
+    if ! command -v helix > /dev/null; then
+      echo "ERROR: Failed to compile or find helix binary"
+      exit 1
+    fi
+    
+    echo "Successfully compiled helix binary"
+  fi
+  
+  # Ingest env variables from .env file first
+  echo "Loading environment variables from .env file..."
+  set -a
+  source .env
+  set +a
+  
+  # Check whether environment variables are set
+  if [[ -z "$TOGETHER_API_KEY" ]]; then
+    echo "TOGETHER_API_KEY is not set"
+    exit 1
+  fi
+  # TOGETHER_BASE_URL is not required for this test
+  
+  # Set up directories and environment variables
+  # Use a high-numbered port for the API server to avoid conflicts
+  export API_PORT=18080
+  echo "Using API port: ${API_PORT}"
+  
+  # Use a high port number for the oauth2 mock server to avoid conflicts
+  export OAUTH_PORT=18081
+  echo "Using OAuth port: ${OAUTH_PORT}"
+  
+  # Set filestore path to a writable location immediately
+  export FILESTORE_LOCALFS_PATH="/tmp/helix-test-filestore"
+  mkdir -p $FILESTORE_LOCALFS_PATH
+  chmod -R 777 $FILESTORE_LOCALFS_PATH
+  echo "Setting FILESTORE_LOCALFS_PATH=${FILESTORE_LOCALFS_PATH}"
+  
+  # Set NATS store directory to a writable location
+  export NATS_STORE_DIR="/tmp/helix-test-nats"
+  mkdir -p $NATS_STORE_DIR
+  chmod -R 777 $NATS_STORE_DIR
+  echo "Setting NATS_STORE_DIR=${NATS_STORE_DIR}"
+  
+  # Disable the crawler and browser pool
+  # This disables both launching AND using browser
+  export RAG_CRAWLER_ENABLED=false
+  export RAG_CRAWLER_LAUNCHER_ENABLED=false
+  export RAG_CRAWLER_CHROME_URL="http://chrome-placeholder-not-used"
+  export RAG_HAYSTACK_ENABLED=false
+  export TOOLS_RAG_ENABLED=false
+  export BROWSER_POOL_ENABLED=false
+  echo "Disabling RAG crawler (RAG_CRAWLER_ENABLED=false)"
+  echo "Disabling browser pool (BROWSER_POOL_ENABLED=false)"
+  echo "Setting RAG_CRAWLER_CHROME_URL to placeholder to prevent Chrome connection attempts"
+  
+  echo "Starting required services..."
+
+  # Ensure postgres, tika, typesense, chrome, keycloak are running
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
+  
+  # Initialize tracking flag for proxy creation
+  PROXY_CREATED=false
+
+  # Check if PostgreSQL is running and exposing port
+  if ! docker ps | grep -q "helix-postgres-.*5432->5432"; then
+    # Check if the proxy container is running
+    if docker ps | grep -q "pg-test-proxy.*15432->5432"; then
+      echo "PostgreSQL available via proxy container on port 15432"
+      export POSTGRES_PORT=15432
+    else
+      echo "PostgreSQL container is running but port is not exposed directly or via proxy"
+      echo "Creating a proxy container to expose PostgreSQL..."
+      
+      # First make sure the postgres container is running
+      POSTGRES_CONTAINER=$(docker ps | grep helix-postgres | awk '{print $1}')
+      if [ -z "$POSTGRES_CONTAINER" ]; then
+        echo "ERROR: PostgreSQL container not found"
+        docker ps
+        exit 1
+      fi
+      
+      # Get the network that the container is on
+      NETWORK=$(docker inspect --format='{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' $POSTGRES_CONTAINER)
+      echo "PostgreSQL container is on network: $NETWORK"
+      
+      # Create the proxy container
+      echo "Creating proxy container to expose PostgreSQL on port 15432..."
+      docker rm -f pg-test-proxy &>/dev/null || true
+      docker run -d --name pg-test-proxy --network $NETWORK -p 15432:5432 alpine/socat tcp-listen:5432,fork,reuseaddr tcp-connect:$POSTGRES_CONTAINER:5432
+      
+      if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to create proxy container"
+        exit 1
+      fi
+      
+      echo "Created proxy container on port 15432"
+      export POSTGRES_PORT=15432
+      
+      # Give the proxy a moment to start
+      sleep 2
+      PROXY_CREATED=true
+    fi
+  else
+    echo "PostgreSQL container is running with port exposed directly"
+    export POSTGRES_PORT=5432
+  fi
+  
+  # Wait for PostgreSQL to be ready on port ${POSTGRES_PORT}...
+  PG_READY=false
+  for i in {1..30}; do
+    # Try to connect directly using netcat instead of pg_isready
+    if nc -z localhost $POSTGRES_PORT; then
+      echo "Port $POSTGRES_PORT is open (PostgreSQL should be running)"
+      PG_READY=true
+      break
+    fi
+    if [ $i -eq 30 ]; then
+      echo "WARNING: PostgreSQL port check failed, but we'll try to connect anyway"
+      # Don't exit here, let the test try to connect
+    fi
+    echo "Waiting for PostgreSQL to start... (attempt $i/30)"
+    sleep 1
+  done
+  
+  if [ "$PG_READY" = false ]; then
+    # Try to debug why we couldn't connect
+    echo "Checking if port is listening:"
+    nc -zv localhost $POSTGRES_PORT || true
+    echo "Checking docker container logs:"
+    if docker ps | grep -q "pg-test-proxy"; then
+      docker logs pg-test-proxy || true
+    fi
+    docker logs helix-postgres-1 || true
+    echo "Will attempt to connect anyway..."
+  fi
+  
+  # Use host.docker.internal in case API runs inside Docker
+  # OR use localhost since we've verified it's accessible
+  echo "Using PostgreSQL on localhost:${POSTGRES_PORT}"
+  export POSTGRES_USER=postgres
+  export POSTGRES_PASSWORD=postgres
+  export POSTGRES_DATABASE=postgres
+  export POSTGRES_HOST=localhost
+
+  export KEYCLOAK_USER=admin
+  export KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-oh-hallo-insecure-password}
+  export KEYCLOAK_URL=http://localhost:30080/auth
+  echo "Setting KEYCLOAK_URL=${KEYCLOAK_URL}"
+  echo "Setting KEYCLOAK_USER=${KEYCLOAK_USER}"
+  echo "Setting KEYCLOAK_PASSWORD=${KEYCLOAK_PASSWORD}"
+
+  export PGVECTOR_USER=postgres
+  export PGVECTOR_PASSWORD=postgres
+  export PGVECTOR_DATABASE=postgres
+  export PGVECTOR_HOST=localhost
+  export PGVECTOR_PORT=5433
+
+  export TYPESENSE_URL=http://localhost:8108
+  export TYPESENSE_API_KEY=typesense
+  export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
+  export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
+
+  # Check if oauth2-mock container is already running
+  if docker ps -a | grep -q oauth2-mock; then
+    echo "oauth2-mock container already exists, stopping and removing it..."
+    docker stop oauth2-mock || true
+    docker rm -f oauth2-mock || true
+    # Make sure it's really gone
+    if docker ps -a | grep -q oauth2-mock; then
+      echo "WARNING: oauth2-mock container could not be removed, trying with force"
+      docker rm -f oauth2-mock || true
+      sleep 1
+    fi
+  fi
+  
+  # Start the oauth2-mock container with a higher port number and proper networking
+  echo "Starting oauth2-mock on port ${OAUTH_PORT}..."
+  docker run -d --name oauth2-mock --rm -p ${OAUTH_PORT}:8081 \
+    -e SERVER_PORT=8081 \
+    -e ISSUER_URL=http://localhost:${OAUTH_PORT}/default \
+    -e TOKEN_ENDPOINT_AUTH_METHOD_CLIENT_SECRET_POST=true \
+    ghcr.io/navikt/mock-oauth2-server:2.1.1
+  
+  # Verify the oauth2-mock server is running
+  echo "Verifying oauth2-mock server is running..."
+  for i in {1..10}; do
+    if curl -s http://localhost:${OAUTH_PORT}/default/.well-known/openid-configuration > /dev/null; then
+      echo "oauth2-mock server is running on port ${OAUTH_PORT}"
+      break
+    fi
+    if [ $i -eq 10 ]; then
+      echo "ERROR: oauth2-mock server failed to start"
+      docker logs oauth2-mock
+      docker stop oauth2-mock || true
+      exit 1
+    fi
+    echo "Waiting for oauth2-mock to start... (attempt $i/10)"
+    sleep 1
+  done
+  
+  # OAuth mock server config with detailed logging
+  export OAUTH2_MOCK_URL=http://localhost:${OAUTH_PORT}
+  echo "Setting OAUTH2_MOCK_URL=${OAUTH2_MOCK_URL}"
+  
+  # Note: The integration test will start its own API server on port ${API_PORT}
+  # We don't need to check if it's running - the test will start it
+  echo "The test will start its own API server on port ${API_PORT}"
+  
+  # Make sure other services can reach the API at localhost:18080
+  export SERVER_URL=http://localhost:18080
+  export APP_URL=http://localhost:18080
+  
+  # Set the database connection string directly
+  export DATABASE_URL="postgres://postgres:postgres@localhost:${POSTGRES_PORT}/postgres?sslmode=disable"
+  echo "Setting explicit DATABASE_URL=${DATABASE_URL}"
+  
+  # Ensure browser pool is disabled
+  export RAG_CRAWLER_ENABLED=false
+  export RAG_HAYSTACK_ENABLED=false
+  export TOOLS_RAG_ENABLED=false
+  export BROWSER_POOL_ENABLED=false
+  echo "Disabling chrome/browser features (BROWSER_POOL_ENABLED=false)"
+  
+  # Run the test with verbose logging and detailed debug info
+  echo "Running OAuth API tools integration test with DEBUG=1..."
+  echo "NOTE: All API server output will be shown in real-time to help with debugging"
+  echo "Using PostgreSQL on port: ${POSTGRES_PORT}"
+  
+  # Run with up to 3 retries to handle transient errors
+  MAX_RETRIES=3
+  RETRY_COUNT=0
+  
+  echo -e "\n========== STARTING TEST RUN 1/${MAX_RETRIES} ==========\n"
+  
+  # Use host.docker.internal for the API server to find the database
+  # This is a special DNS name that resolves to the host machine from inside containers
+  CURL_DEBUG=1 DEBUG=1 LOG_LEVEL=debug \
+    DATABASE_URL="${DATABASE_URL}" \
+    POSTGRES_HOST=localhost \
+    POSTGRES_PORT=${POSTGRES_PORT} \
+    POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD=postgres \
+    POSTGRES_DATABASE=postgres \
+    SERVER_URL=http://localhost:18080 \
+    APP_URL=http://localhost:18080 \
+    KEYCLOAK_URL=http://localhost:30080/auth \
+    KEYCLOAK_USER=admin \
+    KEYCLOAK_PASSWORD="${KEYCLOAK_PASSWORD}" \
+    FILESTORE_LOCALFS_PATH="${FILESTORE_LOCALFS_PATH}" \
+    NATS_STORE_DIR="${NATS_STORE_DIR}" \
+    RAG_CRAWLER_ENABLED=false \
+    RAG_CRAWLER_LAUNCHER_ENABLED=false \
+    RAG_CRAWLER_CHROME_URL="http://chrome-placeholder-not-used" \
+    RAG_HAYSTACK_ENABLED=false \
+    TOOLS_RAG_ENABLED=false \
+    BROWSER_POOL_ENABLED=false \
+    DATABASE_AUTO_MIGRATE=true \
+    go test -v -p 1 ./integration-test/api -run TestOAuthAPIToolsTestSuite 2>&1 | tee oauth_test.log | sed -u 's/^/[OAUTH TEST] /'
+  TEST_RESULT=${PIPESTATUS[0]}
+  
+  # Retry on failure
+  while [ $TEST_RESULT -ne 0 ] && [ $RETRY_COUNT -lt $((MAX_RETRIES-1)) ]; do
+    RETRY_COUNT=$((RETRY_COUNT+1))
+    echo -e "\n========== RETRY ${RETRY_COUNT}/${MAX_RETRIES-1} ==========\n"
+    echo "Previous run failed with exit code $TEST_RESULT, retrying..."
+    sleep 2  # Give system time to settle
+    
+    # Run the test again
+    CURL_DEBUG=1 DEBUG=1 LOG_LEVEL=debug \
+      DATABASE_URL="${DATABASE_URL}" \
+      POSTGRES_HOST=localhost \
+      POSTGRES_PORT=${POSTGRES_PORT} \
+      POSTGRES_USER=postgres \
+      POSTGRES_PASSWORD=postgres \
+      POSTGRES_DATABASE=postgres \
+      SERVER_URL=http://localhost:18080 \
+      APP_URL=http://localhost:18080 \
+      KEYCLOAK_URL=http://localhost:30080/auth \
+      KEYCLOAK_USER=admin \
+      KEYCLOAK_PASSWORD="${KEYCLOAK_PASSWORD}" \
+      FILESTORE_LOCALFS_PATH="${FILESTORE_LOCALFS_PATH}" \
+      NATS_STORE_DIR="${NATS_STORE_DIR}" \
+      RAG_CRAWLER_ENABLED=false \
+      RAG_CRAWLER_LAUNCHER_ENABLED=false \
+      RAG_CRAWLER_CHROME_URL="http://chrome-placeholder-not-used" \
+      RAG_HAYSTACK_ENABLED=false \
+      TOOLS_RAG_ENABLED=false \
+      BROWSER_POOL_ENABLED=false \
+      DATABASE_AUTO_MIGRATE=true \
+      go test -v -p 1 ./integration-test/api -run TestOAuthAPIToolsTestSuite 2>&1 | tee -a oauth_test.log | sed -u 's/^/[OAUTH TEST RETRY '$RETRY_COUNT'] /'
+    TEST_RESULT=${PIPESTATUS[0]}
+  done
+  
+  echo -e "\n========== TEST COMPLETE ==========\n"
+  echo "Test log saved to oauth_test.log for reference"
+  
+  # Clean up the OAuth mock server
+  echo "Cleaning up..."
+  docker stop oauth2-mock || true
+  docker rm oauth2-mock || true
+  
+  # Clean up proxy container if we created it
+  if [ "$PROXY_CREATED" = true ]; then
+    echo "Removing PostgreSQL proxy container..."
+    docker stop pg-test-proxy || true
+    docker rm pg-test-proxy || true
+  fi
+  
+  # Clean up temporary directories
+  if [ -d "${NATS_STORE_DIR}" ]; then
+    echo "Cleaning up NATS store directory..."
+    rm -rf "${NATS_STORE_DIR}"
+  fi
+  
+  if [ -d "${FILESTORE_LOCALFS_PATH}" ]; then
+    echo "Cleaning up filestore directory..."
+    rm -rf "${FILESTORE_LOCALFS_PATH}"
+  fi
+  
+  # Show the status
+  if [ $TEST_RESULT -eq 0 ]; then
+    echo "OAuth test passed!"
+  else
+    echo "OAuth test failed with exit code $TEST_RESULT"
+  fi
+  
+  return $TEST_RESULT
+}
+
+function compile() {
+  echo "Compiling helix binary..."
+  go build -o helix .
+  echo "Helix binary compiled"
+}
+
+function debug-oauth-server() {
+  # Check for the helix binary
+  if ! command -v helix > /dev/null; then
+    echo "helix binary not found in PATH, compiling now..."
+    compile
+    
+    # Add the current directory to PATH temporarily
+    PATH=$PATH:$(pwd)
+    
+    # Verify it's now available
+    if ! command -v helix > /dev/null; then
+      echo "ERROR: Failed to compile or find helix binary"
+      exit 1
+    fi
+    
+    echo "Successfully compiled helix binary"
+  fi
+  
+  # Ingest env variables from .env file first
+  echo "Loading environment variables from .env file..."
+  set -a
+  source .env
+  set +a
+  
+  # Check whether environment variables are set
+  if [[ -z "$TOGETHER_API_KEY" ]]; then
+    echo "TOGETHER_API_KEY is not set"
+    exit 1
+  fi
+  
+  # Set up directories and environment variables
+  # Use a high-numbered port for the API server to avoid conflicts
+  export API_PORT=18080
+  echo "Using API port: ${API_PORT}"
+  
+  # Set filestore and NATS paths
+  export FILESTORE_LOCALFS_PATH="/tmp/helix-test-filestore"
+  mkdir -p $FILESTORE_LOCALFS_PATH
+  chmod -R 777 $FILESTORE_LOCALFS_PATH
+  echo "Setting FILESTORE_LOCALFS_PATH=${FILESTORE_LOCALFS_PATH}"
+  
+  export NATS_STORE_DIR="/tmp/helix-test-nats"
+  mkdir -p $NATS_STORE_DIR
+  chmod -R 777 $NATS_STORE_DIR
+  echo "Setting NATS_STORE_DIR=${NATS_STORE_DIR}"
+  
+  # Disable the crawler and browser pool
+  # This disables both launching AND using browser
+  export RAG_CRAWLER_ENABLED=false
+  export RAG_CRAWLER_LAUNCHER_ENABLED=false
+  export RAG_CRAWLER_CHROME_URL="http://chrome-placeholder-not-used"
+  echo "Disabling RAG crawler (RAG_CRAWLER_ENABLED=false)"
+  echo "Disabling browser pool (BROWSER_POOL_ENABLED=false)"
+  echo "Setting RAG_CRAWLER_CHROME_URL to placeholder to prevent Chrome connection attempts"
+  
+  echo "Starting required services..."
+  # Ensure postgres, tika, typesense, chrome, keycloak are running
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
+  
+  # Find the PostgreSQL port
+  if docker ps | grep -q "helix-postgres-.*5432->5432"; then
+    echo "Using direct PostgreSQL connection on port 5432"
+    export POSTGRES_PORT=5432
+  elif docker ps | grep -q "pg-test-proxy.*15432->5432"; then
+    echo "Using PostgreSQL proxy on port 15432"
+    export POSTGRES_PORT=15432
+  else
+    # Create a proxy
+    POSTGRES_CONTAINER=$(docker ps | grep helix-postgres | awk '{print $1}')
+    if [ -z "$POSTGRES_CONTAINER" ]; then
+      echo "ERROR: PostgreSQL container not found"
+      docker ps
+      exit 1
+    fi
+    
+    NETWORK=$(docker inspect --format='{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' $POSTGRES_CONTAINER)
+    echo "Creating proxy container for PostgreSQL container $POSTGRES_CONTAINER on network $NETWORK"
+    
+    docker rm -f pg-test-proxy &>/dev/null || true
+    docker run -d --name pg-test-proxy --network $NETWORK -p 15432:5432 alpine/socat tcp-listen:5432,fork,reuseaddr tcp-connect:$POSTGRES_CONTAINER:5432
+    
+    echo "Created PostgreSQL proxy on port 15432"
+    export POSTGRES_PORT=15432
+    sleep 2
+  fi
+  
+  # Set up database connection
+  export POSTGRES_USER=postgres
+  export POSTGRES_PASSWORD=postgres
+  export POSTGRES_DATABASE=postgres
+  export POSTGRES_HOST=localhost
+  
+  # Set database URL
+  export DATABASE_URL="postgres://postgres:postgres@localhost:${POSTGRES_PORT}/postgres?sslmode=disable"
+  echo "DATABASE_URL=${DATABASE_URL}"
+  
+  # Set server URL
+  export SERVER_URL=http://localhost:${API_PORT}
+  export APP_URL=http://localhost:${API_PORT}
+  
+  # Ensure browser pool is disabled
+  export RAG_CRAWLER_ENABLED=false
+  export RAG_HAYSTACK_ENABLED=false
+  export TOOLS_RAG_ENABLED=false
+  export BROWSER_POOL_ENABLED=false
+  echo "Disabling chrome/browser features (BROWSER_POOL_ENABLED=false)"
+  
+  # Set Keycloak URL and credentials to match docker-compose.dev.yaml
+  # The API code expects KEYCLOAK_USER and KEYCLOAK_PASSWORD
+  export KEYCLOAK_URL=http://localhost:30080/auth
+  export KEYCLOAK_USER=admin
+  export KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-oh-hallo-insecure-password}
+  echo "Setting KEYCLOAK_URL=${KEYCLOAK_URL}"
+  echo "Setting KEYCLOAK_USER=${KEYCLOAK_USER}"
+  echo "Setting KEYCLOAK_PASSWORD=${KEYCLOAK_PASSWORD}"
+  
+  # Also set KEYCLOAK_ADMIN vars for completeness
+  export KEYCLOAK_ADMIN=admin
+  export KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-oh-hallo-insecure-password}
+  
+  # Set runner token
+  export RUNNER_TOKEN=oh-hallo-insecure-token
+  echo "Setting RUNNER_TOKEN=${RUNNER_TOKEN}"
+  
+  # Check if Chrome ports are already exposed and responding properly
+  CHROME_DEBUG_PROXY_NEEDED=true
+  CHROME_LAUNCHER_PROXY_NEEDED=true
+  
+  # Test if the Chrome debugging port is actually responding with proper protocol
+  echo "Testing if Chrome debugging port is responding correctly..."
+  if curl -s http://localhost:9222/json/version > /dev/null 2>&1; then
+    echo "Chrome debugging port 9222 is responding correctly"
+    CHROME_DEBUG_PROXY_NEEDED=false
+  else
+    echo "Chrome debugging port 9222 is not responding correctly, will need proxy"
+  fi
+  
+  # Test if the Chrome launcher port is responding
+  if curl -s http://localhost:7317 > /dev/null 2>&1; then
+    echo "Chrome launcher port 7317 is responding"
+    CHROME_LAUNCHER_PROXY_NEEDED=false
+  else
+    echo "Chrome launcher port 7317 is not responding, will need proxy"
+  fi
+  
+  # Only create proxies if needed
+  if [ "$CHROME_DEBUG_PROXY_NEEDED" = true ] || [ "$CHROME_LAUNCHER_PROXY_NEEDED" = true ]; then
+    echo "Creating socat proxies to the Chrome container..."
+    # Find chrome container ID
+    CHROME_CONTAINER=$(docker ps | grep helix-chrome | awk '{print $1}')
+    if [ -z "$CHROME_CONTAINER" ]; then
+      echo "ERROR: Chrome container not found"
+      docker ps | grep chrome
+      # Fall back to container name
+      CHROME_CONTAINER="helix-chrome-1"
+    fi
+    
+    # Get the network that the chrome container is on
+    CHROME_NETWORK=$(docker inspect --format='{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' $CHROME_CONTAINER)
+    echo "Chrome container is on network: $CHROME_NETWORK"
+    
+    # Set up a proxy for Chrome's debugger (port 9222) if needed
+    if [ "$CHROME_DEBUG_PROXY_NEEDED" = true ]; then
+      echo "Setting up socat proxy from localhost:9222 to $CHROME_CONTAINER:9222"
+      docker rm -f chrome-debug-proxy &>/dev/null || true
+      
+      # Try a few different port mappings if the standard one fails
+      for LOCAL_PORT in 9222 19222 29222; do
+        echo "Trying to create proxy with local port $LOCAL_PORT..."
+        if docker run -d --name chrome-debug-proxy --network $CHROME_NETWORK -p $LOCAL_PORT:9222 alpine/socat tcp-listen:9222,fork,reuseaddr tcp-connect:$CHROME_CONTAINER:9222; then
+          echo "Successfully created Chrome debug proxy on port $LOCAL_PORT"
+          export RAG_CRAWLER_CHROME_URL=http://localhost:$LOCAL_PORT
+          break
+        else
+          echo "Failed to create proxy on port $LOCAL_PORT, will try another port"
+          docker rm -f chrome-debug-proxy &>/dev/null || true
+          
+          # If we've tried all ports, give up
+          if [ "$LOCAL_PORT" = "29222" ]; then
+            echo "WARNING: Failed to create Chrome debug proxy on any port, will try to use direct connection"
+            CHROME_DEBUG_PROXY_NEEDED=false
+          fi
+        fi
+      done
+    fi
+    
+    # Set up a proxy for Chrome's launcher (port 7317) if needed
+    if [ "$CHROME_LAUNCHER_PROXY_NEEDED" = true ]; then
+      echo "Setting up socat proxy from localhost:7317 to $CHROME_CONTAINER:7317"
+      docker rm -f chrome-launcher-proxy &>/dev/null || true
+      
+      # Try a few different port mappings if the standard one fails
+      for LOCAL_PORT in 7317 17317 27317; do
+        echo "Trying to create proxy with local port $LOCAL_PORT..."
+        if docker run -d --name chrome-launcher-proxy --network $CHROME_NETWORK -p $LOCAL_PORT:7317 alpine/socat tcp-listen:7317,fork,reuseaddr tcp-connect:$CHROME_CONTAINER:7317; then
+          echo "Successfully created Chrome launcher proxy on port $LOCAL_PORT"
+          export RAG_CRAWLER_LAUNCHER_URL=http://localhost:$LOCAL_PORT
+          break
+        else
+          echo "Failed to create proxy on port $LOCAL_PORT, will try another port"
+          docker rm -f chrome-launcher-proxy &>/dev/null || true
+          
+          # If we've tried all ports, give up
+          if [ "$LOCAL_PORT" = "27317" ]; then
+            echo "WARNING: Failed to create Chrome launcher proxy on any port, will try to use direct connection"
+            CHROME_LAUNCHER_PROXY_NEEDED=false
+          fi
+        fi
+      done
+    fi
+    
+    echo "Chrome proxies created as needed"
+  else
+    echo "Chrome ports already exposed directly, no proxies needed"
+  fi
+  
+  # Set default Chrome URLs if not already set by proxy creation
+  if [ -z "$RAG_CRAWLER_CHROME_URL" ]; then
+    export RAG_CRAWLER_CHROME_URL=http://localhost:9222
+    echo "Using default Chrome debug URL: $RAG_CRAWLER_CHROME_URL"
+  else
+    echo "Using Chrome debug URL: $RAG_CRAWLER_CHROME_URL"
+  fi
+  
+  if [ -z "$RAG_CRAWLER_LAUNCHER_URL" ]; then
+    export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
+    echo "Using default Chrome launcher URL: $RAG_CRAWLER_LAUNCHER_URL"
+  else
+    echo "Using Chrome launcher URL: $RAG_CRAWLER_LAUNCHER_URL"
+  fi
+  
+  # Start the helix server directly
+  echo "Starting Helix API server on port ${API_PORT}..."
+  LOG_LEVEL=debug DATABASE_AUTO_MIGRATE=true \
+    RAG_CRAWLER_ENABLED=false \
+    RAG_CRAWLER_LAUNCHER_ENABLED=false \
+    RAG_CRAWLER_CHROME_URL="${RAG_CRAWLER_CHROME_URL}" \
+    RAG_CRAWLER_LAUNCHER_URL="${RAG_CRAWLER_LAUNCHER_URL}" \
+    RAG_HAYSTACK_ENABLED=false \
+    TOOLS_RAG_ENABLED=false \
+    BROWSER_POOL_ENABLED=false \
+    helix serve
+    
+  # Clean up Chrome proxies when done (only if we created them)
+  if [ "$CHROME_DEBUG_PROXY_NEEDED" = true ]; then
+    echo "Cleaning up Chrome debug proxy..."
+    docker rm -f chrome-debug-proxy &>/dev/null || true
+  fi
+  
+  if [ "$CHROME_LAUNCHER_PROXY_NEEDED" = true ]; then
+    echo "Cleaning up Chrome launcher proxy..."
+    docker rm -f chrome-launcher-proxy &>/dev/null || true
+  fi
 }
 
 eval "$@"

@@ -66,14 +66,24 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		progress:   make(map[string]types.KnowledgeProgress),
 	}
 
-	r.newCrawler = func(k *types.Knowledge) (crawler.Crawler, error) {
-		// Provide an ability for the crawler to update the progress
-		updateProgress := func(progress types.KnowledgeProgress) {
-			r.updateKnowledgeProgress(k.ID, progress)
+	// Handle the case where browser pool is disabled
+	if b == nil {
+		log.Info().Msg("browser pool is disabled, crawler functionality will be limited")
+		// Provide a stub crawler that returns an error if used
+		r.newCrawler = func(k *types.Knowledge) (crawler.Crawler, error) {
+			return nil, fmt.Errorf("browser pool is disabled, crawler functionality is not available")
 		}
+	} else {
+		// Normal crawler creation with browser
+		r.newCrawler = func(k *types.Knowledge) (crawler.Crawler, error) {
+			// Provide an ability for the crawler to update the progress
+			updateProgress := func(progress types.KnowledgeProgress) {
+				r.updateKnowledgeProgress(k.ID, progress)
+			}
 
-		// Construct the crawler
-		return crawler.NewCrawler(b, k, updateProgress)
+			// Construct the crawler
+			return crawler.NewCrawler(b, k, updateProgress)
+		}
 	}
 
 	return r, nil

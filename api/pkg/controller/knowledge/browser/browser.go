@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/go-rod/rod"
@@ -37,6 +38,25 @@ type Browser struct {
 }
 
 func New(cfg *config.ServerConfig) (*Browser, error) {
+	// Skip initialization entirely if features are disabled
+	ragCrawlerEnabled := os.Getenv("RAG_CRAWLER_ENABLED") == "true"
+	browserPoolEnabled := os.Getenv("BROWSER_POOL_ENABLED") == "true"
+
+	if !ragCrawlerEnabled || !browserPoolEnabled {
+		return nil, fmt.Errorf("Browser features are disabled, skipping browser pool initialization")
+	}
+
+	// Early check to avoid initializing if Chrome URL is empty or it's our placeholder
+	if !cfg.RAG.Crawler.LauncherEnabled {
+		// Check if it's empty, invalid, or our placeholder
+		if cfg.RAG.Crawler.ChromeURL == "" ||
+			cfg.RAG.Crawler.ChromeURL == "localhost" ||
+			cfg.RAG.Crawler.ChromeURL == "127.0.0.1" ||
+			cfg.RAG.Crawler.ChromeURL == "http://chrome-placeholder-not-used" {
+			return nil, fmt.Errorf("Chrome URL is empty, invalid, or features are disabled")
+		}
+	}
+
 	browserPoolSize := cfg.RAG.Crawler.BrowserPoolSize
 	pagePoolSize := cfg.RAG.Crawler.PagePoolSize
 
@@ -172,15 +192,24 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 func (b *Browser) getChromeURL() (string, error) {
 	chromeURL := b.cfg.RAG.Crawler.ChromeURL
 
-	// Parse the URL to extract the hostname
+	if chromeURL == "" {
+		return "", fmt.Errorf("Chrome URL is empty, please set RAG_CRAWLER_CHROME_URL environment variable")
+	}
+
+	// Check for localhost or 127.0.0.1 before trying to resolve
 	parsedURL, err := url.Parse(chromeURL)
 	if err != nil {
 		return "", fmt.Errorf("error parsing Chrome URL (%s): %w", chromeURL, err)
 	}
 
+	hostname := parsedURL.Hostname()
+	if hostname == "localhost" || hostname == "127.0.0.1" {
+		return chromeURL, nil // No need to resolve localhost
+	}
+
 	// Resolve the hostname to an IP address. This is required for the browser to connect,
 	// as if you try to connect with hostname/domain then chrome will reject the connection
-	ips, err := net.LookupIP(parsedURL.Hostname())
+	ips, err := net.LookupIP(hostname)
 	if err != nil {
 		return "", fmt.Errorf("error resolving Chrome URL (%s) to IP: %w", chromeURL, err)
 	}
@@ -193,14 +222,14 @@ func (b *Browser) getChromeURL() (string, error) {
 	ip := ips[0].String()
 
 	// Replace the hostname with the IP address in the original URL
-	resolvedURL := strings.Replace(chromeURL, parsedURL.Hostname(), ip, 1)
+	resolvedURL := strings.Replace(chromeURL, hostname, ip, 1)
 
 	// Use the resolved URL for the request
 	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
 	}
-	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
+	req.Header.Set("Host", hostname) // Set the original hostname in the Host header
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

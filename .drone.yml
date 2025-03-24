@@ -200,6 +200,12 @@ services:
     KEYCLOAK_ADMIN_PASSWORD: REPLACE_ME
     KC_HOSTNAME_PATH: /auth
     KC_HTTP_RELATIVE_PATH: /auth/
+- name: oauth2-mock
+  image: ghcr.io/navikt/mock-oauth2-server:2.1.1
+  environment:
+    SERVER_PORT: 8081
+    ISSUER_URL: http://oauth2-mock:8081/default
+    TOKEN_ENDPOINT_AUTH_METHOD_CLIENT_SECRET_POST: "true"
 ---
 kind: pipeline
 type: docker

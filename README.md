@@ -72,3 +72,79 @@ Contributions to the source code are welcome, and by contributing you confirm th
 * We don't want cloud providers to take our open source code and build a rebranded service on top of it.
 
 If you would like to use some part of this code under a more permissive license, please [get in touch](mailto:founders@helix.ml).
+
+# Helix Knowledge Indexer Metadata Support
+
+The Helix Knowledge Indexer supports adding custom metadata to documents, which can be used to enhance search results and provide additional context for the documents in your knowledge base.
+
+## How Metadata Works
+
+When you upload documents to Helix for knowledge indexing, you can provide additional metadata about each document by creating a companion `.metadata.yaml` file. This metadata is preserved throughout the indexing process and becomes available during retrieval.
+
+### Creating Metadata Files
+
+For any document in your filestore, you can create a metadata YAML file with the same name as the document plus the `.metadata.yaml` extension:
+
+```
+document.pdf           # Original document
+document.pdf.metadata.yaml  # Metadata file for the document
+```
+
+### Metadata File Format
+
+The metadata file supports two formats:
+
+1. **Direct key-value format:**
+
+```yaml
+source_url: "https://example.com/original-document"
+author: "John Doe"
+created_date: "2023-04-15"
+category: "Technical Documentation"
+```
+
+2. **Nested format with metadata field:**
+
+```yaml
+metadata:
+  source_url: "https://example.com/original-document"
+  author: "John Doe"
+  created_date: "2023-04-15"
+  category: "Technical Documentation"
+```
+
+Both formats are supported. The indexer will first try to parse with the nested format, and if that fails, it will try the direct format.
+
+## How Metadata is Preserved During Indexing
+
+1. When the knowledge indexer processes files, it checks for corresponding `.metadata.yaml` files
+2. If found, the metadata is loaded and associated with the document
+3. During text extraction and chunking, the metadata is preserved and attached to each chunk
+4. When the chunks are indexed in the vector database, the metadata is included with each chunk
+
+## Using Metadata in Queries
+
+When querying the knowledge base, the metadata is returned alongside the document content. This allows you to:
+
+1. See the source of the information (especially useful with the `source_url` field)
+2. Filter results based on metadata fields
+3. Provide additional context to the LLM about the retrieved content
+
+## Example Use Cases
+
+1. **Source Attribution**: Add `source_url` to documents to keep track of where information came from
+2. **Document Classification**: Add `category` or `tags` to help organize and filter content
+3. **Authorship Information**: Add `author` and `created_date` to track document origins
+4. **Version Control**: Add `version` to track document versions in your knowledge base
+
+## Best Practices
+
+1. Keep metadata consistent across similar documents
+2. Use descriptive field names that make sense for your use case
+3. For web-crawled content that's added to your knowledge base, consider adding metadata files with the original URLs
+
+## Limitations
+
+1. Metadata files must be in YAML format with the `.metadata.yaml` extension
+2. The metadata file must be in the same directory as the document it describes
+3. Metadata files themselves are not indexed for content (they're only used to add attributes to the main document)

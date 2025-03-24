@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:12.13-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    command: |
+      -c listen_addresses='*'
+      -c log_connections=on
+
+  pgvector:
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  tika:
+    image: apache/tika:2.9.2.1
+    ports:
+      - "9998:9998"
+
+  typesense:
+    image: typesense/typesense:0.24.1
+    environment:
+      TYPESENSE_API_KEY: typesense
+      TYPESENSE_DATA_DIR: /data
+    ports:
+      - "8108:8108"
+    volumes:
+      - typesense-data:/data
+      
+  chrome:
+    image: ghcr.io/go-rod/rod:v0.115.0
+    ports:
+      - "7317:7317"
+    volumes:
+      - chrome-tmp:/tmp
+    restart: unless-stopped
+    environment:
+      - CONNECTION_TIMEOUT=300000
+      - DEFAULT_BLOCK_ADS=true
+      - DEFAULT_STEALTH=true
+      - ENABLE_HEAP_DUMP=true
+      - WORKSPACE_DELETE_EXPIRED=true
+      - WORKSPACE_EXPIRE_DAYS=7
+  
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    ports:
+      - "30080:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: REPLACE_ME
+    command: ["start-dev"]
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+volumes:
+  postgres-data:
+  pgvector-data:
+  typesense-data:
+  chrome-tmp:
+  keycloak-data:

@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
@@ -47,8 +46,6 @@ type OAuthAPIToolsTestSuite struct {
 	apiKey          string
 	mockOAuthServer *httptest.Server
 	mockOAuthTokens map[string]string
-	apiURL          string
-	toolsAPI        tools.ToolsAPI
 }
 
 func (suite *OAuthAPIToolsTestSuite) SetupTest() {
@@ -195,18 +192,6 @@ func (suite *OAuthAPIToolsTestSuite) SetupTest() {
 		})
 		suite.Require().NoError(err)
 	}
-
-	// Get the API URL from the environment or use a default value
-	apiPort := os.Getenv("API_PORT")
-	if apiPort == "" {
-		apiPort = "18080" // Default to 18080 in tests to avoid conflicts with common ports
-	}
-	suite.apiURL = "http://localhost:" + apiPort
-
-	// Create the tools API client
-	apiClient, err = client.NewClient(suite.apiURL, apiKey)
-	suite.Require().NoError(err)
-	suite.toolsAPI = tools.NewToolsAPI(apiClient)
 }
 
 func (suite *OAuthAPIToolsTestSuite) TearDownTest() {

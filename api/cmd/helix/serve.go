@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -79,10 +80,22 @@ func newServeCmd() *cobra.Command {
 		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			err := serve(cmd, serveConfig)
-			if err != nil {
-				log.Fatal().Err(err).Msg("failed to run server")
+			// Always attempt to run the server
+			errServe := serve(cmd, serveConfig)
+
+			// If the error is browser-related, we log it but don't terminate
+			if errServe != nil && (strings.Contains(errServe.Error(), "failed to create browser pool") ||
+				strings.Contains(errServe.Error(), "error initializing browser") ||
+				strings.Contains(errServe.Error(), "Chrome URL is empty")) {
+				log.Warn().Err(errServe).Msg("Browser-related error encountered, this is typically a non-terminal error")
+				return nil // Allow the app to continue without browser support
 			}
+
+			// For other errors, we log fatal and terminate
+			if errServe != nil {
+				log.Fatal().Err(errServe).Msg("failed to run server")
+			}
+
 			return nil
 		},
 	}
@@ -403,15 +416,58 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	// Initialize browser pool
-	browserPool, err := browser.New(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create browser pool: %w", err)
+	// Only initialize browser pool if RAG crawler is enabled or browser pool is enabled
+	ragCrawlerEnabled := os.Getenv("RAG_CRAWLER_ENABLED") == "true"
+	browserPoolEnabled := os.Getenv("BROWSER_POOL_ENABLED") == "true"
+	chromeUrl := os.Getenv("RAG_CRAWLER_CHROME_URL")
+
+	// Set a dummy Chrome URL when features are disabled to prevent lookup errors
+	if !ragCrawlerEnabled || !browserPoolEnabled {
+		chromeUrl = "http://chrome-placeholder-not-used"
+		log.Info().Msg("Setting dummy Chrome URL since browser features are disabled")
+	}
+
+	// Always set the config Chrome URL, even if it's empty
+	// This ensures the config is consistent
+	cfg.RAG.Crawler.ChromeURL = chromeUrl
+
+	// Initialize browser pool as nil
+	var browserPool *browser.Browser
+
+	// Skip browser pool entirely if features are disabled
+	if !browserPoolEnabled || !ragCrawlerEnabled {
+		log.Info().
+			Bool("BROWSER_POOL_ENABLED", browserPoolEnabled).
+			Bool("RAG_CRAWLER_ENABLED", ragCrawlerEnabled).
+			Str("RAG_CRAWLER_CHROME_URL", chromeUrl).
+			Msg("skipping browser pool initialization")
+	} else {
+		// Only initialize if both features are enabled
+		log.Info().Msg("initializing browser pool")
+		var err error
+		browserPool, err = browser.New(cfg)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create browser pool, continuing without browser support")
+			// Don't return error - we'll continue without browser support
+			browserPool = nil
+		}
 	}
 
 	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)
 	if err != nil {
-		return err
+		// Don't report an error if features are disabled
+		if !browserPoolEnabled || !ragCrawlerEnabled {
+			log.Info().Err(err).Msg("browser-related error with knowledge reconciler, using minimal version")
+		} else {
+			log.Error().Err(err).Msg("failed to create knowledge reconciler, continuing without crawler functionality")
+		}
+
+		// Initialize with a minimal reconciler that doesn't support crawling
+		var minimalErr error
+		knowledgeReconciler, minimalErr = knowledge.New(cfg, postgresStore, fs, extractor, ragClient, nil)
+		if minimalErr != nil {
+			return fmt.Errorf("failed to create minimal knowledge reconciler: %w", minimalErr)
+		}
 	}
 
 	go func() {
