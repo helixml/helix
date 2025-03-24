@@ -199,26 +199,51 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	// Process OAuth environment variables if provided
 	if len(req.OAuthEnvVars) > 0 {
 		log.Debug().Int("count", len(req.OAuthEnvVars)).Msg("Adding OAuth tokens to API request")
-		for _, envVar := range req.OAuthEnvVars {
-			parts := strings.SplitN(envVar, "=", 2)
-			if len(parts) == 2 {
-				envKey, envValue := parts[0], parts[1]
-				// Only process OAUTH_TOKEN_ variables
-				if strings.HasPrefix(envKey, "OAUTH_TOKEN_") {
-					// Extract provider type from env var name (e.g., OAUTH_TOKEN_GITHUB -> github)
-					providerType := strings.ToLower(strings.TrimPrefix(envKey, "OAUTH_TOKEN_"))
-					// Add the token to headers if not already in headers
-					authHeaderKey := "Authorization"
-					if _, exists := req.Tool.Config.API.Headers[authHeaderKey]; !exists {
-						// Add OAuth token as Bearer token if the tool doesn't already have an auth header
-						if req.Tool.Config.API.Headers == nil {
-							req.Tool.Config.API.Headers = make(map[string]string)
+
+		// Only proceed if the tool has OAuth provider configured
+		if req.Tool.Config.API != nil && req.Tool.Config.API.OAuthProvider != "" {
+			toolProviderType := strings.ToLower(string(req.Tool.Config.API.OAuthProvider))
+
+			for _, envVar := range req.OAuthEnvVars {
+				parts := strings.SplitN(envVar, "=", 2)
+				if len(parts) == 2 {
+					envKey, envValue := parts[0], parts[1]
+					// Only process OAUTH_TOKEN_ variables
+					if strings.HasPrefix(envKey, "OAUTH_TOKEN_") {
+						// Extract provider type from env var name (e.g., OAUTH_TOKEN_GITHUB -> github)
+						envProviderType := strings.ToLower(strings.TrimPrefix(envKey, "OAUTH_TOKEN_"))
+
+						// Only use token if provider types match (case-insensitive)
+						if envProviderType == toolProviderType {
+							// Add the token to headers if not already in headers
+							authHeaderKey := "Authorization"
+							if _, exists := req.Tool.Config.API.Headers[authHeaderKey]; !exists {
+								// Add OAuth token as Bearer token if the tool doesn't already have an auth header
+								if req.Tool.Config.API.Headers == nil {
+									req.Tool.Config.API.Headers = make(map[string]string)
+								}
+								req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", envValue)
+								log.Debug().
+									Str("provider", envProviderType).
+									Msg("Added matching OAuth token to API request headers")
+							} else {
+								log.Debug().
+									Str("provider", envProviderType).
+									Msg("Authentication header already exists, not overriding")
+							}
+							// Break after finding the matching token
+							break
+						} else {
+							log.Debug().
+								Str("env_provider", envProviderType).
+								Str("tool_provider", toolProviderType).
+								Msg("Skipping non-matching OAuth provider")
 						}
-						req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", envValue)
-						log.Debug().Str("provider", providerType).Msg("Added OAuth token to API request headers")
 					}
 				}
 			}
+		} else {
+			log.Debug().Msg("Tool has no OAuth provider configured, skipping token injection")
 		}
 	}
 
