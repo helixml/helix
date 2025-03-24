@@ -249,20 +249,21 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
-		FilestorePrefix:         filestorePrefix,
-		StripeEnabled:           apiServer.Stripe.Enabled(),
-		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
-		GoogleAnalyticsFrontend: apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
-		RudderStackWriteKey:     apiServer.Cfg.Janitor.RudderStackWriteKey,
-		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
-		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
-		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
-		DisableLLMCallLogging:   apiServer.Cfg.DisableLLMCallLogging,
-		Version:                 currentVersion,
-		LatestVersion:           latestVersion,
-		DeploymentID:            deploymentID,
-		License:                 licenseInfo,
+		FilestorePrefix:                        filestorePrefix,
+		StripeEnabled:                          apiServer.Stripe.Enabled(),
+		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
+		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
+		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,
+		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
+		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
+		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
+		AppsEnabled:                            apiServer.Cfg.Apps.Enabled,
+		DisableLLMCallLogging:                  apiServer.Cfg.DisableLLMCallLogging,
+		Version:                                currentVersion,
+		LatestVersion:                          latestVersion,
+		DeploymentID:                           deploymentID,
+		License:                                licenseInfo,
+		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 	}
 
 	return config, nil
@@ -289,6 +290,7 @@ window.RUDDERSTACK_WRITE_KEY = "%s"
 window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 window.HELIX_VERSION = "%s"
 window.HELIX_LATEST_VERSION = "%s"
+window.ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS = %t
 `,
 		config.DisableLLMCallLogging,
 		config.SentryDSNFrontend,
@@ -297,6 +299,7 @@ window.HELIX_LATEST_VERSION = "%s"
 		config.RudderStackDataPlaneURL,
 		config.Version,
 		config.LatestVersion,
+		config.OrganizationsCreateEnabledForNonAdmins,
 	)
 	if _, err := res.Write([]byte(content)); err != nil {
 		log.Error().Msgf("Failed to write response: %v", err)

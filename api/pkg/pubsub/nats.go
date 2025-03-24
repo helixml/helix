@@ -269,7 +269,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 				continue
 			}
 			if info.State.Consumers == 0 {
-				log.Debug().
+				log.Trace().
 					Int("messages", int(info.State.Msgs)).
 					Int("consumers", info.State.Consumers).
 					Time("oldest_message", info.State.FirstTime).
