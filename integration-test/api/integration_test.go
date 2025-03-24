@@ -39,11 +39,10 @@ func TestMain(m *testing.M) {
 			log.Printf("Failed to kill server process: %v", err)
 		}
 	}
-
-	os.Exit(runTests)
-
 	// Print the server logs
 	log.Printf("Server logs: %s", buf.String())
+
+	os.Exit(runTests)
 }
 
 func startAPIServer() *bytes.Buffer {
