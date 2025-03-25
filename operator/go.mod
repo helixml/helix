@@ -33,6 +33,7 @@ require (
 	cloud.google.com/go/storage v1.40.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df // indirect
+	github.com/avast/retry-go/v4 v4.5.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
