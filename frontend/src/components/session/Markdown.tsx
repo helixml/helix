@@ -147,15 +147,55 @@ export class MessageProcessor {
         
         // Initialize citation data for streaming
         this.citationData = {
-          excerpts: [{
+          excerpts: [],
+          isStreaming: true
+        };
+        
+        // Try to extract partial document ID and snippet
+        const docIdMatch = partialExcerpts.match(/<document_id>(.*?)<\/document_id>/);
+        const snippetMatch = partialExcerpts.match(/<snippet>([\s\S]*?)$/);
+        
+        if (docIdMatch && snippetMatch) {
+          const docId = docIdMatch[1];
+          const snippet = snippetMatch[1];
+          let filename = "Loading...";
+          let fileUrl = "#";
+          
+          // Try to find associated filename and URL for the document ID
+          if (this.options.session.config?.document_ids) {
+            const docIdsMap = this.options.session.config.document_ids;
+            for (const fname in docIdsMap) {
+              if (docIdsMap[fname] === docId) {
+                // Extract just the basename from the path
+                filename = fname.split('/').pop() || fname;
+                
+                // Check if fname is a URL
+                const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+                
+                // Use direct URL for web links, otherwise use filestore URL
+                fileUrl = isURL ? fname : this.options.getFileURL(fname);
+                break;
+              }
+            }
+          }
+          
+          this.citationData.excerpts.push({
+            docId,
+            snippet,
+            filename,
+            fileUrl,
+            isPartial: true
+          });
+        } else {
+          // If we can't extract details, fall back to a generic loading state
+          this.citationData.excerpts.push({
             docId: "loading",
             snippet: "Loading source information...",
             filename: "Loading...",
             fileUrl: "#",
             isPartial: true
-          }],
-          isStreaming: true
-        };
+          });
+        }
         
         // In streaming mode, remove the partial excerpts
         return message.split('<excerpts>')[0];
