@@ -71,7 +71,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 	oauthProviderType := ""
 	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
 		if tool.Config.API.OAuthProvider != "" {
-			oauthProviderType = string(tool.Config.API.OAuthProvider)
+			oauthProviderType = tool.Config.API.OAuthProvider
 		}
 
 		// Log details for all API tools

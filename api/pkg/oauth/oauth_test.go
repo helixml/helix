@@ -83,6 +83,7 @@ func (suite *OAuthTestSuite) TestGetTokenForTool() {
 		ExpiresAt:    time.Now().Add(time.Hour * 24), // Set expiry in the future to avoid refresh
 		Provider: types.OAuthProvider{
 			ID:          "github-provider-id",
+			Name:        "GitHub",
 			Type:        types.OAuthProviderTypeGitHub,
 			UserInfoURL: "https://api.github.com/user",
 		},
@@ -95,22 +96,33 @@ func (suite *OAuthTestSuite) TestGetTokenForTool() {
 		ProviderID:   "slack-provider-id",
 		AccessToken:  "slack-access-token",
 		RefreshToken: "slack-refresh-token",
-		Scopes:       []string{"chat:write"},
-		ExpiresAt:    time.Now().Add(time.Hour * 24), // Set expiry in the future to avoid refresh
+		Scopes:       []string{"channels:read", "chat:write"},
+		ExpiresAt:    time.Now().Add(time.Hour * 24),
 		Provider: types.OAuthProvider{
 			ID:   "slack-provider-id",
+			Name: "Slack",
 			Type: types.OAuthProviderTypeSlack,
 		},
 	}
 
 	// Setup expectations
 	suite.store.EXPECT().
-		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: userID}).
-		Return([]*types.OAuthConnection{githubConnection, slackConnection}, nil).
+		ListOAuthProviders(gomock.Any(), &store.ListOAuthProvidersQuery{
+			Enabled: true,
+		}).
+		Return([]*types.OAuthProvider{&githubConnection.Provider, &slackConnection.Provider}, nil).
+		AnyTimes()
+
+	suite.store.EXPECT().
+		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{
+			UserID:     userID,
+			ProviderID: githubConnection.ProviderID,
+		}).
+		Return([]*types.OAuthConnection{githubConnection}, nil).
 		AnyTimes()
 
 	// Test getting GitHub token
-	token, err := suite.manager.GetTokenForTool(suite.ctx, userID, types.OAuthProviderTypeGitHub, []string{"repo"})
+	token, err := suite.manager.GetTokenForTool(suite.ctx, userID, "GitHub", []string{"repo"})
 	suite.NoError(err)
 	suite.Equal(githubConnection.AccessToken, token)
 
@@ -119,7 +131,7 @@ func (suite *OAuthTestSuite) TestGetTokenForTool() {
 	suite.Error(err)
 
 	// Test getting token with insufficient scopes
-	_, err = suite.manager.GetTokenForTool(suite.ctx, userID, types.OAuthProviderTypeGitHub, []string{"repo", "admin:org"})
+	_, err = suite.manager.GetTokenForTool(suite.ctx, userID, "GitHub", []string{"repo", "admin:org"})
 	suite.Error(err)
 
 	// Check that the error is a ScopeError
@@ -144,6 +156,7 @@ func (suite *OAuthTestSuite) TestGetTokenForApp() {
 		ExpiresAt:    time.Now().Add(time.Hour * 24), // Set expiry in the future to avoid refresh
 		Provider: types.OAuthProvider{
 			ID:          "github-provider-id",
+			Name:        "GitHub",
 			Type:        types.OAuthProviderTypeGitHub,
 			UserInfoURL: "https://api.github.com/user",
 		},
@@ -151,12 +164,22 @@ func (suite *OAuthTestSuite) TestGetTokenForApp() {
 
 	// Setup expectations
 	suite.store.EXPECT().
-		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: userID}).
+		ListOAuthProviders(gomock.Any(), &store.ListOAuthProvidersQuery{
+			Enabled: true,
+		}).
+		Return([]*types.OAuthProvider{&githubConnection.Provider}, nil).
+		AnyTimes()
+
+	suite.store.EXPECT().
+		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{
+			UserID:     userID,
+			ProviderID: githubConnection.ProviderID,
+		}).
 		Return([]*types.OAuthConnection{githubConnection}, nil).
 		AnyTimes()
 
 	// Test getting GitHub token
-	token, err := suite.manager.GetTokenForApp(suite.ctx, userID, types.OAuthProviderTypeGitHub)
+	token, err := suite.manager.GetTokenForApp(suite.ctx, userID, "GitHub")
 	suite.NoError(err)
 	suite.Equal(githubConnection.AccessToken, token)
 
@@ -180,6 +203,7 @@ func (suite *OAuthTestSuite) TestIntegrationWithTools() {
 		ExpiresAt:    time.Now().Add(time.Hour * 24), // Set expiry in the future to avoid refresh
 		Provider: types.OAuthProvider{
 			ID:          "github-provider-id",
+			Name:        "GitHub",
 			Type:        types.OAuthProviderTypeGitHub,
 			UserInfoURL: "https://api.github.com/user",
 		},
@@ -187,12 +211,22 @@ func (suite *OAuthTestSuite) TestIntegrationWithTools() {
 
 	// Setup expectations
 	suite.store.EXPECT().
-		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: userID}).
+		ListOAuthProviders(gomock.Any(), &store.ListOAuthProvidersQuery{
+			Enabled: true,
+		}).
+		Return([]*types.OAuthProvider{&githubConnection.Provider}, nil).
+		AnyTimes()
+
+	suite.store.EXPECT().
+		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{
+			UserID:     userID,
+			ProviderID: githubConnection.ProviderID,
+		}).
 		Return([]*types.OAuthConnection{githubConnection}, nil).
 		AnyTimes()
 
 	// Get token for the GitHub provider
-	token, err := suite.manager.GetTokenForApp(suite.ctx, userID, types.OAuthProviderTypeGitHub)
+	token, err := suite.manager.GetTokenForApp(suite.ctx, userID, "GitHub")
 	suite.NoError(err)
 	suite.Equal(githubConnection.AccessToken, token)
 

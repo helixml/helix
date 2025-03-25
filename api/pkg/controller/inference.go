@@ -950,37 +950,37 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 	}
 
 	// Keep track of providers we've seen to avoid duplicates
-	seenProviders := make(map[types.OAuthProviderType]bool)
+	seenProviders := make(map[string]bool)
 
 	// First, check the tools defined in assistants
 	for _, assistant := range app.Config.Helix.Assistants {
 		for _, tool := range assistant.Tools {
 			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				providerType := tool.Config.API.OAuthProvider
+				providerName := tool.Config.API.OAuthProvider
 				requiredScopes := tool.Config.API.OAuthScopes
 
 				// Skip if we've already processed this provider
-				if seenProviders[providerType] {
+				if seenProviders[providerName] {
 					continue
 				}
-				seenProviders[providerType] = true
+				seenProviders[providerName] = true
 
-				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
+				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
 				if err == nil && token != "" {
-					providerKey := strings.ToLower(string(providerType))
+					providerKey := strings.ToLower(providerName)
 					oauthTokens[providerKey] = token
-					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
+					log.Debug().Str("provider", providerName).Msg("Added OAuth token to app environment")
 				} else {
 					var scopeErr *oauth.ScopeError
 					if errors.As(err, &scopeErr) {
 						log.Warn().
 							Str("app_id", app.ID).
 							Str("user_id", userID).
-							Str("provider", string(providerType)).
+							Str("provider", providerName).
 							Strs("missing_scopes", scopeErr.Missing).
 							Msg("Missing required OAuth scopes for tool")
 					} else {
-						log.Debug().Err(err).Str("provider", string(providerType)).Msg("Failed to get OAuth token for tool")
+						log.Debug().Err(err).Str("provider", providerName).Msg("Failed to get OAuth token for tool")
 					}
 				}
 			}

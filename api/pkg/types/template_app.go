@@ -21,7 +21,7 @@ type TemplateAppConfig struct {
 	Description string                 `json:"description"`
 	Assistants  []AssistantConfig      `json:"assistants"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	ApiURL      string                 `json:"api_url,omitempty"` // Base API URL for the provider
+	APIURL      string                 `json:"api_url,omitempty"` // Base API URL for the provider
 }
 
 // TemplateKnowledge represents template knowledge configuration
@@ -36,7 +36,7 @@ func GetGitHubIssuesTemplate() *TemplateAppConfig {
 		Type:        TemplateAppTypeGitHub,
 		Name:        "GitHub Repository Analyzer",
 		Description: "Analyze GitHub repositories, issues, and PRs",
-		ApiURL:      "https://api.github.com",
+		APIURL:      "https://api.github.com",
 		Assistants: []AssistantConfig{
 			{
 				Name:        "GitHub Assistant",
@@ -50,7 +50,7 @@ When asked about GitHub repositories, use the API to fetch actual data.`,
 						Name:          "GitHub API",
 						Description:   "GitHub API for accessing repositories, issues, and pull requests",
 						URL:           "https://api.github.com",
-						OAuthProvider: OAuthProviderTypeGitHub,
+						OAuthProvider: string(OAuthProviderTypeGitHub),
 						OAuthScopes:   []string{"repo", "read:user"},
 						Schema: `openapi: 3.0.0
 info:
@@ -216,7 +216,7 @@ func GetJiraProjectManagerTemplate() *TemplateAppConfig {
 		Type:        TemplateAppTypeJira,
 		Name:        "Jira Project Manager",
 		Description: "Manage and analyze Jira projects and issues",
-		ApiURL:      "https://api.atlassian.com",
+		APIURL:      "https://api.atlassian.com",
 		Assistants: []AssistantConfig{
 			{
 				Name:        "Jira Assistant",
@@ -284,7 +284,7 @@ func GetSlackChannelAssistantTemplate() *TemplateAppConfig {
 		Type:        TemplateAppTypeSlack,
 		Name:        "Slack Channel Assistant",
 		Description: "Answer questions and perform tasks in Slack channels",
-		ApiURL:      "https://slack.com/api",
+		APIURL:      "https://slack.com/api",
 		Assistants: []AssistantConfig{
 			{
 				Name:        "Slack Assistant",
@@ -346,7 +346,7 @@ func GetGoogleDriveNavigatorTemplate() *TemplateAppConfig {
 		Type:        TemplateAppTypeGoogle,
 		Name:        "Google Drive Navigator",
 		Description: "Search and summarize documents in Google Drive",
-		ApiURL:      "https://www.googleapis.com",
+		APIURL:      "https://www.googleapis.com",
 		Assistants: []AssistantConfig{
 			{
 				Name:        "Google Drive Assistant",
@@ -430,8 +430,8 @@ func GetTemplateByType(templateType TemplateAppType) *TemplateAppConfig {
 	return nil
 }
 
-// GetDefaultApiUrlForProvider returns the default API URL for a provider type
-func GetDefaultApiUrlForProvider(providerType string) string {
+// GetDefaultAPIURLForProvider returns the default API URL for a given provider type
+func GetDefaultAPIURLForProvider(providerType string) string {
 	switch providerType {
 	case "github":
 		return "https://api.github.com"
