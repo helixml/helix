@@ -18,6 +18,7 @@ import useApi from '../hooks/useApi'
 import {
   IApp,
   SESSION_TYPE_TEXT,
+  IAppConfig,
 } from '../types'
 
 const Apps: FC = () => {
@@ -93,7 +94,8 @@ const Apps: FC = () => {
                              templateId.includes('google') ? 'google' : '';
         
         if (templateType) {
-          templateConfig = await api.get(`/api/v1/template-apps/${templateType}`);
+          const response = await api.getApiClient().v1TemplateAppsDetail(templateType);
+          templateConfig = response.data;
           console.log('Loaded template configuration:', templateConfig);
         }
       } catch (error) {
@@ -126,8 +128,8 @@ const Apps: FC = () => {
       };
       
       // Use the template configuration
-      const appName = getUniqueAppName(templateConfig.name);
-      const appDescription = templateConfig.description;
+      const appName = getUniqueAppName(templateConfig.name || '');
+      const appDescription = templateConfig.description || '';
       
       // Create API tool configuration
       const toolName = `${provider.name} API`;
@@ -152,8 +154,9 @@ const Apps: FC = () => {
       if (templateConfig.assistants && 
           templateConfig.assistants.length > 0 && 
           templateConfig.assistants[0].apis && 
-          templateConfig.assistants[0].apis.length > 0) {
-        schema = templateConfig.assistants[0].apis[0].schema;
+          templateConfig.assistants[0].apis.length > 0 &&
+          templateConfig.assistants[0].apis[0].schema) {
+        schema = templateConfig.assistants[0].apis[0].schema || '';
         console.log('Using schema from template config');
       } else {
         console.error('No schema available in template configuration');
@@ -164,7 +167,7 @@ const Apps: FC = () => {
       console.log(`Schema from template:`, schema.length > 100 ? schema.substring(0, 100) + '...' : schema);
       
       // Prepare app configuration
-      const appConfig = {
+      const appConfig: IAppConfig = {
         helix: {
           external_url: '',
           name: appName,
@@ -183,19 +186,19 @@ const Apps: FC = () => {
               name: toolName,
               description: `Access ${provider.name} data and functionality`,
               url: apiUrl,
-              schema: schema, // <-- Using the schema we generated
-              oauth_provider: provider.name, // Use provider name instead of type
+              schema: schema,
+              oauth_provider: provider.name,
               oauth_scopes: provider.default_scopes || []
             }],
             gptscripts: [],
             tools: [],
             rag_source_id: '',
             lora_id: '',
-            is_actionable_template: '',
-          }],
+            is_actionable_template: ''
+          }]
         },
         secrets: {},
-        allowed_domains: [],
+        allowed_domains: []
       };
       
       console.log('Creating app with config:', JSON.stringify(appConfig, null, 2));
