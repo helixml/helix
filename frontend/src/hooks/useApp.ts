@@ -16,6 +16,7 @@ import {
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ISession,
+  IUserAppAccessState,
 } from '../types'
 import {
   removeEmptyValues,
@@ -26,6 +27,7 @@ import useAccount from './useAccount'
 import useApps from './useApps'
 import useSession from './useSession'
 import useWebsocket from './useWebsocket'
+import useUserAppAccess from './useUserAppAccess'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
 import {
@@ -46,6 +48,7 @@ export const useApp = (appId: string) => {
   const apps = useApps()
   const endpointProviders = useEndpointProviders()
   const { NewInference } = useStreaming()
+  const userAccess = useUserAppAccess(appId)
   
   /**
    * 
@@ -159,8 +162,10 @@ export const useApp = (appId: string) => {
 
   const isReadOnly = useMemo(() => {
     if(!app) return true
-    return isGithubApp
-  }, [app, isGithubApp])
+    if(isGithubApp) return true
+    // If user access information is available, use it to determine read-only status
+    return userAccess.access ? !userAccess.access.can_write : true
+  }, [app, isGithubApp, userAccess.access])
 
   /**
    * 
@@ -601,7 +606,7 @@ export const useApp = (appId: string) => {
     }
     
     try {
-      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`)
+      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`, {}, { snackbar: false })
       setAccessGrants(grants || [])
     } catch (error) {
       console.error('Failed to load access grants:', error)
@@ -738,7 +743,8 @@ export const useApp = (appId: string) => {
   ])
 
   return {
-
+    // User access information
+    userAccess,
     session,
 
     // App state

@@ -1079,7 +1079,8 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 		})
 
 		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
+			// If there's an error getting teams, we continue with empty team IDs
+			teams = []*types.Team{}
 		}
 
 		// Get team IDs
@@ -1097,38 +1098,38 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 		})
 
 		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		// No grants found, return default (no access)
-		if len(grants) == 0 {
-			return nil, system.NewHTTPError403("You don't have access to this app")
+			log.Debug().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("app_id", id).
+				Msg("Error listing access grants, continuing with empty grants")
+			// If there's an error getting grants, we continue with no grants
+			grants = []*types.AccessGrant{}
 		}
 
 		// Analyze roles from grants to determine access level
 		for _, grant := range grants {
 			for _, role := range grant.Roles {
 				// Check role permissions based on role name
-				switch role.Name {
-				case "app_admin":
+				// Support both formats: "app_admin" and just "admin", etc.
+				roleName := strings.TrimPrefix(role.Name, "app_")
+
+				switch roleName {
+				case "admin":
 					response.CanRead = true
 					response.CanWrite = true
 					response.IsAdmin = true
-				case "app_write":
+				case "write":
 					response.CanRead = true
 					response.CanWrite = true
-				case "app_read":
+				case "read":
 					response.CanRead = true
 				}
 			}
 		}
-
-		// If user has at least read access, return the response
-		if response.CanRead {
-			return response, nil
-		}
 	}
 
-	// User doesn't have access
-	return nil, system.NewHTTPError403("You don't have access to this app")
+	// Always return the response, even if the user has no access
+	// This way the frontend can know the user's permission level
+	return response, nil
 }
