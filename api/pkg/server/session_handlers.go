@@ -633,11 +633,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		}
 	}
 
-	// Add a 10-second delay before marking the streaming session as complete
-	// This allows more time to observe streaming behavior in the UI
-	log.Info().Str("session_id", session.ID).Msg("Delaying completion by 10 seconds to allow UI inspection")
-	time.Sleep(10 * time.Second)
-
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
