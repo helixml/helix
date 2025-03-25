@@ -168,6 +168,31 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 	suite.userNonMemberAPIKey = userNonMemberAPIKey
 }
 
+func (suite *OrganizationsRBACTestSuite) TestNonMemberCannotCreateApp() {
+	// Create the app as userMember1
+	userNonMemberClient, err := getAPIClient(suite.userNonMemberAPIKey)
+	suite.Require().NoError(err)
+
+	app, err := userNonMemberClient.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AppSource:      types.AppSourceHelix,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "TestAppVisibilityWithoutGrantingAccess",
+				Description: "TestAppVisibilityWithoutGrantingAccess-description",
+				Assistants: []types.AssistantConfig{
+					{
+						Name:  "test-assistant-1",
+						Model: "meta-llama/Llama-3-8b-chat-hf",
+					},
+				},
+			},
+		},
+	})
+	suite.Require().Error(err)
+	suite.Nil(app)
+}
+
 // TestAppAccessControls - tests various RBAC controls for apps
 // 1. Creates the app as userMember1
 // 2. Checks that only userMember1 and admin can see the app
