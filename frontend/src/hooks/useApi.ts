@@ -67,8 +67,9 @@ export const useApi = () => {
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) {
-        snackbar.setSnackbar(errorMessage, 'error')
-        reportError(new Error(errorMessage))
+        const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
+        snackbar.setSnackbar(safeErrorMsg, 'error')
+        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -86,8 +87,9 @@ export const useApi = () => {
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) {
-        snackbar.setSnackbar(errorMessage, 'error')
-        reportError(new Error(errorMessage))
+        const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
+        snackbar.setSnackbar(safeErrorMsg, 'error')
+        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -114,8 +116,9 @@ export const useApi = () => {
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) {
-        snackbar.setSnackbar(errorMessage, 'error')
-        reportError(new Error(errorMessage))
+        const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
+        snackbar.setSnackbar(safeErrorMsg, 'error')
+        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -133,8 +136,9 @@ export const useApi = () => {
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) {
-        snackbar.setSnackbar(errorMessage, 'error')
-        reportError(new Error(errorMessage))
+        const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
+        snackbar.setSnackbar(safeErrorMsg, 'error')
+        reportError(new Error(safeErrorMsg))
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
