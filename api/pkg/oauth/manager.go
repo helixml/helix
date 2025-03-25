@@ -628,31 +628,107 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 
 	provider, err := m.GetProviderByName(ctx, providerName)
 	if err != nil {
+		log.Error().Err(err).Str("provider_name", providerName).Msg("Failed to get provider")
 		return "", fmt.Errorf("failed to get provider %s: %w", providerName, err)
 	}
+
+	log.Debug().
+		Str("provider_id", provider.ID).
+		Str("provider_name", provider.Name).
+		Str("provider_type", string(provider.Type)).
+		Bool("provider_enabled", provider.Enabled).
+		Msg("Found provider for GetTokenForTool")
 
 	connections, err := m.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 		UserID:     userID,
 		ProviderID: provider.ID,
 	})
 	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Str("provider_id", provider.ID).Msg("Failed to list user connections")
 		return "", fmt.Errorf("failed to list user connections: %w", err)
 	}
 
-	for _, connection := range connections {
+	log.Info().
+		Str("user_id", userID).
+		Str("provider_name", providerName).
+		Str("provider_id", provider.ID).
+		Int("connection_count", len(connections)).
+		Msg("Retrieved OAuth connections for user")
+
+	if len(connections) == 0 {
+		log.Warn().
+			Str("user_id", userID).
+			Str("provider_name", providerName).
+			Str("provider_id", provider.ID).
+			Msg("No connections found for user and provider")
+		return "", fmt.Errorf("no active connection found for provider %s", providerName)
+	}
+
+	for i, connection := range connections {
+		log.Info().
+			Str("user_id", userID).
+			Str("provider_name", providerName).
+			Str("connection_id", connection.ID).
+			Int("connection_index", i).
+			Time("expires_at", connection.ExpiresAt).
+			Bool("token_expired", connection.ExpiresAt.Before(time.Now())).
+			Strs("connection_scopes", connection.Scopes).
+			Msg("Checking connection for token")
+
 		if connection.ExpiresAt.Before(time.Now()) {
-			log.Warn().Str("user_id", userID).Str("provider_name", providerName).Msg("token expired")
-			continue
+			log.Warn().
+				Str("user_id", userID).
+				Str("provider_name", providerName).
+				Str("connection_id", connection.ID).
+				Time("expires_at", connection.ExpiresAt).
+				Msg("Token expired, attempting to refresh")
+
+			// Try to refresh the token
+			err := m.RefreshConnection(ctx, connection)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("connection_id", connection.ID).
+					Str("provider_name", providerName).
+					Msg("Failed to refresh token, trying next connection")
+				continue
+			} else {
+				log.Info().
+					Str("connection_id", connection.ID).
+					Str("provider_name", providerName).
+					Time("new_expiry", connection.ExpiresAt).
+					Msg("Successfully refreshed OAuth token")
+			}
 		}
 
 		missingScopes := getMissingScopes(connection.Scopes, requiredScopes)
 		if len(missingScopes) > 0 {
-			log.Warn().Str("user_id", userID).Str("provider_name", providerName).Strs("missing_scopes", missingScopes).Msg("missing required scopes")
+			log.Warn().
+				Str("user_id", userID).
+				Str("provider_name", providerName).
+				Strs("missing_scopes", missingScopes).
+				Strs("connection_scopes", connection.Scopes).
+				Strs("required_scopes", requiredScopes).
+				Msg("Missing required scopes for connection")
 			continue
 		}
 
+		log.Info().
+			Str("user_id", userID).
+			Str("provider_name", providerName).
+			Str("connection_id", connection.ID).
+			Bool("has_access_token", connection.AccessToken != "").
+			Str("token_prefix", connection.AccessToken[:10]+"...").
+			Msg("Found valid token for tool")
+
 		return connection.AccessToken, nil
 	}
+
+	log.Warn().
+		Str("user_id", userID).
+		Str("provider_name", providerName).
+		Int("connection_count", len(connections)).
+		Msg("No valid connection found for provider - all had expired tokens or missing scopes")
 
 	return "", fmt.Errorf("no active connection found for provider %s", providerName)
 }
@@ -684,11 +760,45 @@ func (m *Manager) GetProviderByName(ctx context.Context, name string) (*types.OA
 		return nil, fmt.Errorf("failed to list providers: %w", err)
 	}
 
+	log.Info().
+		Str("requested_provider", name).
+		Int("available_providers", len(providers)).
+		Msg("Looking for provider by name")
+
+	// First try exact match
 	for _, provider := range providers {
 		if provider.Name == name {
+			log.Info().
+				Str("requested_provider", name).
+				Str("found_provider", provider.Name).
+				Str("provider_id", provider.ID).
+				Msg("Found provider with exact name match")
 			return provider, nil
 		}
 	}
+
+	// Then try case-insensitive match
+	for _, provider := range providers {
+		if strings.EqualFold(provider.Name, name) {
+			log.Info().
+				Str("requested_provider", name).
+				Str("found_provider", provider.Name).
+				Str("provider_id", provider.ID).
+				Msg("Found provider with case-insensitive name match")
+			return provider, nil
+		}
+	}
+
+	// Log all available provider names for debugging
+	var availableNames []string
+	for _, provider := range providers {
+		availableNames = append(availableNames, provider.Name)
+	}
+
+	log.Warn().
+		Str("requested_provider", name).
+		Strs("available_providers", availableNames).
+		Msg("No provider found with matching name")
 
 	return nil, fmt.Errorf("no provider found with name %s", name)
 }

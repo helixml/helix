@@ -41,7 +41,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		}
 
 		// Process the OAuth tokens
-		processOAuthTokens(tool, oauthTokens)
+		testProcessOAuthTokens(tool, oauthTokens)
 
 		// Verify the Authorization header was set correctly
 		authHeader, exists := tool.Config.API.Headers["Authorization"]
@@ -79,7 +79,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		}
 
 		// Process the OAuth tokens
-		processOAuthTokens(tool, oauthTokens)
+		testProcessOAuthTokens(tool, oauthTokens)
 
 		// Verify no Authorization header was set
 		_, exists := tool.Config.API.Headers["Authorization"]
@@ -115,7 +115,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		}
 
 		// Process the OAuth tokens
-		processOAuthTokens(tool, oauthTokens)
+		testProcessOAuthTokens(tool, oauthTokens)
 
 		// Verify no Authorization header was set
 		_, exists := tool.Config.API.Headers["Authorization"]
@@ -155,7 +155,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		}
 
 		// Process the OAuth tokens
-		processOAuthTokens(tool, oauthTokens)
+		testProcessOAuthTokens(tool, oauthTokens)
 
 		// Verify the Authorization header was set correctly
 		authHeader, exists := tool.Config.API.Headers["Authorization"]
@@ -203,7 +203,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		}
 
 		// Process the OAuth tokens
-		processOAuthTokens(tool, oauthTokens)
+		testProcessOAuthTokens(tool, oauthTokens)
 
 		// Verify that the Authorization header remains unchanged
 		authHeader, exists := tool.Config.API.Headers["Authorization"]
@@ -212,8 +212,8 @@ func TestOAuthTokenProcessing(t *testing.T) {
 	})
 }
 
-// processOAuthTokens processes OAuth tokens for a tool
-func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
+// testProcessOAuthTokens processes OAuth tokens for a tool (test implementation)
+func testProcessOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 	if tool.Config.API == nil || tool.Config.API.OAuthProvider == "" {
 		return
 	}

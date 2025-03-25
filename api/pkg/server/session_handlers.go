@@ -507,6 +507,12 @@ func (s *HelixAPIServer) handleBlockingSession(
 
 	// Set the session ID in the context to enable document ID tracking
 	ctx = oai.SetContextSessionID(ctx, session.ID)
+	// Also set the app ID in the context for OAuth token retrieval
+	ctx = oai.SetContextAppID(ctx, session.ParentApp)
+	// Make sure the app ID is also set in the options
+	if session.ParentApp != "" {
+		options.AppID = session.ParentApp
+	}
 	log.Debug().
 		Str("session_id", session.ID).
 		Str("app_id", session.ParentApp).
@@ -560,6 +566,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 	// Set the session ID in the context to enable document ID tracking
 	ctx = oai.SetContextSessionID(ctx, session.ID)
+	// Also set the app ID in the context for OAuth token retrieval
+	ctx = oai.SetContextAppID(ctx, session.ParentApp)
+	// Make sure the app ID is also set in the options
+	if session.ParentApp != "" {
+		options.AppID = session.ParentApp
+	}
 	log.Debug().
 		Str("session_id", session.ID).
 		Str("app_id", session.ParentApp).
@@ -587,16 +599,23 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
-		// Update last interaction
+		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-		session.Interactions[len(session.Interactions)-1].Finished = true
-		if sessErr := s.Controller.WriteSession(ctx, session); sessErr != nil {
-			log.Error().Err(err).Msg("failed to write session")
+		writeErr := s.Controller.WriteSession(ctx, session)
+		if writeErr != nil {
+			return fmt.Errorf("error writing session: %w", writeErr)
 		}
 
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		// Write error message
+		errorMsg := fmt.Sprintf("data: {\"error\":{\"message\":\"%s\"}}\n\n", err.Error())
+		if _, err := rw.Write([]byte(errorMsg)); err != nil {
+			log.Error().Err(err).Msg("failed to write error chunk")
+		}
+
+		if f, ok := rw.(http.Flusher); ok {
+			f.Flush()
+		}
 		return nil
 	}
 	defer stream.Close()

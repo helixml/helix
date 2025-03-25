@@ -1,5 +1,11 @@
 package types
 
+import (
+	"fmt"
+
+	"github.com/rs/zerolog/log"
+)
+
 // TemplateAppType represents the type of template app
 type TemplateAppType string
 
@@ -50,7 +56,7 @@ When asked about GitHub repositories, use the API to fetch actual data.`,
 						Name:          "GitHub API",
 						Description:   "GitHub API for accessing repositories, issues, and pull requests",
 						URL:           "https://api.github.com",
-						OAuthProvider: string(OAuthProviderTypeGitHub),
+						OAuthProvider: "GitHub",
 						OAuthScopes:   []string{"repo", "read:user"},
 						Schema: `openapi: 3.0.0
 info:
@@ -450,6 +456,21 @@ func GetDefaultAPIURLForProvider(providerType string) string {
 
 // CreateAppConfigFromTemplate creates an AppConfig from a template
 func CreateAppConfigFromTemplate(template *TemplateAppConfig) *AppConfig {
+	// Add debug logging
+	for i, assistant := range template.Assistants {
+		for j, api := range assistant.APIs {
+			log.Info().
+				Str("template_type", string(template.Type)).
+				Str("assistant_index", fmt.Sprintf("%d", i)).
+				Str("api_index", fmt.Sprintf("%d", j)).
+				Str("api_name", api.Name).
+				Str("oauth_provider", api.OAuthProvider).
+				Strs("oauth_scopes", api.OAuthScopes).
+				Bool("has_oauth_provider", api.OAuthProvider != "").
+				Msg("DEBUG: Template API OAuth provider before conversion")
+		}
+	}
+
 	config := &AppConfig{
 		Helix: AppHelixConfig{
 			Name:        template.Name,
@@ -472,7 +493,7 @@ func CreateAppConfigFromTemplate(template *TemplateAppConfig) *AppConfig {
 		}
 
 		// Convert APIs to Tools
-		for _, api := range assistant.APIs {
+		for j, api := range assistant.APIs {
 			tool := &Tool{
 				Name:        api.Name,
 				Description: api.Description,
@@ -489,6 +510,17 @@ func CreateAppConfigFromTemplate(template *TemplateAppConfig) *AppConfig {
 				},
 			}
 			config.Helix.Assistants[i].Tools = append(config.Helix.Assistants[i].Tools, tool)
+
+			// Log after conversion
+			log.Info().
+				Str("template_type", string(template.Type)).
+				Str("assistant_index", fmt.Sprintf("%d", i)).
+				Str("tool_index", fmt.Sprintf("%d", j)).
+				Str("tool_name", tool.Name).
+				Str("oauth_provider", tool.Config.API.OAuthProvider).
+				Strs("oauth_scopes", tool.Config.API.OAuthScopes).
+				Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+				Msg("DEBUG: Tool OAuth provider after conversion")
 		}
 	}
 

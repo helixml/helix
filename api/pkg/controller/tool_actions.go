@@ -83,6 +83,18 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 			Str("oauth_provider", oauthProviderType).
 			Str("api_url", tool.Config.API.URL).
 			Msg("Running API tool action")
+
+		// Add detailed debug logging for OAuth provider
+		log.Info().
+			Str("session_id", session.ID).
+			Str("tool_id", tool.ID).
+			Str("tool_name", tool.Name).
+			Str("oauth_provider", tool.Config.API.OAuthProvider).
+			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+			Str("oauth_provider_type", fmt.Sprintf("%T", tool.Config.API.OAuthProvider)).
+			Interface("tool_config", tool.Config).
+			Interface("tool_config_api", tool.Config.API).
+			Msg("DEBUG: Tool OAuth provider details")
 	}
 
 	var updated *types.Session

@@ -61,12 +61,55 @@ type RetryableClient struct {
 	apiKey     string
 }
 
+// Custom transport that adds OAuth token to requests
+type oauthTransport struct {
+	base         http.RoundTripper
+	providerType string
+	token        string
+}
+
+// RoundTrip implements the http.RoundTripper interface
+func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req2 := req.Clone(req.Context())
+
+	// Only add Authorization header if none exists
+	if req2.Header.Get("Authorization") == "" && t.token != "" {
+		authHeader := "Bearer " + t.token
+		req2.Header.Add("Authorization", authHeader)
+
+		// Add X-Helix-OAuth-Provider to identify the source
+		req2.Header.Add("X-Helix-OAuth-Provider", t.providerType)
+
+		log.Info().
+			Str("provider", t.providerType).
+			Str("token_prefix", t.token[:10]+"...").
+			Msg("Added OAuth token to outgoing request")
+	}
+
+	// Use the base transport to perform the actual request
+	return t.base.RoundTrip(req2)
+}
+
 // AddOAuthToken adds an OAuth token to the client headers
-func (c *RetryableClient) AddOAuthToken(providerType string, _ string) {
-	// Currently not implemented as the sashabaranov/go-openai library doesn't directly
-	// support custom headers. In the future, this could be implemented via a custom HTTP client
-	// that adds the necessary headers before requests are sent.
-	log.Debug().Str("provider", providerType).Msg("OAuth token received but not applied to OpenAI client")
+func (c *RetryableClient) AddOAuthToken(providerType string, token string) {
+	// The sashabaranov/go-openai library doesn't directly support custom headers in its public API,
+	// but we can still customize the HTTP client to add the Authorization header
+	log.Info().
+		Str("provider", providerType).
+		Bool("has_token", token != "").
+		Msg("Adding OAuth token to RetryableClient")
+
+	// Create a custom HTTP client with transport that adds the OAuth token
+	transport := &oauthTransport{
+		base:         http.DefaultTransport,
+		providerType: providerType,
+		token:        token,
+	}
+
+	// Create a new HTTP client with the custom transport and update our client
+	c.httpClient = &http.Client{
+		Transport: transport,
+	}
 }
 
 // APIKey - returns the API key used by the client, used for testing
