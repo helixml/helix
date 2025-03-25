@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useState, useMemo, useCallback } from 'react'
+import React, { FC, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import Typography from '@mui/material/Typography'
 import Progress from '../widgets/Progress'
 import WaitingInQueue from './WaitingInQueue'
@@ -39,14 +39,14 @@ const OrbWrapper = styled.div`
 
 const orbColors = ['#FFBF00', '#00FF00', '#0000FF', '#800080']
 
-const Orb = styled.div<{ isPulsating: boolean; colorIndex: number }>`
+const Orb = styled.div<{ $isPulsating: boolean; $colorIndex: number }>`
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, ${props => orbColors[props.colorIndex]}, #000);
-  box-shadow: 0 0 10px ${props => orbColors[props.colorIndex]};
+  background: radial-gradient(circle at 30% 30%, ${props => orbColors[props.$colorIndex]}, #000);
+  box-shadow: 0 0 10px ${props => orbColors[props.$colorIndex]};
   cursor: pointer;
-  animation: ${props => props.isPulsating ? pulse : 'none'} 2s infinite;
+  animation: ${props => props.$isPulsating ? pulse : 'none'} 2s infinite;
 `
 
 const OrbTooltip = styled.div`
@@ -107,7 +107,8 @@ export const InteractionLiveStream: FC<{
     
     // Track previous message length to detect when streaming stops
     const [prevMessageLength, setPrevMessageLength] = useState(0);
-    const [noChangeTimer, setNoChangeTimer] = useState<NodeJS.Timeout | null>(null);
+    // Replace the state with a ref since we don't need to re-render when the timer changes
+    const noChangeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     // Memoize values that don't change frequently to prevent unnecessary re-renders
     const showLoading = useMemo(() => 
@@ -127,9 +128,9 @@ export const InteractionLiveStream: FC<{
       // Always reset to streaming state when interaction ID changes
       setIsActivelyStreaming(true);
       setPrevMessageLength(0);
-      if (noChangeTimer) {
-        clearTimeout(noChangeTimer);
-        setNoChangeTimer(null);
+      if (noChangeTimerRef.current) {
+        clearTimeout(noChangeTimerRef.current);
+        noChangeTimerRef.current = null;
       }
     }, [interaction?.id]);
 
@@ -150,8 +151,8 @@ export const InteractionLiveStream: FC<{
       // If message length hasn't changed in 1.5 seconds, consider streaming complete
       if (currentLength > 0 && currentLength === prevMessageLength) {
         // Clear any existing timer
-        if (noChangeTimer) {
-          clearTimeout(noChangeTimer);
+        if (noChangeTimerRef.current) {
+          clearTimeout(noChangeTimerRef.current);
         }
         
         // Set a new timer
@@ -159,22 +160,22 @@ export const InteractionLiveStream: FC<{
           setIsActivelyStreaming(false);
         }, 15000);
         
-        setNoChangeTimer(timer);
+        noChangeTimerRef.current = timer;
       } else {
         // Message length changed, update the previous length
         setPrevMessageLength(currentLength);
         
         // Clear any existing timer
-        if (noChangeTimer) {
-          clearTimeout(noChangeTimer);
-          setNoChangeTimer(null);
+        if (noChangeTimerRef.current) {
+          clearTimeout(noChangeTimerRef.current);
+          noChangeTimerRef.current = null;
         }
       }
       
       // Cleanup timer on unmount
       return () => {
-        if (noChangeTimer) {
-          clearTimeout(noChangeTimer);
+        if (noChangeTimerRef.current) {
+          clearTimeout(noChangeTimerRef.current);
         }
       };
     }, [message, isActivelyStreaming, prevMessageLength]);
@@ -192,6 +193,16 @@ export const InteractionLiveStream: FC<{
       if (!message || !onMessageUpdate) return
       onMessageUpdate()
     }, [message, onMessageUpdate])
+
+    // Add a cleanup effect for component unmount - use the ref here
+    useEffect(() => {
+      return () => {
+        // Clean up all timers and state updates when component unmounts
+        if (noChangeTimerRef.current) {
+          clearTimeout(noChangeTimerRef.current);
+        }
+      };
+    }, []);
 
     // Only log when component actually needs to re-render due to important prop changes
     const shouldLogRender = useMemo(() => {
@@ -221,8 +232,8 @@ export const InteractionLiveStream: FC<{
             {stepInfos.map((stepInfo, index) => (
               <OrbWrapper key={index}>
                 <Orb
-                  isPulsating={index === stepInfos.length - 1 && !message}
-                  colorIndex={index % orbColors.length}
+                  $isPulsating={index === stepInfos.length - 1 && !message}
+                  $colorIndex={index % orbColors.length}
                 />
                 <OrbTooltip>
                   <strong>{stepInfo.type}: {stepInfo.name}</strong><br />
