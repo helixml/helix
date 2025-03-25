@@ -328,6 +328,12 @@ func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.S
 		Str("session_id", sessionData.ID).
 		Msg("🟢 update session config")
 
+	// Send WebSocket notification about the updated session metadata
+	if err := c.WriteSession(ctx, session); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to send WebSocket notification for metadata update")
+		// We don't return an error here as the metadata was successfully updated in the database
+	}
+
 	return &sessionData.Metadata, nil
 }
 
@@ -826,6 +832,12 @@ func (c *Controller) publishEvent(ctx context.Context, event *types.WebsocketEve
 	if err != nil {
 		log.Error().Msgf("Error marshalling session update: %s", err.Error())
 		return err
+	}
+
+	// Check if PubSub is nil (for tests)
+	if c.Options.PubSub == nil {
+		log.Debug().Msg("PubSub not initialized, skipping event publishing")
+		return nil
 	}
 
 	err = c.Options.PubSub.Publish(ctx, pubsub.GetSessionQueue(event.Owner, event.SessionID), message)

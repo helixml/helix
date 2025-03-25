@@ -321,7 +321,7 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
-        // Set up token refresh interval - using 30 seconds instead of 10
+        // Set up token refresh interval - using 5 minutes instead of 30 seconds
         // to reduce server load and prevent potential race conditions
         const refreshInterval = setInterval(async () => {
           try {
@@ -345,7 +345,7 @@ export const useAccountContext = (): IAccountContext => {
               onLogin()
             }
           }
-        }, 30 * 1000) // 30 seconds instead of 10
+        }, 300 * 1000) // 5 minutes
         
         // Clean up interval on component unmount
         return () => clearInterval(refreshInterval)
