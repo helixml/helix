@@ -138,6 +138,44 @@ paths:
             type: string
             enum: [created, updated, comments]
             default: created
+        - name: per_page
+          in: query
+          description: Results per page
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Successful operation
+        '404':
+          description: Repository not found
+  /issues:
+    get:
+      summary: List issues assigned to the authenticated user
+      description: List all issues assigned to the authenticated user across all repositories
+      operationId: listUserIssues
+      parameters:
+        - name: filter
+          in: query
+          description: Filter issues by state
+          schema:
+            type: string
+            enum: [assigned, created, mentioned, subscribed, all]
+            default: assigned
+        - name: state
+          in: query
+          description: Filter issues by state
+          schema:
+            type: string
+            enum: [open, closed, all]
+            default: open
+        - name: sort
+          in: query
+          description: What to sort results by
+          schema:
+            type: string
+            enum: [created, updated, comments]
+            default: created
       responses:
         '200':
           description: Successful operation

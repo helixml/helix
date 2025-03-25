@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -35,6 +36,103 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			if err := opt(&opts); err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	// Add OAuth token handling for API tools
+	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+		// Get the OAuth provider type and required scopes
+		providerType := tool.Config.API.OAuthProvider
+		requiredScopes := tool.Config.API.OAuthScopes
+
+		// Try to get user ID from session ID
+		var userID string
+		if c.oauthManager != nil && sessionID != "" && c.sessionStore != nil && c.appStore != nil {
+			var err error
+			userID, err = c.getUserIDFromSessionID(ctx, sessionID)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("session_id", sessionID).
+					Msg("Failed to get user ID from session for OAuth token")
+			}
+		}
+
+		// If we have a user ID and OAuth manager, get the token
+		if userID != "" && c.oauthManager != nil {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("user_id", userID).
+				Str("provider", string(providerType)).
+				Strs("scopes", requiredScopes).
+				Msg("Fetching OAuth token for API tool in RunAction")
+
+			// Get the OAuth token for this tool
+			token, err := c.oauthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
+			if err == nil && token != "" {
+				// Initialize headers map if it doesn't exist
+				if tool.Config.API.Headers == nil {
+					tool.Config.API.Headers = make(map[string]string)
+				}
+
+				// Add the token to the Authorization header
+				authHeaderKey := "Authorization"
+				tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", token)
+
+				log.Info().
+					Str("session_id", sessionID).
+					Str("provider", string(providerType)).
+					Str("token_prefix", token[:10]+"...").
+					Msg("Added OAuth token to API tool headers in RunAction")
+			} else {
+				log.Warn().
+					Err(err).
+					Str("session_id", sessionID).
+					Str("provider", string(providerType)).
+					Msg("Failed to get OAuth token for API tool in RunAction")
+			}
+		} else {
+			if userID == "" {
+				log.Warn().
+					Str("session_id", sessionID).
+					Msg("No user ID available to fetch OAuth token in RunAction")
+			}
+			if c.oauthManager == nil {
+				log.Warn().
+					Str("session_id", sessionID).
+					Msg("OAuth manager not available in RunAction")
+			}
+		}
+	}
+
+	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+		// Log details for all API tools
+		log.Info().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("tool", tool.Name).
+			Str("action", action).
+			Str("provider", string(tool.Config.API.OAuthProvider)).
+			Str("api_url", tool.Config.API.URL).
+			Msg("RunAction called for API tool")
+
+		// Check for Authorization header
+		if tool.Config.API.Headers != nil {
+			authHeader := tool.Config.API.Headers["Authorization"]
+			if authHeader != "" {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("auth_header_prefix", authHeader[:10]+"...").
+					Msg("API tool has Authorization header in RunAction")
+			} else {
+				log.Warn().
+					Str("session_id", sessionID).
+					Msg("API tool missing Authorization header in RunAction")
+			}
+		} else {
+			log.Warn().
+				Str("session_id", sessionID).
+				Msg("API tool has no headers map in RunAction")
 		}
 	}
 
@@ -119,6 +217,37 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		return nil, fmt.Errorf("action %s is not found in the tool %s", action, tool.Name)
 	}
 
+	// Debug logging for all API tools
+	if tool.Config.API != nil {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("tool", tool.Name).
+			Str("action", action).
+			Str("provider", string(tool.Config.API.OAuthProvider)).
+			Str("api_url", tool.Config.API.URL).
+			Msg("callAPI called for API tool")
+
+		// Check for Authorization header
+		if tool.Config.API.Headers != nil {
+			authHeader := tool.Config.API.Headers["Authorization"]
+			if authHeader != "" {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("auth_header_prefix", authHeader[:10]+"...").
+					Msg("API tool has Authorization header in callAPI")
+			} else {
+				log.Warn().
+					Str("session_id", sessionID).
+					Msg("API tool missing Authorization header in callAPI")
+			}
+		} else {
+			log.Warn().
+				Str("session_id", sessionID).
+				Msg("API tool has no headers map in callAPI")
+		}
+	}
+
 	started := time.Now()
 
 	// Get API request parameters
@@ -160,6 +289,25 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		Str("url", req.URL.String()).
 		Dur("time_taken", time.Since(started)).
 		Msg("API call done")
+
+	// Log response details for all API requests
+	// Read response body for logging but keep a copy
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read API response body for logging")
+	} else {
+		// Log response details
+		log.Info().
+			Str("tool", tool.Name).
+			Str("action", action).
+			Int("status_code", resp.StatusCode).
+			Str("status", resp.Status).
+			Str("response_body", string(bodyBytes)).
+			Msg("API response details")
+
+		// Restore the response body for further processing
+		resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	}
 
 	return resp, nil
 }
@@ -250,3 +398,5 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 	return &types.RunAPIActionResponse{Response: string(body)}, nil
 }
+
+// Helper function to extract user ID from session ID
