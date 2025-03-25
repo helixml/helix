@@ -799,42 +799,120 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 		Str("user_id", user.ID).
 		Msg("Getting OAuth tokens for app")
 
+	// DEBUG: Print available OAuth providers for diagnostics
+	providers, err := s.Store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
+		Enabled: true,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list available OAuth providers")
+	} else {
+		providerStrings := make([]string, 0, len(providers))
+		for _, p := range providers {
+			providerStrings = append(providerStrings, p.Name)
+		}
+		log.Info().
+			Strs("available_providers", providerStrings).
+			Str("user_id", user.ID).
+			Msg("Available OAuth providers for user")
+	}
+
 	// First check each tool for OAuth provider requirements
-	for _, assistant := range appRecord.Config.Helix.Assistants {
+	for idx, assistant := range appRecord.Config.Helix.Assistants {
+		log.Debug().
+			Int("assistant_index", idx).
+			Str("assistant_name", assistant.Name).
+			Int("tool_count", len(assistant.Tools)).
+			Msg("Checking assistant for OAuth tools")
+
 		// Check each tool for OAuth requirements
-		for _, tool := range assistant.Tools {
-			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				providerName := tool.Config.API.OAuthProvider
-				requiredScopes := tool.Config.API.OAuthScopes
+		for tIdx, tool := range assistant.Tools {
+			log.Debug().
+				Int("tool_index", tIdx).
+				Str("tool_name", tool.Name).
+				Str("tool_type", string(tool.ToolType)).
+				Interface("tool_config", tool.Config).
+				Msg("Checking tool for OAuth requirements")
 
+			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
 				log.Debug().
-					Str("provider", providerName).
-					Strs("scopes", requiredScopes).
-					Msg("Checking OAuth token for tool")
+					Str("tool_name", tool.Name).
+					Str("oauth_provider", tool.Config.API.OAuthProvider).
+					Strs("oauth_scopes", tool.Config.API.OAuthScopes).
+					Msg("Tool API configuration")
 
-				token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerName, requiredScopes)
-				if err == nil && token != "" {
-					// Add the token directly to the map
-					oauthTokens[providerName] = token
-					log.Info().
+				if tool.Config.API.OAuthProvider != "" {
+					providerName := tool.Config.API.OAuthProvider
+					requiredScopes := tool.Config.API.OAuthScopes
+
+					log.Debug().
 						Str("provider", providerName).
-						Str("provider_key", providerName).
-						Str("token_prefix", token[:10]+"...").
-						Msg("Added OAuth token to app environment")
-				} else {
-					var scopeErr *oauth.ScopeError
-					if errors.As(err, &scopeErr) {
-						log.Warn().
-							Str("app_id", appRecord.ID).
+						Strs("scopes", requiredScopes).
+						Msg("Checking OAuth token for tool")
+
+					// DEBUG: Check if user has connections for this provider
+					connections, connErr := s.Store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+						UserID:     user.ID,
+						ProviderID: "", // We'll do filtering manually
+					})
+					if connErr != nil {
+						log.Error().
+							Err(connErr).
+							Str("provider", providerName).
 							Str("user_id", user.ID).
-							Str("provider", providerName).
-							Strs("missing_scopes", scopeErr.Missing).
-							Msg("Missing required OAuth scopes for tool")
+							Msg("Failed to list user connections for provider")
 					} else {
-						log.Debug().
-							Err(err).
+						// Filter connections for this provider
+						var matchingConnections []*types.OAuthConnection
+						var matchingProvider *types.OAuthProvider
+						for _, p := range providers {
+							if p.Name == providerName {
+								matchingProvider = p
+								break
+							}
+						}
+
+						if matchingProvider != nil {
+							for _, conn := range connections {
+								if conn.ProviderID == matchingProvider.ID {
+									matchingConnections = append(matchingConnections, conn)
+								}
+							}
+
+							log.Info().
+								Str("provider", providerName).
+								Str("provider_id", matchingProvider.ID).
+								Str("user_id", user.ID).
+								Int("connection_count", len(matchingConnections)).
+								Msg("Found OAuth connections for provider")
+						}
+					}
+
+					token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerName, requiredScopes)
+					if err == nil && token != "" {
+						// Add the token directly to the map
+						oauthTokens[providerName] = token
+						log.Info().
 							Str("provider", providerName).
-							Msg("Failed to get OAuth token for tool")
+							Str("provider_key", providerName).
+							Str("token_prefix", token[:10]+"...").
+							Msg("Added OAuth token to app environment")
+					} else {
+						var scopeErr *oauth.ScopeError
+						if errors.As(err, &scopeErr) {
+							log.Warn().
+								Str("app_id", appRecord.ID).
+								Str("user_id", user.ID).
+								Str("provider", providerName).
+								Strs("missing_scopes", scopeErr.Missing).
+								Strs("required_scopes", requiredScopes).
+								Msg("Missing required OAuth scopes for tool")
+						} else {
+							log.Warn().
+								Err(err).
+								Str("provider", providerName).
+								Str("error_type", fmt.Sprintf("%T", err)).
+								Msg("Failed to get OAuth token for tool")
+						}
 					}
 				}
 			}

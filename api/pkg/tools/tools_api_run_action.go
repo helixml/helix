@@ -3,9 +3,11 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -243,6 +245,34 @@ func (c *ChainStrategy) runAPIActionStream(ctx context.Context, client oai.Clien
 }
 
 func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
+	// Log the tool's OAuth configuration
+	if tool != nil && tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Str("tool_name", tool.Name).
+			Str("action", action).
+			Str("api_url", tool.Config.API.URL).
+			Str("oauth_provider", tool.Config.API.OAuthProvider).
+			Strs("oauth_scopes", tool.Config.API.OAuthScopes).
+			Bool("has_headers", tool.Config.API.Headers != nil).
+			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+			Int("header_count", func() int {
+				if tool.Config.API.Headers != nil {
+					return len(tool.Config.API.Headers)
+				}
+				return 0
+			}()).
+			Msg("callAPI called for API tool")
+
+		// Detailed tool configuration tracing
+		log.Debug().
+			Str("tool_id", tool.ID).
+			Str("tool_name", tool.Name).
+			Interface("tool_config_api", tool.Config.API).
+			Msg("Complete tool configuration")
+	}
+
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -270,25 +300,60 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 			Str("action", action).
 			Str("provider", tool.Config.API.OAuthProvider).
 			Str("api_url", tool.Config.API.URL).
+			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+			Bool("has_headers", tool.Config.API.Headers != nil).
+			Int("header_count", len(tool.Config.API.Headers)).
 			Msg("callAPI called for API tool")
 
-		// Check for Authorization header
+		// Detailed header inspection
 		if tool.Config.API.Headers != nil {
+			// Log all headers except sensitive ones
+			headerKeys := make([]string, 0, len(tool.Config.API.Headers))
+			for key := range tool.Config.API.Headers {
+				headerKeys = append(headerKeys, key)
+			}
+
+			log.Info().
+				Str("session_id", sessionID).
+				Strs("header_keys", headerKeys).
+				Msg("API tool headers")
+
+			// Check specifically for Authorization header
 			authHeader := tool.Config.API.Headers["Authorization"]
 			if authHeader != "" {
+				prefix := authHeader
+				if len(authHeader) > 15 {
+					prefix = authHeader[:15] + "..."
+				}
+
 				log.Info().
 					Str("session_id", sessionID).
-					Str("auth_header_prefix", authHeader[:10]+"...").
+					Str("auth_header_prefix", prefix).
+					Str("auth_header_type", strings.Split(authHeader, " ")[0]).
 					Msg("API tool has Authorization header in callAPI")
 			} else {
 				log.Warn().
 					Str("session_id", sessionID).
 					Msg("API tool missing Authorization header in callAPI")
+
+				// Inspect OAuth provider - is it correctly configured?
+				log.Info().
+					Str("session_id", sessionID).
+					Str("oauth_provider", tool.Config.API.OAuthProvider).
+					Strs("oauth_scopes", tool.Config.API.OAuthScopes).
+					Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+					Msg("OAuth provider info for tool")
 			}
 		} else {
 			log.Warn().
 				Str("session_id", sessionID).
 				Msg("API tool has no headers map in callAPI")
+
+			// Headers map is nil, let's examine the tool config
+			log.Info().
+				Interface("tool_config_api", tool.Config.API).
+				Str("oauth_provider", tool.Config.API.OAuthProvider).
+				Msg("API tool configuration details")
 		}
 	}
 
@@ -322,7 +387,29 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 	started = time.Now()
 
 	// Make API call
-	resp, err := c.httpClient.Do(req)
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Log outgoing request headers
+	log.Debug().
+		Str("url", req.URL.String()).
+		Str("method", req.Method).
+		Interface("headers", req.Header).
+		Bool("has_auth_header", req.Header.Get("Authorization") != "").
+		Str("auth_header", func() string {
+			if auth := req.Header.Get("Authorization"); auth != "" {
+				if strings.HasPrefix(auth, "Bearer ") && len(auth) > 15 {
+					// Mask the token
+					return auth[:15] + "..."
+				}
+				return auth
+			}
+			return "none"
+		}()).
+		Msg("Outgoing API request headers")
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
@@ -390,44 +477,136 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 	// Process OAuth tokens if provided
 	if len(req.OAuthTokens) > 0 {
-		log.Debug().Int("count", len(req.OAuthTokens)).Msg("Adding OAuth tokens to API request")
+		// Extract token keys for logging
+		tokenKeys := make([]string, 0, len(req.OAuthTokens))
+		for key := range req.OAuthTokens {
+			tokenKeys = append(tokenKeys, key)
+		}
+
+		log.Debug().
+			Int("count", len(req.OAuthTokens)).
+			Strs("token_keys", tokenKeys).
+			Msg("Adding OAuth tokens to API request")
 
 		// Only proceed if the tool has OAuth provider configured
 		if req.Tool.Config.API != nil && req.Tool.Config.API.OAuthProvider != "" {
 			toolProviderName := req.Tool.Config.API.OAuthProvider
 
+			log.Debug().
+				Str("tool_provider_name", toolProviderName).
+				Msg("Tool has OAuth provider configured")
+
+			// Log all available tokens for debugging
+			for key := range req.OAuthTokens {
+				log.Debug().
+					Str("available_token_key", key).
+					Bool("matches_provider", key == toolProviderName).
+					Msg("Available OAuth token")
+			}
+
 			// Check if we have a matching OAuth token for this provider
 			if token, exists := req.OAuthTokens[toolProviderName]; exists {
+				log.Debug().
+					Str("provider", toolProviderName).
+					Bool("token_present", token != "").
+					Str("token_prefix", token[:5]+"...").
+					Msg("Found matching OAuth token")
+
 				// Add the token to headers if not already in headers
 				authHeaderKey := "Authorization"
 				if _, exists := req.Tool.Config.API.Headers[authHeaderKey]; !exists {
 					// Add OAuth token as Bearer token if the tool doesn't already have an auth header
 					if req.Tool.Config.API.Headers == nil {
+						log.Debug().Msg("Initializing headers map in tool API config")
 						req.Tool.Config.API.Headers = make(map[string]string)
 					}
-					req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", token)
+
+					bearerToken := fmt.Sprintf("Bearer %s", token)
+					req.Tool.Config.API.Headers[authHeaderKey] = bearerToken
 					log.Debug().
 						Str("provider", toolProviderName).
+						Str("auth_header", authHeaderKey).
+						Str("token_type", "Bearer").
+						Str("token_prefix", bearerToken[:12]+"...").
+						Bool("headers_map_exists", req.Tool.Config.API.Headers != nil).
+						Int("headers_count", len(req.Tool.Config.API.Headers)).
 						Msg("Added matching OAuth token to API request headers")
 				} else {
 					log.Debug().
 						Str("provider", toolProviderName).
+						Str("existing_header", req.Tool.Config.API.Headers[authHeaderKey]).
 						Msg("Authentication header already exists, not overriding")
 				}
 			} else {
-				log.Debug().
-					Str("tool_provider", toolProviderName).
-					Msg("No matching OAuth token found for provider")
+				// This is important - if we don't find a token with the exact provider name
+				// Try a case-insensitive match as a fallback
+				var matchFound bool
+				for tokenKey, tokenValue := range req.OAuthTokens {
+					if strings.EqualFold(tokenKey, toolProviderName) {
+						log.Debug().
+							Str("tool_provider", toolProviderName).
+							Str("token_key", tokenKey).
+							Bool("case_sensitive_match", tokenKey == toolProviderName).
+							Bool("case_insensitive_match", strings.EqualFold(tokenKey, toolProviderName)).
+							Msg("Found OAuth token with case-insensitive match")
+
+						// Add the token to headers
+						authHeaderKey := "Authorization"
+						if req.Tool.Config.API.Headers == nil {
+							req.Tool.Config.API.Headers = make(map[string]string)
+						}
+						req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", tokenValue)
+						matchFound = true
+						break
+					}
+				}
+
+				if !matchFound {
+					log.Warn().
+						Str("tool_provider", toolProviderName).
+						Strs("available_tokens", tokenKeys).
+						Msg("No matching OAuth token found for provider")
+				}
 			}
 		} else {
-			log.Debug().Msg("Tool has no OAuth provider configured, skipping token injection")
+			if req.Tool.Config.API == nil {
+				log.Warn().Msg("Tool has no API configuration")
+			} else {
+				log.Debug().
+					Str("provider", req.Tool.Config.API.OAuthProvider).
+					Msg("Tool has no OAuth provider configured, skipping token injection")
+			}
 		}
+	} else {
+		log.Warn().Msg("No OAuth tokens provided with request")
 	}
+
+	// Make the request
+	log.Info().
+		Str("tool", req.Tool.Name).
+		Str("action", req.Action).
+		Int("parameter_count", len(req.Parameters)).
+		Msg("API request prepared")
 
 	httpRequest, err := c.prepareRequest(ctx, req.Tool, req.Action, req.Parameters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
+
+	// Log the request details to debug OAuth headers
+	log.Debug().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Interface("headers", httpRequest.Header).
+		Bool("has_auth_header", httpRequest.Header.Get("Authorization") != "").
+		Str("auth_value", func() string {
+			auth := httpRequest.Header.Get("Authorization")
+			if auth != "" && len(auth) > 15 {
+				return auth[:15] + "..."
+			}
+			return auth
+		}()).
+		Msg("Prepared API request with headers")
 
 	resp, err := c.httpClient.Do(httpRequest)
 	if err != nil {
@@ -443,4 +622,159 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	return &types.RunAPIActionResponse{Response: string(body)}, nil
 }
 
-// Helper function to extract user ID from session ID
+// getUserIDFromSessionID retrieves the user ID associated with a session
+func (c *ChainStrategy) getUserIDFromSessionID(ctx context.Context, sessionID string) (string, error) {
+	if c.sessionStore == nil {
+		return "", fmt.Errorf("session store not available")
+	}
+
+	session, err := c.sessionStore.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session: %w", err)
+	}
+
+	return session.Owner, nil
+}
+
+// prepareRequest prepares the HTTP request
+func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]any) (*http.Request, error) {
+	if tool.ToolType != types.ToolTypeAPI || tool.Config.API == nil {
+		return nil, fmt.Errorf("not an API tool")
+	}
+
+	apiConfig := tool.Config.API
+
+	var path string
+	var httpMethod string
+	var actionObject *types.ToolAPIAction
+
+	// Find the action in the API config
+	for _, a := range apiConfig.Actions {
+		if a.Name == action {
+			path = a.Path
+			httpMethod = a.Method
+			actionObject = a
+			break
+		}
+	}
+
+	if actionObject == nil {
+		return nil, fmt.Errorf("unknown action: %s", action)
+	}
+
+	// Convert parameters to string map
+	paramsStr := make(map[string]string)
+	for name, value := range params {
+		switch v := value.(type) {
+		case string:
+			paramsStr[name] = v
+		case bool:
+			if v {
+				paramsStr[name] = "true"
+			} else {
+				paramsStr[name] = "false"
+			}
+		case float64:
+			paramsStr[name] = fmt.Sprintf("%g", v)
+		default:
+			// Skip complex types for now
+			continue
+		}
+	}
+
+	// Construct URL by replacing path parameters with actual values
+	for paramName := range paramsStr {
+		path = strings.ReplaceAll(path, fmt.Sprintf("{%s}", paramName), paramsStr[paramName])
+	}
+
+	// Construct the URL with base URL and path
+	url := fmt.Sprintf("%s%s", apiConfig.URL, path)
+
+	// Add query parameters to the URL
+	if len(paramsStr) > 0 {
+		u, err := url.Parse(url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse url: %w", err)
+		}
+
+		q := u.Query()
+		for paramName, paramValue := range paramsStr {
+			// Only add query parameters that are not path parameters
+			if !strings.Contains(actionObject.Path, fmt.Sprintf("{%s}", paramName)) {
+				q.Add(paramName, paramValue)
+			}
+		}
+
+		u.RawQuery = q.Encode()
+		url = u.String()
+	}
+
+	// Get the request body for POST/PUT/PATCH methods
+	var requestBody io.Reader
+	if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {
+		if len(paramsStr) > 0 {
+			bodyJson, err := json.Marshal(paramsStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			}
+			requestBody = bytes.NewBuffer(bodyJson)
+		}
+	}
+
+	// Create the request
+	req, err := http.NewRequestWithContext(ctx, httpMethod, url, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add the Content-Type header
+	req.Header.Add("Content-Type", "application/json")
+
+	// Add custom headers from the API config (e.g. Authorization header for OAuth tokens)
+	if apiConfig.Headers != nil {
+		for key, value := range apiConfig.Headers {
+			req.Header.Add(key, value)
+		}
+	}
+
+	// Add request metadata headers
+	req.Header.Add("X-Helix-Action-Id", action)
+
+	return req, nil
+}
+
+// makeRequest makes an HTTP request
+func (c *ChainStrategy) makeRequest(httpMethod string, url string, headers http.Header, requestBody io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(httpMethod, url, requestBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add headers to the request
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
+	}
+
+	// Debug log all headers to see exactly what is being sent
+	log.Debug().
+		Str("url", url).
+		Str("method", httpMethod).
+		Interface("request_headers", req.Header).
+		Bool("has_auth_header", req.Header.Get("Authorization") != "").
+		Str("auth_header", func() string {
+			if auth := req.Header.Get("Authorization"); auth != "" {
+				if strings.HasPrefix(auth, "Bearer ") && len(auth) > 15 {
+					// Mask the token
+					return auth[:15] + "..."
+				}
+				return auth
+			}
+			return "none"
+		}()).
+		Msg("Outgoing API request headers")
+
+	// Make the request
+	return c.httpClient.Do(req)
+}
