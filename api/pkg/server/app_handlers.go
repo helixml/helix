@@ -1002,3 +1002,133 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 
 	return response, nil
 }
+
+// Response for the user access endpoint
+type UserAppAccessResponse struct {
+	CanRead  bool `json:"can_read"`
+	CanWrite bool `json:"can_write"`
+	IsAdmin  bool `json:"is_admin"`
+}
+
+// getAppUserAccess godoc
+// @Summary Get current user's access level for an app
+// @Description Returns the access rights the current user has for this app
+// @Tags    apps
+// @Success 200 {object} UserAppAccessResponse
+// @Param id path string true "App ID"
+// @Router /api/v1/apps/{id}/user-access [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request) (*UserAppAccessResponse, *system.HTTPError) {
+	// Get current user and app ID
+	user := getRequestUser(r)
+	id := getID(r)
+
+	// Get the app
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Initialize response with no permissions
+	response := &UserAppAccessResponse{
+		CanRead:  false,
+		CanWrite: false,
+		IsAdmin:  false,
+	}
+
+	// Check if user is the owner or an admin
+	if app.Owner == user.ID || isAdmin(user) {
+		// Owner or admin has full access
+		response.CanRead = true
+		response.CanWrite = true
+		response.IsAdmin = true
+		return response, nil
+	}
+
+	// If the app is global, anyone can read it
+	if app.Global {
+		response.CanRead = true
+		return response, nil
+	}
+
+	// For organization apps, check access grants
+	if app.OrganizationID != "" {
+		// Check if user is in the organization
+		orgMembership, err := s.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
+			OrganizationID: app.OrganizationID,
+			UserID:         user.ID,
+		})
+
+		if err == nil {
+			// If user is organization owner, they have admin access
+			if orgMembership.Role == types.OrganizationRoleOwner {
+				response.CanRead = true
+				response.CanWrite = true
+				response.IsAdmin = true
+				return response, nil
+			}
+		}
+
+		// Get all teams the user belongs to
+		teams, err := s.Store.ListTeams(r.Context(), &store.ListTeamsQuery{
+			OrganizationID: app.OrganizationID,
+			UserID:         user.ID,
+		})
+
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		// Get team IDs
+		var teamIDs []string
+		for _, team := range teams {
+			teamIDs = append(teamIDs, team.ID)
+		}
+
+		// Check access grants for the user and their teams
+		grants, err := s.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
+			OrganizationID: app.OrganizationID,
+			ResourceID:     app.ID,
+			UserID:         user.ID,
+			TeamIDs:        teamIDs,
+		})
+
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		// No grants found, return default (no access)
+		if len(grants) == 0 {
+			return nil, system.NewHTTPError403("You don't have access to this app")
+		}
+
+		// Analyze roles from grants to determine access level
+		for _, grant := range grants {
+			for _, role := range grant.Roles {
+				// Check role permissions based on role name
+				switch role.Name {
+				case "app_admin":
+					response.CanRead = true
+					response.CanWrite = true
+					response.IsAdmin = true
+				case "app_write":
+					response.CanRead = true
+					response.CanWrite = true
+				case "app_read":
+					response.CanRead = true
+				}
+			}
+		}
+
+		// If user has at least read access, return the response
+		if response.CanRead {
+			return response, nil
+		}
+	}
+
+	// User doesn't have access
+	return nil, system.NewHTTPError403("You don't have access to this app")
+}
