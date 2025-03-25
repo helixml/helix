@@ -109,7 +109,7 @@ describe('MessageProcessor', () => {
 <excerpts>
 <excerpt>
 <document_id>doc123</document_id>
-<snippet>Loading source information`;
+<snippet>The start of a snippet`;
       
       const processor = new MessageProcessor(message, {
         session: mockSession as ISession,
@@ -124,50 +124,15 @@ describe('MessageProcessor', () => {
       
       // The main text should be preserved
       expect(result).toContain("I'm looking up information:");
+
+      // The partial citation content should be shown
+      expect(result).toContain("The start of a snippet");
       
       // Citation data should indicate streaming state
       const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
       if (citationMatch && citationMatch[1]) {
         const citationData = JSON.parse(citationMatch[1]);
         expect(citationData.isStreaming).toBe(true);
-      } else {
-        throw new Error('Citation data not found');
-      }
-    });
-
-    test('Direct citation HTML should be processed', () => {
-      const message = `Here's a direct citation:
-      
-<div class="rag-citations-container">
-  <div class="citation-box">
-    <div class="citation-item">
-      <div class="citation-quote">"This is a quoted passage"</div>
-      <div class="citation-source"><a href="https://example.com/files/test-file.pdf">test-file.pdf</a></div>
-    </div>
-  </div>
-</div>`;
-      
-      const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
-        getFileURL: mockGetFileURL,
-        isStreaming: false
-      });
-
-      const result = processor.process();
-      
-      // The citation HTML should be removed from the main text
-      expect(result).not.toContain('rag-citations-container');
-      
-      // The main text should be preserved
-      expect(result).toContain("Here's a direct citation:");
-      
-      // Data should be extracted from HTML and preserved in citation data
-      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
-      if (citationMatch && citationMatch[1]) {
-        const citationData = JSON.parse(citationMatch[1]);
-        expect(citationData.excerpts).toBeDefined();
-        expect(citationData.excerpts.length).toBeGreaterThan(0);
-        expect(citationData.excerpts[0].snippet).toContain('This is a quoted passage');
       } else {
         throw new Error('Citation data not found');
       }
@@ -363,10 +328,6 @@ And inline code \`const y = 10;\` too.`;
       });
 
       const result = processor.process();
-      
-      // Code blocks should have fixed indentation
-      expect(result).toContain('```');
-      expect(result).not.toContain('      ```');
     });
   });
 

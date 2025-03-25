@@ -328,6 +328,12 @@ func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.S
 		Str("session_id", sessionData.ID).
 		Msg("🟢 update session config")
 
+	// Send WebSocket notification about the updated session metadata
+	if err := c.WriteSession(ctx, session); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to send WebSocket notification for metadata update")
+		// We don't return an error here as the metadata was successfully updated in the database
+	}
+
 	return &sessionData.Metadata, nil
 }
 
