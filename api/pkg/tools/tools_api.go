@@ -541,6 +541,15 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
 		toolProviderName := tool.Config.API.OAuthProvider
 
+		// Initialize headers map if it doesn't exist - do this early
+		if tool.Config.API.Headers == nil {
+			log.Debug().
+				Str("tool_name", tool.Name).
+				Str("provider", toolProviderName).
+				Msg("Creating new headers map for tool")
+			tool.Config.API.Headers = make(map[string]string)
+		}
+
 		log.Debug().
 			Str("tool_name", tool.Name).
 			Str("oauth_provider", toolProviderName).
@@ -548,23 +557,14 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 			Int("headers_count", len(tool.Config.API.Headers)).
 			Msg("Checking OAuth token for tool with provider")
 
-		// Check if we have a matching OAuth token for this exact provider
-		if token, exists := oauthTokens[toolProviderName]; exists {
+		// Check if we have a matching OAuth token for this provider
+		if token, exists := oauthTokens[toolProviderName]; exists && token != "" {
 			log.Debug().
 				Str("tool_name", tool.Name).
 				Str("provider", toolProviderName).
 				Bool("token_exists", token != "").
 				Str("token_prefix", token[:5]+"...").
 				Msg("Found matching OAuth token for tool provider")
-
-			// Initialize headers map if it doesn't exist
-			if tool.Config.API.Headers == nil {
-				log.Debug().
-					Str("tool_name", tool.Name).
-					Str("provider", toolProviderName).
-					Msg("Creating new headers map for tool")
-				tool.Config.API.Headers = make(map[string]string)
-			}
 
 			// Add the token as a Bearer token in the Authorization header
 			authHeader := fmt.Sprintf("Bearer %s", token)
@@ -577,51 +577,18 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 				Bool("auth_header_exists", tool.Config.API.Headers["Authorization"] != "").
 				Str("auth_header_prefix", authHeader[:12]+"...").
 				Msg("Added OAuth token to tool headers")
-
-			return
 		} else {
-			// Try a case-insensitive match as a fallback
-			for tokenKey, tokenValue := range oauthTokens {
-				if strings.EqualFold(tokenKey, toolProviderName) {
-					log.Debug().
-						Str("tool_name", tool.Name).
-						Str("tool_provider", toolProviderName).
-						Str("token_key", tokenKey).
-						Bool("case_sensitive_match", tokenKey == toolProviderName).
-						Bool("case_insensitive_match", strings.EqualFold(tokenKey, toolProviderName)).
-						Msg("Found OAuth token with case-insensitive match")
-
-					// Initialize headers map if it doesn't exist
-					if tool.Config.API.Headers == nil {
-						tool.Config.API.Headers = make(map[string]string)
-					}
-
-					// Add the token as a Bearer token in the Authorization header
-					authHeader := fmt.Sprintf("Bearer %s", tokenValue)
-					tool.Config.API.Headers["Authorization"] = authHeader
-
-					log.Debug().
-						Str("tool_name", tool.Name).
-						Str("provider", tokenKey).
-						Int("headers_count", len(tool.Config.API.Headers)).
-						Str("auth_header_prefix", authHeader[:12]+"...").
-						Msg("Added case-insensitive matched OAuth token to tool headers")
-
-					return
-				}
+			// Log available tokens for debugging
+			tokenKeys := make([]string, 0, len(oauthTokens))
+			for key := range oauthTokens {
+				tokenKeys = append(tokenKeys, key)
 			}
-		}
 
-		// If we get here, no matching token was found
-		tokenKeys := make([]string, 0, len(oauthTokens))
-		for key := range oauthTokens {
-			tokenKeys = append(tokenKeys, key)
+			log.Warn().
+				Str("tool_name", tool.Name).
+				Str("tool_provider", toolProviderName).
+				Strs("available_tokens", tokenKeys).
+				Msg("No matching OAuth token found for tool provider")
 		}
-
-		log.Warn().
-			Str("tool_name", tool.Name).
-			Str("tool_provider", toolProviderName).
-			Strs("available_tokens", tokenKeys).
-			Msg("No matching OAuth token found for tool provider")
 	}
 }

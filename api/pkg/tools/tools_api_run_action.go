@@ -3,7 +3,6 @@ package tools
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -76,6 +75,15 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			Strs("required_scopes", requiredScopes).
 			Msg("OAuth provider details")
 
+		// Initialize headers map if it doesn't exist - do this BEFORE attempting to get tokens
+		if tool.Config.API.Headers == nil {
+			tool.Config.API.Headers = make(map[string]string)
+			log.Debug().
+				Str("tool_type", string(tool.ToolType)).
+				Str("oauth_provider", tool.Config.API.OAuthProvider).
+				Msg("Initialized empty headers map for API tool")
+		}
+
 		// Try to get user ID from session ID
 		var userID string
 		if c.oauthManager != nil && sessionID != "" && c.sessionStore != nil && c.appStore != nil {
@@ -117,12 +125,6 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			// Get the OAuth token for this tool
 			token, err := c.oauthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
 			if err == nil && token != "" {
-				// Initialize headers map if it doesn't exist
-				if tool.Config.API.Headers == nil {
-					tool.Config.API.Headers = make(map[string]string)
-					log.Debug().Msg("Initialized empty headers map for API tool")
-				}
-
 				// Add the token to the Authorization header
 				authHeaderKey := "Authorization"
 				tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", token)
@@ -620,161 +622,4 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	}
 
 	return &types.RunAPIActionResponse{Response: string(body)}, nil
-}
-
-// getUserIDFromSessionID retrieves the user ID associated with a session
-func (c *ChainStrategy) getUserIDFromSessionID(ctx context.Context, sessionID string) (string, error) {
-	if c.sessionStore == nil {
-		return "", fmt.Errorf("session store not available")
-	}
-
-	session, err := c.sessionStore.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session: %w", err)
-	}
-
-	return session.Owner, nil
-}
-
-// prepareRequest prepares the HTTP request
-func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]any) (*http.Request, error) {
-	if tool.ToolType != types.ToolTypeAPI || tool.Config.API == nil {
-		return nil, fmt.Errorf("not an API tool")
-	}
-
-	apiConfig := tool.Config.API
-
-	var path string
-	var httpMethod string
-	var actionObject *types.ToolAPIAction
-
-	// Find the action in the API config
-	for _, a := range apiConfig.Actions {
-		if a.Name == action {
-			path = a.Path
-			httpMethod = a.Method
-			actionObject = a
-			break
-		}
-	}
-
-	if actionObject == nil {
-		return nil, fmt.Errorf("unknown action: %s", action)
-	}
-
-	// Convert parameters to string map
-	paramsStr := make(map[string]string)
-	for name, value := range params {
-		switch v := value.(type) {
-		case string:
-			paramsStr[name] = v
-		case bool:
-			if v {
-				paramsStr[name] = "true"
-			} else {
-				paramsStr[name] = "false"
-			}
-		case float64:
-			paramsStr[name] = fmt.Sprintf("%g", v)
-		default:
-			// Skip complex types for now
-			continue
-		}
-	}
-
-	// Construct URL by replacing path parameters with actual values
-	for paramName := range paramsStr {
-		path = strings.ReplaceAll(path, fmt.Sprintf("{%s}", paramName), paramsStr[paramName])
-	}
-
-	// Construct the URL with base URL and path
-	url := fmt.Sprintf("%s%s", apiConfig.URL, path)
-
-	// Add query parameters to the URL
-	if len(paramsStr) > 0 {
-		u, err := url.Parse(url)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse url: %w", err)
-		}
-
-		q := u.Query()
-		for paramName, paramValue := range paramsStr {
-			// Only add query parameters that are not path parameters
-			if !strings.Contains(actionObject.Path, fmt.Sprintf("{%s}", paramName)) {
-				q.Add(paramName, paramValue)
-			}
-		}
-
-		u.RawQuery = q.Encode()
-		url = u.String()
-	}
-
-	// Get the request body for POST/PUT/PATCH methods
-	var requestBody io.Reader
-	if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {
-		if len(paramsStr) > 0 {
-			bodyJson, err := json.Marshal(paramsStr)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal request body: %w", err)
-			}
-			requestBody = bytes.NewBuffer(bodyJson)
-		}
-	}
-
-	// Create the request
-	req, err := http.NewRequestWithContext(ctx, httpMethod, url, requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add the Content-Type header
-	req.Header.Add("Content-Type", "application/json")
-
-	// Add custom headers from the API config (e.g. Authorization header for OAuth tokens)
-	if apiConfig.Headers != nil {
-		for key, value := range apiConfig.Headers {
-			req.Header.Add(key, value)
-		}
-	}
-
-	// Add request metadata headers
-	req.Header.Add("X-Helix-Action-Id", action)
-
-	return req, nil
-}
-
-// makeRequest makes an HTTP request
-func (c *ChainStrategy) makeRequest(httpMethod string, url string, headers http.Header, requestBody io.Reader) (*http.Response, error) {
-	req, err := http.NewRequest(httpMethod, url, requestBody)
-	if err != nil {
-		return nil, err
-	}
-
-	// Add headers to the request
-	for name, values := range headers {
-		for _, value := range values {
-			req.Header.Add(name, value)
-		}
-	}
-
-	// Debug log all headers to see exactly what is being sent
-	log.Debug().
-		Str("url", url).
-		Str("method", httpMethod).
-		Interface("request_headers", req.Header).
-		Bool("has_auth_header", req.Header.Get("Authorization") != "").
-		Str("auth_header", func() string {
-			if auth := req.Header.Get("Authorization"); auth != "" {
-				if strings.HasPrefix(auth, "Bearer ") && len(auth) > 15 {
-					// Mask the token
-					return auth[:15] + "..."
-				}
-				return auth
-			}
-			return "none"
-		}()).
-		Msg("Outgoing API request headers")
-
-	// Make the request
-	return c.httpClient.Do(req)
 }
