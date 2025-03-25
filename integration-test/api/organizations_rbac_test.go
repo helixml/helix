@@ -227,6 +227,9 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibilityWithoutGrantingAccess(
 		OrganizationID: suite.organization.ID,
 	})
 	suite.Require().Error(err)
+
+	// Shouldn't see without the organization ID too
+	suite.False(assertAppVisibility(suite, userNonMemberClient, "", app.ID), "userNonMemberClient should not see the app (access not granted)")
 }
 
 func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToSingleUser() {
