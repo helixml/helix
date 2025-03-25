@@ -85,11 +85,16 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 
 	// Create test organization
 	organization, err := ownerClient.CreateOrganization(suite.ctx, &types.Organization{
-		Name: "test-rbac-" + time.Now().Format("2006-01-02-15-04-05"),
+		Name: "test-rbac-" + time.Now().Format("2006-01-02-15-04-05-06"),
 	})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(organization)
 	suite.organization = organization
+
+	suite.T().Cleanup(func() {
+		err := ownerClient.DeleteOrganization(suite.ctx, suite.organization.ID)
+		suite.Require().NoError(err)
+	})
 
 	// Create test user
 	emailID = uuid.New().String()
@@ -182,8 +187,8 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibilityWithoutGrantingAccess(
 		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
-				Name:        "test-app-1",
-				Description: "test-app-1-description",
+				Name:        "TestAppVisibilityWithoutGrantingAccess",
+				Description: "TestAppVisibilityWithoutGrantingAccess-description",
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
@@ -267,10 +272,10 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToSingle
 	// userMember1 should see the app (he created the app)
 	suite.True(assertAppVisibility(suite, userMember1Client, suite.organization.ID, app.ID), "userMember1 should see the app (creator)")
 
-	// userMember2 should not see the app (access not granted)
+	// userMember2 should see the app (access granted)
 	userMember2Client, err := getAPIClient(suite.userMember2APIKey)
 	suite.Require().NoError(err)
-	suite.False(assertAppVisibility(suite, userMember2Client, suite.organization.ID, app.ID), "userMember2 should not see the app (access not granted)")
+	suite.True(assertAppVisibility(suite, userMember2Client, suite.organization.ID, app.ID), "userMember2 should see the app (access granted)")
 
 	// userMember3 should not see the app (access not granted)
 	userMember3Client, err := getAPIClient(suite.userMember3APIKey)
