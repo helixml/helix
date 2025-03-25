@@ -356,6 +356,43 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToTeam()
 	suite.Require().Error(err)
 }
 
+func (suite *OrganizationsRBACTestSuite) TestAppUpdate_AppOwner_OrgOwner() {
+	userMember1Client, err := getAPIClient(suite.userMember1APIKey)
+	suite.Require().NoError(err)
+
+	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AppSource:      types.AppSourceHelix,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "test-app-single-user-access",
+				Description: "test-app-single-user-access-description",
+				Assistants: []types.AssistantConfig{
+					{
+						Name:  "test-assistant-1",
+						Model: "meta-llama/Llama-3-8b-chat-hf",
+					},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(app)
+
+	// App creator should be able to update the app
+	suite.NoError(assertAppWriteAccess(userMember1Client, app.ID), "userMember1 should be able to update the app")
+
+	// Org owner should be able to update the app
+	orgOwnerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+	suite.NoError(assertAppWriteAccess(orgOwnerClient, app.ID), "orgOwner should be able to update the app")
+
+	// Other member should not be able to
+	userMember2Client, err := getAPIClient(suite.userMember2APIKey)
+	suite.Require().NoError(err)
+	suite.Error(assertAppWriteAccess(userMember2Client, app.ID), "userMember2 should not be able to update the app before access is granted")
+}
+
 func (suite *OrganizationsRBACTestSuite) TestAppUpdate_SingleUser() {
 	userMember1Client, err := getAPIClient(suite.userMember1APIKey)
 	suite.Require().NoError(err)
