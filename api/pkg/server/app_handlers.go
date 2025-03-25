@@ -815,11 +815,10 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 				token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerName, requiredScopes)
 				if err == nil && token != "" {
 					// Add the token directly to the map
-					providerKey := strings.ToLower(providerName)
-					oauthTokens[providerKey] = token
+					oauthTokens[providerName] = token
 					log.Info().
 						Str("provider", providerName).
-						Str("provider_key", providerKey).
+						Str("provider_key", providerName).
 						Str("token_prefix", token[:10]+"...").
 						Msg("Added OAuth token to app environment")
 				} else {

@@ -967,8 +967,8 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 
 				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
 				if err == nil && token != "" {
-					providerKey := strings.ToLower(providerName)
-					oauthTokens[providerKey] = token
+					// Add the token directly to the map using the original provider name
+					oauthTokens[providerName] = token
 					log.Debug().Str("provider", providerName).Msg("Added OAuth token to app environment")
 				} else {
 					var scopeErr *oauth.ScopeError
@@ -1016,11 +1016,11 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 
 		// If we have tokens, add them to the client as well
 		if len(oauthTokens) > 0 {
-			for providerType, token := range oauthTokens {
-				log.Debug().Str("provider", providerType).Msg("Added OAuth token to API client HTTP headers")
+			for providerName, token := range oauthTokens {
+				log.Debug().Str("provider", providerName).Msg("Added OAuth token to API client HTTP headers")
 				// Add OAuth token to client (if supported)
 				if retryableClient, ok := client.(*oai.RetryableClient); ok {
-					retryableClient.AddOAuthToken(providerType, token)
+					retryableClient.AddOAuthToken(providerName, token)
 				}
 			}
 		}
