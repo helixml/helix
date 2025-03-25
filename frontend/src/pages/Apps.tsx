@@ -93,7 +93,7 @@ const Apps: FC = () => {
                              templateId.includes('google') ? 'google' : '';
         
         if (templateType) {
-          templateConfig = await api.get(`/api/v1/template_apps/${templateType}`);
+          templateConfig = await api.get(`/api/v1/template-apps/${templateType}`);
           console.log('Loaded template configuration:', templateConfig);
         }
       } catch (error) {

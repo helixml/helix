@@ -491,6 +491,13 @@ definitions:
       license_key:
         type: string
     type: object
+  system.HTTPError:
+    properties:
+      message:
+        type: string
+      statusCode:
+        type: integer
+    type: object
   types.AccessGrant:
     properties:
       created_at:
@@ -503,10 +510,6 @@ definitions:
       resource_id:
         description: App ID, Knowledge ID, etc
         type: string
-      resource_type:
-        allOf:
-        - $ref: '#/definitions/types.Resource'
-        description: Kind of resource (app, knowledge, provider endpoint, etc)
       roles:
         items:
           $ref: '#/definitions/types.Role'
@@ -660,6 +663,14 @@ definitions:
         type: object
       name:
         type: string
+      oauth_provider:
+        description: OAuth configuration
+        type: string
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
       query:
         additionalProperties:
           type: string
@@ -2075,6 +2086,37 @@ definitions:
         description: composite key
         type: string
     type: object
+  types.TemplateAppConfig:
+    properties:
+      api_url:
+        description: Base API URL for the provider
+        type: string
+      assistants:
+        items:
+          $ref: '#/definitions/types.AssistantConfig'
+        type: array
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/types.TemplateAppType'
+    type: object
+  types.TemplateAppType:
+    enum:
+    - github
+    - jira
+    - slack
+    - google
+    type: string
+    x-enum-varnames:
+    - TemplateAppTypeGitHub
+    - TemplateAppTypeJira
+    - TemplateAppTypeSlack
+    - TemplateAppTypeGoogle
   types.TestStep:
     properties:
       expected_output:
@@ -2151,6 +2193,14 @@ definitions:
         type: object
       model:
         type: string
+      oauth_provider:
+        description: OAuth configuration
+        type: string
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
       query:
         additionalProperties:
           type: string
@@ -2440,38 +2490,6 @@ paths:
       summary: Grant access to an app to a team or organization member
       tags:
       - apps
-  /api/v1/apps/{id}/api-actions:
-    post:
-      parameters:
-      - description: Request body with API action name and parameters.
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.RunAPIActionRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.RunAPIActionResponse'
-      security:
-      - BearerAuth: []
-  /api/v1/apps/{id}/gptscript:
-    post:
-      parameters:
-      - description: Request body with script configuration.
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.GptScriptRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.GptScriptResponse'
-      security:
-      - BearerAuth: []
   /api/v1/apps/github/{id}:
     put:
       parameters:
@@ -3161,6 +3179,44 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
+  /api/v1/template-apps:
+    get:
+      description: List available template apps configurations.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TemplateAppConfig'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List template apps
+      tags:
+      - template_apps
+  /api/v1/template-apps/{type}:
+    get:
+      description: Get template app configuration by type.
+      parameters:
+      - description: Template app type
+        in: path
+        name: type
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TemplateAppConfig'
+        "404":
+          description: Template not found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get template app by type
+      tags:
+      - template_apps
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
