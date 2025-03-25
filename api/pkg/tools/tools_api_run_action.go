@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -395,10 +394,10 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 		// Only proceed if the tool has OAuth provider configured
 		if req.Tool.Config.API != nil && req.Tool.Config.API.OAuthProvider != "" {
-			toolProviderType := strings.ToLower(req.Tool.Config.API.OAuthProvider)
+			toolProviderName := req.Tool.Config.API.OAuthProvider
 
 			// Check if we have a matching OAuth token for this provider
-			if token, exists := req.OAuthTokens[toolProviderType]; exists {
+			if token, exists := req.OAuthTokens[toolProviderName]; exists {
 				// Add the token to headers if not already in headers
 				authHeaderKey := "Authorization"
 				if _, exists := req.Tool.Config.API.Headers[authHeaderKey]; !exists {
@@ -408,16 +407,16 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 					}
 					req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", token)
 					log.Debug().
-						Str("provider", toolProviderType).
+						Str("provider", toolProviderName).
 						Msg("Added matching OAuth token to API request headers")
 				} else {
 					log.Debug().
-						Str("provider", toolProviderType).
+						Str("provider", toolProviderName).
 						Msg("Authentication header already exists, not overriding")
 				}
 			} else {
 				log.Debug().
-					Str("tool_provider", toolProviderType).
+					Str("tool_provider", toolProviderName).
 					Msg("No matching OAuth token found for provider")
 			}
 		} else {
