@@ -42,7 +42,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	if orgID != "" {
 		orgApps, err := s.listOrganizationApps(ctx, user, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
+			return nil, err
 		}
 
 		orgApps = s.populateAppOwner(ctx, orgApps)
