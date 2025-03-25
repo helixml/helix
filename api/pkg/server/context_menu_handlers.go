@@ -60,17 +60,19 @@ func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Reque
 
 			// For each knowledge, pull out a list of all the document IDs and add them to the filters
 			for _, knowledge := range knowledges {
-				for _, doc := range knowledge.CrawledSources.URLs {
-					splatted := strings.Split(doc.URL, "/")
-					var label string
-					if len(splatted) >= 2 {
-						label = strings.Join(splatted[len(splatted)-2:], "/")
-					} else if len(splatted) >= 1 {
-						label = splatted[len(splatted)-1]
-					} else {
-						label = doc.URL
+				if knowledge.CrawledSources != nil {
+					for _, doc := range knowledge.CrawledSources.URLs {
+						splatted := strings.Split(doc.URL, "/")
+						var label string
+						if len(splatted) >= 2 {
+							label = strings.Join(splatted[len(splatted)-2:], "/")
+						} else if len(splatted) >= 1 {
+							label = splatted[len(splatted)-1]
+						} else {
+							label = doc.URL
+						}
+						filteredKnowlegeSources[doc.DocumentID] = label
 					}
-					filteredKnowlegeSources[doc.DocumentID] = label
 				}
 			}
 		}

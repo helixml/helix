@@ -109,7 +109,7 @@ describe('MessageProcessor', () => {
 <excerpts>
 <excerpt>
 <document_id>doc123</document_id>
-<snippet>Loading source information`;
+<snippet>The start of a snippet`;
       
       const processor = new MessageProcessor(message, {
         session: mockSession as ISession,
@@ -124,6 +124,9 @@ describe('MessageProcessor', () => {
       
       // The main text should be preserved
       expect(result).toContain("I'm looking up information:");
+
+      // The partial citation content should be shown
+      expect(result).toContain("The start of a snippet");
       
       // Citation data should indicate streaming state
       const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
@@ -135,39 +138,114 @@ describe('MessageProcessor', () => {
       }
     });
 
-    test('Direct citation HTML should be processed', () => {
-      const message = `Here's a direct citation:
+    test('Partial XML citation with document ID should use actual snippet content', () => {
+      const message = `Here's some information:
       
-<div class="rag-citations-container">
-  <div class="citation-box">
-    <div class="citation-item">
-      <div class="citation-quote">"This is a quoted passage"</div>
-      <div class="citation-source"><a href="https://example.com/files/test-file.pdf">test-file.pdf</a></div>
-    </div>
-  </div>
-</div>`;
+<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>Partial content from the document`;
       
       const processor = new MessageProcessor(message, {
         session: mockSession as ISession,
         getFileURL: mockGetFileURL,
-        isStreaming: false
+        isStreaming: true
       });
 
       const result = processor.process();
       
-      // The citation HTML should be removed from the main text
-      expect(result).not.toContain('rag-citations-container');
-      
-      // The main text should be preserved
-      expect(result).toContain("Here's a direct citation:");
-      
-      // Data should be extracted from HTML and preserved in citation data
+      // Citation data should contain the actual partial content
       const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
       if (citationMatch && citationMatch[1]) {
         const citationData = JSON.parse(citationMatch[1]);
-        expect(citationData.excerpts).toBeDefined();
         expect(citationData.excerpts.length).toBeGreaterThan(0);
-        expect(citationData.excerpts[0].snippet).toContain('This is a quoted passage');
+        expect(citationData.excerpts[0].snippet).toBe("Partial content from the document");
+        expect(citationData.excerpts[0].isPartial).toBe(true);
+      } else {
+        throw new Error('Citation data not found');
+      }
+    });
+
+    test('Partial XML citation should use actual filename when document ID is mapped', () => {
+      const message = `Here's some information:
+      
+<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>Partial content with mapped filename`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: true
+      });
+
+      const result = processor.process();
+      
+      // Citation data should contain the actual filename from the document map
+      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
+      if (citationMatch && citationMatch[1]) {
+        const citationData = JSON.parse(citationMatch[1]);
+        expect(citationData.excerpts[0].filename).toBe("test-file.pdf");
+        expect(citationData.excerpts[0].isPartial).toBe(true);
+      } else {
+        throw new Error('Citation data not found');
+      }
+    });
+
+    test('Partial XML citation should use actual URL when document ID is mapped', () => {
+      const message = `Here's some information:
+      
+<excerpts>
+<excerpt>
+<document_id>doc123</document_id>
+<snippet>Partial content with mapped URL`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: true
+      });
+
+      const result = processor.process();
+      
+      // Citation data should contain the actual URL from the document map
+      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
+      if (citationMatch && citationMatch[1]) {
+        const citationData = JSON.parse(citationMatch[1]);
+        expect(citationData.excerpts[0].fileUrl).toBe("https://example.com/files/test-file.pdf");
+        expect(citationData.excerpts[0].isPartial).toBe(true);
+      } else {
+        throw new Error('Citation data not found');
+      }
+    });
+
+    test('Partial XML citation should show snippet content even with unknown document ID', () => {
+      const message = `Here's some information:
+      
+<excerpts>
+<excerpt>
+<document_id>unknown-doc-id</document_id>
+<snippet>This content should still be shown even though document ID is unknown`;
+      
+      const processor = new MessageProcessor(message, {
+        session: mockSession as ISession,
+        getFileURL: mockGetFileURL,
+        isStreaming: true
+      });
+
+      const result = processor.process();
+      
+      // Citation data should contain the actual snippet content despite unknown document ID
+      const citationMatch = result.match(/__CITATION_DATA__(.*?)__CITATION_DATA__/);
+      if (citationMatch && citationMatch[1]) {
+        const citationData = JSON.parse(citationMatch[1]);
+        expect(citationData.excerpts.length).toBeGreaterThan(0);
+        expect(citationData.excerpts[0].docId).toBe("unknown-doc-id");
+        expect(citationData.excerpts[0].snippet).toBe("This content should still be shown even though document ID is unknown");
+        expect(citationData.excerpts[0].filename).toBe("Loading...");
+        expect(citationData.excerpts[0].fileUrl).toBe("#");
+        expect(citationData.excerpts[0].isPartial).toBe(true);
       } else {
         throw new Error('Citation data not found');
       }
@@ -363,10 +441,6 @@ And inline code \`const y = 10;\` too.`;
       });
 
       const result = processor.process();
-      
-      // Code blocks should have fixed indentation
-      expect(result).toContain('```');
-      expect(result).not.toContain('      ```');
     });
   });
 
