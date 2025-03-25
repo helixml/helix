@@ -36,6 +36,8 @@ const ModelPicker: FC<{
   const [userSelectedModel, setUserSelectedModel] = useState(false)
   // Track component initialization to handle initial state differently
   const initializedRef = useRef(false)
+  // Track when models are being loaded to prevent race conditions
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
 
   const getShortModelName = (name: string): string => {
     if (displayMode === 'full') return name;
@@ -54,10 +56,18 @@ const ModelPicker: FC<{
 
   // Run once on initialization to properly handle pre-existing model/provider
   useEffect(() => {
-    // If we have a model already set, we should respect it as if user selected it
+    // If we have a model already set, always respect it as a user selection
     if (!initializedRef.current && model) {
       setUserSelectedModel(true);
       initializedRef.current = true;
+    }
+  }, [model]);
+
+  // Track any explicit model setting as a user selection
+  useEffect(() => {
+    // Any time the model changes after initialization, consider it a user selection
+    if (initializedRef.current && model) {
+      setUserSelectedModel(true);
     }
   }, [model]);
 
@@ -66,30 +76,47 @@ const ModelPicker: FC<{
     if (loadedProviderRef.current !== provider) {
       console.log('fetching models for provider', provider)
       loadedProviderRef.current = provider
-      fetchModels(provider)
-      // Only reset user selection flag for active provider changes, not initial load
-      if (initializedRef.current) {
-        setUserSelectedModel(false)
-      }
+      
+      // Mark that we're loading models
+      setIsLoadingModels(true)
+      
+      fetchModels(provider).then(() => {
+        // Only after models are loaded, mark as initialized and not loading
+        initializedRef.current = true
+        setIsLoadingModels(false)
+        // We never reset userSelectedModel to ensure we don't overwrite user choices
+      }).catch(err => {
+        // Log any errors but still consider initialized to prevent blocking UI
+        console.error('Error loading models:', err)
+        initializedRef.current = true
+        setIsLoadingModels(false)
+      })
     }
   }, [provider, fetchModels])
 
   // Handle type changes with client-side filtering only
   useEffect(() => {
+    // Skip this effect if models are still loading to prevent race conditions
+    if (isLoadingModels) {
+      return
+    }
+    
     const currentModels = models.filter(m => 
       m.type === type || (type === "text" && m.type === "chat")
     )
     
-    // Only reset model if:
-    // 1. There are models available
-    // 2. Current model isn't in the filtered list
-    // 3. User hasn't explicitly selected a model since provider change
-    if (currentModels.length > 0 && 
-        !currentModels.find(m => m.id === model) && 
-        !userSelectedModel) {
+    // Only suggest a default model if:
+    // 1. There are models available 
+    // 2. No model is currently selected
+    // 3. We don't want to overwrite the user's selection
+    if (currentModels.length > 0 && !model && !userSelectedModel) {
+      // Only set a default model when there's none selected
       onSetModel(currentModels[0].id)
     }
-  }, [type, model, models, onSetModel, userSelectedModel])
+    
+    // Never reset a selected model even if it's not in the current list
+    // This prevents race conditions and preserves user selection
+  }, [type, model, models, onSetModel, userSelectedModel, isLoadingModels])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
