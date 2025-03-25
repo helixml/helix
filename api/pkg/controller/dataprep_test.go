@@ -32,6 +32,7 @@ func (suite *DataPrepTestSuite) TestGetRagChunksToProcess() {
 	c := &Controller{}
 	c.Options.Store = suite.store
 	c.Options.Filestore = suite.filestore
+	// PubSub is intentionally nil since publishEvent now handles this gracefully
 
 	// Create a dummy session
 	session := &types.Session{
@@ -55,7 +56,13 @@ func (suite *DataPrepTestSuite) TestGetRagChunksToProcess() {
 	// Mock the calls made by the getRagChunksToProcess function
 	reader := io.NopCloser(strings.NewReader("test file content"))
 	suite.filestore.EXPECT().OpenFile(gomock.Any(), "test-file.txt").Return(reader, nil)
+	// First UpdateSession call happens in UpdateSessionMetadata
 	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	// GetSession call from WriteSession
+	suite.store.EXPECT().GetSession(gomock.Any(), "test-session").Return(session, nil)
+	// Second UpdateSession call happens in WriteSession
+	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	// No need to mock PubSub.Publish as publishEvent now handles nil PubSub
 
 	// Call the getRagChunksToProcess function
 	chunks, err := c.getRagChunksToProcess(session)

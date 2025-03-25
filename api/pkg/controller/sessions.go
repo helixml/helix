@@ -834,6 +834,12 @@ func (c *Controller) publishEvent(ctx context.Context, event *types.WebsocketEve
 		return err
 	}
 
+	// Check if PubSub is nil (for tests)
+	if c.Options.PubSub == nil {
+		log.Debug().Msg("PubSub not initialized, skipping event publishing")
+		return nil
+	}
+
 	err = c.Options.PubSub.Publish(ctx, pubsub.GetSessionQueue(event.Owner, event.SessionID), message)
 	if err != nil {
 		log.Error().Msgf("Error publishing event: %s", err.Error())
