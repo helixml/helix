@@ -12,6 +12,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -36,6 +37,10 @@ type Planner interface {
 var _ Planner = &ChainStrategy{}
 
 type ChainStrategy struct {
+	oauthManager *oauth.Manager `json:"-"`
+	sessionStore store.Store    `json:"-"`
+	appStore     store.Store    `json:"-"`
+
 	cfg   *config.ServerConfig
 	store store.Store
 

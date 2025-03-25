@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -789,8 +790,14 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 
 	// Skip if OAuth manager is not available
 	if s.oauthManager == nil {
+		log.Debug().Msg("OAuth manager is not available, skipping token retrieval")
 		return oauthTokens
 	}
+
+	log.Info().
+		Str("app_id", appRecord.ID).
+		Str("user_id", user.ID).
+		Msg("Getting OAuth tokens for app")
 
 	// First check each tool for OAuth provider requirements
 	for _, assistant := range appRecord.Config.Helix.Assistants {
@@ -800,12 +807,21 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 				providerType := tool.Config.API.OAuthProvider
 				requiredScopes := tool.Config.API.OAuthScopes
 
+				log.Debug().
+					Str("provider", string(providerType)).
+					Strs("scopes", requiredScopes).
+					Msg("Checking OAuth token for tool")
+
 				token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerType, requiredScopes)
 				if err == nil && token != "" {
 					// Add the token directly to the map
 					providerKey := strings.ToLower(string(providerType))
 					oauthTokens[providerKey] = token
-					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
+					log.Info().
+						Str("provider", string(providerType)).
+						Str("provider_key", providerKey).
+						Str("token_prefix", token[:10]+"...").
+						Msg("Added OAuth token to app environment")
 				} else {
 					var scopeErr *oauth.ScopeError
 					if errors.As(err, &scopeErr) {
@@ -824,6 +840,21 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 				}
 			}
 		}
+	}
+
+	// Log if no OAuth tokens were found
+	if len(oauthTokens) == 0 {
+		log.Warn().
+			Str("app_id", appRecord.ID).
+			Str("user_id", user.ID).
+			Msg("No OAuth tokens found for app")
+	} else {
+		log.Info().
+			Str("app_id", appRecord.ID).
+			Str("user_id", user.ID).
+			Int("token_count", len(oauthTokens)).
+			Interface("provider_keys", maps.Keys(oauthTokens)).
+			Msg("Retrieved OAuth tokens for app")
 	}
 
 	return oauthTokens
@@ -996,13 +1027,38 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 
 	req.Tool = tool
 
+	log.Info().
+		Str("app_id", id).
+		Str("user_id", user.ID).
+		Str("action", req.Action).
+		Str("tool", tool.Name).
+		Msg("Running API action")
+
 	// Get OAuth tokens directly as a map
 	req.OAuthTokens = s.getAppOAuthTokenEnv(r.Context(), user, app)
 
+	log.Info().
+		Str("app_id", id).
+		Str("user_id", user.ID).
+		Str("action", req.Action).
+		Int("oauth_token_count", len(req.OAuthTokens)).
+		Interface("oauth_providers", maps.Keys(req.OAuthTokens)).
+		Msg("API action with OAuth tokens")
+
 	response, err := s.Controller.ToolsPlanner.RunAPIActionWithParameters(r.Context(), &req)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", id).
+			Str("action", req.Action).
+			Msg("Failed to run API action")
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	log.Info().
+		Str("app_id", id).
+		Str("action", req.Action).
+		Msg("API action completed successfully")
 
 	return response, nil
 }

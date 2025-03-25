@@ -95,6 +95,28 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	// TODO: Add body
 
+	// Log request details for all API tools
+	log.Info().
+		Str("tool_name", tool.Name).
+		Str("action", action).
+		Str("method", method).
+		Str("path", path).
+		Str("url", req.URL.String()).
+		Interface("params", params).
+		Interface("query_params", queryParams).
+		Interface("path_params", pathParams).
+		Msg("API request details")
+
+	// Log authorization header if present (for debugging purposes only)
+	if authHeader := req.Header.Get("Authorization"); authHeader != "" {
+		// Log the JWT token for debugging (remove in production)
+		log.Info().
+			Str("auth_header", authHeader).
+			Msg("API JWT token")
+	} else {
+		log.Warn().Msg("No Authorization header found for API request")
+	}
+
 	return req, nil
 }
 

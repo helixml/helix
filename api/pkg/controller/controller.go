@@ -111,6 +111,9 @@ func NewController(
 
 	controller.ToolsPlanner = planner
 
+	// Initialize OAuth manager and stores for the ChainStrategy planner
+	tools.InitChainStrategyOAuth(planner, options.OAuthManager, options.Store, options.Store)
+
 	return controller, nil
 }
 
