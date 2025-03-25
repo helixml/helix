@@ -44,7 +44,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenInAPIRequest() {
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:           ts.URL,
-				OAuthProvider: types.OAuthProviderTypeGitHub,
+				OAuthProvider: "GitHub",
 				OAuthScopes:   []string{"repo"},
 			},
 		},
@@ -52,7 +52,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenInAPIRequest() {
 
 	// Create the API request with OAuth token
 	oauthTokens := map[string]string{
-		string(types.OAuthProviderTypeGitHub): suite.oauthToken,
+		"GitHub": suite.oauthToken,
 	}
 
 	// Process the OAuth token directly
@@ -100,7 +100,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotOverridingExistingAuth() {
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:           ts.URL,
-				OAuthProvider: types.OAuthProviderTypeGitHub,
+				OAuthProvider: "GitHub",
 				OAuthScopes:   []string{"repo"},
 				Headers: map[string]string{
 					"Authorization": existingAuthValue,
@@ -111,7 +111,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotOverridingExistingAuth() {
 
 	// Create the API request with OAuth token
 	oauthTokens := map[string]string{
-		string(types.OAuthProviderTypeGitHub): suite.oauthToken,
+		"GitHub": suite.oauthToken,
 	}
 
 	// Store the original auth header value for comparison
@@ -164,7 +164,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotSetForWrongProvider() {
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:           ts.URL,
-				OAuthProvider: types.OAuthProviderTypeSlack,
+				OAuthProvider: "Slack",
 				OAuthScopes:   []string{"chat:write"},
 			},
 		},
@@ -172,7 +172,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotSetForWrongProvider() {
 
 	// Create the API request with GitHub OAuth token (should be ignored for Slack)
 	oauthTokens := map[string]string{
-		string(types.OAuthProviderTypeGitHub): suite.oauthToken, // GitHub token for Slack tool (wrong provider)
+		"GitHub": suite.oauthToken, // GitHub token for Slack tool (wrong provider)
 	}
 
 	// Process the OAuth token directly
@@ -198,7 +198,7 @@ func (suite *OAuthToolsTestSuite) TestOAuthTokenNotSetForWrongProvider() {
 	suite.Empty(receivedAuthHeader)
 }
 
-// TestAppRunAPIAction tests the full app API action execution flow with OAuth tokens
+// TestAppRunAPIAction tests running an API action with OAuth token
 func (suite *OAuthToolsTestSuite) TestAppRunAPIAction() {
 	// Setup a test server to verify the Authorization header
 	var receivedAuthHeader string
@@ -210,7 +210,7 @@ func (suite *OAuthToolsTestSuite) TestAppRunAPIAction() {
 	}))
 	defer ts.Close()
 
-	// Create a GitHub app tool
+	// Create a GitHub tool with a valid action
 	githubTool := &types.Tool{
 		Name:        "githubAPI",
 		Description: "GitHub API access",
@@ -218,15 +218,22 @@ func (suite *OAuthToolsTestSuite) TestAppRunAPIAction() {
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:           ts.URL,
-				OAuthProvider: types.OAuthProviderTypeGitHub,
+				OAuthProvider: "GitHub",
 				OAuthScopes:   []string{"repo"},
+				Actions: []*types.ToolAPIAction{
+					{
+						Name:   "listRepos",
+						Method: "GET",
+						Path:   "/user/repos",
+					},
+				},
 			},
 		},
 	}
 
 	// Create the API request with OAuth token
 	oauthTokens := map[string]string{
-		string(types.OAuthProviderTypeGitHub): suite.oauthToken,
+		"GitHub": suite.oauthToken,
 	}
 
 	// Process the OAuth token directly
@@ -253,41 +260,37 @@ func (suite *OAuthToolsTestSuite) TestAppRunAPIAction() {
 	suite.Equal(expectedAuthHeader, receivedAuthHeader)
 }
 
-// TestMultipleOAuthTokens tests handling multiple OAuth tokens in the environment
+// TestMultipleOAuthTokens tests handling multiple OAuth tokens
 func (suite *OAuthToolsTestSuite) TestMultipleOAuthTokens() {
 	// Setup a test server to verify the Authorization header
 	var receivedAuthHeader string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuthHeader = r.Header.Get("Authorization")
+		// Return a successful response
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintln(w, `{"status": "success"}`)
 	}))
 	defer ts.Close()
 
-	// Create a GitHub tool
+	// Create a GitHub tool with a valid action
 	githubTool := &types.Tool{
 		Name:        "githubAPI",
-		Description: "GitHub API for accessing repositories",
+		Description: "GitHub API access",
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:           ts.URL,
-				OAuthProvider: types.OAuthProviderTypeGitHub,
+				OAuthProvider: "GitHub",
 				OAuthScopes:   []string{"repo"},
 			},
 		},
 	}
 
-	// Create multiple OAuth tokens
-	githubToken := "github-oauth-token"
-	slackToken := "slack-oauth-token"
-	googleToken := "google-oauth-token"
-
 	// Create the API request with multiple OAuth tokens
 	oauthTokens := map[string]string{
-		string(types.OAuthProviderTypeSlack):  slackToken,  // Should be ignored
-		string(types.OAuthProviderTypeGitHub): githubToken, // Should be used
-		string(types.OAuthProviderTypeGoogle): googleToken, // Should be ignored
+		"GitHub": suite.oauthToken,
+		"Slack":  "slack-token-456",
+		"Google": "google-token-789",
 	}
 
 	// Process the OAuth token directly
@@ -309,12 +312,12 @@ func (suite *OAuthToolsTestSuite) TestMultipleOAuthTokens() {
 	suite.NoError(err)
 	defer resp.Body.Close()
 
-	// Check that only the GitHub token was used
-	expectedAuthHeader := fmt.Sprintf("Bearer %s", githubToken)
+	// Check that the Authorization header was set correctly with the GitHub token
+	expectedAuthHeader := fmt.Sprintf("Bearer %s", suite.oauthToken)
 	suite.Equal(expectedAuthHeader, receivedAuthHeader)
 }
 
-// TestOAuthToolsTestSuite runs the OAuth tools test suite
+// TestOAuthToolsTestSuite runs the test suite
 func TestOAuthToolsTestSuite(t *testing.T) {
 	suite.Run(t, new(OAuthToolsTestSuite))
 }

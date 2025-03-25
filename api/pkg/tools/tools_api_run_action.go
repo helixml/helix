@@ -29,6 +29,22 @@ type RunActionResponse struct {
 }
 
 func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...Option) (*RunActionResponse, error) {
+	// Log the tool configuration at the start
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", interactionID).
+		Str("tool_name", tool.Name).
+		Str("tool_type", string(tool.ToolType)).
+		Interface("tool_config", tool.Config).
+		Bool("has_api_config", tool.Config.API != nil).
+		Str("oauth_provider", func() string {
+			if tool.Config.API != nil {
+				return tool.Config.API.OAuthProvider
+			}
+			return ""
+		}()).
+		Msg("Starting RunAction with tool configuration")
+
 	opts := c.getDefaultOptions()
 
 	for _, opt := range options {
@@ -41,9 +57,23 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 
 	// Add OAuth token handling for API tools
 	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-		// Get the OAuth provider type and required scopes
-		providerType := tool.Config.API.OAuthProvider
+		log.Info().
+			Str("tool_type", string(tool.ToolType)).
+			Bool("config_api_exists", tool.Config.API != nil).
+			Str("oauth_provider", tool.Config.API.OAuthProvider).
+			Interface("tool_config", tool.Config).
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Msg("Starting OAuth token handling for API tool")
+
+		// Get the OAuth provider name and required scopes
+		providerName := tool.Config.API.OAuthProvider
 		requiredScopes := tool.Config.API.OAuthScopes
+
+		log.Info().
+			Str("provider_name", providerName).
+			Strs("required_scopes", requiredScopes).
+			Msg("OAuth provider details")
 
 		// Try to get user ID from session ID
 		var userID string
@@ -54,8 +84,23 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 				log.Warn().
 					Err(err).
 					Str("session_id", sessionID).
+					Bool("oauth_manager_exists", c.oauthManager != nil).
+					Bool("session_store_exists", c.sessionStore != nil).
+					Bool("app_store_exists", c.appStore != nil).
 					Msg("Failed to get user ID from session for OAuth token")
+			} else {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("user_id", userID).
+					Msg("Successfully retrieved user ID from session")
 			}
+		} else {
+			log.Warn().
+				Bool("oauth_manager_exists", c.oauthManager != nil).
+				Bool("session_id_exists", sessionID != "").
+				Bool("session_store_exists", c.sessionStore != nil).
+				Bool("app_store_exists", c.appStore != nil).
+				Msg("Missing required components for OAuth token handling")
 		}
 
 		// If we have a user ID and OAuth manager, get the token
@@ -63,16 +108,18 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			log.Info().
 				Str("session_id", sessionID).
 				Str("user_id", userID).
-				Str("provider", string(providerType)).
+				Str("provider", providerName).
 				Strs("scopes", requiredScopes).
-				Msg("Fetching OAuth token for API tool in RunAction")
+				Bool("oauth_manager_exists", c.oauthManager != nil).
+				Msg("Fetching OAuth token for API tool")
 
 			// Get the OAuth token for this tool
-			token, err := c.oauthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
+			token, err := c.oauthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
 			if err == nil && token != "" {
 				// Initialize headers map if it doesn't exist
 				if tool.Config.API.Headers == nil {
 					tool.Config.API.Headers = make(map[string]string)
+					log.Debug().Msg("Initialized empty headers map for API tool")
 				}
 
 				// Add the token to the Authorization header
@@ -81,27 +128,25 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 
 				log.Info().
 					Str("session_id", sessionID).
-					Str("provider", string(providerType)).
+					Str("provider", providerName).
 					Str("token_prefix", token[:10]+"...").
-					Msg("Added OAuth token to API tool headers in RunAction")
+					Bool("headers_map_exists", tool.Config.API.Headers != nil).
+					Interface("all_headers", tool.Config.API.Headers).
+					Msg("Added OAuth token to API tool headers")
 			} else {
 				log.Warn().
 					Err(err).
 					Str("session_id", sessionID).
-					Str("provider", string(providerType)).
-					Msg("Failed to get OAuth token for API tool in RunAction")
+					Str("provider", providerName).
+					Bool("token_empty", token == "").
+					Msg("Failed to get OAuth token for API tool")
 			}
 		} else {
-			if userID == "" {
-				log.Warn().
-					Str("session_id", sessionID).
-					Msg("No user ID available to fetch OAuth token in RunAction")
-			}
-			if c.oauthManager == nil {
-				log.Warn().
-					Str("session_id", sessionID).
-					Msg("OAuth manager not available in RunAction")
-			}
+			log.Warn().
+				Str("session_id", sessionID).
+				Str("user_id", userID).
+				Bool("oauth_manager_exists", c.oauthManager != nil).
+				Msg("Cannot fetch OAuth token - missing userID or oauthManager")
 		}
 	}
 
@@ -112,7 +157,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			Str("interaction_id", interactionID).
 			Str("tool", tool.Name).
 			Str("action", action).
-			Str("provider", string(tool.Config.API.OAuthProvider)).
+			Str("provider", tool.Config.API.OAuthProvider).
 			Str("api_url", tool.Config.API.URL).
 			Msg("RunAction called for API tool")
 
@@ -224,7 +269,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 			Str("interaction_id", interactionID).
 			Str("tool", tool.Name).
 			Str("action", action).
-			Str("provider", string(tool.Config.API.OAuthProvider)).
+			Str("provider", tool.Config.API.OAuthProvider).
 			Str("api_url", tool.Config.API.URL).
 			Msg("callAPI called for API tool")
 
@@ -350,7 +395,7 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 		// Only proceed if the tool has OAuth provider configured
 		if req.Tool.Config.API != nil && req.Tool.Config.API.OAuthProvider != "" {
-			toolProviderType := strings.ToLower(string(req.Tool.Config.API.OAuthProvider))
+			toolProviderType := strings.ToLower(req.Tool.Config.API.OAuthProvider)
 
 			// Check if we have a matching OAuth token for this provider
 			if token, exists := req.OAuthTokens[toolProviderType]; exists {

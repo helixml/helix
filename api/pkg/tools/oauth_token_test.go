@@ -20,7 +20,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           "https://api.github.com",
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 					Actions: []*types.ToolAPIAction{
 						{
@@ -36,8 +36,8 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		// OAuth tokens with matching GitHub token
 		githubToken := "github-token-123"
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): githubToken,
-			string(types.OAuthProviderTypeSlack):  "slack-token-456", // Should be ignored
+			"GitHub": githubToken,
+			"Slack":  "slack-token-456", // Should be ignored
 		}
 
 		// Process the OAuth tokens
@@ -60,7 +60,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           "https://api.github.com",
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 					Actions: []*types.ToolAPIAction{
 						{
@@ -75,7 +75,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 
 		// OAuth tokens with no matching GitHub token
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeSlack): "slack-token-456", // Should be ignored for GitHub
+			"Slack": "slack-token-456", // Should be ignored for GitHub
 		}
 
 		// Process the OAuth tokens
@@ -96,7 +96,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           "https://slack.com/api",
-					OAuthProvider: types.OAuthProviderTypeSlack,
+					OAuthProvider: "Slack",
 					OAuthScopes:   []string{"chat:write"},
 					Actions: []*types.ToolAPIAction{
 						{
@@ -111,7 +111,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 
 		// OAuth tokens with GitHub but not Slack
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): "github-token-123", // Should be ignored for Slack
+			"GitHub": "github-token-123", // Should be ignored for Slack
 		}
 
 		// Process the OAuth tokens
@@ -132,7 +132,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           "https://api.github.com",
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 					Headers: map[string]string{
 						"Accept": "application/vnd.github.v3+json",
@@ -151,7 +151,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		// OAuth tokens with matching GitHub token
 		githubToken := "github-token-123"
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): githubToken,
+			"GitHub": githubToken,
 		}
 
 		// Process the OAuth tokens
@@ -180,7 +180,7 @@ func TestOAuthTokenProcessing(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           "https://api.github.com",
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 					Headers: map[string]string{
 						"Authorization": existingAuthValue,
@@ -199,61 +199,54 @@ func TestOAuthTokenProcessing(t *testing.T) {
 		// OAuth tokens with matching GitHub token
 		githubToken := "github-token-123"
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): githubToken, // Should be ignored because existing header
+			"GitHub": githubToken,
 		}
 
 		// Process the OAuth tokens
 		processOAuthTokens(tool, oauthTokens)
 
-		// Verify Authorization header was not changed
+		// Verify that the Authorization header remains unchanged
 		authHeader, exists := tool.Config.API.Headers["Authorization"]
 		assert.True(t, exists, "Authorization header should exist")
-		assert.Equal(t, existingAuthValue, authHeader, "Authorization header should not be changed")
+		assert.Equal(t, existingAuthValue, authHeader)
 	})
 }
 
-// Helper function to process OAuth tokens - extracted from RunAPIActionWithParameters
+// processOAuthTokens processes OAuth tokens for a tool
 func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
-	if len(oauthTokens) == 0 || tool.Config.API == nil || tool.Config.API.OAuthProvider == "" {
+	if tool.Config.API == nil || tool.Config.API.OAuthProvider == "" {
 		return
 	}
 
-	toolProviderType := string(tool.Config.API.OAuthProvider)
+	// Normalize the provider name
+	providerName := normalizeProviderType(tool.Config.API.OAuthProvider)
 
-	// Check if Authorization header already exists
-	authHeaderKey := "Authorization"
-	if tool.Config.API.Headers != nil {
-		if _, exists := tool.Config.API.Headers[authHeaderKey]; exists {
-			// Don't override existing Authorization header
-			return
-		}
-	}
-
-	// Look for a direct match in the map
-	if token, exists := oauthTokens[toolProviderType]; exists {
-		// Add the token to headers
+	// Check if we have a token for this provider
+	if token, exists := oauthTokens[providerName]; exists {
+		// Initialize headers map if it doesn't exist
 		if tool.Config.API.Headers == nil {
 			tool.Config.API.Headers = make(map[string]string)
 		}
-		tool.Config.API.Headers[authHeaderKey] = "Bearer " + token
-		return
-	}
 
-	// Try normalized provider matching for backward compatibility
-	normalizedToolType := normalizeProviderType(toolProviderType)
-	for providerType, token := range oauthTokens {
-		if normalizeProviderType(providerType) == normalizedToolType {
-			// Add the token to headers
-			if tool.Config.API.Headers == nil {
-				tool.Config.API.Headers = make(map[string]string)
-			}
-			tool.Config.API.Headers[authHeaderKey] = "Bearer " + token
-			return
+		// Only set the Authorization header if it doesn't already exist
+		if _, exists := tool.Config.API.Headers["Authorization"]; !exists {
+			tool.Config.API.Headers["Authorization"] = "Bearer " + token
 		}
 	}
 }
 
-// normalizeProviderType converts provider types to lowercase and standardizes them
+// normalizeProviderType normalizes the provider type string
 func normalizeProviderType(providerType string) string {
-	return strings.ToLower(providerType)
+	// Convert to lowercase for case-insensitive comparison
+	normalized := strings.ToLower(providerType)
+	// Remove any "oauth" prefix if present
+	normalized = strings.TrimPrefix(normalized, "oauth")
+	// Remove any remaining non-alphanumeric characters
+	normalized = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return -1
+	}, normalized)
+	return normalized
 }

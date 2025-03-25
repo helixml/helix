@@ -45,7 +45,7 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           ts.URL,
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 				},
 			},
@@ -54,8 +54,8 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 		// Create the API request with GitHub OAuth token
 		githubToken := "github-token-123"
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): githubToken,
-			string(types.OAuthProviderTypeSlack):  "slack-token-456", // Should be ignored
+			"GitHub": githubToken,
+			"Slack":  "slack-token-456", // Should be ignored
 		}
 
 		// Process the OAuth token directly
@@ -94,7 +94,7 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           ts.URL,
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 				},
 			},
@@ -102,7 +102,7 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 
 		// Create the API request with only a Slack OAuth token
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeSlack): "slack-token-456", // Should be ignored for GitHub tool
+			"Slack": "slack-token-456", // Should be ignored for GitHub tool
 		}
 
 		// Process the OAuth token directly
@@ -155,7 +155,7 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           ts.URL,
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 					Headers: map[string]string{
 						"Authorization": existingAuthValue,
@@ -167,7 +167,7 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 		// Create the API request with a GitHub OAuth token
 		githubToken := "github-token-123"
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): githubToken, // Should be ignored because existing header present
+			"GitHub": githubToken, // Should be ignored because existing header present
 		}
 
 		// Process the OAuth token directly
@@ -209,7 +209,7 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 			Config: types.ToolConfig{
 				API: &types.ToolAPIConfig{
 					URL:           ts.URL,
-					OAuthProvider: types.OAuthProviderTypeGitHub,
+					OAuthProvider: "GitHub",
 					OAuthScopes:   []string{"repo"},
 				},
 			},
@@ -218,9 +218,9 @@ func TestOAuthTokenInAPIAction(t *testing.T) {
 		// Create the API request with multiple OAuth tokens
 		githubToken := "github-token-123"
 		oauthTokens := map[string]string{
-			string(types.OAuthProviderTypeGitHub): githubToken,
-			string(types.OAuthProviderTypeSlack):  "slack-token-456",
-			string(types.OAuthProviderTypeGoogle): "google-token-789",
+			"GitHub": githubToken,
+			"Slack":  "slack-token-456",
+			"Google": "google-token-789",
 		}
 
 		// Process the OAuth token directly
