@@ -997,3 +997,20 @@ export interface CreateAccessGrantRequest {
   team_id?: string;        // Team ID
   roles: string[];         // Role names
 }
+
+// User app access types
+export interface IUserAppAccess {
+  can_read: boolean
+  can_write: boolean
+  is_admin: boolean
+}
+
+export interface IUserAppAccessState {
+  loading: boolean
+  error: string | null
+  access: IUserAppAccess | null
+  refresh: () => Promise<void>
+  isAdmin: boolean
+  canWrite: boolean
+  canRead: boolean
+}
