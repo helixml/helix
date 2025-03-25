@@ -168,6 +168,31 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 	suite.userNonMemberAPIKey = userNonMemberAPIKey
 }
 
+func (suite *OrganizationsRBACTestSuite) TestNonMemberCannotCreateApp() {
+	// Create the app as userMember1
+	userNonMemberClient, err := getAPIClient(suite.userNonMemberAPIKey)
+	suite.Require().NoError(err)
+
+	app, err := userNonMemberClient.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AppSource:      types.AppSourceHelix,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "TestAppVisibilityWithoutGrantingAccess",
+				Description: "TestAppVisibilityWithoutGrantingAccess-description",
+				Assistants: []types.AssistantConfig{
+					{
+						Name:  "test-assistant-1",
+						Model: "meta-llama/Llama-3-8b-chat-hf",
+					},
+				},
+			},
+		},
+	})
+	suite.Require().Error(err)
+	suite.Nil(app)
+}
+
 // TestAppAccessControls - tests various RBAC controls for apps
 // 1. Creates the app as userMember1
 // 2. Checks that only userMember1 and admin can see the app
@@ -356,6 +381,136 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToTeam()
 	suite.Require().Error(err)
 }
 
+func (suite *OrganizationsRBACTestSuite) TestAppUpdate_AppOwner_OrgOwner() {
+	userMember1Client, err := getAPIClient(suite.userMember1APIKey)
+	suite.Require().NoError(err)
+
+	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AppSource:      types.AppSourceHelix,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "test-app-single-user-access",
+				Description: "test-app-single-user-access-description",
+				Assistants: []types.AssistantConfig{
+					{
+						Name:  "test-assistant-1",
+						Model: "meta-llama/Llama-3-8b-chat-hf",
+					},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(app)
+
+	// App creator should be able to update the app
+	suite.NoError(assertAppWriteAccess(userMember1Client, app.ID), "userMember1 should be able to update the app")
+
+	// Org owner should be able to update the app
+	orgOwnerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+	suite.NoError(assertAppWriteAccess(orgOwnerClient, app.ID), "orgOwner should be able to update the app")
+
+	// Other member should not be able to
+	userMember2Client, err := getAPIClient(suite.userMember2APIKey)
+	suite.Require().NoError(err)
+	suite.Error(assertAppWriteAccess(userMember2Client, app.ID), "userMember2 should not be able to update the app before access is granted")
+}
+
+func (suite *OrganizationsRBACTestSuite) TestAppUpdate_SingleUser() {
+	userMember1Client, err := getAPIClient(suite.userMember1APIKey)
+	suite.Require().NoError(err)
+
+	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AppSource:      types.AppSourceHelix,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "test-app-single-user-access",
+				Description: "test-app-single-user-access-description",
+				Assistants: []types.AssistantConfig{
+					{
+						Name:  "test-assistant-1",
+						Model: "meta-llama/Llama-3-8b-chat-hf",
+					},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(app)
+
+	// Should not be able to
+	userMember2Client, err := getAPIClient(suite.userMember2APIKey)
+	suite.Require().NoError(err)
+	suite.Error(assertAppWriteAccess(userMember2Client, app.ID), "userMember2 should not be able to update the app before access is granted")
+
+	// Grant access to userMember2
+	_, err = userMember1Client.CreateAppAccessGrant(suite.ctx, app.ID, &types.CreateAccessGrantRequest{
+		UserReference: suite.userMember2.ID,
+		Roles:         []string{"write"},
+	})
+	suite.Require().NoError(err)
+
+	/*
+		VALIDATE APP WRITE ACCESS
+	*/
+
+	// userMember2 should be able to update the app
+	suite.NoError(assertAppWriteAccess(userMember2Client, app.ID), "userMember2 should be able to update the app")
+
+	// userMember3 should not be able to update the app
+	userMember3Client, err := getAPIClient(suite.userMember3APIKey)
+	suite.Require().NoError(err)
+	suite.Error(assertAppWriteAccess(userMember3Client, app.ID), "userMember3 should not be able to update the app")
+}
+
+func (suite *OrganizationsRBACTestSuite) TestAppUpdate_Team() {
+	userMember1Client, err := getAPIClient(suite.userMember1APIKey)
+	suite.Require().NoError(err)
+
+	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AppSource:      types.AppSourceHelix,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "test-app-single-user-access",
+				Description: "test-app-single-user-access-description",
+				Assistants: []types.AssistantConfig{
+					{
+						Name:  "test-assistant-1",
+						Model: "meta-llama/Llama-3-8b-chat-hf",
+					},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(app)
+
+	// Grant access to userMember2
+	_, err = userMember1Client.CreateAppAccessGrant(suite.ctx, app.ID, &types.CreateAccessGrantRequest{
+		TeamID: suite.userMember3Team.ID,
+		Roles:  []string{"write"},
+	})
+	suite.Require().NoError(err)
+
+	/*
+		VALIDATE APP WRITE ACCESS
+	*/
+
+	// userMember2 should not be able to update the app
+	userMember2Client, err := getAPIClient(suite.userMember2APIKey)
+	suite.Require().NoError(err)
+	suite.Error(assertAppWriteAccess(userMember2Client, app.ID), "userMember2 should not be able to update the app")
+
+	// userMember3 should see the app (access granted)
+	userMember3Client, err := getAPIClient(suite.userMember3APIKey)
+	suite.Require().NoError(err)
+	suite.NoError(assertAppWriteAccess(userMember3Client, app.ID), "userMember3 should be able to update the app")
+}
+
 func assertAppVisibility(suite *OrganizationsRBACTestSuite, userClient *client.HelixClient, orgID, appID string) bool {
 	suite.T().Helper()
 
@@ -374,4 +529,17 @@ func assertAppVisibility(suite *OrganizationsRBACTestSuite, userClient *client.H
 	}
 
 	return found
+}
+
+func assertAppWriteAccess(userClient *client.HelixClient, appID string) error {
+	existingApp, err := userClient.GetApp(context.Background(), appID)
+	if err != nil {
+		return err
+	}
+
+	// Update description of the app
+	existingApp.Config.Helix.Description = "new-description"
+
+	_, err = userClient.UpdateApp(context.Background(), existingApp)
+	return err
 }
