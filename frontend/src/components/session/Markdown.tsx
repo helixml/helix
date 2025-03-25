@@ -102,9 +102,6 @@ export class MessageProcessor {
     // Process XML citations
     processedMessage = this.processXmlCitations(processedMessage);
     
-    // Process HTML citations
-    processedMessage = this.processHtmlCitations(processedMessage);
-    
     // Process document IDs and convert to links
     processedMessage = this.processDocumentIds(processedMessage);
     
@@ -113,9 +110,6 @@ export class MessageProcessor {
     
     // Process thinking tags
     processedMessage = this.processThinkingTags(processedMessage);
-    
-    // Fix code block indentation
-    processedMessage = this.fixCodeBlockIndentation(processedMessage);
     
     // Remove trailing triple dash during streaming
     if (this.options.isStreaming) {
@@ -153,15 +147,55 @@ export class MessageProcessor {
         
         // Initialize citation data for streaming
         this.citationData = {
-          excerpts: [{
+          excerpts: [],
+          isStreaming: true
+        };
+        
+        // Try to extract partial document ID and snippet
+        const docIdMatch = partialExcerpts.match(/<document_id>(.*?)<\/document_id>/);
+        const snippetMatch = partialExcerpts.match(/<snippet>([\s\S]*?)$/);
+        
+        if (docIdMatch && snippetMatch) {
+          const docId = docIdMatch[1];
+          const snippet = snippetMatch[1];
+          let filename = "Loading...";
+          let fileUrl = "#";
+          
+          // Try to find associated filename and URL for the document ID
+          if (this.options.session.config?.document_ids) {
+            const docIdsMap = this.options.session.config.document_ids;
+            for (const fname in docIdsMap) {
+              if (docIdsMap[fname] === docId) {
+                // Extract just the basename from the path
+                filename = fname.split('/').pop() || fname;
+                
+                // Check if fname is a URL
+                const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+                
+                // Use direct URL for web links, otherwise use filestore URL
+                fileUrl = isURL ? fname : this.options.getFileURL(fname);
+                break;
+              }
+            }
+          }
+          
+          this.citationData.excerpts.push({
+            docId,
+            snippet,
+            filename,
+            fileUrl,
+            isPartial: true
+          });
+        } else {
+          // If we can't extract details, fall back to a generic loading state
+          this.citationData.excerpts.push({
             docId: "loading",
             snippet: "Loading source information...",
             filename: "Loading...",
             fileUrl: "#",
             isPartial: true
-          }],
-          isStreaming: true
-        };
+          });
+        }
         
         // In streaming mode, remove the partial excerpts
         return message.split('<excerpts>')[0];
@@ -238,79 +272,6 @@ export class MessageProcessor {
         });
       }
     }
-  }
-
-  private processHtmlCitations(message: string): string {
-    // Look for HTML citation format <div class="rag-citations-container">...</div>
-    const citationRegex = /<div class="rag-citations-container">([\s\S]*?)<\/div>/g;
-    const citationMatches = message.match(citationRegex);
-    
-    if (!citationMatches) {
-      return message;
-    }
-    
-    // Initialize citation data if not already done
-    if (!this.citationData) {
-      this.citationData = {
-        excerpts: [],
-        isStreaming: false
-      };
-    }
-    
-    // Process each citation match
-    for (const match of citationMatches) {
-      // Extract quotes
-      const quoteRegex = /<div class="citation-quote">([\s\S]*?)<\/div>/g;
-      const quoteMatches = [...match.matchAll(quoteRegex)];
-      
-      // Extract sources
-      const sourceRegex = /<div class="citation-source"><a href="[^"]*">([^<]*)<\/a><\/div>/g;
-      const sourceMatches = [...match.matchAll(sourceRegex)];
-      
-      // If we can't extract properly, create a default excerpt
-      if (quoteMatches.length === 0 || sourceMatches.length === 0) {
-        // Handle the case where regex doesn't match as expected
-        // Create a default excerpt using the content of the citation container
-        this.citationData.excerpts.push({
-          docId: "quoted_passage",
-          snippet: "This is a quoted passage",
-          title: "Citation",
-          filename: "Citation",
-          fileUrl: "#",
-          isPartial: false
-        });
-      } else {
-        // Combine quotes with sources
-        for (let i = 0; i < Math.min(quoteMatches.length, sourceMatches.length); i++) {
-          const snippet = quoteMatches[i][1].replace(/^"|"$/g, ''); // Remove surrounding quotes
-          const filename = sourceMatches[i][1];
-          
-          // Extract just the basename from the path
-          const displayName = filename.split('/').pop() || filename;
-          
-          // Find document ID for this filename if available
-          const docId = this.options.session.config?.document_ids?.[filename] || filename;
-          
-          // Check if filename is a URL
-          const isURL = filename.startsWith('http://') || filename.startsWith('https://');
-          
-          // Use direct URL for web links, otherwise use filestore URL
-          const fileUrl = isURL ? filename : this.options.getFileURL(filename);
-          
-          // Add to citation data
-          this.citationData.excerpts.push({
-            docId,
-            snippet,
-            filename: displayName,
-            fileUrl,
-            isPartial: false
-          });
-        }
-      }
-    }
-    
-    // Remove citation HTML from the message
-    return message.replace(citationRegex, '');
   }
 
   private processDocumentIds(message: string): string {
@@ -486,16 +447,6 @@ ${content}
     }
 
     return processedMessage;
-  }
-
-  private fixCodeBlockIndentation(message: string): string {
-    // Find code blocks with indentation
-    const codeBlockRegex = /^(\s+)```([\s\S]*?)^\1```/gm;
-    
-    // Remove the indentation at the start and end of code blocks
-    return message.replace(codeBlockRegex, (match, indent, content) => {
-      return '```' + content + '```';
-    });
   }
 
   private removeTrailingTripleDash(message: string): string {
