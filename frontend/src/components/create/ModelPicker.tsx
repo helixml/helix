@@ -105,13 +105,15 @@ const ModelPicker: FC<{
       m.type === type || (type === "text" && m.type === "chat")
     )
     
-    // Only suggest a default model if:
-    // 1. There are models available 
-    // 2. No model is currently selected
-    // 3. We don't want to overwrite the user's selection
-    if (currentModels.length > 0 && !model && !userSelectedModel) {
-      // Only set a default model when there's none selected
+    // Always check if current model is compatible with the type
+    const isCurrentModelValid = currentModels.some(m => m.id === model)
+    
+    // If type changed or current model is invalid for this type, select a new model
+    if (currentModels.length > 0 && (!isCurrentModelValid || !model)) {
+      // Force model selection when type changes, regardless of userSelectedModel
       onSetModel(currentModels[0].id)
+      // Consider this a deliberate selection to prevent further auto-switching
+      setUserSelectedModel(true)
     }
     
     // Never reset a selected model even if it's not in the current list
