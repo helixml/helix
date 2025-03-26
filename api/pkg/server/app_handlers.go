@@ -1005,22 +1005,15 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 	return response, nil
 }
 
-// Response for the user access endpoint
-type UserAppAccessResponse struct {
-	CanRead  bool `json:"can_read"`
-	CanWrite bool `json:"can_write"`
-	IsAdmin  bool `json:"is_admin"`
-}
-
 // getAppUserAccess godoc
 // @Summary Get current user's access level for an app
 // @Description Returns the access rights the current user has for this app
 // @Tags    apps
-// @Success 200 {object} UserAppAccessResponse
+// @Success 200 {object} types.UserAppAccessResponse
 // @Param id path string true "App ID"
 // @Router /api/v1/apps/{id}/user-access [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request) (*UserAppAccessResponse, *system.HTTPError) {
+func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request) (*types.UserAppAccessResponse, *system.HTTPError) {
 	// Get current user and app ID
 	user := getRequestUser(r)
 	id := getID(r)
@@ -1035,7 +1028,7 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 	}
 
 	// Initialize response with no permissions
-	response := &UserAppAccessResponse{
+	response := &types.UserAppAccessResponse{
 		CanRead:  false,
 		CanWrite: false,
 		IsAdmin:  false,
