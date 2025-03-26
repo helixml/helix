@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import useApi from './useApi'
-import { IUserAppAccess, IUserAppAccessState } from '../types'
+import { IUserAppAccessState } from '../types'
 import useAccount from './useAccount'
+import { TypesUserAppAccessResponse } from '../api/api'
 
-const DEFAULT_ACCESS: IUserAppAccess = {
+const DEFAULT_ACCESS: TypesUserAppAccessResponse = {
   can_read: false,
   can_write: false,
   is_admin: false
@@ -19,7 +20,7 @@ export const useUserAppAccess = (appId: string | null): IUserAppAccessState => {
   const account = useAccount()
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
-  const [access, setAccess] = useState<IUserAppAccess>(DEFAULT_ACCESS)
+  const [access, setAccess] = useState<TypesUserAppAccessResponse>(DEFAULT_ACCESS)
 
   /**
    * Fetch user access rights for the specified app
@@ -36,30 +37,18 @@ export const useUserAppAccess = (appId: string | null): IUserAppAccessState => {
     
     try {
       // Call the new API endpoint to get user access rights
-      const response = await api.get<IUserAppAccess>(
-        `/api/v1/apps/${appId}/user-access`,
-        undefined,
-        { snackbar: false } // Suppress snackbar errors
-      )
-      
-      if (response) {
-        setAccess(response)
+      const accessResponse = await api.getApiClient().v1AppsUserAccessDetail(appId)
+          
+      if (accessResponse.data) {
+        setAccess(accessResponse.data)
       } else {
         // If response is null, default to no access
-        setAccess({
-          can_read: false,
-          can_write: false,
-          is_admin: false
-        })
+        setAccess(DEFAULT_ACCESS)
         setError('Failed to get access rights')
       }
     } catch (err) {
       console.error('Error fetching user access:', err)
-      setAccess({
-        can_read: false,
-        can_write: false,
-        is_admin: false
-      })
+      setAccess(DEFAULT_ACCESS)
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
