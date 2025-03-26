@@ -1084,11 +1084,11 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 	readErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionGet)
 	writeErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionUpdate)
 
-	if readErr != nil {
-		response.CanRead = false
+	if readErr == nil {
+		response.CanRead = true
 	}
-	if writeErr != nil {
-		response.CanWrite = false
+	if writeErr == nil {
+		response.CanWrite = true
 	}
 
 	// Always return the response, even if the user has no access
