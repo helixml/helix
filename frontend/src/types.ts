@@ -1,3 +1,5 @@
+import { TypesUserAppAccessResponse } from './api/api'
+
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
 // did). At time of writing, it's unused in the frontend because the frontend
@@ -998,17 +1000,10 @@ export interface CreateAccessGrantRequest {
   roles: string[];         // Role names
 }
 
-// User app access types
-export interface IUserAppAccess {
-  can_read: boolean
-  can_write: boolean
-  is_admin: boolean
-}
-
 export interface IUserAppAccessState {
   loading: boolean
   error: string | null
-  access: IUserAppAccess | null
+  access: TypesUserAppAccessResponse | null
   refresh: () => Promise<void>
   isAdmin: boolean
   canWrite: boolean
