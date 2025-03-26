@@ -1551,3 +1551,12 @@ type ContextMenuAction struct {
 	Label       string `json:"label"`        // The label that will be shown in the UI
 	Value       string `json:"value"`        // The value written to the text area when the action is selected
 }
+
+type UsageMetric struct {
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	AppID   string    `json:"app_id" gorm:"index"`
+
+	LatencyMs int64 `json:"latency_ms"`
+}
