@@ -237,6 +237,14 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	options = append(options, tools.WithClient(apieClient))
 
+	// Pass OAuth tokens to the tools system
+	if len(opts.OAuthTokens) > 0 {
+		log.Info().
+			Int("token_count", len(opts.OAuthTokens)).
+			Msg("Passing OAuth tokens to tools system for blocking call")
+		options = append(options, tools.WithOAuthTokens(opts.OAuthTokens))
+	}
+
 	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API, options...)
 	if err != nil {
 		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
@@ -302,6 +310,14 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 	}
 
 	options = append(options, tools.WithClient(apieClient))
+
+	// Pass OAuth tokens to the tools system
+	if len(opts.OAuthTokens) > 0 {
+		log.Info().
+			Int("token_count", len(opts.OAuthTokens)).
+			Msg("Passing OAuth tokens to tools system for streaming call")
+		options = append(options, tools.WithOAuthTokens(opts.OAuthTokens))
+	}
 
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API, options...)
 	if err != nil {
