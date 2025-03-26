@@ -50,6 +50,17 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.Provider = assistant.Provider
 	}
 
+	client, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	// Evaluate and add OAuth tokens
+	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+	}
+
 	if len(assistant.Tools) > 0 {
 		// Check whether the app is configured for the call,
 		// if yes, execute the tools and return the response
@@ -85,17 +96,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	client, err := c.getClient(ctx, user.ID, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	// Evaluate and add OAuth tokens
-	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
 	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
@@ -118,6 +118,17 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
+	}
+
+	client, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	// Evaluate and add OAuth tokens
+	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -158,17 +169,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
-	}
-
-	client, err := c.getClient(ctx, user.ID, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	// Evaluate and add OAuth tokens
-	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
 	stream, err := client.CreateChatCompletionStream(ctx, req)
@@ -1268,57 +1268,12 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 		// Add OAuth tokens to the options
 		opts.OAuthTokens = oauthTokens
 
-		// If we have tokens, add them to the client as well
+		// Log retrieved tokens
 		if len(oauthTokens) > 0 {
 			log.Info().
 				Int("token_count", len(oauthTokens)).
-				Msg("Adding OAuth tokens to API client")
-
-			for providerName, token := range oauthTokens {
-				log.Info().
-					Str("provider", providerName).
-					Str("token_prefix", token[:10]+"...").
-					Msg("Adding OAuth token to API client HTTP headers")
-
-				// Add OAuth token to client (if supported)
-				if retryableClient, ok := client.(*oai.RetryableClient); ok {
-					// Log before adding the token
-					log.Debug().
-						Str("provider", providerName).
-						Bool("is_retryable_client", ok).
-						Str("client_type", fmt.Sprintf("%T", client)).
-						Msg("About to add OAuth token to API client")
-
-					retryableClient.AddOAuthToken(providerName, token)
-
-					// Log after adding the token
-					log.Info().
-						Str("provider", providerName).
-						Bool("is_retryable_client", ok).
-						Msg("Successfully added OAuth token to API client")
-
-					// Validate the token was added
-					if tokensRetriever, ok := client.(interface{ GetOAuthTokens() map[string]string }); ok {
-						tokens := tokensRetriever.GetOAuthTokens()
-						log.Debug().
-							Str("provider", providerName).
-							Int("token_count_on_client", len(tokens)).
-							Bool("token_exists", tokens[providerName] != "").
-							Interface("client_token_keys", maps.Keys(tokens)).
-							Msg("Verified OAuth tokens on client")
-					} else {
-						log.Warn().
-							Str("provider", providerName).
-							Str("client_type", fmt.Sprintf("%T", client)).
-							Msg("Cannot verify token addition - client does not support GetOAuthTokens")
-					}
-				} else {
-					log.Warn().
-						Str("provider", providerName).
-						Str("client_type", fmt.Sprintf("%T", client)).
-						Msg("Client does not support adding OAuth tokens")
-				}
-			}
+				Interface("token_keys", maps.Keys(oauthTokens)).
+				Msg("Successfully retrieved OAuth tokens for tools")
 		} else {
 			log.Warn().
 				Str("app_id", app.ID).

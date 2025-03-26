@@ -247,20 +247,3 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
 	return m.client.CreateEmbeddings(ctx, request)
 }
-
-// AddOAuthToken passes the OAuth token to the wrapped client if it supports it
-func (m *LoggingMiddleware) AddOAuthToken(providerName string, token string) {
-	// Check if the wrapped client supports AddOAuthToken
-	if retryClient, ok := m.client.(*oai.RetryableClient); ok {
-		log.Info().
-			Str("provider", providerName).
-			Str("client_type", fmt.Sprintf("%T", m.client)).
-			Msg("Passing OAuth token to RetryableClient")
-		retryClient.AddOAuthToken(providerName, token)
-	} else {
-		log.Warn().
-			Str("provider", providerName).
-			Str("client_type", fmt.Sprintf("%T", m.client)).
-			Msg("Wrapped client does not support AddOAuthToken")
-	}
-}
