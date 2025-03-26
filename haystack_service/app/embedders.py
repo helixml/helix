@@ -99,7 +99,7 @@ class MultimodalTextEmbedder:
         )
 
         if response.status_code != 200:
-            logger.error(
+            raise ValueError(
                 f"error from embedding API ({response.status_code}): {response.text}"
             )
 
