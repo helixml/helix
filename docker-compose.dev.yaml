@@ -78,8 +78,8 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    #ports:
-    #  - 5432:5432
+    ports:
+     - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
       - ./scripts/postgres:/docker-entrypoint-initdb.d
@@ -98,8 +98,8 @@ services:
   pgvector:
     image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
     restart: always
-    #ports:
-    #  - 5433:5432
+    ports:
+     - 5433:5432
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
