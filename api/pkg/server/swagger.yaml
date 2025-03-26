@@ -491,15 +491,6 @@ definitions:
       license_key:
         type: string
     type: object
-  server.UserAppAccessResponse:
-    properties:
-      can_read:
-        type: boolean
-      can_write:
-        type: boolean
-      is_admin:
-        type: boolean
-    type: object
   system.HTTPError:
     properties:
       message:
@@ -2321,6 +2312,15 @@ definitions:
       username:
         type: string
     type: object
+  types.UserAppAccessResponse:
+    properties:
+      can_read:
+        type: boolean
+      can_write:
+        type: boolean
+      is_admin:
+        type: boolean
+    type: object
   types.UserResponse:
     properties:
       email:
@@ -2570,7 +2570,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.UserAppAccessResponse'
+            $ref: '#/definitions/types.UserAppAccessResponse'
       security:
       - BearerAuth: []
       summary: Get current user's access level for an app

@@ -381,7 +381,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.UserAppAccessResponse"
+                            "$ref": "#/definitions/types.UserAppAccessResponse"
                         }
                     }
                 }
@@ -2244,20 +2244,6 @@ const docTemplate = `{
             "properties": {
                 "license_key": {
                     "type": "string"
-                }
-            }
-        },
-        "server.UserAppAccessResponse": {
-            "type": "object",
-            "properties": {
-                "can_read": {
-                    "type": "boolean"
-                },
-                "can_write": {
-                    "type": "boolean"
-                },
-                "is_admin": {
-                    "type": "boolean"
                 }
             }
         },
@@ -4848,6 +4834,20 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UserAppAccessResponse": {
+            "type": "object",
+            "properties": {
+                "can_read": {
+                    "type": "boolean"
+                },
+                "can_write": {
+                    "type": "boolean"
+                },
+                "is_admin": {
+                    "type": "boolean"
                 }
             }
         },
