@@ -1068,7 +1068,9 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 		UserID:         user.ID,
 	})
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		// Always return the response, even if the user has no access
+		// This way the frontend can know the user's permission level
+		return response, nil
 	}
 
 	// If user is organization owner, they have admin access
@@ -1079,60 +1081,14 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 		return response, nil
 	}
 
-	// Get all teams the user belongs to
-	teams, err := s.Store.ListTeams(r.Context(), &store.ListTeamsQuery{
-		OrganizationID: app.OrganizationID,
-		UserID:         user.ID,
-	})
+	readErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionGet)
+	writeErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionUpdate)
 
-	if err != nil {
-		// If there's an error getting teams, we continue with empty team IDs
-		teams = []*types.Team{}
+	if readErr != nil {
+		response.CanRead = false
 	}
-
-	// Get team IDs
-	var teamIDs []string
-	for _, team := range teams {
-		teamIDs = append(teamIDs, team.ID)
-	}
-
-	// Check access grants for the user and their teams
-	grants, err := s.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
-		OrganizationID: app.OrganizationID,
-		ResourceID:     app.ID,
-		UserID:         user.ID,
-		TeamIDs:        teamIDs,
-	})
-
-	if err != nil {
-		log.Debug().
-			Err(err).
-			Str("user_id", user.ID).
-			Str("app_id", id).
-			Msg("Error listing access grants, continuing with empty grants")
-		// If there's an error getting grants, we continue with no grants
-		grants = []*types.AccessGrant{}
-	}
-
-	// Analyze roles from grants to determine access level
-	for _, grant := range grants {
-		for _, role := range grant.Roles {
-			// Check role permissions based on role name
-			// Support both formats: "app_admin" and just "admin", etc.
-			roleName := strings.TrimPrefix(role.Name, "app_")
-
-			switch roleName {
-			case "admin":
-				response.CanRead = true
-				response.CanWrite = true
-				response.IsAdmin = true
-			case "write":
-				response.CanRead = true
-				response.CanWrite = true
-			case "read":
-				response.CanRead = true
-			}
-		}
+	if writeErr != nil {
+		response.CanWrite = false
 	}
 
 	// Always return the response, even if the user has no access
