@@ -329,12 +329,6 @@ export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
 
-export interface ServerUserAppAccessResponse {
-  can_read?: boolean;
-  can_write?: boolean;
-  is_admin?: boolean;
-}
-
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
@@ -1430,6 +1424,12 @@ export interface TypesUser {
   username?: string;
 }
 
+export interface TypesUserAppAccessResponse {
+  can_read?: boolean;
+  can_write?: boolean;
+  is_admin?: boolean;
+}
+
 export interface TypesUserResponse {
   email?: string;
   id?: string;
@@ -1767,7 +1767,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AppsUserAccessDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerUserAppAccessResponse, any>({
+      this.request<TypesUserAppAccessResponse, any>({
         path: `/api/v1/apps/${id}/user-access`,
         method: "GET",
         secure: true,
