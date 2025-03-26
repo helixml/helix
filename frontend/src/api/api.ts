@@ -1,5 +1,6 @@
 /* eslint-disable */
 /* tslint:disable */
+// @ts-nocheck
 /*
  * ---------------------------------------------------------------
  * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
@@ -329,6 +330,11 @@ export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
 
+export interface SystemHTTPError {
+  message?: string;
+  statusCode?: number;
+}
+
 export interface TypesAccessGrant {
   created_at?: string;
   id?: string;
@@ -336,8 +342,6 @@ export interface TypesAccessGrant {
   organization_id?: string;
   /** App ID, Knowledge ID, etc */
   resource_id?: string;
-  /** Kind of resource (app, knowledge, provider endpoint, etc) */
-  resource_type?: TypesResource;
   roles?: TypesRole[];
   /** If granted to a team */
   team_id?: string;
@@ -424,6 +428,10 @@ export interface TypesAssistantAPI {
   description?: string;
   headers?: Record<string, string>;
   name?: string;
+  /** OAuth configuration */
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   query?: Record<string, string>;
   request_prep_template?: string;
   response_error_template?: string;
@@ -1280,6 +1288,23 @@ export interface TypesTeamMembership {
   user_id?: string;
 }
 
+export interface TypesTemplateAppConfig {
+  /** Base API URL for the provider */
+  api_url?: string;
+  assistants?: TypesAssistantConfig[];
+  description?: string;
+  metadata?: Record<string, any>;
+  name?: string;
+  type?: TypesTemplateAppType;
+}
+
+export enum TypesTemplateAppType {
+  TemplateAppTypeGitHub = "github",
+  TemplateAppTypeJira = "jira",
+  TemplateAppTypeSlack = "slack",
+  TemplateAppTypeGoogle = "google",
+}
+
 export interface TypesTestStep {
   expected_output?: string;
   prompt?: string;
@@ -1323,6 +1348,10 @@ export interface TypesToolAPIConfig {
   /** Headers (authentication, etc) */
   headers?: Record<string, string>;
   model?: string;
+  /** OAuth configuration */
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   /** Query parameters that will be always set */
   query?: Record<string, string>;
   /** Template for request preparation, leave empty for default */
@@ -1607,6 +1636,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -1653,6 +1683,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -1660,12 +1691,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List access grants for an app (organization owners and members can list access grants)
      *
      * @tags apps
-     * @name V1AppsAccessGrantsDetail
+     * @name V1AppsAccessGrantsList
      * @summary List app access grants
      * @request GET:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+    v1AppsAccessGrantsList: (id: string, params: RequestParams = {}) =>
       this.request<TypesAccessGrant[], any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "GET",
@@ -1695,40 +1726,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * No description
      *
-     * @name V1AppsApiActionsCreate
-     * @request POST:/api/v1/apps/{id}/api-actions
-     * @secure
-     */
-    v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
-      this.request<TypesRunAPIActionResponse, any>({
-        path: `/api/v1/apps/${id}/api-actions`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsGptscriptCreate
-     * @request POST:/api/v1/apps/{id}/gptscript
-     * @secure
-     */
-    v1AppsGptscriptCreate: (id: string, request: TypesGptScriptRequest, params: RequestParams = {}) =>
-      this.request<TypesGptScriptResponse, any>({
-        path: `/api/v1/apps/${id}/gptscript`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
      * @name V1AppsGithubUpdate
      * @request PUT:/api/v1/apps/github/{id}
      * @secure
@@ -1739,6 +1736,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -1950,12 +1948,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List knowledge versions
      *
      * @tags knowledge
-     * @name V1KnowledgeVersionsDetail
+     * @name V1KnowledgeVersionsList
      * @summary List knowledge versions
      * @request GET:/api/v1/knowledge/{id}/versions
      * @secure
      */
-    v1KnowledgeVersionsDetail: (id: string, params: RequestParams = {}) =>
+    v1KnowledgeVersionsList: (id: string, params: RequestParams = {}) =>
       this.request<TypesKnowledgeVersion[], any>({
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
@@ -2058,6 +2056,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -2104,6 +2103,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -2111,12 +2111,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List members of an organization
      *
      * @tags organizations
-     * @name V1OrganizationsMembersDetail
+     * @name V1OrganizationsMembersList
      * @summary List organization members
      * @request GET:/api/v1/organizations/{id}/members
      * @secure
      */
-    v1OrganizationsMembersDetail: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsMembersList: (id: string, params: RequestParams = {}) =>
       this.request<TypesOrganizationMembership[], any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "GET",
@@ -2192,12 +2192,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all roles in an organization. Organization members can list roles.
      *
      * @tags organizations
-     * @name V1OrganizationsRolesDetail
+     * @name V1OrganizationsRolesList
      * @summary List roles in an organization
      * @request GET:/api/v1/organizations/{id}/roles
      * @secure
      */
-    v1OrganizationsRolesDetail: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsRolesList: (id: string, params: RequestParams = {}) =>
       this.request<TypesRole[], any>({
         path: `/api/v1/organizations/${id}/roles`,
         method: "GET",
@@ -2209,12 +2209,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all teams in an organization. Organization members can list teams.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsDetail
+     * @name V1OrganizationsTeamsList
      * @summary List teams in an organization
      * @request GET:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsDetail: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsList: (id: string, params: RequestParams = {}) =>
       this.request<TypesTeam[], any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "GET",
@@ -2288,12 +2288,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all members of a team.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsMembersDetail
+     * @name V1OrganizationsTeamsMembersList
      * @summary List members of a team
      * @request GET:/api/v1/organizations/{id}/teams/{team_id}/members
      * @secure
      */
-    v1OrganizationsTeamsMembersDetail: (id: string, teamId: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsMembersList: (id: string, teamId: string, params: RequestParams = {}) =>
       this.request<TypesTeamMembership[], any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "GET",
@@ -2532,6 +2532,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List available template apps configurations.
+     *
+     * @tags template_apps
+     * @name V1TemplateAppsList
+     * @summary List template apps
+     * @request GET:/api/v1/template-apps
+     * @secure
+     */
+    v1TemplateAppsList: (params: RequestParams = {}) =>
+      this.request<TypesTemplateAppConfig[], any>({
+        path: `/api/v1/template-apps`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get template app configuration by type.
+     *
+     * @tags template_apps
+     * @name V1TemplateAppsDetail
+     * @summary Get template app by type
+     * @request GET:/api/v1/template-apps/{type}
+     * @secure
+     */
+    v1TemplateAppsDetail: (type: string, params: RequestParams = {}) =>
+      this.request<TypesTemplateAppConfig, SystemHTTPError>({
+        path: `/api/v1/template-apps/${type}`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

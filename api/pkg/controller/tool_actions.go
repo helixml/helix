@@ -25,8 +25,9 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		return nil, fmt.Errorf("tool ID not found in interaction metadata")
 	}
 
+	var app *types.App
 	if session.ParentApp != "" {
-		app, err := c.Options.Store.GetAppWithTools(ctx, session.ParentApp)
+		app, err = c.Options.Store.GetAppWithTools(ctx, session.ParentApp)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get app %s: %w", session.ParentApp, err)
 		}
@@ -64,6 +65,36 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 					Msgf("Overriding default tool query params")
 			}
 		}
+	}
+
+	// Check if this is a GitHub API tool
+	oauthProviderType := ""
+	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+		if tool.Config.API.OAuthProvider != "" {
+			oauthProviderType = tool.Config.API.OAuthProvider
+		}
+
+		// Log details for all API tools
+		log.Info().
+			Str("session_id", session.ID).
+			Str("interaction_id", assistantInteraction.ID).
+			Str("tool", tool.Name).
+			Str("action", action).
+			Str("oauth_provider", oauthProviderType).
+			Str("api_url", tool.Config.API.URL).
+			Msg("Running API tool action")
+
+		// Add detailed debug logging for OAuth provider
+		log.Info().
+			Str("session_id", session.ID).
+			Str("tool_id", tool.ID).
+			Str("tool_name", tool.Name).
+			Str("oauth_provider", tool.Config.API.OAuthProvider).
+			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+			Str("oauth_provider_type", fmt.Sprintf("%T", tool.Config.API.OAuthProvider)).
+			Interface("tool_config", tool.Config).
+			Interface("tool_config_api", tool.Config.API).
+			Msg("DEBUG: Tool OAuth provider details")
 	}
 
 	var updated *types.Session

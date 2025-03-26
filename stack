@@ -154,7 +154,7 @@ function update_openapi() {
 	-o api/pkg/server
 	# Copy the generated files to the frontend
 	cp -r api/pkg/server/swagger.yaml frontend/swagger/
-	npx swagger-typescript-api -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
+	npx swagger-typescript-api generate -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
 }
 
 function lint() {
