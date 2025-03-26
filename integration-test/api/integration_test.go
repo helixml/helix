@@ -77,6 +77,8 @@ func startAPIServer() *bytes.Buffer {
 		}
 	}()
 
+	time.Sleep(2 * time.Second)
+
 	return buf
 }
 
@@ -95,7 +97,7 @@ func waitForAPIServer() error {
 		case <-timeout:
 			return fmt.Errorf("timeout waiting for API server to start")
 		case <-tick.C:
-			resp, err := client.Get("http://localhost:8080/api/v1/healthz")
+			resp, err := client.Get("http://localhost:8080/api/v1/config")
 			if err != nil {
 				log.Printf("API not ready yet: %v", err)
 				continue

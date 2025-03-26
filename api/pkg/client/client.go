@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/avast/retry-go/v4"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -120,48 +122,58 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 }
 
 func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	return retry.Do(func() error {
+		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
 
-	fullURL := c.url + path
+		fullURL := c.url + path
 
-	// Read and store body content for curl logging
-	var bodyBytes []byte
-	if body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(body)
+		// Read and store body content for curl logging
+		var bodyBytes []byte
+		if body != nil {
+			var err error
+			bodyBytes, err = io.ReadAll(body)
+			if err != nil {
+				return err
+			}
+			// Create new reader from bytes for the actual request
+			body = strings.NewReader(string(bodyBytes))
+		}
+
+		req, err := http.NewRequestWithContext(reqCtx, method, fullURL, body)
 		if err != nil {
 			return err
 		}
-		// Create new reader from bytes for the actual request
-		body = strings.NewReader(string(bodyBytes))
-	}
 
-	req, err := http.NewRequestWithContext(reqCtx, method, fullURL, body)
-	if err != nil {
-		return err
-	}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		bts, err := io.ReadAll(resp.Body)
+		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("status code %d", resp.StatusCode)
+			return err
 		}
-		return fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
-	}
+		defer resp.Body.Close()
 
-	if v != nil {
-		return json.NewDecoder(resp.Body).Decode(v)
-	}
+		if resp.StatusCode >= 300 {
+			bts, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("status code %d", resp.StatusCode)
+			}
+			return fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
+		}
 
-	return nil
+		if v != nil {
+			return json.NewDecoder(resp.Body).Decode(v)
+		}
+
+		return nil
+	},
+		retry.LastErrorOnly(true),
+		retry.Attempts(3),
+		retry.Delay(time.Second),
+		retry.RetryIf(func(err error) bool {
+			// If the error is a connection refused, it means the server is not running
+			return strings.Contains(err.Error(), "connection refused")
+		}),
+	)
 }
