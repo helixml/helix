@@ -1,377 +1,257 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
 from haystack import Pipeline
-from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
-from haystack.components.joiners import DocumentJoiner
-from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
 from haystack.dataclasses import Document
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils.auth import Secret
+
 from .config import settings
 from .converters import PDFToImagesConverter
+from .embedders import MultimodalDocumentEmbedder, MultimodalTextEmbedder
 from .unix_socket_embedders import (
     UnixSocketOpenAIDocumentEmbedder,
     UnixSocketOpenAITextEmbedder,
 )
 from .vectorchord.components import (
-    VectorchordBM25Retriever,
     VectorchordEmbeddingRetriever,
 )
+from .splitters import ImageSplitter
 from .vectorchord.document_store import VectorchordDocumentStore
-from .vectorchord.components.image_splitter import ImageSplitter
-from .embedders import MultimodalTextEmbedder, MultimodalDocumentEmbedder
 
 logger = logging.getLogger(__name__)
 
 
 class HaystackImageService:
-    """Provides image based RAG service"""
+    """
+    Provides image-based RAG (Retrieval Augmented Generation) service using Haystack.
+    Handles document processing, indexing, and retrieval with support for vision models.
+    """
 
     def __init__(self):
-        """Initialize the Haystack service"""
+        """Initialize the Haystack service with vision model RAG capabilities"""
         logger.info("Initializing Vision Model RAG Service")
+        self._init_document_store()
+        self._init_indexing_pipeline()
+        self._init_query_pipeline()
+        logger.info("Vision Model RAG Service initialization complete")
 
-        # Initialize document stores
+    def _init_document_store(self):
+        """Initialize the VectorchordDocumentStore with configured settings"""
         try:
-            # VectorChord store for both dense embeddings and BM25
-            pgvector_secret = Secret.from_token(settings.PGVECTOR_DSN)
             self.document_store = VectorchordDocumentStore(
-                connection_string=pgvector_secret,  # Pass Secret object directly
+                connection_string=Secret.from_token(settings.PGVECTOR_DSN),
                 embedding_dimension=settings.VISION_EMBEDDING_DIM,
                 table_name=settings.VISION_PGVECTOR_TABLE,
                 vector_function="cosine_similarity",
-                search_strategy="vchordrq",  # Enable for faster vector search
+                search_strategy="vchordrq",
                 recreate_table=False,
             )
             logger.info(
                 f"Connected to VectorchordDocumentStore: {settings.VISION_PGVECTOR_TABLE}"
             )
-
         except Exception as e:
-            logger.error(f"Failed to connect to document stores: {str(e)}")
+            logger.error("Failed to connect to document store", exc_info=True)
             raise
 
-        # Initialize pipelines
-        self._init_indexing_pipeline()
-        self._init_query_pipeline()
-
-        logger.info("Vision Model RAG Service initialization complete")
-
     def _init_indexing_pipeline(self):
-        """Initialize the document indexing pipeline"""
+        """Initialize the document indexing pipeline with converter, splitter, embedder, and writer"""
         self.indexing_pipeline = Pipeline()
 
-        # Create components for indexing pipeline
-        if settings.EMBEDDINGS_SOCKET:
-            logger.info(
-                f"Using UNIX socket for document embeddings: {settings.EMBEDDINGS_SOCKET}"
-            )
-            embedder = UnixSocketOpenAIDocumentEmbedder(
-                socket_path=settings.EMBEDDINGS_SOCKET,
-                model=settings.VISION_EMBEDDINGS_MODEL,
-                batch_size=1,
-            )
-        else:
-            logger.info(f"Using API for document embeddings: {settings.VLLM_BASE_URL}")
-            embedder = MultimodalDocumentEmbedder(
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
-                api_base_url=settings.VLLM_BASE_URL,
-                model=settings.VISION_EMBEDDINGS_MODEL,
-            )
+        components = {
+            "converter": PDFToImagesConverter(),
+            "splitter": ImageSplitter(),
+            "embedder": self._get_embedder(for_documents=True),
+            "vector_writer": DocumentWriter(
+                document_store=self.document_store,
+                policy=DuplicatePolicy.OVERWRITE,
+            ),
+        }
 
-        logger.info(f"Using embedder: {embedder.api_base_url}")
+        # Add and connect components
+        for name, component in components.items():
+            self.indexing_pipeline.add_component(name, component)
 
-        converter = PDFToImagesConverter()
-
-        splitter = ImageSplitter()
-
-        # Writer for the vector store (which now handles both embeddings and BM25)
-        # NUL bytes are filtered out in VectorchordDocumentStore.write_documents method
-        vector_writer = DocumentWriter(
-            document_store=self.document_store,
-            policy=DuplicatePolicy.OVERWRITE,  # Use overwrite policy to handle duplicate documents
-        )
-
-        # Add components
-        self.indexing_pipeline.add_component("converter", converter)
-        self.indexing_pipeline.add_component("splitter", splitter)
-        self.indexing_pipeline.add_component("embedder", embedder)
-        self.indexing_pipeline.add_component("vector_writer", vector_writer)
-
-        # Connect components
         self.indexing_pipeline.connect("converter", "splitter")
         self.indexing_pipeline.connect("splitter", "embedder")
         self.indexing_pipeline.connect("embedder", "vector_writer")
 
-        # Save converter instance for text extraction
-        self.converter = converter
-
+        # Save converter for potential reuse
+        self.converter = components["converter"]
         logger.info("Initialized vision indexing pipeline")
 
     def _init_query_pipeline(self):
-        """Initialize the query pipeline"""
+        """Initialize the query pipeline with embedder and retriever"""
         self.query_pipeline = Pipeline()
 
-        # Create components for query pipeline
-        if settings.EMBEDDINGS_SOCKET:
-            logger.info(
-                f"Using UNIX socket for text embeddings: {settings.EMBEDDINGS_SOCKET}"
-            )
-            embedder = UnixSocketOpenAITextEmbedder(
-                socket_path=settings.EMBEDDINGS_SOCKET,
-                model=settings.VISION_EMBEDDINGS_MODEL,
-            )
-        else:
-            logger.info(f"Using API for document embeddings: {settings.VLLM_BASE_URL}")
-            embedder = MultimodalTextEmbedder(
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
-                api_base_url=settings.VLLM_BASE_URL,
-                model=settings.VISION_EMBEDDINGS_MODEL,
-            )
-
-        # Dense vector retriever using VectorChord
-        vector_retriever = VectorchordEmbeddingRetriever(
+        embedder = self._get_embedder(for_documents=False)
+        self.vector_retriever = VectorchordEmbeddingRetriever(
             document_store=self.document_store, filters=None, top_k=5
         )
 
-        # # BM25 retriever using VectorChord-bm25
-        # bm25_retriever = VectorchordBM25Retriever(
-        #     document_store=self.document_store, filters=None, top_k=5
-        # )
-
-        # # Document joiner to combine results from both retrievers
-        # document_joiner = DocumentJoiner(join_mode="reciprocal_rank_fusion", top_k=5)
-
-        # Add components
         self.query_pipeline.add_component("embedder", embedder)
-        self.query_pipeline.add_component("vector_retriever", vector_retriever)
-        # self.query_pipeline.add_component("bm25_retriever", bm25_retriever)
-        # self.query_pipeline.add_component("document_joiner", document_joiner)
-
-        # Connect components
-        # Vector retrieval - need to be explicit about field connections
+        self.query_pipeline.add_component("vector_retriever", self.vector_retriever)
         self.query_pipeline.connect(
             "embedder.embedding", "vector_retriever.query_embedding"
         )
 
-        # Join documents from both retrievers - these are already correct
-        # self.query_pipeline.connect("vector_retriever", "document_joiner")
-        # self.query_pipeline.connect("bm25_retriever", "document_joiner")
-
-        # Save retrievers for parameter updates
-        self.vector_retriever = vector_retriever
-        # self.bm25_retriever = bm25_retriever
-        # self.document_joiner = document_joiner
-        # self.document_joiner = vector_retriever  # temporary to test
-
         logger.info("Initialized query pipeline")
 
+    def _get_embedder(
+        self, for_documents: bool = True
+    ) -> Union[MultimodalDocumentEmbedder, MultimodalTextEmbedder]:
+        """Get the appropriate embedder based on configuration"""
+        if settings.EMBEDDINGS_SOCKET:
+            logger.info(
+                f"Using UNIX socket for embeddings: {settings.EMBEDDINGS_SOCKET}"
+            )
+            return (
+                UnixSocketOpenAIDocumentEmbedder
+                if for_documents
+                else UnixSocketOpenAITextEmbedder
+            )(
+                socket_path=settings.EMBEDDINGS_SOCKET,
+                model=settings.VISION_EMBEDDINGS_MODEL,
+                batch_size=1 if for_documents else None,
+            )
+
+        logger.info(f"Using API for embeddings: {settings.VLLM_BASE_URL}")
+        return (
+            MultimodalDocumentEmbedder if for_documents else MultimodalTextEmbedder
+        )(
+            api_key=Secret.from_token(settings.VLLM_API_KEY),
+            api_base_url=settings.VLLM_BASE_URL,
+            model=settings.VISION_EMBEDDINGS_MODEL,
+        )
+
+    def _format_filters(
+        self, filters: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """Format filters into Haystack's expected structure"""
+        if not filters:
+            return None
+
+        try:
+            if not any(key in filters for key in ["operator", "conditions", "field"]):
+                conditions = [
+                    {"field": f"meta.{key}", "operator": "==", "value": value}
+                    for key, value in filters.items()
+                ]
+                return {"operator": "AND", "conditions": conditions}
+            return filters
+        except Exception as e:
+            logger.warning(
+                f"Failed to format filters: {str(e)}. Continuing without filters."
+            )
+            return None
+
     async def process_and_index(
-        self, file_path: str, metadata: Dict[str, Any] = None
+        self, file_path: str, metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Process a document file and index it
+        Process and index a document file.
 
         Args:
             file_path: Path to the file to process
-            metadata: Optional metadata to attach to the document chunks
+            metadata: Optional metadata to attach to document chunks
 
         Returns:
-            Dict containing processing stats
+            Dict containing indexing statistics
         """
-        if metadata is None:
-            metadata = {}
-
-        # Get the original filename from metadata
+        metadata = metadata or {}
         original_filename = metadata.get("filename")
         if not original_filename:
-            raise ValueError(
-                "Original filename must be provided in metadata for process_and_index"
-            )
+            raise ValueError("Original filename must be provided in metadata")
 
-        logger.info(
-            f"Processing and indexing for vision {original_filename} with metadata: {metadata}"
-        )
-
-        # Use the original filename as the source, never the temp path
+        logger.info(f"Processing and indexing vision document: {original_filename}")
         metadata["source"] = original_filename
 
-        # Set up the parameters for the indexing pipeline
-        params = {
-            "converter": {"paths": [file_path], "meta": metadata},
-        }
-
         try:
-            output = self.indexing_pipeline.run(params)
+            output = self.indexing_pipeline.run(
+                {
+                    "converter": {"paths": [file_path], "meta": metadata},
+                }
+            )
 
-            # Get the number of chunks created by looking at vector_writer output
-            num_chunks = output.get("vector_writer", {}).get("documents_written", 0)
-
-            # Return stats
             return {
                 "filename": original_filename,
                 "indexed": True,
-                "chunks": num_chunks,
+                "chunks": output.get("vector_writer", {}).get("documents_written", 0),
                 "metadata": metadata,
             }
-
-        except Exception as e:
-            logger.error(f"Error processing document: {str(e)}")
-            logger.exception("Processing pipeline error details:")
+        except Exception:
+            logger.error("Error processing document", exc_info=True)
             raise
 
     async def query(
-        self, query_text: str, filters: Dict[str, Any] = None, top_k: int = 5
+        self, query_text: str, filters: Optional[Dict[str, Any]] = None, top_k: int = 5
     ) -> List[Dict[str, Any]]:
-        """
-        Query the document store for relevant passages
-
-        Args:
-            query_text: The query text to search for
-            filters: Optional filters to apply to the search
-            top_k: Number of results to return
-
-        Returns:
-            List of dictionaries with document data
-        """
-        # Remove NUL bytes from query if present
-        if "\x00" in query_text:
-            logger.warning("Query contained NUL bytes that will be removed")
-            query_text = query_text.replace("\x00", "")
-
-        # Validate query text after sanitizing
-        if not query_text or query_text.strip() == "":
-            logger.error("Empty query text received or contained only NUL bytes")
+        """Query the document store for relevant passages"""
+        # Sanitize query
+        query_text = query_text.replace("\x00", "")
+        if not query_text.strip():
             raise ValueError("Query text cannot be empty")
 
-        logger.info(
-            f"Querying with: '{query_text}', filters: {filters}, top_k: {top_k}"
-        )
-
-        # Format filters correctly if they're provided
-        formatted_filters = None
-        if filters:
-            try:
-                # Simple filters might just be key-value pairs like {"data_entity_id": "some_id"}
-                # We need to convert them to the format expected by Haystack with operator and conditions
-                if not any(
-                    key in filters for key in ["operator", "conditions", "field"]
-                ):
-                    # Simple key-value filters need to be converted to proper format
-                    conditions = []
-                    for key, value in filters.items():
-                        conditions.append(
-                            {"field": f"meta.{key}", "operator": "==", "value": value}
-                        )
-
-                    formatted_filters = {"operator": "AND", "conditions": conditions}
-                else:
-                    # Filters are already in the correct format
-                    formatted_filters = filters
-
-                logger.info(f"Using formatted filters: {formatted_filters}")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to format filters: {str(e)}. Continuing without filters."
-                )
+        logger.info(f"Querying with filters: {filters}, top_k: {top_k}")
 
         # Update retriever parameters
+        formatted_filters = self._format_filters(filters)
         self.vector_retriever.top_k = top_k
         self.vector_retriever.filters = formatted_filters
 
-        # self.bm25_retriever.top_k = top_k
-        # self.bm25_retriever.filters = formatted_filters
-        # # At this point there are 2*top_k results from the retrievers
-
-        # logger.info(
-        #     f"Chopping joined results in half to meet the request for top_k: {top_k}"
-        # )
-        # self.document_joiner.top_k = top_k
-
-        # Set up the parameters for the query pipeline
-        params = {
-            "embedder": {"text": query_text},
-            # "bm25_retriever": {"query": query_text},
-        }
-
-        # Run the query pipeline
-        logger.info("Running full query pipeline with document joining")
+        # Run query pipeline
         try:
-            # Run the pipeline
-            output = self.query_pipeline.run(params)
-
-            # Get the results from the document joiner
-            # documents = output.get("document_joiner", {}).get("documents", [])
+            output = self.query_pipeline.run(
+                {
+                    "embedder": {"text": query_text},
+                }
+            )
             documents: List[Document] = output.get("vector_retriever", {}).get(
                 "documents", []
             )
-            logger.info(f"Document joiner returned {len(documents)} documents")
 
-            # Filter out NUL bytes from document content
-            for doc in documents:
-                if doc.content and "\x00" in doc.content:
-                    logger.warning(
-                        f"Filtering NUL bytes from retrieval result document: {doc.id}"
-                    )
-                    doc.content = doc.content.replace("\x00", "")
-
-            # Debug the joined results
-            for i, doc in enumerate(documents):
-                logger.info(
-                    f"DEBUG: Final joined result {i + 1}: id={getattr(doc, 'id', 'unknown')}, "
-                    f"score={getattr(doc, 'score', 'unknown')}"
-                )
+            # Clean and format results
+            return [
+                {
+                    "id": doc.id,
+                    "content": (doc.content or "").replace("\x00", ""),
+                    "score": float(
+                        doc.score
+                        if hasattr(doc, "score") and doc.score is not None
+                        else 0.0
+                    ),
+                    "metadata": doc.meta,
+                    "rank": i + 1,
+                }
+                for i, doc in enumerate(documents)
+            ]
         except Exception as e:
             logger.error(f"Error running query pipeline: {str(e)}")
             logger.exception("Query pipeline error details:")
             raise ValueError(f"Error querying document store: {str(e)}")
 
-        # Convert to dictionaries
-        results = []
-        for i, doc in enumerate(documents):
-            results.append(
-                {
-                    "id": doc.id,
-                    "content": doc.content if doc.content else "",
-                    "score": float(doc.score)
-                    if hasattr(doc, "score") and doc.score is not None
-                    else 0.0,
-                    "metadata": doc.meta,
-                    "rank": i + 1,
-                }
-            )
-
-        return results
-
     async def delete(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Delete documents from the store that match the given filters
+        Delete documents matching the given filters.
 
         Args:
-            filters: Filters to identify documents to delete
+            filters: Query filters to identify documents for deletion
 
         Returns:
-            Dict with deletion status
+            Dict containing deletion status and count
         """
         logger.info(f"Deleting documents with filters: {filters}")
 
         try:
-            # Get documents that match filters
             matching_docs = self.document_store.filter_documents(filters=filters)
-
             if not matching_docs:
                 return {"status": "success", "documents_deleted": 0}
 
-            # Get IDs of matching documents
             doc_ids = [doc.id for doc in matching_docs]
-
-            # Delete from the document store
             self.document_store.delete_documents(doc_ids)
 
             return {"status": "success", "documents_deleted": len(doc_ids)}
-
         except Exception as e:
-            logger.error(f"Error deleting documents: {str(e)}")
+            logger.error("Error deleting documents", exc_info=True)
             raise
