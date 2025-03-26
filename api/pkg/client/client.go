@@ -67,6 +67,9 @@ type Client interface {
 	ListAppAccessGrants(ctx context.Context, f *AppAccessGrantsFilter) ([]*types.AccessGrant, error)
 	CreateAppAccessGrant(ctx context.Context, appID string, grant *types.CreateAccessGrantRequest) (*types.AccessGrant, error)
 	DeleteAppAccessGrant(ctx context.Context, appID, grantID string) error
+
+	// Get current user's access level for an app
+	GetAppUserAccess(ctx context.Context, appID string) (*types.UserAppAccessResponse, error)
 }
 
 type SessionFilter struct {
