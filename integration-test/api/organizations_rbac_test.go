@@ -488,6 +488,18 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_SingleUser() {
 		suite.True(access.CanRead, "userMember2 should be able to read from the app")
 		suite.False(access.IsAdmin, "userMember2 should not be an admin of the app")
 	})
+
+	suite.T().Run("UserAccessEndpoint_NotOwner_NoAccess", func(_ *testing.T) {
+		userMember3Client, err := getAPIClient(suite.userMember3APIKey)
+		suite.Require().NoError(err)
+
+		access, err := userMember3Client.GetAppUserAccess(suite.ctx, app.ID)
+		suite.Require().NoError(err)
+
+		suite.False(access.CanWrite, "userMember3 should not be able to write to the app")
+		suite.False(access.CanRead, "userMember3 should not be able to read from the app")
+		suite.False(access.IsAdmin, "userMember3 should not be an admin of the app")
+	})
 }
 
 func (suite *OrganizationsRBACTestSuite) TestAppUpdate_Team() {
