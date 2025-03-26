@@ -21,7 +21,7 @@ from .vectorchord.components import (
 )
 from .vectorchord.document_store import VectorchordDocumentStore
 from .vectorchord.components.image_splitter import ImageSplitter
-from .embedders import MultimodalEmbedder, MultimodalTextEmbedder
+from .embedders import MultimodalTextEmbedder, MultimodalDocumentEmbedder
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class HaystackImageService:
             )
         else:
             logger.info(f"Using API for document embeddings: {settings.VLLM_BASE_URL}")
-            embedder = MultimodalEmbedder(
+            embedder = MultimodalDocumentEmbedder(
                 api_key=Secret.from_token(settings.VLLM_API_KEY),
                 api_base_url=settings.VLLM_BASE_URL,
                 model=settings.VISION_EMBEDDINGS_MODEL,
