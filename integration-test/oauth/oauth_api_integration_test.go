@@ -12,12 +12,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/auth"
-	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/oauth"
+	"github.com/helixml/helix/api/pkg/openai"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	goai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // Test verifies that OAuth tokens are properly included in API tool requests.
@@ -25,7 +29,7 @@ import (
 // 1. Creates a mock GitHub API server to simulate an OAuth2 provider API
 // 2. Sets up a user with an OAuth connection to the GitHub provider
 // 3. Creates a tool configured to use GitHub's API with OAuth
-// 4. Sends a request to the mock server and verifies the OAuth token is included
+// 4. Tests both direct token passing and the more realistic session-based flow
 func TestOAuthAPIToolIntegration(t *testing.T) {
 	// Skip if in short mode
 	if testing.Short() {
@@ -36,10 +40,12 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 
 	// 1. Set up a mock GitHub API server that will validate the Authorization header
 	var capturedAuthHeader string
+	var capturedPath string
 	mockGithubServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Capture the Authorization header
+		// Capture the Authorization header and path
 		capturedAuthHeader = r.Header.Get("Authorization")
-		t.Logf("Mock GitHub server received request with Authorization: %s", capturedAuthHeader)
+		capturedPath = r.URL.Path
+		t.Logf("Mock GitHub server received request to path: %s with Authorization: %s", capturedPath, capturedAuthHeader)
 
 		// Check path and respond accordingly
 		if r.URL.Path == "/user" {
@@ -76,6 +82,32 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 			t.Log("Mock GitHub server returned issues data")
+		} else if r.URL.Path == "/issues" {
+			// This path simulates the GitHub API endpoint for user issues
+			if capturedAuthHeader == "" {
+				// If no auth header, return 404 (this mimics the behavior seen in production)
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"message":"Not Found","documentation_url":"https://docs.github.com/rest/issues/issues#list-issues-assigned-to-the-authenticated-user","status":"404"}`))
+				t.Log("Mock GitHub server returned 404 Not Found - missing Authorization header")
+				return
+			}
+
+			// If auth header is present, return success
+			resp := []map[string]interface{}{
+				{
+					"id":    1,
+					"title": "User Issue 1",
+					"state": "open",
+				},
+				{
+					"id":    2,
+					"title": "User Issue 2",
+					"state": "closed",
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+			t.Log("Mock GitHub server returned user issues data")
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 			t.Logf("Mock GitHub server returned 404 Not Found for path: %s", r.URL.Path)
@@ -96,14 +128,6 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 	cfg.Store.Password = "postgres"
 	cfg.Store.Database = "postgres"
 
-	// Update Keycloak settings to use localhost
-	cfg.Keycloak.KeycloakURL = "http://localhost:8080/auth"
-	cfg.Keycloak.ServerURL = "http://localhost:8080"
-	cfg.Keycloak.KeycloakFrontEndURL = "http://localhost:8080/auth"
-	// Set Keycloak admin credentials to match docker-compose defaults
-	cfg.Keycloak.Username = "admin"
-	cfg.Keycloak.Password = "oh-hallo-insecure-password" // Default in docker-compose.dev.yaml
-
 	// Make sure the WebServer port is set correctly to match docker-compose
 	cfg.WebServer.Port = 8080
 
@@ -112,55 +136,24 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 	require.NoError(t, err, "failed to create store")
 	defer db.Close()
 
-	// 3. Set up a test Keycloak authenticator and create a test user
+	// 3. Create a test user directly in the database
 	email := fmt.Sprintf("oauth-test-%d@example.com", time.Now().Unix())
-	var testUser *types.User
-	keycloakEnabled := true
-
-	kc, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak, db)
-	if err != nil {
-		t.Logf("Warning: Failed to connect to Keycloak: %v", err)
-		t.Logf("Continuing with a manual test user instead of using Keycloak")
-		keycloakEnabled = false
-
-		// Create a test user without Keycloak
-		testUserID := fmt.Sprintf("user_%d", time.Now().UnixNano())
-		testUser = &types.User{
-			ID:       testUserID,
-			Email:    email,
-			Username: email,
-			FullName: "OAuth Test User",
-		}
-
-		// Create the user directly in the database
-		testUser, err = db.CreateUser(context.Background(), testUser)
-		require.NoError(t, err, "failed to create user in database")
-	} else {
-		// Create the user in Keycloak
-		testUser = &types.User{
-			Email:    email,
-			Username: email,
-			FullName: "OAuth Test User",
-		}
-
-		createdUser, err := kc.CreateKeycloakUser(context.Background(), testUser)
-		require.NoError(t, err, "failed to create user in Keycloak")
-
-		// Set the ID from Keycloak
-		testUser.ID = createdUser.ID
-
-		// Create the user in our database
-		testUser, err = db.CreateUser(context.Background(), testUser)
-		require.NoError(t, err, "failed to create user in database")
+	testUserID := fmt.Sprintf("user_%d", time.Now().UnixNano())
+	testUser := &types.User{
+		ID:       testUserID,
+		Email:    email,
+		Username: email,
+		FullName: "OAuth Test User",
 	}
 
-	// 5. Create an API key for the user
-	apiKey, err := createAPIKey(t, db, testUser.ID)
-	require.NoError(t, err, "failed to create API key")
+	// Create the user directly in the database
+	testUser, err = db.CreateUser(context.Background(), testUser)
+	require.NoError(t, err, "failed to create user in database")
 
-	// 6. Create an OAuth provider for GitHub using our mock server
+	// 5. Create an OAuth provider for GitHub using our mock server
+	uniqueProviderName := fmt.Sprintf("GitHub-Test-%d", time.Now().UnixNano())
 	githubProvider := &types.OAuthProvider{
-		Name:         "GitHub",
+		Name:         uniqueProviderName,
 		Type:         types.OAuthProviderTypeGitHub,
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
@@ -172,6 +165,7 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 
 	createdProvider, err := db.CreateOAuthProvider(context.Background(), githubProvider)
 	require.NoError(t, err, "failed to create OAuth provider")
+	t.Logf("Created test GitHub provider with ID: %s and name: %s", createdProvider.ID, uniqueProviderName)
 
 	// 7. Create an OAuth connection for the user with the GitHub provider
 	githubConnection := &types.OAuthConnection{
@@ -179,25 +173,25 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 		ProviderID:   createdProvider.ID,
 		AccessToken:  "github-test-token",
 		RefreshToken: "refresh-token",
-		ExpiresAt:    time.Now().Add(24 * time.Hour), // Set expiry in the future
-		Scopes:       []string{"repo", "read:user"},  // Standard GitHub scopes
+		ExpiresAt:    time.Now().Add(24 * time.Hour),
+		Scopes:       []string{"repo", "read:user"},
 	}
 
-	_, err = db.CreateOAuthConnection(context.Background(), githubConnection)
+	createdConnection, err := db.CreateOAuthConnection(context.Background(), githubConnection)
 	require.NoError(t, err, "failed to create OAuth connection")
+	t.Logf("Created OAuth connection with ID: %s for user %s and provider %s", createdConnection.ID, testUser.ID, createdProvider.ID)
 
-	// 8. Create a client to communicate with our API
-	// Note: We create the client but don't use it in the current test approach
-	// This is kept for future enhancements where we might want to use the API client
-	_, err = client.NewClient(fmt.Sprintf("http://localhost:%d", cfg.WebServer.Port), apiKey)
-	if err != nil {
-		t.Fatalf("Failed to create API client: %v. Make sure the API server is running on port %d", err, cfg.WebServer.Port)
+	// Verify the connection exists
+	connections, err := db.ListOAuthConnections(context.Background(), &store.ListOAuthConnectionsQuery{
+		UserID: testUser.ID,
+	})
+	require.NoError(t, err, "failed to list OAuth connections")
+	t.Logf("Found %d OAuth connections for user %s", len(connections), testUser.ID)
+	for _, conn := range connections {
+		t.Logf("Connection: ID=%s, UserID=%s, ProviderID=%s", conn.ID, conn.UserID, conn.ProviderID)
 	}
 
-	// Log the connection information
-	t.Logf("API server should be available at http://localhost:%d", cfg.WebServer.Port)
-
-	// 9. Create an app
+	// 8. Create an app
 	appConfig := types.AppConfig{
 		Helix: types.AppHelixConfig{
 			Name:        "OAuth Test App",
@@ -215,42 +209,70 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 	createdApp, err := db.CreateApp(context.Background(), app)
 	require.NoError(t, err, "failed to create app")
 
-	// 10. Create a GitHub API tool with our mock server URL
-	githubToolSchema := `
-	openapi: 3.0.0
-	info:
-	  title: GitHub API
-	  description: Access GitHub repositories, issues, and pull requests
-	  version: "1.0"
-	paths:
-	  /user:
-	    get:
-	      summary: Get authenticated user
-	      description: Get the currently authenticated user
-	      operationId: getAuthenticatedUser
-	      responses:
-	        '200':
-	          description: Successful operation
-	  /repos/{owner}/{repo}/issues:
-	    get:
-	      summary: List repository issues
-	      description: List issues in a repository
-	      operationId: listRepositoryIssues
-	      parameters:
-	        - name: owner
-	          in: path
-	          required: true
-	          schema:
-	            type: string
-	        - name: repo
-	          in: path
-	          required: true
-	          schema:
-	            type: string
-	      responses:
-	        '200':
-	          description: Successful operation
-	`
+	// 10. Create a GitHub API tool with our mock server URL and include the listUserIssues endpoint
+	githubToolSchema := `openapi: 3.0.0
+info:
+  title: GitHub API
+  description: Access GitHub repositories, issues, and pull requests
+  version: "1.0"
+paths:
+  /user:
+    get:
+      summary: Get authenticated user
+      description: Get the currently authenticated user
+      operationId: getAuthenticatedUser
+      responses:
+        '200':
+          description: Successful operation
+  /repos/{owner}/{repo}/issues:
+    get:
+      summary: List repository issues
+      description: List issues in a repository
+      operationId: listRepositoryIssues
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+  /issues:
+    get:
+      summary: List issues assigned to the authenticated user
+      description: List all issues assigned to the authenticated user across all repositories
+      operationId: listUserIssues
+      parameters:
+        - name: filter
+          in: query
+          description: Filter issues by state
+          schema:
+            type: string
+            enum: [assigned, created, mentioned, subscribed, all]
+            default: assigned
+        - name: state
+          in: query
+          description: Filter issues by state
+          schema:
+            type: string
+            enum: [open, closed, all]
+            default: open
+        - name: sort
+          in: query
+          description: What to sort results by
+          schema:
+            type: string
+            enum: [created, updated, comments]
+            default: created
+      responses:
+        '200':
+          description: Successful operation`
 
 	githubTool := &types.Tool{
 		Name:        "GitHub API",
@@ -259,7 +281,7 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:           mockGithubServer.URL,
-				OAuthProvider: "GitHub",
+				OAuthProvider: uniqueProviderName,
 				OAuthScopes:   []string{"repo"},
 				Schema:        githubToolSchema,
 				Actions: []*types.ToolAPIAction{
@@ -273,6 +295,12 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 						Name:        "listRepositoryIssues",
 						Description: "List issues in a repository",
 						Path:        "/repos/{owner}/{repo}/issues",
+						Method:      "GET",
+					},
+					{
+						Name:        "listUserIssues",
+						Description: "List issues assigned to the authenticated user",
+						Path:        "/issues",
 						Method:      "GET",
 					},
 				},
@@ -370,13 +398,104 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 		t.Log("OAuth token verification test PASSED!")
 	})
 
-	// 14. Clean up test data
+	// 14. NEW TEST: Test the full flow with RunAction that mirrors the production issue
+	t.Run("RunAction with sessionID should retrieve and use OAuth tokens", func(t *testing.T) {
+		// This test will simulate the issue seen in production
+		capturedAuthHeader = ""
+		capturedPath = ""
+
+		// Create a chain strategy with OAuth manager
+		oauthManager := oauth.NewManager(db)
+		err = oauthManager.LoadProviders(context.Background())
+		require.NoError(t, err, "Failed to load OAuth providers")
+
+		// List all providers to see what's available
+		providers, err := db.ListOAuthProviders(context.Background(), &store.ListOAuthProvidersQuery{})
+		require.NoError(t, err, "Failed to list OAuth providers")
+		t.Logf("Found %d OAuth providers in database", len(providers))
+		for _, p := range providers {
+			t.Logf("Provider: ID=%s, Name=%s", p.ID, p.Name)
+		}
+
+		// Set up a minimal ChainStrategy that will work for testing
+		mockCtrl := gomock.NewController(t)
+		defer mockCtrl.Finish()
+
+		mockClient := openai.NewMockClient(mockCtrl)
+
+		// Mock the CreateChatCompletion method to return predefined parameters
+		mockClient.EXPECT().
+			CreateChatCompletion(gomock.Any(), gomock.Any()).
+			Return(goai.ChatCompletionResponse{
+				Choices: []goai.ChatCompletionChoice{
+					{
+						Message: goai.ChatCompletionMessage{
+							Content: `{"filter": "assigned", "state": "open", "sort": "created"}`,
+						},
+					},
+				},
+			}, nil).
+			AnyTimes()
+
+		// Mock the APIKey method which might be needed
+		mockClient.EXPECT().
+			APIKey().
+			Return("test-key").
+			AnyTimes()
+
+		chainStrategy, err := tools.NewChainStrategy(&cfg, db, nil, mockClient)
+		require.NoError(t, err, "Failed to create chain strategy")
+		tools.InitChainStrategyOAuth(chainStrategy, oauthManager, db, db)
+
+		// Create a context with the session ID and app ID
+		ctx := context.Background()
+		ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+			OwnerID:       testUser.ID,
+			SessionID:     createdSession.ID,
+			InteractionID: "test-interaction-id",
+		})
+		ctx = oai.SetContextAppID(ctx, createdApp.ID)
+
+		// Create simplified history with a request for issues
+		history := []*types.ToolHistoryMessage{
+			{
+				Role:    "user",
+				Content: "What issues do I have?",
+			},
+		}
+
+		// Call RunAction to test the full flow - using listUserIssues which will call the /issues endpoint
+		actionResponse, err := chainStrategy.RunAction(
+			ctx,
+			createdSession.ID,
+			"test-interaction-id",
+			githubTool,
+			history,
+			"listUserIssues",
+		)
+		require.NoError(t, err, "RunAction should not return an error")
+
+		// Verify the path that was called
+		require.Equal(t, "/issues", capturedPath, "Expected to call /issues endpoint")
+
+		// Check that an Authorization header was included with the GitHub token
+		require.Contains(t, capturedAuthHeader, "Bearer github-test-token",
+			"Expected Authorization header with OAuth token")
+
+		// Verify we got a successful response and not a 404
+		require.NotContains(t, actionResponse.RawMessage, "Not Found",
+			"Response should not be a 404 Not Found")
+		require.Contains(t, actionResponse.RawMessage, "User Issue",
+			"Response should contain issue data")
+
+		t.Logf("RunAction OAuth test PASSED! Authorization header: %s", capturedAuthHeader)
+	})
+
+	// 15. Clean up test data
 	err = db.DeleteApp(context.Background(), createdApp.ID)
 	require.NoError(t, err, "failed to delete app")
 
-	// No need to delete tool - it's part of the app config
-
-	createdSession, err = db.DeleteSession(context.Background(), createdSession.ID) // Fix to capture both return values
+	createdSession, err = db.DeleteSession(context.Background(), createdSession.ID)
 	require.NoError(t, err, "failed to delete session")
 
 	err = db.DeleteOAuthConnection(context.Background(), githubConnection.ID)
@@ -387,36 +506,4 @@ func TestOAuthAPIToolIntegration(t *testing.T) {
 
 	err = db.DeleteUser(context.Background(), testUser.ID)
 	require.NoError(t, err, "failed to delete user")
-
-	// Skip Keycloak cleanup if we didn't use it
-	if keycloakEnabled {
-		t.Log("Would clean up Keycloak user here if needed")
-		// If there's a specific Keycloak cleanup needed
-	}
-}
-
-// Helper function to create an API key for a user
-func createAPIKey(t *testing.T, db *store.PostgresStore, userID string) (string, error) {
-	t.Helper()
-
-	// Generate a random API key
-	const keyLength = 32
-	const keyChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-	apiKey := ""
-	for i := 0; i < keyLength; i++ {
-		apiKey += string(keyChars[time.Now().UnixNano()%int64(len(keyChars))])
-		time.Sleep(1 * time.Nanosecond) // Ensure uniqueness
-	}
-
-	// Create the API key in the database
-	_, err := db.CreateAPIKey(context.Background(), &types.ApiKey{
-		Name:      "integration-test-key",
-		Key:       apiKey,
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
-		Type:      types.APIkeytypeAPI,
-	})
-
-	return apiKey, err
 }
