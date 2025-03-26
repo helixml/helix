@@ -12,7 +12,6 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -56,146 +55,122 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	}
 
 	// Add OAuth token handling for API tools
-	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+	var oauthTokens map[string]string
+
+	// First check if OAuth tokens were directly provided in options
+	if opts.oauthTokens != nil && len(opts.oauthTokens) > 0 {
+		oauthTokens = opts.oauthTokens
 		log.Info().
-			Str("tool_type", string(tool.ToolType)).
-			Bool("config_api_exists", tool.Config.API != nil).
-			Str("oauth_provider", tool.Config.API.OAuthProvider).
-			Interface("tool_config", tool.Config).
 			Str("session_id", sessionID).
-			Str("interaction_id", interactionID).
-			Msg("Starting OAuth token handling for API tool")
-
-		// Get the OAuth provider name and required scopes
-		providerName := tool.Config.API.OAuthProvider
-		requiredScopes := tool.Config.API.OAuthScopes
-
-		log.Info().
-			Str("provider_name", providerName).
-			Strs("required_scopes", requiredScopes).
-			Msg("OAuth provider details")
-
-		// Initialize headers map if it doesn't exist - do this BEFORE attempting to get tokens
-		if tool.Config.API.Headers == nil {
-			tool.Config.API.Headers = make(map[string]string)
-			log.Debug().
-				Str("tool_type", string(tool.ToolType)).
-				Str("oauth_provider", tool.Config.API.OAuthProvider).
-				Msg("Initialized empty headers map for API tool")
+			Str("tool_name", tool.Name).
+			Int("token_count", len(oauthTokens)).
+			Msg("Using OAuth tokens from options")
+	} else if c.oauthManager != nil || opts.oauthManager != nil {
+		// Use OAuth manager from options or from the ChainStrategy
+		manager := c.oauthManager
+		if opts.oauthManager != nil {
+			manager = opts.oauthManager
 		}
 
-		// Try to get user ID from session ID
-		var userID string
-		if c.oauthManager != nil && sessionID != "" && c.sessionStore != nil && c.appStore != nil {
-			var err error
-			userID, err = c.getUserIDFromSessionID(ctx, sessionID)
+		// Try to get app ID from context
+		appID, ok := oai.GetContextAppID(ctx)
+		if !ok || appID == "" {
+			// If no app ID in context, try to get it from the session
+			if sessionID != "" && manager != nil {
+				// Try to get user and app from session ID
+				userID, err := c.getUserIDFromSessionID(ctx, sessionID)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("session_id", sessionID).
+						Str("tool_name", tool.Name).
+						Msg("Failed to get user ID from session for OAuth tokens")
+				} else if userID != "" {
+					// Get the session to look up the app ID
+					session, err := c.sessionStore.GetSession(ctx, sessionID)
+					if err != nil {
+						log.Warn().
+							Err(err).
+							Str("session_id", sessionID).
+							Str("tool_name", tool.Name).
+							Msg("Failed to get session for OAuth tokens")
+					} else if session.ParentApp != "" {
+						appID = session.ParentApp
+						log.Info().
+							Str("session_id", sessionID).
+							Str("app_id", appID).
+							Str("user_id", userID).
+							Msg("Found app ID from session for OAuth tokens")
+					}
+				}
+			}
+		}
+
+		// Get OAuth tokens if we have an app ID and user ID
+		if appID != "" && manager != nil {
+			// Note: Manager doesn't have a method to get all tokens for an app
+			// So we need to collect tokens for each tool configuration instead
+			oauthTokens = make(map[string]string)
+
+			// Get the app to find owner
+			app, err := c.appStore.GetApp(ctx, appID)
 			if err != nil {
 				log.Warn().
 					Err(err).
+					Str("app_id", appID).
 					Str("session_id", sessionID).
-					Bool("oauth_manager_exists", c.oauthManager != nil).
-					Bool("session_store_exists", c.sessionStore != nil).
-					Bool("app_store_exists", c.appStore != nil).
-					Msg("Failed to get user ID from session for OAuth token")
-			} else {
-				log.Info().
-					Str("session_id", sessionID).
-					Str("user_id", userID).
-					Msg("Successfully retrieved user ID from session")
+					Str("tool_name", tool.Name).
+					Msg("Failed to get app for OAuth tokens")
+			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+				// Get token for this specific provider
+				token, err := manager.GetTokenForApp(ctx, app.Owner, tool.Config.API.OAuthProvider)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("app_id", appID).
+						Str("user_id", app.Owner).
+						Str("provider", tool.Config.API.OAuthProvider).
+						Str("session_id", sessionID).
+						Str("tool_name", tool.Name).
+						Msg("Failed to get OAuth token for tool")
+				} else if token != "" {
+					// Add the token to our map
+					oauthTokens[tool.Config.API.OAuthProvider] = token
+					log.Info().
+						Str("app_id", appID).
+						Str("user_id", app.Owner).
+						Str("provider", tool.Config.API.OAuthProvider).
+						Str("session_id", sessionID).
+						Str("tool_name", tool.Name).
+						Str("token_prefix", token[:5]+"...").
+						Msg("Retrieved OAuth token for provider")
+				}
 			}
 		} else {
 			log.Warn().
-				Bool("oauth_manager_exists", c.oauthManager != nil).
-				Bool("session_id_exists", sessionID != "").
-				Bool("session_store_exists", c.sessionStore != nil).
-				Bool("app_store_exists", c.appStore != nil).
-				Msg("Missing required components for OAuth token handling")
-		}
-
-		// If we have a user ID and OAuth manager, get the token
-		if userID != "" && c.oauthManager != nil {
-			log.Info().
+				Str("app_id", appID).
 				Str("session_id", sessionID).
-				Str("user_id", userID).
-				Str("provider", providerName).
-				Strs("scopes", requiredScopes).
-				Bool("oauth_manager_exists", c.oauthManager != nil).
-				Msg("Fetching OAuth token for API tool")
-
-			// Get the OAuth token for this tool
-			token, err := c.oauthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
-			if err == nil && token != "" {
-				// Add the token to the Authorization header
-				authHeaderKey := "Authorization"
-				tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", token)
-
-				log.Info().
-					Str("session_id", sessionID).
-					Str("provider", providerName).
-					Str("token_prefix", token[:10]+"...").
-					Bool("headers_map_exists", tool.Config.API.Headers != nil).
-					Interface("all_headers", tool.Config.API.Headers).
-					Msg("Added OAuth token to API tool headers")
-			} else {
-				log.Warn().
-					Err(err).
-					Str("session_id", sessionID).
-					Str("provider", providerName).
-					Bool("token_empty", token == "").
-					Msg("Failed to get OAuth token for API tool")
-			}
-		} else {
-			log.Warn().
-				Str("session_id", sessionID).
-				Str("user_id", userID).
-				Bool("oauth_manager_exists", c.oauthManager != nil).
-				Msg("Cannot fetch OAuth token - missing userID or oauthManager")
+				Bool("has_oauth_manager", manager != nil).
+				Msg("No app ID available for OAuth token retrieval")
 		}
 	}
 
-	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
-		// Log details for all API tools
+	// Process the OAuth tokens if we have any
+	if oauthTokens != nil && len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
+		processOAuthTokens(tool, oauthTokens)
 		log.Info().
 			Str("session_id", sessionID).
-			Str("interaction_id", interactionID).
-			Str("tool", tool.Name).
-			Str("action", action).
-			Str("provider", tool.Config.API.OAuthProvider).
-			Str("api_url", tool.Config.API.URL).
-			Msg("RunAction called for API tool")
-
-		// Check for Authorization header
-		if tool.Config.API.Headers != nil {
-			authHeader := tool.Config.API.Headers["Authorization"]
-			if authHeader != "" {
-				log.Info().
-					Str("session_id", sessionID).
-					Str("auth_header_prefix", authHeader[:10]+"...").
-					Msg("API tool has Authorization header in RunAction")
-			} else {
-				log.Warn().
-					Str("session_id", sessionID).
-					Msg("API tool missing Authorization header in RunAction")
-			}
-		} else {
-			log.Warn().
-				Str("session_id", sessionID).
-				Msg("API tool has no headers map in RunAction")
-		}
+			Str("tool_name", tool.Name).
+			Int("token_count", len(oauthTokens)).
+			Str("oauth_provider", tool.Config.API.OAuthProvider).
+			Msg("Processed OAuth tokens for API tool")
 	}
 
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptAction(ctx, tool, history, action)
 	case types.ToolTypeAPI:
-		return retry.DoWithData(
-			func() (*RunActionResponse, error) {
-				return c.runAPIAction(ctx, opts.client, sessionID, interactionID, tool, history, action)
-			},
-			retry.Attempts(apiActionRetries),
-			retry.Delay(delayBetweenAPIRetries),
-			retry.Context(ctx),
-		)
+		return c.runAPIAction(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
 		return c.RunZapierAction(ctx, opts.client, tool, history, action)
 	default:
