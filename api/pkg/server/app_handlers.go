@@ -835,6 +835,7 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 // @Accept json
 // @Produce json
 // @Param request body types.GptScriptRequest true "Request"
+// @Router /api/v1/apps/{id}/gptscript [post]
 // @Success 200 {object} types.GptScriptResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -947,6 +948,7 @@ func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*
 // @Accept json
 // @Produce json
 // @Param request body types.RunAPIActionRequest true "Request"
+// @Router /api/v1/apps/{id}/api-actions [post]
 // @Success 200 {object} types.RunAPIActionResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
