@@ -665,17 +665,20 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 	}
 
 	for i, connection := range connections {
+		// Log connection details
 		log.Info().
 			Str("user_id", userID).
 			Str("provider_name", providerName).
 			Str("connection_id", connection.ID).
 			Int("connection_index", i).
 			Time("expires_at", connection.ExpiresAt).
-			Bool("token_expired", connection.ExpiresAt.Before(time.Now())).
+			Bool("token_expired", !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now())).
 			Strs("connection_scopes", connection.Scopes).
 			Msg("Checking connection for token")
 
-		if connection.ExpiresAt.Before(time.Now()) {
+		// Check if token is expired
+		// Treat zero time value (0001-01-01T00:00:00Z) as non-expiring token
+		if !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now()) {
 			log.Warn().
 				Str("user_id", userID).
 				Str("provider_name", providerName).
