@@ -1551,3 +1551,10 @@ type ContextMenuAction struct {
 	Label       string `json:"label"`        // The label that will be shown in the UI
 	Value       string `json:"value"`        // The value written to the text area when the action is selected
 }
+
+// Response for the user access endpoint
+type UserAppAccessResponse struct {
+	CanRead  bool `json:"can_read"`
+	CanWrite bool `json:"can_write"`
+	IsAdmin  bool `json:"is_admin"`
+}
