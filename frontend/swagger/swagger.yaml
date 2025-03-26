@@ -491,6 +491,22 @@ definitions:
       license_key:
         type: string
     type: object
+  server.UserAppAccessResponse:
+    properties:
+      can_read:
+        type: boolean
+      can_write:
+        type: boolean
+      is_admin:
+        type: boolean
+    type: object
+  system.HTTPError:
+    properties:
+      message:
+        type: string
+      statusCode:
+        type: integer
+    type: object
   types.AccessGrant:
     properties:
       created_at:
@@ -503,10 +519,6 @@ definitions:
       resource_id:
         description: App ID, Knowledge ID, etc
         type: string
-      resource_type:
-        allOf:
-        - $ref: '#/definitions/types.Resource'
-        description: Kind of resource (app, knowledge, provider endpoint, etc)
       roles:
         items:
           $ref: '#/definitions/types.Role'
@@ -660,6 +672,14 @@ definitions:
         type: object
       name:
         type: string
+      oauth_provider:
+        allOf:
+        - $ref: '#/definitions/types.OAuthProviderType'
+        description: OAuth configuration
+      oauth_scopes:
+        items:
+          type: string
+        type: array
       query:
         additionalProperties:
           type: string
@@ -1382,6 +1402,26 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
+  types.OAuthProviderType:
+    enum:
+    - ""
+    - atlassian
+    - google
+    - microsoft
+    - github
+    - slack
+    - linkedin
+    - custom
+    type: string
+    x-enum-varnames:
+    - OAuthProviderTypeUnknown
+    - OAuthProviderTypeAtlassian
+    - OAuthProviderTypeGoogle
+    - OAuthProviderTypeMicrosoft
+    - OAuthProviderTypeGitHub
+    - OAuthProviderTypeSlack
+    - OAuthProviderTypeLinkedIn
+    - OAuthProviderTypeCustom
   types.OpenAIMessage:
     properties:
       content:
@@ -2151,6 +2191,15 @@ definitions:
         type: object
       model:
         type: string
+      oauth_provider:
+        allOf:
+        - $ref: '#/definitions/types.OAuthProviderType'
+        description: OAuth configuration
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
       query:
         additionalProperties:
           type: string
@@ -2442,36 +2491,91 @@ paths:
       - apps
   /api/v1/apps/{id}/api-actions:
     post:
+      consumes:
+      - application/json
+      description: Runs an API action for an app
       parameters:
-      - description: Request body with API action name and parameters.
+      - description: Request
         in: body
         name: request
         required: true
         schema:
           $ref: '#/definitions/types.RunAPIActionRequest'
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
           schema:
             $ref: '#/definitions/types.RunAPIActionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
+      summary: Run an API action
   /api/v1/apps/{id}/gptscript:
     post:
+      consumes:
+      - application/json
+      description: Runs a gptscript for an app
       parameters:
-      - description: Request body with script configuration.
+      - description: Request
         in: body
         name: request
         required: true
         schema:
           $ref: '#/definitions/types.GptScriptRequest'
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
           schema:
             $ref: '#/definitions/types.GptScriptResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
+      summary: Run a GptScript
+  /api/v1/apps/{id}/user-access:
+    get:
+      description: Returns the access rights the current user has for this app
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.UserAppAccessResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user's access level for an app
+      tags:
+      - apps
   /api/v1/apps/github/{id}:
     put:
       parameters:

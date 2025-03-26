@@ -329,6 +329,17 @@ export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
 
+export interface ServerUserAppAccessResponse {
+  can_read?: boolean;
+  can_write?: boolean;
+  is_admin?: boolean;
+}
+
+export interface SystemHTTPError {
+  message?: string;
+  statusCode?: number;
+}
+
 export interface TypesAccessGrant {
   created_at?: string;
   id?: string;
@@ -336,8 +347,6 @@ export interface TypesAccessGrant {
   organization_id?: string;
   /** App ID, Knowledge ID, etc */
   resource_id?: string;
-  /** Kind of resource (app, knowledge, provider endpoint, etc) */
-  resource_type?: TypesResource;
   roles?: TypesRole[];
   /** If granted to a team */
   team_id?: string;
@@ -424,6 +433,9 @@ export interface TypesAssistantAPI {
   description?: string;
   headers?: Record<string, string>;
   name?: string;
+  /** OAuth configuration */
+  oauth_provider?: TypesOAuthProviderType;
+  oauth_scopes?: string[];
   query?: Record<string, string>;
   request_prep_template?: string;
   response_error_template?: string;
@@ -872,6 +884,17 @@ export interface TypesMessageContent {
 
 export enum TypesMessageContentType {
   MessageContentTypeText = "text",
+}
+
+export enum TypesOAuthProviderType {
+  OAuthProviderTypeUnknown = "",
+  OAuthProviderTypeAtlassian = "atlassian",
+  OAuthProviderTypeGoogle = "google",
+  OAuthProviderTypeMicrosoft = "microsoft",
+  OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeSlack = "slack",
+  OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeCustom = "custom",
 }
 
 export interface TypesOpenAIMessage {
@@ -1323,6 +1346,10 @@ export interface TypesToolAPIConfig {
   /** Headers (authentication, etc) */
   headers?: Record<string, string>;
   model?: string;
+  /** OAuth configuration */
+  oauth_provider?: TypesOAuthProviderType;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   /** Query parameters that will be always set */
   query?: Record<string, string>;
   /** Template for request preparation, leave empty for default */
@@ -1693,36 +1720,57 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description Runs an API action for an app
      *
      * @name V1AppsApiActionsCreate
+     * @summary Run an API action
      * @request POST:/api/v1/apps/{id}/api-actions
      * @secure
      */
     v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
-      this.request<TypesRunAPIActionResponse, any>({
+      this.request<TypesRunAPIActionResponse, SystemHTTPError>({
         path: `/api/v1/apps/${id}/api-actions`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
     /**
-     * No description
+     * @description Runs a gptscript for an app
      *
      * @name V1AppsGptscriptCreate
+     * @summary Run a GptScript
      * @request POST:/api/v1/apps/{id}/gptscript
      * @secure
      */
     v1AppsGptscriptCreate: (id: string, request: TypesGptScriptRequest, params: RequestParams = {}) =>
-      this.request<TypesGptScriptResponse, any>({
+      this.request<TypesGptScriptResponse, SystemHTTPError>({
         path: `/api/v1/apps/${id}/gptscript`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the access rights the current user has for this app
+     *
+     * @tags apps
+     * @name V1AppsUserAccessDetail
+     * @summary Get current user's access level for an app
+     * @request GET:/api/v1/apps/{id}/user-access
+     * @secure
+     */
+    v1AppsUserAccessDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerUserAppAccessResponse, any>({
+        path: `/api/v1/apps/${id}/user-access`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
