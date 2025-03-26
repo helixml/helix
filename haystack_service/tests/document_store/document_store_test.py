@@ -5,6 +5,32 @@ import pytest
 from app.vectorchord.document_store.document_store import VectorchordDocumentStore
 from haystack.dataclasses.document import Document
 from haystack.document_stores.types import DuplicatePolicy
+import psycopg2
+from psycopg2 import OperationalError
+
+
+def wait_for_postgres(
+    host="localhost",
+    port=5432,
+    dbname="test_db",
+    user="test_user",
+    password="test_pass",
+    max_retries=30,
+    retry_delay=0.2,
+):
+    """Wait for Postgres database to be ready"""
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            conn = psycopg2.connect(
+                dbname=dbname, user=user, password=password, host=host, port=port
+            )
+            conn.close()
+            return True
+        except OperationalError:
+            retry_count += 1
+            time.sleep(retry_delay)
+    raise TimeoutError("Failed to connect to PostgreSQL after maximum retries")
 
 
 @pytest.fixture(scope="session")
@@ -24,7 +50,7 @@ def docker_compose():
     )
 
     # Wait for database to be ready
-    time.sleep(3)  # Simple wait, could be more sophisticated
+    wait_for_postgres()
 
     yield container
 
