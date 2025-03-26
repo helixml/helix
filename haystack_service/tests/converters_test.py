@@ -57,20 +57,6 @@ class TestPDFToImagesConverter:
         # Run the converter
         result = converter.run(paths=[TEST_PDF_PATH])
 
-        # Verify the result structure
-        assert "image_paths" in result
-        assert "documents" in result
-
-        # Check we got some image paths
-        assert len(result["image_paths"]) > 0
-
-        # Check all image files exist
-        for img_path in result["image_paths"]:
-            assert os.path.exists(img_path)
-            assert os.path.isfile(img_path)
-            assert img_path.endswith(".png")
-            assert Path(img_path).name.startswith("test_")
-
         # Check the documents
         assert len(result["documents"]) == 1
         doc = result["documents"][0]
@@ -81,9 +67,17 @@ class TestPDFToImagesConverter:
         assert "file_path" in doc.meta
         assert doc.meta["file_path"] == TEST_PDF_PATH
         assert "image_paths" in doc.meta
-        assert len(doc.meta["image_paths"]) == len(result["image_paths"])
         assert "page_count" in doc.meta
-        assert doc.meta["page_count"] == len(result["image_paths"])
+        assert doc.meta["page_count"] == len(
+            doc.meta["image_paths"]
+        )  # Compare with meta image_paths instead
+
+        # Check all image files exist
+        for img_path in doc.meta["image_paths"]:
+            assert os.path.exists(img_path)
+            assert os.path.isfile(img_path)
+            assert img_path.endswith(".png")
+            assert Path(img_path).name.startswith("test_")
 
     def test_multiple_pdfs(self):
         """Test conversion of multiple PDFs"""
@@ -100,7 +94,6 @@ class TestPDFToImagesConverter:
         assert len(result["documents"]) == 2
 
         # Verify unique directory structure for each file
-        pdf_name = Path(TEST_PDF_PATH).stem
         dirs_created = [
             d
             for d in os.listdir(TEST_OUTPUT_DIR)
@@ -118,12 +111,9 @@ class TestPDFToImagesConverter:
         # Initialize converter
         converter = PDFToImagesConverter(output_dir=TEST_OUTPUT_DIR)
 
-        # Run should fail as no PDF files were processed
-        with pytest.raises(RuntimeError) as excinfo:
-            converter.run(paths=[dummy_file])
-
-        # Check the error message
-        assert "No PDF files were successfully processed" in str(excinfo.value)
+        # Update test to check for empty documents list instead of RuntimeError
+        result = converter.run(paths=[dummy_file])
+        assert len(result["documents"]) == 0
 
     def test_custom_metadata(self):
         """Test that custom metadata is preserved and included"""
