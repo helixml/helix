@@ -24,4 +24,5 @@ dev = [
     "pytest-asyncio>=0.25.3",
     "pytest>=8.3.5",
     "ruff>=0.11.1",
+    "docker>=7.1.0",
 ]
