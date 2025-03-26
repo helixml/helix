@@ -319,7 +319,7 @@ paths:
 			Name:        "Default Assistant",
 			Description: "Default assistant with GitHub API tool",
 			Provider:    string(types.ProviderTogetherAI),
-			Model:       "meta-llama/Llama-3.1-8B-Instruct",
+			Model:       "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 			Tools:       []*types.Tool{githubTool}, // Using the tool directly rather than createdTool
 		},
 	}
@@ -335,7 +335,7 @@ paths:
 		OwnerType:    types.OwnerTypeUser,
 		Mode:         types.SessionModeInference,
 		Type:         types.SessionTypeText,
-		ModelName:    "meta-llama/Llama-3.1-8B-Instruct",
+		ModelName:    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 		Interactions: types.Interactions{},
 		Metadata: types.SessionMetadata{
 			OriginalMode:   types.SessionModeInference,
