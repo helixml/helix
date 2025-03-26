@@ -1056,77 +1056,81 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 		return response, nil
 	}
 
-	// For organization apps, check access grants
-	if app.OrganizationID != "" {
-		// Check if user is in the organization
-		orgMembership, err := s.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
-			OrganizationID: app.OrganizationID,
-			UserID:         user.ID,
-		})
+	if app.OrganizationID == "" {
+		return response, nil
+	}
 
-		if err == nil {
-			// If user is organization owner, they have admin access
-			if orgMembership.Role == types.OrganizationRoleOwner {
+	// For organization apps, check access grants
+
+	// Check if user is in the organization
+	orgMembership, err := s.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         user.ID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// If user is organization owner, they have admin access
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		response.CanRead = true
+		response.CanWrite = true
+		response.IsAdmin = true
+		return response, nil
+	}
+
+	// Get all teams the user belongs to
+	teams, err := s.Store.ListTeams(r.Context(), &store.ListTeamsQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         user.ID,
+	})
+
+	if err != nil {
+		// If there's an error getting teams, we continue with empty team IDs
+		teams = []*types.Team{}
+	}
+
+	// Get team IDs
+	var teamIDs []string
+	for _, team := range teams {
+		teamIDs = append(teamIDs, team.ID)
+	}
+
+	// Check access grants for the user and their teams
+	grants, err := s.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
+		OrganizationID: app.OrganizationID,
+		ResourceID:     app.ID,
+		UserID:         user.ID,
+		TeamIDs:        teamIDs,
+	})
+
+	if err != nil {
+		log.Debug().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("app_id", id).
+			Msg("Error listing access grants, continuing with empty grants")
+		// If there's an error getting grants, we continue with no grants
+		grants = []*types.AccessGrant{}
+	}
+
+	// Analyze roles from grants to determine access level
+	for _, grant := range grants {
+		for _, role := range grant.Roles {
+			// Check role permissions based on role name
+			// Support both formats: "app_admin" and just "admin", etc.
+			roleName := strings.TrimPrefix(role.Name, "app_")
+
+			switch roleName {
+			case "admin":
 				response.CanRead = true
 				response.CanWrite = true
 				response.IsAdmin = true
-				return response, nil
-			}
-		}
-
-		// Get all teams the user belongs to
-		teams, err := s.Store.ListTeams(r.Context(), &store.ListTeamsQuery{
-			OrganizationID: app.OrganizationID,
-			UserID:         user.ID,
-		})
-
-		if err != nil {
-			// If there's an error getting teams, we continue with empty team IDs
-			teams = []*types.Team{}
-		}
-
-		// Get team IDs
-		var teamIDs []string
-		for _, team := range teams {
-			teamIDs = append(teamIDs, team.ID)
-		}
-
-		// Check access grants for the user and their teams
-		grants, err := s.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
-			OrganizationID: app.OrganizationID,
-			ResourceID:     app.ID,
-			UserID:         user.ID,
-			TeamIDs:        teamIDs,
-		})
-
-		if err != nil {
-			log.Debug().
-				Err(err).
-				Str("user_id", user.ID).
-				Str("app_id", id).
-				Msg("Error listing access grants, continuing with empty grants")
-			// If there's an error getting grants, we continue with no grants
-			grants = []*types.AccessGrant{}
-		}
-
-		// Analyze roles from grants to determine access level
-		for _, grant := range grants {
-			for _, role := range grant.Roles {
-				// Check role permissions based on role name
-				// Support both formats: "app_admin" and just "admin", etc.
-				roleName := strings.TrimPrefix(role.Name, "app_")
-
-				switch roleName {
-				case "admin":
-					response.CanRead = true
-					response.CanWrite = true
-					response.IsAdmin = true
-				case "write":
-					response.CanRead = true
-					response.CanWrite = true
-				case "read":
-					response.CanRead = true
-				}
+			case "write":
+				response.CanRead = true
+				response.CanWrite = true
+			case "read":
+				response.CanRead = true
 			}
 		}
 	}
