@@ -604,6 +604,7 @@ export interface IAssistantConfig {
   rag_source_id?: string;
   lora_id?: string;
   is_actionable_template?: string;
+  is_actionable_history_length?: number;
   apis?: IAssistantApi[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
@@ -767,6 +768,8 @@ export interface IAppFlatState {
   model?: string
   provider?: string
   knowledge?: IKnowledgeSource[] // Added knowledge parameter
+  is_actionable_template?: string;
+  is_actionable_history_length?: number;
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]

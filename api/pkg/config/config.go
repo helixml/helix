@@ -108,7 +108,8 @@ type Tools struct {
 
 	// IsActionableTemplate is used to determine whether Helix should
 	// use a tool or not. Leave empty for default
-	IsActionableTemplate string `envconfig:"TOOLS_IS_ACTIONABLE_TEMPLATE"` // Either plain text, base64 or path to a file
+	IsActionableTemplate      string `envconfig:"TOOLS_IS_ACTIONABLE_TEMPLATE"`                   // Either plain text, base64 or path to a file
+	IsActionableHistoryLength int    `envconfig:"TOOLS_IS_ACTIONABLE_HISTORY_LENGTH" default:"4"` // 2 assistant messages, 2 user messages
 }
 
 // Keycloak is used for authentication. You can find keycloak documentation

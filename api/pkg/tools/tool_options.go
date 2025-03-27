@@ -7,15 +7,23 @@ type Option func(*Options) error
 
 // Options can be used to create a customized connection.
 type Options struct {
-	isActionableTemplate string
-	model                string
-	client               openai.Client
+	isActionableTemplate      string
+	isActionableHistoryLength int
+	model                     string
+	client                    openai.Client
 	//owner               string // For later
 }
 
 func WithIsActionableTemplate(isActionableTemplate string) Option {
 	return func(o *Options) error {
 		o.isActionableTemplate = isActionableTemplate
+		return nil
+	}
+}
+
+func WithIsActionableHistoryLength(isActionableHistoryLength int) Option {
+	return func(o *Options) error {
+		o.isActionableHistoryLength = isActionableHistoryLength
 		return nil
 	}
 }

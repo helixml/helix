@@ -245,7 +245,7 @@ const App: FC = () => {
                     </Box>
                   )}
 
-                  {tabValue === 'integrations' && (
+                  {tabValue === 'integrations' && appTools.flatApp && (
                     <>
                       <ApiIntegrations
                         apis={appTools.apiTools}
@@ -253,6 +253,8 @@ const App: FC = () => {
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
                         isReadOnly={isReadOnly}
+                        app={appTools.flatApp}
+                        onUpdate={appTools.saveFlatApp}
                       />
 
                       <ZapierIntegrations
