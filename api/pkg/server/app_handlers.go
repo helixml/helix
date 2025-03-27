@@ -835,6 +835,7 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 // @Accept json
 // @Produce json
 // @Param request body types.GptScriptRequest true "Request"
+// @Router /api/v1/apps/{id}/gptscript [post]
 // @Success 200 {object} types.GptScriptResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -947,6 +948,7 @@ func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*
 // @Accept json
 // @Produce json
 // @Param request body types.RunAPIActionRequest true "Request"
+// @Router /api/v1/apps/{id}/api-actions [post]
 // @Success 200 {object} types.RunAPIActionResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -1000,5 +1002,89 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	return response, nil
+}
+
+// getAppUserAccess godoc
+// @Summary Get current user's access level for an app
+// @Description Returns the access rights the current user has for this app
+// @Tags    apps
+// @Success 200 {object} types.UserAppAccessResponse
+// @Param id path string true "App ID"
+// @Router /api/v1/apps/{id}/user-access [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request) (*types.UserAppAccessResponse, *system.HTTPError) {
+	// Get current user and app ID
+	user := getRequestUser(r)
+	id := getID(r)
+
+	// Get the app
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Initialize response with no permissions
+	response := &types.UserAppAccessResponse{
+		CanRead:  false,
+		CanWrite: false,
+		IsAdmin:  false,
+	}
+
+	// Check if user is the owner or an admin
+	if app.Owner == user.ID || isAdmin(user) {
+		// Owner or admin has full access
+		response.CanRead = true
+		response.CanWrite = true
+		response.IsAdmin = true
+		return response, nil
+	}
+
+	// If the app is global, anyone can read it
+	if app.Global {
+		response.CanRead = true
+		return response, nil
+	}
+
+	if app.OrganizationID == "" {
+		return response, nil
+	}
+
+	// For organization apps, check access grants
+
+	// Check if user is in the organization
+	orgMembership, err := s.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         user.ID,
+	})
+	if err != nil {
+		// Always return the response, even if the user has no access
+		// This way the frontend can know the user's permission level
+		return response, nil
+	}
+
+	// If user is organization owner, they have admin access
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		response.CanRead = true
+		response.CanWrite = true
+		response.IsAdmin = true
+		return response, nil
+	}
+
+	readErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionGet)
+	writeErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionUpdate)
+
+	if readErr == nil {
+		response.CanRead = true
+	}
+	if writeErr == nil {
+		response.CanWrite = true
+	}
+
+	// Always return the response, even if the user has no access
+	// This way the frontend can know the user's permission level
 	return response, nil
 }

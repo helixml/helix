@@ -45,3 +45,12 @@ func (c *HelixClient) DeleteAppAccessGrant(ctx context.Context, appID string, gr
 	}
 	return nil
 }
+
+func (c *HelixClient) GetAppUserAccess(ctx context.Context, appID string) (*types.UserAppAccessResponse, error) {
+	var response types.UserAppAccessResponse
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/apps/%s/user-access", appID), nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
