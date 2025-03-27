@@ -180,7 +180,7 @@ func truncateHistory(history []*types.ToolHistoryMessage, length int) []*types.T
 		return history
 	}
 
-	return history[:length]
+	return history[len(history)-length:]
 }
 
 func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options Options) (openai.ChatCompletionMessage, error) {
