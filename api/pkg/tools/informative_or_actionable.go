@@ -51,8 +51,9 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 
 func (c *ChainStrategy) getDefaultOptions() Options {
 	return Options{
-		isActionableTemplate: c.isActionableTemplate,
-		client:               c.apiClient,
+		isActionableTemplate:      c.isActionableTemplate,
+		isActionableHistoryLength: c.isActionableHistoryLength,
+		client:                    c.apiClient,
 	}
 }
 
@@ -88,6 +89,11 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Str("session_id", sessionID).
 		Str("interaction_id", interactionID).
 		Msg("Processing isActionable request")
+
+	// If history length is set, truncate history
+	if opts.isActionableHistoryLength > 0 {
+		history = truncateHistory(history, opts.isActionableHistoryLength)
+	}
 
 	for _, msg := range history {
 		messages = append(messages, openai.ChatCompletionMessage{
@@ -162,6 +168,19 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	}
 
 	return &actionableResponse, nil
+}
+
+func truncateHistory(history []*types.ToolHistoryMessage, length int) []*types.ToolHistoryMessage {
+	if length == 0 {
+		return history
+	}
+
+	// If length is greater than history, return history
+	if length > len(history) {
+		return history
+	}
+
+	return history[len(history)-length:]
 }
 
 func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options Options) (openai.ChatCompletionMessage, error) {
