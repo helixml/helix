@@ -68,7 +68,24 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [oauthProvider, setOAuthProvider] = useState('');
   const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
   const [configuredProviders, setConfiguredProviders] = useState<OAuthProvider[]>([]);
+  const [actionableTemplate, setActionableTemplate] = useState(app.is_actionable_template || '');
+  const [actionableHistoryLength, setActionableHistoryLength] = useState(app.is_actionable_history_length || 0);
   const api = useApi();
+
+  // Initialize local state when app prop changes
+  useEffect(() => {
+    setActionableTemplate(app.is_actionable_template || '');
+    setActionableHistoryLength(app.is_actionable_history_length || 0);
+  }, [app]);
+
+  const handleBlur = (field: 'template' | 'history') => {
+    // Only update if values have changed
+    if (field === 'template' && actionableTemplate !== app.is_actionable_template) {
+      onUpdate({...app, is_actionable_template: actionableTemplate});
+    } else if (field === 'history' && actionableHistoryLength !== app.is_actionable_history_length) {
+      onUpdate({...app, is_actionable_history_length: actionableHistoryLength});
+    }
+  };
 
   // Fetch configured OAuth providers from the API
   useEffect(() => {
@@ -245,8 +262,9 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
             </Link>. The goal is to help the model decide whether a tool should be used to perform an action or not.
           </Typography>
           <TextField
-            value={app.is_actionable_template}
-            onChange={(e) => onUpdate({...app, is_actionable_template: e.target.value})}
+            value={actionableTemplate}
+            onChange={(e) => setActionableTemplate(e.target.value)}
+            onBlur={() => handleBlur('template')}
             label="'Is Actionable' template"
             fullWidth
             multiline
@@ -259,8 +277,9 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
             The more context you provide, the worse results you will get on smaller models. For large models this can have an opposite effect.
           </Typography>          
           <TextField
-            value={app.is_actionable_history_length}
-            onChange={(e) => onUpdate({...app, is_actionable_history_length: Number(e.target.value)})}
+            value={actionableHistoryLength}
+            onChange={(e) => setActionableHistoryLength(Number(e.target.value))}
+            onBlur={() => handleBlur('history')}
             label="'Is Actionable' history length"
             type="number"
             fullWidth
