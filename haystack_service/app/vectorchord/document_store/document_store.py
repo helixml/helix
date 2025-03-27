@@ -766,7 +766,11 @@ class VectorchordDocumentStore:
                     raise
 
             # Get the IDs of documents we just inserted with content
-            doc_ids = [doc["id"] for doc in pg_documents if doc["content"]]
+            doc_ids = [
+                doc["id"]
+                for doc in pg_documents
+                if doc["content"] and not doc["blob_data"]
+            ]
 
             if doc_ids:
                 # Convert list of IDs to a comma-separated string of quoted IDs
@@ -848,10 +852,6 @@ class VectorchordDocumentStore:
                 blob_data = blob.data
                 blob_meta = blob.meta
                 blob_mime_type = blob.mime_type
-
-                # This is a hack to avoid saving the image data to the database as text
-                # But content is required for the OpenAI Embedding API to work.
-                content = None
 
             # Return a dict with PostgreSQL compatible keys and values
             pg_document = {

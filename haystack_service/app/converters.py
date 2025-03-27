@@ -122,8 +122,8 @@ class PDFToImagesConverter:
     def __init__(
         self,
         output_dir: str = "./pdf_images",
-        dpi: int = 90,
-        format: str = "png",
+        dpi: int = 75,
+        format: str = "jpg",
         prefix: str = "page_",
     ):
         """
