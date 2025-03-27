@@ -629,6 +629,7 @@ export interface IKnowledgeSource {
     results_count: number;
     chunk_size: number;
     chunk_overflow: number;
+    enable_vision: boolean;
   };
   state: string;
   message?: string;
