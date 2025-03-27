@@ -153,7 +153,11 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		w.Close()
 
 		// Create the request
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.endpoint+"/process", &b)
+		endpoint := h.endpoint + "/process"
+		if chunk.Pipeline == types.VisionPipeline {
+			endpoint = h.endpoint + "/process-vision"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &b)
 		if err != nil {
 			return fmt.Errorf("creating request: %w", err)
 		}
@@ -249,7 +253,11 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 	}
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.endpoint+"/query", bytes.NewReader(bts))
+	endpoint := h.endpoint + "/query"
+	if q.Pipeline == types.VisionPipeline {
+		endpoint = h.endpoint + "/query-vision"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bts))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}

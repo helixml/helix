@@ -105,6 +105,7 @@ type RAGSettings struct {
 	DisableChunking    bool             `json:"disable_chunking" yaml:"disable_chunking"`       // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
 	DisableDownloading bool             `json:"disable_downloading" yaml:"disable_downloading"` // if true, we will not download the file and send the URL to the RAG indexing endpoint
 	PromptTemplate     string           `json:"prompt_template" yaml:"prompt_template"`         // the prompt template to use for the RAG query
+	EnableVision       bool             `json:"enable_vision" yaml:"enable_vision"`             // if true, we will use the vision pipeline -- Future - might want to specify different pipelines
 
 	// RAG endpoint configuration if used with a custom RAG service
 	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
@@ -140,6 +141,13 @@ func (RAGSettings) GormDataType() string {
 	return "json"
 }
 
+type RAGPipeline string
+
+var (
+	TextPipeline   RAGPipeline = "text_pipeline"
+	VisionPipeline RAGPipeline = "vision_pipeline"
+)
+
 // the data we send off to rag implementations to be indexed
 type SessionRAGIndexChunk struct {
 	DataEntityID    string            `json:"data_entity_id"`
@@ -150,18 +158,20 @@ type SessionRAGIndexChunk struct {
 	ContentOffset   int               `json:"content_offset"`
 	Content         string            `json:"content"`
 	Metadata        map[string]string `json:"metadata"`
+	Pipeline        RAGPipeline       `json:"pipeline"` // RAG providers can have different pipelines
 }
 
 // the query we post to llamaindex to get results back from a user
 // prompt against a rag enabled session
 type SessionRAGQuery struct {
-	Prompt            string   `json:"prompt"`
-	DataEntityID      string   `json:"data_entity_id"`
-	DistanceThreshold float64  `json:"distance_threshold"`
-	DistanceFunction  string   `json:"distance_function"`
-	MaxResults        int      `json:"max_results"`
-	ExhaustiveSearch  bool     `json:"exhaustive_search"`
-	DocumentIDList    []string `json:"document_id_list"` // TODO(Phil): I can see this getting out of hand, should make it more generic to handle any kind of metadata filter
+	Prompt            string      `json:"prompt"`
+	DataEntityID      string      `json:"data_entity_id"`
+	DistanceThreshold float64     `json:"distance_threshold"`
+	DistanceFunction  string      `json:"distance_function"`
+	MaxResults        int         `json:"max_results"`
+	ExhaustiveSearch  bool        `json:"exhaustive_search"`
+	DocumentIDList    []string    `json:"document_id_list"` // TODO(Phil): I can see this getting out of hand, should make it more generic to handle any kind of metadata filter
+	Pipeline          RAGPipeline `json:"pipeline"`         // RAG providers can have different pipelines
 }
 
 type DeleteIndexRequest struct {
