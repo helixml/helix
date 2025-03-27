@@ -84,9 +84,8 @@ async def get_image_service():
     return service
 
 
-# TODO(Phil): bad name. vision.
-@app.post("/process-image", response_model=ProcessResponse)
-async def process_image(
+@app.post("/process-vision", response_model=ProcessResponse)
+async def process_vision(
     file: UploadFile = File(...),
     metadata: Optional[str] = Form(None),
     service: HaystackImageService = Depends(get_image_service),
