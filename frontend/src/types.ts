@@ -1,3 +1,5 @@
+import { TypesUserAppAccessResponse } from './api/api'
+
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
 // did). At time of writing, it's unused in the frontend because the frontend
@@ -999,4 +1001,14 @@ export interface CreateAccessGrantRequest {
   user_reference?: string; // User ID or email
   team_id?: string;        // Team ID
   roles: string[];         // Role names
+}
+
+export interface IUserAppAccessState {
+  loading: boolean
+  error: string | null
+  access: TypesUserAppAccessResponse | null
+  refresh: () => Promise<void>
+  isAdmin: boolean
+  canWrite: boolean
+  canRead: boolean
 }

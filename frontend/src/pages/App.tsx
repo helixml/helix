@@ -48,6 +48,8 @@ const App: FC = () => {
   } = useRouter()
 
   const appTools = useApp(params.app_id)
+  // Get user access information from appTools
+  const { userAccess } = appTools
 
   const [deletingAPIKey, setDeletingAPIKey] = useState('')
   const [isAccessDenied, setIsAccessDenied] = useState(false)
@@ -115,6 +117,8 @@ const App: FC = () => {
   if (isAccessDenied) return <AccessDenied />
   if (!appTools.app) return null
 
+  const isReadOnly = appTools.isReadOnly
+
   return (
     <Page
       showDrawerButton={false}
@@ -137,7 +141,7 @@ const App: FC = () => {
             variant="outlined"
             onClick={appTools.handleCopyEmbedCode}
             startIcon={<ContentCopyIcon />}
-            disabled={account.apiKeys.length === 0 || appTools.isReadOnly}
+            disabled={account.apiKeys.length === 0 || isReadOnly}
           >
             Embed
           </Button>
@@ -170,7 +174,8 @@ const App: FC = () => {
               <Tab label="IDE" value="ide" />
               <Tab label="Logs" value="logs" />
               {
-                appTools.app?.organization_id && (
+                // Only show Access tab if user is an admin and app has an organization_id
+                appTools.app?.organization_id && userAccess.isAdmin && (
                   <Tab label="Access" value="access" />
                 )
               }
@@ -190,7 +195,7 @@ const App: FC = () => {
                       id={appTools.id}
                       app={appTools.flatApp}
                       onUpdate={appTools.saveFlatApp}
-                      readOnly={appTools.isReadOnly}
+                      readOnly={isReadOnly}
                       showErrors={appTools.showErrors}
                       isAdmin={account.admin}
                       providerEndpoints={endpointProviders.data}
@@ -203,7 +208,7 @@ const App: FC = () => {
                         appId={appTools.id}
                         accessGrants={appTools.accessGrants}
                         isLoading={false}
-                        isReadOnly={false}
+                        isReadOnly={isReadOnly}
                         onCreateGrant={appTools.createAccessGrant}
                         onDeleteGrant={appTools.deleteAccessGrant}
                       />
@@ -217,7 +222,7 @@ const App: FC = () => {
                       </Typography>
                       <KnowledgeEditor
                         appId={appTools.id}
-                        disabled={appTools.isReadOnly}
+                        disabled={isReadOnly}
                         saveKnowledgeToApp={async (knowledge) => {
                           // the knowledge has changed so we need to keep the app hook
                           // in sync so it knows about the knowledge IDs then we
@@ -247,7 +252,7 @@ const App: FC = () => {
                         tools={appTools.apiToolsFromTools}
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
-                        isReadOnly={appTools.isReadOnly}
+                        isReadOnly={isReadOnly}
                         app={appTools.flatApp}
                         onUpdate={appTools.saveFlatApp}
                       />
@@ -256,7 +261,7 @@ const App: FC = () => {
                         zapier={appTools.zapierTools}
                         onSaveZapierTool={appTools.onSaveZapierTool}
                         onDeleteZapierTool={appTools.onDeleteZapierTool}
-                        isReadOnly={appTools.isReadOnly}
+                        isReadOnly={isReadOnly}
                       />
                     </>
                   )}
@@ -276,7 +281,7 @@ const App: FC = () => {
                       }}
                       onEdit={(tool, index) => appTools.setEditingGptScript({ tool, index })}
                       onDeleteGptScript={appTools.onDeleteGptScript}
-                      isReadOnly={appTools.isReadOnly}
+                      isReadOnly={isReadOnly}
                       isGithubApp={appTools.isGithubApp}
                     />
                   )}
@@ -288,7 +293,7 @@ const App: FC = () => {
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={appTools.flatApp?.allowedDomains || []}
                       setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
-                      isReadOnly={appTools.isReadOnly}
+                      isReadOnly={isReadOnly}
                     />
                   )}
 
@@ -377,7 +382,7 @@ const App: FC = () => {
         setEditingGptScript={appTools.setEditingGptScript}
         onSaveGptScript={appTools.onSaveGptScript}
         showErrors={appTools.showErrors}
-        isReadOnly={appTools.isReadOnly}
+        isReadOnly={isReadOnly}
       />
 
     </Page>
