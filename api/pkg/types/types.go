@@ -977,7 +977,8 @@ type AssistantConfig struct {
 
 	Knowledge []*AssistantKnowledge `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 
-	IsActionableTemplate string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
+	IsActionableTemplate      string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
+	IsActionableHistoryLength int    `json:"is_actionable_history_length,omitempty" yaml:"is_actionable_history_length,omitempty"` // Defaults to 4
 
 	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
 	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
