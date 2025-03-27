@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -10,9 +11,9 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-
 	"github.com/kelseyhightower/envconfig"
 	oai "github.com/sashabaranov/go-openai"
+
 	openai_ext "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -230,4 +231,60 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 
 	suite.Equal("no", resp.NeedsTool)
 	suite.Equal("", resp.API)
+}
+
+func Test_truncateHistory(t *testing.T) {
+	type args struct {
+		history []*types.ToolHistoryMessage
+		length  int
+	}
+	tests := []struct {
+		name string
+		args args
+		want []*types.ToolHistoryMessage
+	}{
+		{
+			name: "sameLength",
+			args: args{
+				history: []*types.ToolHistoryMessage{
+					{
+						Role:    "role",
+						Content: "content",
+					},
+				},
+				length: 1,
+			},
+			want: []*types.ToolHistoryMessage{
+				{
+					Role:    "role",
+					Content: "content",
+				},
+			},
+		},
+		{
+			name: "historyLengthGreaterThanTruncateLength",
+			args: args{
+				history: []*types.ToolHistoryMessage{
+					{
+						Role:    "role",
+						Content: "content",
+					},
+				},
+				length: 10,
+			},
+			want: []*types.ToolHistoryMessage{
+				{
+					Role:    "role",
+					Content: "content",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := truncateHistory(tt.args.history, tt.args.length); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("truncateHistory() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
