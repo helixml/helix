@@ -50,20 +50,27 @@ class ImageSplitter:
                         image_data = image_file.read()
                         base64_image_data = base64.b64encode(image_data).decode("utf-8")
 
+                    mime_type = (
+                        "image/png"
+                        if image_path.lower().endswith(".png")
+                        else "image/jpeg"
+                        if image_path.lower().endswith((".jpg", ".jpeg"))
+                        else "application/octet-stream"
+                    )
+
+                    # Add the correct base64 header to the image data
+                    base64_image_data = f"data:{mime_type};base64,{base64_image_data}"
+
                     # Create byte stream with proper mime type detection
                     byte_stream = ByteStream(
                         data=image_data,
                         meta={},
-                        mime_type="image/png"
-                        if image_path.lower().endswith(".png")
-                        else "image/jpeg"
-                        if image_path.lower().endswith((".jpg", ".jpeg"))
-                        else "application/octet-stream",
+                        mime_type=mime_type,
                     )
 
                     # Create a haystack Document with proper ByteStream
                     page_doc = Document(
-                        content=base64_image_data,  # Must set this as well because the OpenAI Embedding code only works with the content field
+                        content=base64_image_data,  # Must set this as well because the Helix API expects there to be content
                         blob=byte_stream,
                         meta={
                             **doc.meta,
