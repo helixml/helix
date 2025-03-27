@@ -415,6 +415,11 @@ func (c *Controller) indexChunksForRag(ctx context.Context, session *types.Sessi
 	session = c.WriteInteraction(ctx, session, assistantInteraction)
 	c.BroadcastProgress(ctx, session, 1, initialMessage)
 
+	pipeline := types.TextPipeline
+	if session.Metadata.RagSettings.EnableVision {
+		pipeline = types.VisionPipeline
+	}
+
 	var completedCounter int64
 	var errorCounter int64
 
@@ -428,6 +433,7 @@ func (c *Controller) indexChunksForRag(ctx context.Context, session *types.Sessi
 			DocumentGroupID: chunk.DocumentGroupID,
 			ContentOffset:   chunk.Index,
 			Content:         chunk.Text,
+			Pipeline:        pipeline,
 		})
 
 		if convertError != nil {
@@ -475,12 +481,18 @@ func (c *Controller) getRAGResults(session *types.Session) ([]*types.SessionRAGR
 		return nil, err
 	}
 
+	pipeline := types.TextPipeline
+	if session.Metadata.RagSettings.EnableVision {
+		pipeline = types.VisionPipeline
+	}
+
 	return c.Options.RAG.Query(context.Background(), &types.SessionRAGQuery{
 		Prompt:            userInteraction.Message,
 		DataEntityID:      session.Metadata.RAGSourceID,
 		DistanceThreshold: session.Metadata.RagSettings.Threshold,
 		DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
 		MaxResults:        session.Metadata.RagSettings.ResultsCount,
+		Pipeline:          pipeline,
 	})
 }
 
