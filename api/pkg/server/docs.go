@@ -255,9 +255,17 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Runs an API action for an app",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Run an API action",
                 "parameters": [
                     {
-                        "description": "Request body with API action name and parameters.",
+                        "description": "Request",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -272,6 +280,24 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.RunAPIActionResponse"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
                     }
                 }
             }
@@ -283,9 +309,17 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Runs a gptscript for an app",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Run a GptScript",
                 "parameters": [
                     {
-                        "description": "Request body with script configuration.",
+                        "description": "Request",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -299,6 +333,55 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.GptScriptResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/user-access": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the access rights the current user has for this app",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Get current user's access level for an app",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserAppAccessResponse"
                         }
                     }
                 }
@@ -2164,6 +2247,17 @@ const docTemplate = `{
                 }
             }
         },
+        "system.HTTPError": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "statusCode": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.AccessGrant": {
             "type": "object",
             "properties": {
@@ -2180,14 +2274,6 @@ const docTemplate = `{
                 "resource_id": {
                     "description": "App ID, Knowledge ID, etc",
                     "type": "string"
-                },
-                "resource_type": {
-                    "description": "Kind of resource (app, knowledge, provider endpoint, etc)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.Resource"
-                        }
-                    ]
                 },
                 "roles": {
                     "type": "array",
@@ -2419,6 +2505,20 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "oauth_provider": {
+                    "description": "OAuth configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OAuthProviderType"
+                        }
+                    ]
+                },
+                "oauth_scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "query": {
                     "type": "object",
@@ -3440,6 +3540,29 @@ const docTemplate = `{
             ],
             "x-enum-varnames": [
                 "MessageContentTypeText"
+            ]
+        },
+        "types.OAuthProviderType": {
+            "type": "string",
+            "enum": [
+                "",
+                "atlassian",
+                "google",
+                "microsoft",
+                "github",
+                "slack",
+                "linkedin",
+                "custom"
+            ],
+            "x-enum-varnames": [
+                "OAuthProviderTypeUnknown",
+                "OAuthProviderTypeAtlassian",
+                "OAuthProviderTypeGoogle",
+                "OAuthProviderTypeMicrosoft",
+                "OAuthProviderTypeGitHub",
+                "OAuthProviderTypeSlack",
+                "OAuthProviderTypeLinkedIn",
+                "OAuthProviderTypeCustom"
             ]
         },
         "types.OpenAIMessage": {
@@ -4517,6 +4640,21 @@ const docTemplate = `{
                 "model": {
                     "type": "string"
                 },
+                "oauth_provider": {
+                    "description": "OAuth configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OAuthProviderType"
+                        }
+                    ]
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "query": {
                     "description": "Query parameters that will be always set",
                     "type": "object",
@@ -4696,6 +4834,20 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UserAppAccessResponse": {
+            "type": "object",
+            "properties": {
+                "can_read": {
+                    "type": "boolean"
+                },
+                "can_write": {
+                    "type": "boolean"
+                },
+                "is_admin": {
+                    "type": "boolean"
                 }
             }
         },
