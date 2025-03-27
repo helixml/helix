@@ -5,8 +5,8 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,11 +22,12 @@ import (
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
-	goai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -48,22 +49,36 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 		requestCounter++
 		capturedAuthHeader = r.Header.Get("Authorization")
 		capturedPath = r.URL.Path
-		t.Logf("Mock GitHub received request %d to: %s with auth: %s",
+		t.Logf("MOCK SERVER: Received request %d to: %s with auth: %s",
 			requestCounter, capturedPath, capturedAuthHeader)
+
+		// Log request details for debugging
+		t.Logf("MOCK SERVER: Request details: %s %s", r.Method, r.URL.String())
+		for key, values := range r.Header {
+			t.Logf("MOCK SERVER: Header %s: %v", key, values)
+		}
 
 		// For proper testing, handle auth vs no auth differently
 		if capturedAuthHeader == "" || !strings.Contains(capturedAuthHeader, "Bearer github-test-token") {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest"}`))
+			t.Logf("MOCK SERVER: Returned 401 - Bad credentials (no valid token)")
 			return
 		}
 
 		// Return appropriate response for a successful call
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`[{"id":1,"title":"Test Issue 1"},{"id":2,"title":"Test Issue 2"}]`))
+		t.Logf("MOCK SERVER: Returned 200 OK with issue data")
 	}))
 	defer mockGithubServer.Close()
 	t.Logf("Mock GitHub server started at %s", mockGithubServer.URL)
+
+	// Take a note of the mock server URL to make it more visible in logs
+	githubAPIURL := mockGithubServer.URL
+	t.Logf("******************************************")
+	t.Logf("MOCK GITHUB SERVER URL: %s", githubAPIURL)
+	t.Logf("******************************************")
 
 	// 2. Load server config and set up database connection
 	cfg, err := config.LoadServerConfig()
@@ -178,7 +193,7 @@ paths:
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
-				URL:           mockGithubServer.URL,
+				URL:           githubAPIURL,
 				OAuthProvider: providerName,
 				OAuthScopes:   []string{"repo"},
 				Schema:        githubToolSchema,
@@ -204,8 +219,8 @@ paths:
 				{
 					ID:       "test-assistant",
 					Name:     "Test Assistant",
-					Provider: string(types.ProviderTogetherAI),
-					Model:    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+					Provider: "together",
+					Model:    "llama3:instruct",
 					Tools:    []*types.Tool{githubTool},
 				},
 			},
@@ -257,30 +272,6 @@ paths:
 	// Set API key expectations for client initialization
 	mockClient.EXPECT().APIKey().Return("test-key").AnyTimes()
 
-	// Set up expectations for all CreateChatCompletion calls - this should return a tool call delta
-	mockClient.EXPECT().
-		CreateChatCompletion(gomock.Any(), gomock.Any()).
-		Return(goai.ChatCompletionResponse{
-			Choices: []goai.ChatCompletionChoice{
-				{
-					Message: goai.ChatCompletionMessage{
-						Role: "assistant",
-						ToolCalls: []goai.ChatCompletionToolCall{
-							{
-								ID:   "call_123",
-								Type: "function",
-								Function: goai.FunctionCall{
-									Name:      "listUserIssues",
-									Arguments: `{"filter":"assigned","state":"open","sort":"created"}`,
-								},
-							},
-						},
-					},
-				},
-			},
-		}, nil).
-		AnyTimes()
-
 	// Create OAuth manager
 	oauthManager := oauth.NewManager(db)
 	err = oauthManager.LoadProviders(context.Background())
@@ -305,6 +296,26 @@ paths:
 	mockFilestore.EXPECT().Get(gomock.Any(), gomock.Any()).Return(filestore.Item{}, nil).AnyTimes()
 	mockExtractor.EXPECT().Extract(gomock.Any(), gomock.Any()).Return("test content", nil).AnyTimes()
 
+	// Create an in-memory PubSub for testing
+	helixPubSub, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err, "Failed to create in-memory PubSub")
+
+	// Create a RunnerController for the scheduler
+	runnerCtrlCfg := &scheduler.RunnerControllerConfig{
+		PubSub: helixPubSub,
+		FS:     mockFilestore,
+	}
+	runnerController, err := scheduler.NewRunnerController(ctrlCtx, runnerCtrlCfg)
+	require.NoError(t, err, "Failed to create runner controller")
+
+	// Create a scheduler for the controller
+	schedulerParams := &scheduler.Params{
+		RunnerController: runnerController,
+		QueueSize:        50,
+	}
+	scheduler, err := scheduler.NewScheduler(ctrlCtx, &cfg, schedulerParams)
+	require.NoError(t, err, "Failed to create scheduler")
+
 	ctrl, err := controller.NewController(ctrlCtx, controller.Options{
 		Config:          &cfg,
 		Store:           db,
@@ -313,106 +324,157 @@ paths:
 		Filestore:       mockFilestore,
 		Extractor:       mockExtractor,
 		Janitor:         testJanitor,
+		PubSub:          helixPubSub,
+		Scheduler:       scheduler,
 	})
 	require.NoError(t, err, "Failed to create controller")
 	ctrl.ToolsPlanner = toolsPlanner
 
-	// 10. Create a session to run the test with
-	session := types.Session{
-		ID:        fmt.Sprintf("ses_%d", time.Now().UnixNano()),
-		ParentApp: createdApp.ID,
-		Owner:     testUser.ID,
-		OwnerType: types.OwnerTypeUser,
-		Mode:      types.SessionModeInference,
-		Type:      types.SessionTypeText,
-		ModelName: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-	}
-
-	createdSession, err := db.CreateSession(context.Background(), session)
-	require.NoError(t, err, "Failed to create session")
-	defer func() {
-		_, _ = db.DeleteSession(context.Background(), createdSession.ID)
-	}()
-	t.Logf("Created session with ID: %s, ParentApp: %s", createdSession.ID, createdSession.ParentApp)
-
-	// 11. Create the streaming request
-	req := &goai.ChatCompletionRequest{
-		Model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-		Messages: []goai.ChatCompletionMessage{
-			{
-				Role:    "user",
-				Content: "Show me my GitHub issues",
-			},
-		},
-	}
-
-	// 12. Set up the streaming context
-	streamingCtx := context.Background()
-	streamingCtx = openai.SetContextValues(streamingCtx, &openai.ContextValues{
-		SessionID:     createdSession.ID,
-		InteractionID: system.GenerateUUID(),
-		OwnerID:       testUser.ID,
-	})
-	// Add the app ID to the context (this is what's missing in production)
-	streamingCtx = openai.SetContextAppID(streamingCtx, createdApp.ID)
-
-	// 13. Execute the real streaming session code path
-	// Set up chat completion options
-	opts := &controller.ChatCompletionOptions{
-		AppID:       createdApp.ID,
-		AssistantID: "test-assistant",
-	}
-
-	// This is the actual method we're testing - this follows the real production code path
-	// IMPORTANT: This will fail in production because we're missing the app ID in context
-	t.Log("Starting streaming session - this might fail due to missing appID in context")
+	t.Logf("****************************************************")
+	t.Logf("APP ID: %s", createdApp.ID)
+	t.Logf("OWNER ID: %s", testUser.ID)
+	t.Logf("TOOL ID: %s", githubTool.ID)
+	t.Logf("GITHUB API URL: %s", githubAPIURL)
+	t.Logf("****************************************************")
 
 	// Setup done, start the actual test part
 	// We need to put this in its own subtest so we can properly observe whether it fails
-	t.Run("ChatCompletionStream should use OAuth token", func(t *testing.T) {
+	t.Run("Sessions API should use OAuth token", func(t *testing.T) {
 		// Save current auth header state before running test
 		originalRequestCount := requestCounter
 
-		// Execute the actual streaming method directly
-		stream, _, err := ctrl.ChatCompletionStream(streamingCtx, testUser, *req, opts)
-		require.NoError(t, err, "ChatCompletionStream should not return an error")
-		defer stream.Close()
+		// Create a sessions API request rather than directly calling ChatCompletionStream
+		// This better simulates the actual production flow
+		sessionReq := &types.SessionChatRequest{
+			Model:        "llama3:instruct",
+			Stream:       true,
+			SystemPrompt: "You are a helpful assistant that can use GitHub to look up repository issues.",
+			AppID:        createdApp.ID, // This is critical - setting the app ID explicitly
+			Messages: []*types.Message{
+				{
+					Role: types.CreatorTypeUser,
+					Content: types.MessageContent{
+						ContentType: types.MessageContentTypeText,
+						Parts:       []any{"What issues do I have on GitHub?"},
+					},
+				},
+			},
+		}
 
-		// We need to wait a bit to allow the asynchronous tool calls to complete
-		// Read a few responses from the stream to ensure tool calls are processed
-		streamDone := false
-		t.Log("Reading from the stream and checking for tool calls...")
+		// Convert session chat request to internal session request
+		message, ok := sessionReq.Message()
+		require.True(t, ok, "Failed to get message from session request")
 
-		for i := 0; i < 15 && !streamDone; i++ {
-			resp, err := stream.Recv()
-			if err == io.EOF {
-				streamDone = true
-				t.Log("Stream reached EOF")
-				break
+		// Create user interaction
+		userInteraction := &types.Interaction{
+			ID:        system.GenerateUUID(),
+			Created:   time.Now(),
+			Updated:   time.Now(),
+			Creator:   types.CreatorTypeUser,
+			Mode:      types.SessionModeInference,
+			Message:   message,
+			State:     types.InteractionStateComplete,
+			Finished:  true,
+			Completed: time.Now(),
+		}
+
+		// Create a direct session request to the controller (no HTTP)
+		internalReq := types.InternalSessionRequest{
+			ID:               system.GenerateSessionID(),
+			Stream:           true,
+			Mode:             types.SessionModeInference,
+			Type:             types.SessionTypeText,
+			SystemPrompt:     sessionReq.SystemPrompt,
+			ModelName:        "llama3:instruct",
+			ParentApp:        createdApp.ID,
+			Owner:            testUser.ID,
+			OwnerType:        testUser.Type,
+			UserInteractions: []*types.Interaction{userInteraction},
+		}
+
+		t.Logf("Starting a new session with app ID: %s", createdApp.ID)
+
+		// Call the controller directly to create the session
+		session, err := ctrl.StartSession(context.Background(), testUser, internalReq)
+		require.NoError(t, err, "Failed to start session")
+
+		t.Logf("****************************************************")
+		t.Logf("CREATED SESSION ID: %s", session.ID)
+		t.Logf("PARENT APP: %s", session.ParentApp)
+		t.Logf("****************************************************")
+
+		// Set up a subscription to the session's topic to see the messages
+		sessionTopic := pubsub.GetSessionQueue(testUser.ID, session.ID)
+		t.Logf("Subscribing to session topic: %s", sessionTopic)
+
+		// Create a channel to signal when streaming is done
+		doneCh := make(chan struct{})
+		// Keep track of whether we saw any meaningful session responses
+		sawResponse := false
+
+		// Create a subscription to the session updates
+		sub, err := ctrl.Options.PubSub.Subscribe(context.Background(), sessionTopic, func(payload []byte) error {
+			// Try to parse the event
+			var event types.WebsocketEvent
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Logf("Error unmarshaling event: %v", err)
+				return nil
 			}
-			require.NoError(t, err, "Stream receive should not return an error")
 
-			// Log what we're getting from the stream in more detail
-			if len(resp.Choices) > 0 {
-				choice := resp.Choices[0]
-				if choice.Delta.ToolCalls != nil && len(choice.Delta.ToolCalls) > 0 {
-					toolCall := choice.Delta.ToolCalls[0]
-					t.Logf("Tool call detected: %s with args: %s",
-						toolCall.Function.Name, toolCall.Function.Arguments)
+			t.Logf("Received event type: %s for session: %s", event.Type, event.SessionID)
 
-					// This is important - we need to let the system execute the tool
-					// The tool execution happens asynchronously after the tool call is received
-					t.Log("Tool call received, waiting for tool execution...")
+			// See if we've got a session with a useful response
+			if event.Session != nil && len(event.Session.Interactions) > 0 {
+				interaction := event.Session.Interactions[len(event.Session.Interactions)-1]
+				if interaction.Creator == types.CreatorTypeAssistant && interaction.Message != "" {
+					t.Logf("Received session response: %s", interaction.Message)
+					sawResponse = true
+				}
+
+				// If the interaction is finished and has a tool_id, we know the tool was used
+				if interaction.Finished && interaction.Metadata != nil {
+					if toolID, ok := interaction.Metadata["tool_id"]; ok {
+						t.Logf("Tool was used! Tool ID: %s", toolID)
+						close(doneCh)
+						return nil
+					}
 				}
 			}
 
-			// Sleep longer to allow API calls to process
-			time.Sleep(300 * time.Millisecond)
+			// If we got a worker task response, show it
+			if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Message != "" {
+				t.Logf("Worker response: %s", event.WorkerTaskResponse.Message)
+				sawResponse = true
+
+				// If the worker task is done, we're done streaming
+				if event.WorkerTaskResponse.Done {
+					close(doneCh)
+					return nil
+				}
+			}
+
+			return nil
+		})
+		require.NoError(t, err, "Failed to subscribe to session topic")
+		defer sub.Unsubscribe()
+
+		// Wait for the streaming to complete or timeout
+		select {
+		case <-doneCh:
+			t.Log("Session streaming completed")
+		case <-time.After(10 * time.Second):
+			t.Log("Session streaming timed out after 10 seconds")
 		}
 
-		// Wait a bit longer for any asynchronous tool execution to complete
-		t.Log("Waiting for any tool executions to complete...")
-		time.Sleep(1 * time.Second)
+		if sawResponse {
+			t.Log("Successfully received streaming responses from the session")
+		} else {
+			t.Log("Did not receive any streaming responses from the session")
+		}
+
+		// Wait for any asynchronous API calls to complete
+		t.Log("Waiting for any API calls to complete...")
+		time.Sleep(5 * time.Second)
 
 		// Verify that our mock server received a request
 		t.Logf("Request counter: %d (original: %d)", requestCounter, originalRequestCount)
