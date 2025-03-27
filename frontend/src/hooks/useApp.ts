@@ -301,6 +301,14 @@ export const useApp = (appId: string) => {
     if (updates.provider !== undefined) {
       assistants[0].provider = updates.provider
     }
+
+    if (updates.is_actionable_history_length !== undefined) {
+      assistants[0].is_actionable_history_length = updates.is_actionable_history_length
+    }
+
+    if (updates.is_actionable_template !== undefined) {
+      assistants[0].is_actionable_template = updates.is_actionable_template
+    }
     
     // Update knowledge sources for all assistants if provided
     if (updates.knowledge !== undefined) {
