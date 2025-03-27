@@ -279,6 +279,40 @@ func Test_truncateHistory(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "truncate",
+			args: args{
+				history: []*types.ToolHistoryMessage{
+					{
+						Role:    "user",
+						Content: "content",
+					},
+					{
+						Role:    "assistant",
+						Content: "content2",
+					},
+					{
+						Role:    "user",
+						Content: "content3",
+					},
+					{
+						Role:    "assistant",
+						Content: "content4",
+					},
+				},
+				length: 2,
+			},
+			want: []*types.ToolHistoryMessage{
+				{
+					Role:    "user",
+					Content: "content3",
+				},
+				{
+					Role:    "assistant",
+					Content: "content4",
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
