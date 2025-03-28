@@ -556,6 +556,10 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 
 	log.Trace().Interface("documentIDs", filterDocumentIDs).Msg("document IDs")
 
+	pipeline := types.TextPipeline
+	if entity.Config.RAGSettings.EnableVision {
+		pipeline = types.VisionPipeline
+	}
 	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
 		Prompt:            prompt,
 		DataEntityID:      entity.ID,
@@ -563,6 +567,7 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
 		DocumentIDList:    filterDocumentIDs,
+		Pipeline:          pipeline,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error querying RAG: %w", err)
@@ -632,6 +637,10 @@ func (c *Controller) evaluateKnowledge(
 			}
 			log.Trace().Interface("inference filterDocumentIDs", filterDocumentIDs).Msg("filterDocumentIDs")
 
+			pipeline := types.TextPipeline
+			if knowledge.RAGSettings.EnableVision {
+				pipeline = types.VisionPipeline
+			}
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -639,6 +648,7 @@ func (c *Controller) evaluateKnowledge(
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
 				DocumentIDList:    filterDocumentIDs,
+				Pipeline:          pipeline,
 			})
 			if err != nil {
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
