@@ -472,23 +472,6 @@ class VectorchordDocumentStore:
     def _create_bm25_index_if_not_exists(self):
         """Create the BM25 index if it doesn't exist and update content_bm25vector column."""
         try:
-            # First, update all existing documents to have their content tokenized
-            # Use 'Bert' as the default tokenizer
-            tokenizer = "Bert"
-            query = SQL("""
-                UPDATE {schema_name}.{table_name}
-                SET content_bm25vector = tokenize(content, %s)
-                WHERE content IS NOT NULL AND content_bm25vector IS NULL
-            """).format(
-                schema_name=Identifier(self.schema_name),
-                table_name=Identifier(self.table_name),
-            )
-            self._execute_sql(
-                query,
-                params=(tokenizer,),
-                error_msg=f"Failed to update content_bm25vector for {self.schema_name}.{self.table_name}",
-            )
-
             # Then create the index
             index_name = (
                 SQL("{table_name}_bm25_idx")
