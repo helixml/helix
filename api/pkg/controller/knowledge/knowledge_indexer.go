@@ -322,6 +322,9 @@ func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, version 
 }
 
 func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, version string, data []*indexerData, startedAt time.Time) error {
+	if k == nil {
+		return fmt.Errorf("knowledge is nil")
+	}
 	ragClient := r.getRagClient(k)
 
 	log.Info().
@@ -348,7 +351,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		})
 
 		pipeline := types.TextPipeline
-		if k != nil && k.RAGSettings.EnableVision {
+		if k.RAGSettings.EnableVision {
 			pipeline = types.VisionPipeline
 		}
 
