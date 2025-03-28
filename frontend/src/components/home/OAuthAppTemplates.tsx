@@ -52,7 +52,7 @@ const OAuthAppTemplates: FC = () => {
       const providersResponse = await api.get('/api/v1/oauth/providers')
       
       // Only include enabled providers with credentials
-      const enabledProviders = providersResponse.filter((provider: any) => 
+      const enabledProviders = providersResponse?.filter((provider: any) =>
         provider.enabled && 
         provider.client_id && 
         provider.client_secret
