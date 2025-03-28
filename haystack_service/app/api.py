@@ -64,31 +64,29 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Service instance
-service: Optional[HaystackService] = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    app.state.haystack_service = HaystackService()
+    app.state.image_service = HaystackImageService()
 
 
 # Dependency to get service instance
 async def get_service():
-    global service
-    if service is None:
-        service = HaystackService()
-    return service
+    return app.state.haystack_service
 
 
 # Dependency to get image service instance
 async def get_image_service():
-    global service
-    if service is None:
-        service = HaystackImageService()
-    return service
+    return app.state.image_service
 
 
 @app.post("/process-vision", response_model=ProcessResponse)
 async def process_vision(
     file: UploadFile = File(...),
     metadata: Optional[str] = Form(None),
-    service: HaystackImageService = Depends(get_image_service),
+    image_service: HaystackImageService = Depends(get_image_service),
 ):
     """Process and index an image"""
     logger.info(f"Received image for vision processing: {file.filename}")
@@ -139,7 +137,7 @@ async def process_vision(
         meta_dict["filename"] = file.filename
 
         # Process and index
-        result = await service.process_and_index(temp_path, meta_dict)
+        result = await image_service.process_and_index(temp_path, meta_dict)
 
         # Ensure response matches ProcessResponse schema with a status field
         response = {
@@ -274,7 +272,8 @@ async def extract_text(
 
 @app.post("/query-vision", response_model=QueryResponse)
 async def query_vision(
-    request: QueryRequest, service: HaystackImageService = Depends(get_image_service)
+    request: QueryRequest,
+    image_service: HaystackImageService = Depends(get_image_service),
 ):
     """Query for relevant documents"""
 
@@ -299,7 +298,7 @@ async def query_vision(
                 detail="Input validation error: `query` cannot be empty (contained only NUL bytes)",
             )
 
-        results = await service.query(
+        results = await image_service.query(
             query_text=sanitized_query, filters=request.filters, top_k=request.top_k
         )
         return {"results": results}

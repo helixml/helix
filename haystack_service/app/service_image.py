@@ -102,26 +102,26 @@ class HaystackImageService:
         self, for_documents: bool = True
     ) -> Union[MultimodalDocumentEmbedder, MultimodalTextEmbedder]:
         """Get the appropriate embedder based on configuration"""
-        if settings.EMBEDDINGS_SOCKET:
+        if settings.VISION_EMBEDDINGS_SOCKET:
             logger.info(
-                f"Using UNIX socket for embeddings: {settings.EMBEDDINGS_SOCKET}"
+                f"Using UNIX socket for vision embeddings: {settings.VISION_EMBEDDINGS_SOCKET}"
             )
             return (
                 UnixSocketOpenAIDocumentEmbedder
                 if for_documents
                 else UnixSocketOpenAITextEmbedder
             )(
-                socket_path=settings.EMBEDDINGS_SOCKET,
+                socket_path=settings.VISION_EMBEDDINGS_SOCKET,
                 model=settings.VISION_EMBEDDINGS_MODEL,
                 batch_size=1 if for_documents else None,
             )
 
-        logger.info(f"Using API for embeddings: {settings.VLLM_BASE_URL}")
+        logger.info(f"Using API for vision embeddings: {settings.VISION_BASE_URL}")
         return (
             MultimodalDocumentEmbedder if for_documents else MultimodalTextEmbedder
         )(
-            api_key=Secret.from_token(settings.VLLM_API_KEY),
-            api_base_url=settings.VLLM_BASE_URL,
+            api_key=Secret.from_token(settings.VISION_API_KEY),
+            api_base_url=settings.VISION_BASE_URL,
             model=settings.VISION_EMBEDDINGS_MODEL,
         )
 

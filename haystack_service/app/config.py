@@ -34,7 +34,11 @@ class Settings:
     VISION_EMBEDDINGS_MODEL: str = os.getenv(
         "RAG_VISION_EMBEDDINGS_MODEL", "MrLight/dse-qwen2-2b-mrl-v1"
     )
-
+    VISION_EMBEDDINGS_SOCKET: Optional[str] = os.getenv(
+        "RAG_VISION_EMBEDDINGS_SOCKET", None
+    )
+    VISION_BASE_URL: Optional[str] = os.getenv("RAG_VISION_BASE_URL", None)
+    VISION_API_KEY: Optional[str] = os.getenv("RAG_VISION_API_KEY", None)
     VISION_PGVECTOR_TABLE: str = os.getenv(
         "RAG_VISION_PGVECTOR_TABLE", "haystack_documents_vision"
     )
