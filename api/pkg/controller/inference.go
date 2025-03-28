@@ -21,6 +21,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v2"
 
+	"slices"
+
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
@@ -764,8 +766,90 @@ func (c *Controller) emitStepInfo(ctx context.Context, stepInfo *types.StepInfo)
 
 // TODO: use different struct with just document ID and content
 func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) error {
+	var msg openai.ChatCompletionMessage
+	var err error
+	if anyKnowledgeHasImages(knowledgeResults) {
+		msg, err = buildVisionChatCompletionMessage(req, ragResults, k, knowledgeResults)
+		if err != nil {
+			return fmt.Errorf("failed to build vision chat completion message: %w", err)
+		}
+	} else {
+		msg, err = buildTextChatCompletionMessage(req, ragResults, k, knowledgeResults)
+		if err != nil {
+			return fmt.Errorf("failed to build text chat completion message: %w", err)
+		}
+	}
+
+	req.Messages[len(req.Messages)-1] = msg
+
+	return nil
+}
+
+func anyKnowledgeHasImages(knowledgeResults []*prompts.BackgroundKnowledge) bool {
+	return slices.ContainsFunc(knowledgeResults, knowledgeHasImage)
+}
+
+func knowledgeHasImage(result *prompts.BackgroundKnowledge) bool {
+	return strings.HasPrefix(result.Content, "data:image/")
+}
+
+// buildVisionChatCompletionMessage builds a vision chat completion message
+// See canon: https://platform.openai.com/docs/guides/images?api-mode=chat&lang=python#provide-multiple-image-inputs
+func buildVisionChatCompletionMessage(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (openai.ChatCompletionMessage, error) {
+	imageParts := make([]openai.ChatMessagePart, 0, len(req.Messages))
+	textOnlyKnowledgeResults := make([]*prompts.BackgroundKnowledge, 0, len(knowledgeResults))
+	for _, result := range knowledgeResults {
+		if knowledgeHasImage(result) {
+			imageParts = append(imageParts, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL: result.Content,
+				},
+			})
+		} else {
+			// Can't pass knowledge results with images to the text completion prompt
+			textOnlyKnowledgeResults = append(textOnlyKnowledgeResults, result)
+		}
+	}
+
 	lastMessage := getLastMessage(*req)
 
+	extended, err := buildTextChatCompletionContent(lastMessage, ragResults, k, textOnlyKnowledgeResults)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to build text chat completion content: %w", err)
+	}
+
+	// Now rebuild the final message with the text at the top like in the example
+	res := openai.ChatCompletionMessage{
+		Role: openai.ChatMessageRoleUser,
+		MultiContent: append([]openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: extended,
+			},
+		}, imageParts...),
+	}
+
+	return res, nil
+}
+
+// buildTextChatCompletionMessage builds a standard text chat completion message extended with the
+// text knowledge and prompt
+func buildTextChatCompletionMessage(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (openai.ChatCompletionMessage, error) {
+	lastMessage := getLastMessage(*req)
+
+	extended, err := buildTextChatCompletionContent(lastMessage, ragResults, k, knowledgeResults)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to build text chat completion content: %w", err)
+	}
+
+	lastCompletionMessage := req.Messages[len(req.Messages)-1]
+	lastCompletionMessage.Content = extended
+
+	return lastCompletionMessage, nil
+}
+
+func buildTextChatCompletionContent(lastMessage string, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (string, error) {
 	promptRequest := &prompts.KnowledgePromptRequest{
 		UserPrompt:       lastMessage,
 		RAGResults:       ragResults,
@@ -778,12 +862,10 @@ func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []
 
 	extended, err := prompts.KnowledgePrompt(promptRequest)
 	if err != nil {
-		return fmt.Errorf("failed to extend message with knowledge: %w", err)
+		return "", fmt.Errorf("failed to extend message with knowledge: %w", err)
 	}
 
-	req.Messages[len(req.Messages)-1].Content = extended
-
-	return nil
+	return extended, nil
 }
 
 // setSystemPrompt if the assistant has a system prompt, set it in the request. If there is already
