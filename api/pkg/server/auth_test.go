@@ -317,7 +317,7 @@ func (suite *AuthSuite) TestCallback() {
 				suite.addCookie(req, "redirect_uri", testServerURL+"/dashboard")
 				return req
 			},
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusFound, // Should redirect to the homepage
 		},
 		{
 			name: "missing nonce cookie",

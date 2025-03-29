@@ -22,10 +22,6 @@ var (
 	ErrMultiple = errors.New("multiple found")
 )
 
-var (
-	cookieMaxAge = 24 * time.Hour
-)
-
 // Cookies are set, used and deleted at different points in the lifecycle of the request.
 // If found it hard to line these up correctly, especially the paths, so we'll use a struct to
 // represent each cookie.
@@ -73,7 +69,7 @@ func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
 		Name:     c.Name,
 		Path:     c.Path,
 		Value:    value,
-		MaxAge:   int(cookieMaxAge.Seconds()),
+		MaxAge:   int(0),
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
