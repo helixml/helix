@@ -1520,7 +1520,7 @@ const Session: FC = () => {
           submitTitle="Login / Register"
         >
           <Typography gutterBottom>
-            You can login with your Google account or with your email address.
+            You can login with your Google account or your organization's SSO provider.
           </Typography>
           <Typography>
             This session will be cloned into your account and you can continue from there.
