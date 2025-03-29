@@ -6,6 +6,9 @@ import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 import Alert from '@mui/material/Alert'
 import Collapse from '@mui/material/Collapse'
+import Button from '@mui/material/Button'
+import { styled, keyframes } from '@mui/material/styles'
+import LoginIcon from '@mui/icons-material/Login'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
@@ -23,6 +26,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
+import useApi from '../hooks/useApi'
 
 const Layout: FC = ({
   children
@@ -32,9 +36,11 @@ const Layout: FC = ({
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
+  const api = useApi()
   const account = useAccount()
   const apps = useApps()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
@@ -53,28 +59,35 @@ const Layout: FC = ({
 
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
+
+  const apiClient = api.getApiClient()
   
   // Determine which resource type to use
   // 1. Use resource_type from URL params if available
   // 2. If app_id is present in the URL, default to 'apps'
   // 3. Otherwise default to 'chat'
-  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')
-
-  console.log('[LAYOUT] Router params:', router.params)
-  console.log('[LAYOUT] Determined resource type:', resourceType)
+  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')  
 
   // This useEffect handles registering/updating the menu
   React.useEffect(() => {
-    // Store the current resource type for later use
-    if (resourceType) {
-      localStorage.setItem('last_resource_type', resourceType)
-      console.log('[LAYOUT] Stored resource type:', resourceType)
-      
-      // Ensure the appropriate content is loaded
-      if (resourceType === 'apps') {
-        apps.loadApps()
+    const checkAuthAndLoad = async () => {
+      const authResponse = await apiClient.v1AuthAuthenticatedList()
+      if (!authResponse.data.authenticated) {
+        return
       }
+      setIsAuthenticated(true)
+
+      // Store the current resource type for later use
+      if (resourceType) {
+        localStorage.setItem('last_resource_type', resourceType)      
+        
+        // Ensure the appropriate content is loaded
+        if (resourceType === 'apps') {
+          apps.loadApps()
+        }
+      } 
     }
+    checkAuthAndLoad()
   }, [resourceType])
 
   if(router.meta.drawer) {
@@ -83,7 +96,7 @@ const Layout: FC = ({
         <OrgsSidebarMenu
         />
       )
-    } else if(resourceType === 'apps') {
+    } else if(resourceType === 'apps' && isAuthenticated) {
       sidebarMenu = (
         <AppsMenu
           onOpenApp={ () => {
@@ -180,7 +193,30 @@ const Layout: FC = ({
               minHeight: '100%',
             }}
           >
-            { account.loggingOut ? <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><Typography>Logging out...</Typography></Box> : children }
+            { account.loggingOut ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                <Typography>Logging out...</Typography>
+              </Box>
+            ) : !account.user && router.params.resource_type === 'apps' ? (
+              <Box 
+                sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  justifyContent: 'center', 
+                  alignItems: 'center', 
+                  height: '100%',
+                  textAlign: 'center',
+                  px: 3
+                }}
+              >
+                <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#00E5FF' }}>
+                  Please Login to View Apps
+                </Typography>
+                <Typography variant="body1" sx={{ mb: 4, maxWidth: 600, color: 'text.secondary' }}>
+                  You need to be logged in to view and manage applications. Please login or register to continue.
+                </Typography>
+              </Box>
+            ) : children }
           </Box>
         </Box>
         <Snackbar />
@@ -202,7 +238,7 @@ const Layout: FC = ({
               submitTitle="Login / Register"
             >
               <Typography gutterBottom>
-                You can login with your Google account or with your email address.
+                You can login with your Google account or your organization's SSO provider.
               </Typography>
               <Typography>
                 We will keep what you've done here for you, so you may continue where you left off.
