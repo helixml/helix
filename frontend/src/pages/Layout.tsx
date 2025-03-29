@@ -6,6 +6,9 @@ import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 import Alert from '@mui/material/Alert'
 import Collapse from '@mui/material/Collapse'
+import Button from '@mui/material/Button'
+import { styled, keyframes } from '@mui/material/styles'
+import LoginIcon from '@mui/icons-material/Login'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
@@ -190,7 +193,30 @@ const Layout: FC = ({
               minHeight: '100%',
             }}
           >
-            { account.loggingOut ? <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><Typography>Logging out...</Typography></Box> : children }
+            { account.loggingOut ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                <Typography>Logging out...</Typography>
+              </Box>
+            ) : !account.user && router.params.resource_type === 'apps' ? (
+              <Box 
+                sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  justifyContent: 'center', 
+                  alignItems: 'center', 
+                  height: '100%',
+                  textAlign: 'center',
+                  px: 3
+                }}
+              >
+                <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#00E5FF' }}>
+                  Please Login to View Apps
+                </Typography>
+                <Typography variant="body1" sx={{ mb: 4, maxWidth: 600, color: 'text.secondary' }}>
+                  You need to be logged in to view and manage applications. Please login or register to continue.
+                </Typography>
+              </Box>
+            ) : children }
           </Box>
         </Box>
         <Snackbar />
