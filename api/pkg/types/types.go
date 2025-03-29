@@ -196,16 +196,17 @@ type SessionRAGResult struct {
 
 // gives us a quick way to add settings
 type SessionMetadata struct {
-	OriginalMode            SessionMode       `json:"original_mode"`
-	Origin                  SessionOrigin     `json:"origin"`
-	Avatar                  string            `json:"avatar"`
-	Priority                bool              `json:"priority"`
-	DocumentIDs             map[string]string `json:"document_ids"`
-	DocumentGroupID         string            `json:"document_group_id"`
-	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
-	SystemPrompt            string            `json:"system_prompt"`
-	HelixVersion            string            `json:"helix_version"`
-	Stream                  bool              `json:"stream"`
+	OriginalMode            SessionMode         `json:"original_mode"`
+	Origin                  SessionOrigin       `json:"origin"`
+	Avatar                  string              `json:"avatar"`
+	Priority                bool                `json:"priority"`
+	DocumentIDs             map[string]string   `json:"document_ids"`
+	SessionRAGResults       []*SessionRAGResult `json:"session_rag_results"`
+	DocumentGroupID         string              `json:"document_group_id"`
+	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
+	SystemPrompt            string              `json:"system_prompt"`
+	HelixVersion            string              `json:"helix_version"`
+	Stream                  bool                `json:"stream"`
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
