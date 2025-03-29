@@ -23,6 +23,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
+import useApi from '../hooks/useApi'
 
 const Layout: FC = ({
   children
@@ -32,9 +33,11 @@ const Layout: FC = ({
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
+  const api = useApi()
   const account = useAccount()
   const apps = useApps()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
@@ -53,28 +56,35 @@ const Layout: FC = ({
 
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
+
+  const apiClient = api.getApiClient()
   
   // Determine which resource type to use
   // 1. Use resource_type from URL params if available
   // 2. If app_id is present in the URL, default to 'apps'
   // 3. Otherwise default to 'chat'
-  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')
-
-  console.log('[LAYOUT] Router params:', router.params)
-  console.log('[LAYOUT] Determined resource type:', resourceType)
+  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')  
 
   // This useEffect handles registering/updating the menu
   React.useEffect(() => {
-    // Store the current resource type for later use
-    if (resourceType) {
-      localStorage.setItem('last_resource_type', resourceType)
-      console.log('[LAYOUT] Stored resource type:', resourceType)
-      
-      // Ensure the appropriate content is loaded
-      if (resourceType === 'apps') {
-        apps.loadApps()
+    const checkAuthAndLoad = async () => {
+      const authResponse = await apiClient.v1AuthAuthenticatedList()
+      if (!authResponse.data.authenticated) {
+        return
       }
+      setIsAuthenticated(true)
+
+      // Store the current resource type for later use
+      if (resourceType) {
+        localStorage.setItem('last_resource_type', resourceType)      
+        
+        // Ensure the appropriate content is loaded
+        if (resourceType === 'apps') {
+          apps.loadApps()
+        }
+      } 
     }
+    checkAuthAndLoad()
   }, [resourceType])
 
   if(router.meta.drawer) {
@@ -83,7 +93,7 @@ const Layout: FC = ({
         <OrgsSidebarMenu
         />
       )
-    } else if(resourceType === 'apps') {
+    } else if(resourceType === 'apps' && isAuthenticated) {
       sidebarMenu = (
         <AppsMenu
           onOpenApp={ () => {
