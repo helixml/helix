@@ -36,6 +36,7 @@ import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
+import useApi from '../../hooks/useApi'
 import { AccountContext } from '../../contexts/account'
 import SlideMenuContainer, { triggerMenuChange } from './SlideMenuContainer'
 
@@ -60,6 +61,7 @@ const SidebarContent: React.FC<{
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
   const router = useRouter()
+  const api = useApi()
   const account = useAccount()
   const apps = useApps()
   const sessions = useSessions()
@@ -78,38 +80,54 @@ const SidebarContent: React.FC<{
     router.params,
   ])
 
+  const apiClient = api.getApiClient()
+
   // Ensure apps are loaded when apps tab is selected
   useEffect(() => {
-    console.log(`[SIDEBAR] Active tab changed to ${activeTab}`)
-    const currentResourceType = RESOURCE_TYPES[activeTab]
-    
-    // Make sure the URL reflects the correct resource type
-    const urlResourceType = router.params.resource_type || 'chat'
-    
-    // If there's a mismatch between activeTab and URL resource_type, update the URL
-    if (currentResourceType !== urlResourceType) {
-      console.log(`[SIDEBAR] Fixing resource_type mismatch: URL has ${urlResourceType}, should be ${currentResourceType}`)
-      
-      // Create a copy of the params with the correct resource_type
-      const newParams = { ...router.params } as Record<string, string>;
-      newParams.resource_type = currentResourceType;
-      
-      // If switching to chat tab, remove app_id if present
-      if (currentResourceType === 'chat' && router.params.app_id) {
-        delete newParams.app_id;
+    const checkAuthAndLoad = async () => {
+      try {
+        const authResponse = await apiClient.v1AuthAuthenticatedList()
+        if (!authResponse.data.authenticated) {
+          console.log('[SIDEBAR] Not authenticated, skipping content load')
+          return
+        }
+
+        console.log(`[SIDEBAR] Active tab changed to ${activeTab}`)
+        const currentResourceType = RESOURCE_TYPES[activeTab]
+        
+        // Make sure the URL reflects the correct resource type
+        const urlResourceType = router.params.resource_type || 'chat'
+        
+        // If there's a mismatch between activeTab and URL resource_type, update the URL
+        if (currentResourceType !== urlResourceType) {
+          console.log(`[SIDEBAR] Fixing resource_type mismatch: URL has ${urlResourceType}, should be ${currentResourceType}`)
+          
+          // Create a copy of the params with the correct resource_type
+          const newParams = { ...router.params } as Record<string, string>;
+          newParams.resource_type = currentResourceType;
+          
+          // If switching to chat tab, remove app_id if present
+          if (currentResourceType === 'chat' && router.params.app_id) {
+            delete newParams.app_id;
+          }
+          
+          // Update the URL without triggering a reload
+          router.replaceParams(newParams)
+        }
+        
+        // Load the appropriate content for the tab
+        if (currentResourceType === 'apps') {
+          apps.loadApps()
+        } else if (currentResourceType === 'chat') {
+          // Load sessions/chats when on the chat tab
+          sessions.loadSessions()
+        }
+      } catch (error) {
+        console.error('[SIDEBAR] Error checking authentication:', error)
       }
-      
-      // Update the URL without triggering a reload
-      router.replaceParams(newParams)
     }
-    
-    // Load the appropriate content for the tab
-    if (currentResourceType === 'apps') {
-      apps.loadApps()
-    } else if (currentResourceType === 'chat') {
-      // Load sessions/chats when on the chat tab
-      sessions.loadSessions()
-    }
+
+    checkAuthAndLoad()
   }, [activeTab, router.params])
 
   const filteredModels = useMemo(() => {
