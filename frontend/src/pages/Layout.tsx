@@ -202,7 +202,7 @@ const Layout: FC = ({
               submitTitle="Login / Register"
             >
               <Typography gutterBottom>
-                You can login with your Google account or with your email address.
+                You can login with your Google account or your organization's SSO provider.
               </Typography>
               <Typography>
                 We will keep what you've done here for you, so you may continue where you left off.
