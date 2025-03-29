@@ -285,7 +285,6 @@ services:
       - RAG_VISION_EMBEDDINGS_SOCKET=${RAG_VISION_EMBEDDINGS_SOCKET:-}
       - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
     volumes:
-      - ./haystack_service:/app
       - helix-socket:/socket
     depends_on:
       - pgvector
