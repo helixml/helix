@@ -69,7 +69,10 @@ app = FastAPI(
 async def startup_event():
     """Initialize services on startup"""
     app.state.haystack_service = HaystackService()
-    app.state.image_service = HaystackImageService()
+
+    app.state.image_service = None
+    if settings.VISION_ENABLED:
+        app.state.image_service = HaystackImageService()
 
 
 # Dependency to get service instance
@@ -90,6 +93,8 @@ async def process_vision(
 ):
     """Process and index an image"""
     logger.info(f"Received image for vision processing: {file.filename}")
+    if not settings.VISION_ENABLED:
+        raise HTTPException(status_code=400, detail="Vision RAG is not enabled")
 
     # Parse metadata if provided
     meta_dict = {}
@@ -276,6 +281,9 @@ async def query_vision(
     image_service: HaystackImageService = Depends(get_image_service),
 ):
     """Query for relevant documents"""
+
+    if not settings.VISION_ENABLED:
+        raise HTTPException(status_code=400, detail="Vision RAG is not enabled")
 
     try:
         # Check for empty query text
