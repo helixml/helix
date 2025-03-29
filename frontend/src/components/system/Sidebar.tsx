@@ -88,11 +88,9 @@ const SidebarContent: React.FC<{
       try {
         const authResponse = await apiClient.v1AuthAuthenticatedList()
         if (!authResponse.data.authenticated) {
-          console.log('[SIDEBAR] Not authenticated, skipping content load')
           return
         }
-
-        console.log(`[SIDEBAR] Active tab changed to ${activeTab}`)
+        
         const currentResourceType = RESOURCE_TYPES[activeTab]
         
         // Make sure the URL reflects the correct resource type
@@ -100,8 +98,6 @@ const SidebarContent: React.FC<{
         
         // If there's a mismatch between activeTab and URL resource_type, update the URL
         if (currentResourceType !== urlResourceType) {
-          console.log(`[SIDEBAR] Fixing resource_type mismatch: URL has ${urlResourceType}, should be ${currentResourceType}`)
-          
           // Create a copy of the params with the correct resource_type
           const newParams = { ...router.params } as Record<string, string>;
           newParams.resource_type = currentResourceType;
@@ -211,13 +207,9 @@ const SidebarContent: React.FC<{
     // Get the resource types
     const fromResourceType = RESOURCE_TYPES[activeTab]
     const toResourceType = RESOURCE_TYPES[newValue]
-    
-    console.log('[SIDEBAR HANDLER] Switching from', fromResourceType, 'to', toResourceType)
-    console.log('[SIDEBAR HANDLER] Current router params:', router.params)
-    
+        
     // If switching to chat tab, navigate to home screen directly
-    if (toResourceType === 'chat') {
-      console.log('[SIDEBAR HANDLER] Navigating to home for chat tab')
+    if (toResourceType === 'chat') {      
       account.orgNavigate('home')
       return
     }
@@ -235,8 +227,6 @@ const SidebarContent: React.FC<{
     if (RESOURCE_TYPES[newValue] === 'chat' && newParams.app_id) {
       delete newParams.app_id;
     }
-    
-    console.log('[SIDEBAR HANDLER] About to navigate with params:', newParams)
     
     // Use a more forceful navigation method instead of just merging params
     // This will trigger a full route change
