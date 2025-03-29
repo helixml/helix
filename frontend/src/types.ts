@@ -207,6 +207,7 @@ export interface ISessionConfig {
   priority: boolean,
   document_ids: Record<string, string>,
   document_group_id: string,
+  session_rag_results: ISessionRAGResult[],
   manually_review_questions: boolean,
   system_prompt: string,
   helix_version: string,

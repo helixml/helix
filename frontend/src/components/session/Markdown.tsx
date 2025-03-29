@@ -78,6 +78,8 @@ export interface CitationData {
     fileUrl: string;
     isPartial: boolean;
     citationNumber?: number;
+    validationStatus?: 'exact' | 'fuzzy' | 'failed';
+    validationMessage?: string;
   }[];
   isStreaming?: boolean;
 }
@@ -226,6 +228,11 @@ export class MessageProcessor {
         // Handle the old format (direct children of <excerpts> tag)
         this.processExcerptTag(match);
       }
+    }
+    
+    // Validate citations against RAG results if available
+    if (this.citationData && this.options.session.config?.session_rag_results) {
+      this.validateCitationsAgainstRagResults();
     }
     
     // Remove citation XML from the message
@@ -477,6 +484,109 @@ ${content}
   getCitationData(): CitationData | null {
     return this.citationData;
   }
+
+  private validateCitationsAgainstRagResults(): void {
+    if (!this.citationData || !this.options.session.config?.session_rag_results) {
+      return;
+    }
+    
+    const ragResults = this.options.session.config.session_rag_results;
+    
+    for (let i = 0; i < this.citationData.excerpts.length; i++) {
+      const excerpt = this.citationData.excerpts[i];
+      
+      // Find all RAG results matching the document ID (can be multiple chunks)
+      const matchingRagResults = ragResults.filter(r => r.document_id === excerpt.docId);
+      
+      if (matchingRagResults.length === 0) {
+        // No matching RAG result found
+        this.citationData.excerpts[i] = {
+          ...excerpt,
+          validationStatus: 'failed',
+          validationMessage: 'No matching source document found in RAG results'
+        };
+        continue;
+      }
+      
+      // Check each matching result to find the best validation status
+      let bestValidationStatus: 'exact' | 'fuzzy' | 'failed' = 'failed';
+      let bestValidationMessage = 'Citation not verified: text not found in source';
+      let bestSimilarity = 0;
+      
+      // Clean the citation text for comparison
+      const cleanSnippet = this.normalizeText(excerpt.snippet);
+      
+      // Check all chunks with this document_id
+      for (const ragResult of matchingRagResults) {
+        const cleanContent = this.normalizeText(ragResult.content);
+        
+        // Try exact match first
+        if (cleanContent.includes(cleanSnippet)) {
+          // Exact match found
+          bestValidationStatus = 'exact';
+          bestValidationMessage = 'Citation verified: exact match found in source';
+          break; // Stop searching as we found an exact match
+        }
+        
+        // If no exact match, try fuzzy match
+        const similarity = this.calculateTextSimilarity(cleanSnippet, cleanContent);
+        if (similarity > bestSimilarity) {
+          bestSimilarity = similarity;
+          
+          // Update fuzzy status if similarity is high enough
+          if (similarity > 0.7) {
+            bestValidationStatus = 'fuzzy';
+            bestValidationMessage = 'Citation partially verified: similar text found in source';
+          }
+        }
+      }
+      
+      // After checking all chunks, assign the best validation status
+      this.citationData.excerpts[i] = {
+        ...excerpt,
+        validationStatus: bestValidationStatus,
+        validationMessage: bestValidationMessage
+      };
+    }
+  }
+  
+  private normalizeText(text: string): string {
+    return text
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/[^\w\s]/g, '') // Remove punctuation
+      .toLowerCase()
+      .trim();
+  }
+  
+  private calculateTextSimilarity(str1: string, str2: string): number {
+    if (str1.length > str2.length) {
+      [str1, str2] = [str2, str1]; // Ensure str1 is the shorter string
+    }
+    
+    if (str1.length < 10) {
+      return 0; // Too short to be meaningful
+    }
+    
+    const words1 = new Set(str1.split(/\s+/));
+    
+    let maxSimilarity = 0;
+    
+    for (let i = 0; i <= str2.length - str1.length; i += 10) { // Step by 10 chars for efficiency
+      const windowEnd = Math.min(i + str1.length * 2, str2.length);
+      const window = str2.substring(i, windowEnd);
+      const words2 = new Set(window.split(/\s+/));
+      
+      const intersection = new Set([...words1].filter(x => words2.has(x)));
+      const union = new Set([...words1, ...words2]);
+      
+      const similarity = intersection.size / union.size;
+      maxSimilarity = Math.max(maxSimilarity, similarity);
+      
+      if (maxSimilarity > 0.9) break; // Early exit if we found a good match
+    }
+    
+    return maxSimilarity;
+  }
 }
 
 // Add an areEqual function for React.memo to optimize rendering
@@ -604,6 +714,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             excerpts={citationData.excerpts}
             isStreaming={citationData.isStreaming}
             onFilterDocument={onFilterDocument}
+            ragResults={session?.config?.session_rag_results || []}
           />
         )}
         <Markdown
