@@ -940,6 +940,27 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		session.Metadata.DocumentIDs = make(map[string]string)
 	}
 
+	// Store the RAG results in the session metadata
+	session.Metadata.SessionRAGResults = ragResults
+
+	// Enhanced logging for RAG results
+	logCtx := log.With().
+		Str("session_id", session.ID).
+		Int("rag_results_count", len(ragResults)).
+		Logger()
+
+	if len(ragResults) > 0 {
+		// Log sample of first result for debugging
+		sampleResult := ragResults[0]
+		logCtx.Debug().
+			Str("first_document_id", sampleResult.DocumentID).
+			Str("first_source", sampleResult.Source).
+			Int("first_content_length", len(sampleResult.Content)).
+			Msg("storing RAG results in session metadata - sample of first result")
+	} else {
+		logCtx.Warn().Msg("storing empty RAG results array in session metadata")
+	}
+
 	// Add or update document IDs
 	for _, result := range ragResults {
 		if result.DocumentID != "" {
@@ -999,7 +1020,7 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	}
 
 	// Log the updated document IDs
-	log.Debug().
+	logCtx.Debug().
 		Str("session_id", session.ID).
 		Interface("document_ids", session.Metadata.DocumentIDs).
 		Msg("updating session with document IDs")
@@ -1016,11 +1037,23 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	if verifyErr != nil {
 		log.Error().Err(verifyErr).Str("session_id", session.ID).Msg("failed to verify session update")
 	} else {
-		log.Debug().
+		// Enhanced verification logging
+		verifyLogCtx := log.With().
 			Str("session_id", session.ID).
 			Interface("document_ids", verifySession.Metadata.DocumentIDs).
 			Interface("updated_meta", updatedMeta).
-			Msg("verified session document IDs after update")
+			Logger()
+
+		// Log RAG results verification
+		ragResultsCount := 0
+		if verifySession.Metadata.SessionRAGResults != nil {
+			ragResultsCount = len(verifySession.Metadata.SessionRAGResults)
+		}
+
+		verifyLogCtx.Debug().
+			Int("verified_rag_results_count", ragResultsCount).
+			Bool("has_rag_results", verifySession.Metadata.SessionRAGResults != nil).
+			Msg("verified session metadata after update")
 	}
 
 	return nil
