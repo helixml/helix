@@ -13,6 +13,7 @@ import Tab from '@mui/material/Tab'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
+import { styled, keyframes } from '@mui/material/styles'
 
 import WebhookIcon from '@mui/icons-material/Webhook'
 import HomeIcon from '@mui/icons-material/Home'
@@ -48,6 +49,57 @@ const RESOURCE_TYPES = [
   'chat',
   'apps',
 ]
+
+const shimmer = keyframes`
+  0% {
+    background-position: -200% center;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+  }
+  100% {
+    background-position: 200% center;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+`
+
+const pulse = keyframes`
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+`
+
+const ShimmerButton = styled(Button)(({ theme }) => ({
+  background: `linear-gradient(
+    90deg, 
+    ${theme.palette.secondary.dark} 0%,
+    ${theme.palette.secondary.main} 20%,
+    ${theme.palette.secondary.light} 50%,
+    ${theme.palette.secondary.main} 80%,
+    ${theme.palette.secondary.dark} 100%
+  )`,
+  backgroundSize: '200% auto',
+  animation: `${shimmer} 2s linear infinite, ${pulse} 3s ease-in-out infinite`,
+  transition: 'all 0.3s ease-in-out',
+  boxShadow: '0 0 15px rgba(0, 229, 255, 0.3)',
+  fontWeight: 'bold',
+  letterSpacing: '0.5px',
+  padding: '6px 16px',
+  fontSize: '0.875rem',
+  '&:hover': {
+    transform: 'scale(1.05)',
+    boxShadow: '0 0 25px rgba(0, 229, 255, 0.6)',
+    backgroundSize: '200% auto',
+    animation: `${shimmer} 1s linear infinite`,
+  },
+}))
 
 // Wrap the inner content in the SlideMenuContainer to enable animations
 const SidebarContent: React.FC<{
@@ -587,16 +639,17 @@ const SidebarContent: React.FC<{
                   </>
                 ) : (
                   <>
-                    <Button 
+                    <ShimmerButton 
                       id='login-button'
-                      variant="outlined"
+                      variant="contained"
+                      color="secondary"
                       endIcon={<LoginIcon />}
                       onClick={ () => {
                         account.onLogin()
                       }}
                     >
                       Login / Register
-                    </Button>
+                    </ShimmerButton>
                   </>
                 )
               }
