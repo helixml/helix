@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -940,23 +942,53 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		session.Metadata.DocumentIDs = make(map[string]string)
 	}
 
-	// Store the RAG results in the session metadata
-	session.Metadata.SessionRAGResults = ragResults
+	// Create a map to store unique RAG results to avoid duplicates
+	existingRagMap := make(map[string]*types.SessionRAGResult)
+
+	// Add existing RAG results to the map if they exist
+	if session.Metadata.SessionRAGResults != nil {
+		for _, result := range session.Metadata.SessionRAGResults {
+			// Create a unique key using document_id and hash of content
+			key := createUniqueRagResultKey(result)
+			existingRagMap[key] = result
+		}
+	}
+
+	// Add new RAG results to the map, avoiding duplicates
+	for _, result := range ragResults {
+		key := createUniqueRagResultKey(result)
+
+		// Only add if not already present
+		if _, exists := existingRagMap[key]; !exists {
+			existingRagMap[key] = result
+		}
+	}
+
+	// Convert map back to array
+	mergedResults := make([]*types.SessionRAGResult, 0, len(existingRagMap))
+	for _, result := range existingRagMap {
+		mergedResults = append(mergedResults, result)
+	}
+
+	// Store the merged RAG results in the session metadata
+	session.Metadata.SessionRAGResults = mergedResults
 
 	// Enhanced logging for RAG results
 	logCtx := log.With().
 		Str("session_id", session.ID).
-		Int("rag_results_count", len(ragResults)).
+		Int("rag_results_count", len(mergedResults)).
+		Int("new_results_count", len(ragResults)).
+		Int("total_unique_results", len(existingRagMap)).
 		Logger()
 
-	if len(ragResults) > 0 {
+	if len(mergedResults) > 0 {
 		// Log sample of first result for debugging
-		sampleResult := ragResults[0]
+		sampleResult := mergedResults[0]
 		logCtx.Debug().
 			Str("first_document_id", sampleResult.DocumentID).
 			Str("first_source", sampleResult.Source).
 			Int("first_content_length", len(sampleResult.Content)).
-			Msg("storing RAG results in session metadata - sample of first result")
+			Msg("storing merged RAG results in session metadata - sample of first result")
 	} else {
 		logCtx.Warn().Msg("storing empty RAG results array in session metadata")
 	}
@@ -1057,6 +1089,17 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	}
 
 	return nil
+}
+
+// createUniqueRagResultKey creates a unique key for a RAG result using document_id and a hash of the content
+func createUniqueRagResultKey(result *types.SessionRAGResult) string {
+	// Create a hash of the content using SHA-256
+	h := sha256.New()
+	h.Write([]byte(result.Content))
+	contentHash := hex.EncodeToString(h.Sum(nil))
+
+	// Return a key that combines document_id and content hash
+	return result.DocumentID + "-" + contentHash
 }
 
 func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) ([]string, error) {
