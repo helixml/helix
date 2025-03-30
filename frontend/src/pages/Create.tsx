@@ -88,7 +88,6 @@ const Create: FC = () => {
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
   const [isLoadingApp, setIsLoadingApp] = useState(false)
-  const initialModelSetRef = useRef(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT

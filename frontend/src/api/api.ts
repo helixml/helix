@@ -445,6 +445,8 @@ export interface TypesAssistantConfig {
   gptscripts?: TypesAssistantGPTScript[];
   id?: string;
   image?: string;
+  /** Defaults to 4 */
+  is_actionable_history_length?: number;
   is_actionable_template?: string;
   knowledge?: TypesAssistantKnowledge[];
   lora_id?: string;
@@ -1012,6 +1014,8 @@ export interface TypesRAGSettings {
   disable_downloading?: boolean;
   /** this is one of l2, inner_product or cosine - will default to cosine */
   distance_function?: string;
+  /** if true, we will use the vision pipeline -- Future - might want to specify different pipelines */
+  enable_vision?: boolean;
   /** RAG endpoint configuration if used with a custom RAG service */
   index_url?: string;
   /** the prompt template to use for the RAG query */

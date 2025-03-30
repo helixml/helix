@@ -2570,6 +2570,10 @@ const docTemplate = `{
                 "image": {
                     "type": "string"
                 },
+                "is_actionable_history_length": {
+                    "description": "Defaults to 4",
+                    "type": "integer"
+                },
                 "is_actionable_template": {
                     "type": "string"
                 },
@@ -3877,6 +3881,10 @@ const docTemplate = `{
                 "distance_function": {
                     "description": "this is one of l2, inner_product or cosine - will default to cosine",
                     "type": "string"
+                },
+                "enable_vision": {
+                    "description": "if true, we will use the vision pipeline -- Future - might want to specify different pipelines",
+                    "type": "boolean"
                 },
                 "index_url": {
                     "description": "RAG endpoint configuration if used with a custom RAG service",

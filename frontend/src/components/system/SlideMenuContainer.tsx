@@ -26,15 +26,11 @@ const SlideMenuContainer: FC<SlideMenuContainerProps> = ({
   // Record what menus are currently visible
   useEffect(() => {
     window._activeMenus = window._activeMenus || {};
-    window._activeMenus[menuType] = true;
-    
-    console.log(`Menu mounted: ${menuType}`);
-    
+    window._activeMenus[menuType] = true;      
     return () => {
       if (window._activeMenus) {
         delete window._activeMenus[menuType];
       }
-      console.log(`Menu unmounted: ${menuType}`);
     };
   }, [menuType]);
   
