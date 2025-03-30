@@ -1098,8 +1098,20 @@ func createUniqueRagResultKey(result *types.SessionRAGResult) string {
 	h.Write([]byte(result.Content))
 	contentHash := hex.EncodeToString(h.Sum(nil))
 
-	// Return a key that combines document_id and content hash
-	return result.DocumentID + "-" + contentHash
+	// Base key combines document_id and content hash
+	key := result.DocumentID + "-" + contentHash
+
+	// If metadata contains offset or chunk_id information, include it in the key
+	// This ensures chunks from the same document are properly distinguished
+	if result.Metadata != nil {
+		if chunkID, ok := result.Metadata["chunk_id"]; ok {
+			key += "-chunk-" + chunkID
+		} else if offset, ok := result.Metadata["offset"]; ok {
+			key += "-offset-" + offset
+		}
+	}
+
+	return key
 }
 
 func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) ([]string, error) {

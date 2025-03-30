@@ -27,7 +27,19 @@ interface CitationComparisonModalProps {
 
 // Helper function to create a content-based key for RAG results
 const createContentKey = (result: ISessionRAGResult): string => {
-  return `${result.document_id}-${hashString(result.content)}`;
+  // Start with document_id and hash of content
+  let key = `${result.document_id}-${hashString(result.content)}`;
+  
+  // Add chunk identification if available in metadata
+  if (result.metadata) {
+    if (result.metadata.chunk_id) {
+      key += `-chunk-${result.metadata.chunk_id}`;
+    } else if (result.metadata.offset) {
+      key += `-offset-${result.metadata.offset}`;
+    }
+  }
+  
+  return key;
 };
 
 // Simple string hash function
@@ -43,23 +55,51 @@ const hashString = (str: string): number => {
 
 // Calculate content similarity between two strings
 const calculateSimilarity = (str1: string, str2: string): number => {
-  // Normalize both strings
-  const normalized1 = str1.replace(/\s+/g, ' ').toLowerCase().trim();
-  const normalized2 = str2.replace(/\s+/g, ' ').toLowerCase().trim();
+  // Normalize both strings - more aggressive normalization to handle formatting differences
+  const normalize = (text: string): string => {
+    return text
+      .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
+      .replace(/#/g, ' ')       // Replace # with spaces
+      .replace(/\s+/g, ' ')     // Normalize all whitespace
+      .replace(/[^\w\s]/g, '')  // Remove punctuation
+      .toLowerCase()
+      .trim();
+  };
+  
+  const normalized1 = normalize(str1);
+  const normalized2 = normalize(str2);
   
   // For very short strings, use a different approach
   if (normalized1.length < 10 || normalized2.length < 10) {
     return normalized1 === normalized2 ? 1.0 : 0.0;
   }
   
-  // For longer strings, use Jaccard similarity
-  const words1 = new Set(normalized1.split(/\s+/));
-  const words2 = new Set(normalized2.split(/\s+/));
+  // Check if one string contains the other
+  if (normalized1.includes(normalized2)) return 0.9;
+  if (normalized2.includes(normalized1)) return 0.9;
   
-  const intersection = new Set([...words1].filter(x => words2.has(x)));
-  const union = new Set([...words1, ...words2]);
+  // For longer strings, use both word-based and Jaccard similarity
+  const words1 = normalized1.split(/\s+/).filter(w => w.length > 3);
+  const words2 = normalized2.split(/\s+/).filter(w => w.length > 3);
   
-  return intersection.size / union.size;
+  // Word-level match (more important for citations)
+  const matchingWords = words1.filter(word => 
+    words2.some(w2 => w2.includes(word) || word.includes(w2))
+  );
+  
+  const wordSimilarity = words1.length > 0 ? matchingWords.length / words1.length : 0;
+  
+  // Standard Jaccard similarity as a backup
+  const wordSet1 = new Set(words1);
+  const wordSet2 = new Set(words2);
+  
+  const intersection = new Set([...wordSet1].filter(x => wordSet2.has(x)));
+  const union = new Set([...wordSet1, ...wordSet2]);
+  
+  const jaccardSimilarity = union.size > 0 ? intersection.size / union.size : 0;
+  
+  // Use the better of the two similarity measures
+  return Math.max(wordSimilarity, jaccardSimilarity);
 };
 
 const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({ 
@@ -110,11 +150,19 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
     
     // For exact or fuzzy match, try to find and highlight the quoted text
     try {
-      // Normalize both texts for comparison
-      const normalizedContent = content.replace(/\s+/g, ' ').trim();
-      const normalizedCitation = citationText.replace(/\s+/g, ' ').trim();
+      // Normalize for comparison similar to the similarity function
+      const normalize = (text: string): string => {
+        return text
+          .replace(/[\r\n]+/g, ' ')
+          .replace(/#/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
       
-      // For exact match
+      const normalizedContent = normalize(content);
+      const normalizedCitation = normalize(citationText);
+      
+      // For exact matches - try to find the exact citation in the content
       if (normalizedContent.includes(normalizedCitation)) {
         const parts = normalizedContent.split(normalizedCitation);
         return (
@@ -141,7 +189,79 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
         );
       }
       
-      // If not an exact match but fuzzy, just return the plain content
+      // If not an exact match but fuzzy - highlight important matching words/phrases
+      if (citation.validationStatus === 'fuzzy') {
+        // Extract significant words from citation (longer than 3 chars)
+        const significantWords = normalizedCitation
+          .split(/\s+/)
+          .filter(word => word.length > 3);
+        
+        // Don't highlight if too few significant words
+        if (significantWords.length < 2) {
+          return <Typography sx={{ whiteSpace: 'pre-wrap' }}>{content}</Typography>;
+        }
+        
+        // Create a regex to find these words in the content
+        // Using word boundaries and case insensitive matching
+        const wordRegexes = significantWords.map(word => 
+          new RegExp(`\\b${word}\\b`, 'gi')
+        );
+        
+        // Make a copy of the content to highlight
+        let highlightedContent = content;
+        let placeholders: {[key: string]: string} = {};
+        
+        // Replace each significant word with a placeholder
+        wordRegexes.forEach((regex, idx) => {
+          const placeholder = `__HIGHLIGHT_${idx}__`;
+          highlightedContent = highlightedContent.replace(regex, match => {
+            placeholders[placeholder] = match;
+            return placeholder;
+          });
+        });
+        
+        // Split the content by placeholders
+        const parts: React.ReactNode[] = [];
+        let lastIndex = 0;
+        
+        // Find all placeholders in the text
+        const placeholderRegex = /__HIGHLIGHT_\d+__/g;
+        let match;
+        
+        while ((match = placeholderRegex.exec(highlightedContent)) !== null) {
+          // Add text before the placeholder
+          if (match.index > lastIndex) {
+            parts.push(highlightedContent.substring(lastIndex, match.index));
+          }
+          
+          // Add the highlighted placeholder
+          const placeholder = match[0];
+          parts.push(
+            <Box 
+              key={`highlight-${parts.length}`}
+              component="span"
+              sx={{ 
+                backgroundColor: 'rgba(255, 152, 0, 0.2)',
+                padding: '2px 2px',
+                borderRadius: '2px',
+              }}
+            >
+              {placeholders[placeholder]}
+            </Box>
+          );
+          
+          lastIndex = match.index + placeholder.length;
+        }
+        
+        // Add any remaining text
+        if (lastIndex < highlightedContent.length) {
+          parts.push(highlightedContent.substring(lastIndex));
+        }
+        
+        return <Typography sx={{ whiteSpace: 'pre-wrap' }}>{parts}</Typography>;
+      }
+      
+      // Default case
       return <Typography sx={{ whiteSpace: 'pre-wrap' }}>{content}</Typography>;
     } catch (error) {
       console.error('Error highlighting text:', error);
@@ -325,6 +445,112 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
                         <> (Offset: {ragResult.metadata.offset})</>
                       )}
                     </Typography>
+                    
+                    {/* Metadata Display */}
+                    <Box 
+                      sx={{ 
+                        mb: 1,
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      <Chip
+                        size="small"
+                        label={`Doc ID: ${ragResult.document_id || 'N/A'}`}
+                        sx={{ 
+                          backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                          borderRadius: '4px',
+                          height: 'auto',
+                          '& .MuiChip-label': { 
+                            padding: '2px 8px',
+                            whiteSpace: 'normal',
+                            fontFamily: 'monospace'
+                          }
+                        }}
+                      />
+                      
+                      {ragResult.document_group_id && (
+                        <Chip
+                          size="small"
+                          label={`Group ID: ${ragResult.document_group_id}`}
+                          sx={{ 
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                            borderRadius: '4px',
+                            height: 'auto',
+                            '& .MuiChip-label': { 
+                              padding: '2px 8px',
+                              whiteSpace: 'normal',
+                              fontFamily: 'monospace'
+                            }
+                          }}
+                        />
+                      )}
+                      
+                      {ragResult.metadata?.chunk_id && (
+                        <Chip
+                          size="small"
+                          label={`Chunk ID: ${ragResult.metadata.chunk_id}`}
+                          sx={{ 
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                            borderRadius: '4px',
+                            height: 'auto',
+                            '& .MuiChip-label': { 
+                              padding: '2px 8px',
+                              whiteSpace: 'normal',
+                              fontFamily: 'monospace'
+                            }
+                          }}
+                        />
+                      )}
+                    </Box>
+                    
+                    {/* Display all available metadata */}
+                    {ragResult.metadata && Object.keys(ragResult.metadata).length > 0 && (
+                      <Box sx={{ mb: 1 }}>
+                        <Typography 
+                          variant="caption" 
+                          color="text.secondary"
+                          sx={{ 
+                            display: 'block',
+                            fontWeight: 'bold',
+                            mb: 0.5
+                          }}
+                        >
+                          Additional Metadata:
+                        </Typography>
+                        <Box 
+                          sx={{
+                            backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                            borderRadius: '4px',
+                            p: 1,
+                            fontFamily: 'monospace',
+                            fontSize: '0.75rem',
+                            overflowX: 'auto'
+                          }}
+                        >
+                          {Object.entries(ragResult.metadata).map(([key, value]) => (
+                            <Box 
+                              key={key}
+                              sx={{ 
+                                display: 'flex',
+                                mb: 0.5,
+                                "&:last-child": { mb: 0 }
+                              }}
+                            >
+                              <Box sx={{ color: 'text.secondary', minWidth: '100px' }}>
+                                {key}:
+                              </Box>
+                              <Box sx={{ ml: 1, wordBreak: 'break-all' }}>
+                                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                              </Box>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                    
                     {isBestMatch && (
                       <Box 
                         sx={{ 
@@ -380,6 +606,112 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
                         <> (Offset: {ragResult.metadata.offset})</>
                       )}
                     </Typography>
+                    
+                    {/* Metadata Display */}
+                    <Box 
+                      sx={{ 
+                        mb: 1,
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      <Chip
+                        size="small"
+                        label={`Doc ID: ${ragResult.document_id || 'N/A'}`}
+                        sx={{ 
+                          backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                          borderRadius: '4px',
+                          height: 'auto',
+                          '& .MuiChip-label': { 
+                            padding: '2px 8px',
+                            whiteSpace: 'normal',
+                            fontFamily: 'monospace'
+                          }
+                        }}
+                      />
+                      
+                      {ragResult.document_group_id && (
+                        <Chip
+                          size="small"
+                          label={`Group ID: ${ragResult.document_group_id}`}
+                          sx={{ 
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                            borderRadius: '4px',
+                            height: 'auto',
+                            '& .MuiChip-label': { 
+                              padding: '2px 8px',
+                              whiteSpace: 'normal',
+                              fontFamily: 'monospace'
+                            }
+                          }}
+                        />
+                      )}
+                      
+                      {ragResult.metadata?.chunk_id && (
+                        <Chip
+                          size="small"
+                          label={`Chunk ID: ${ragResult.metadata.chunk_id}`}
+                          sx={{ 
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                            borderRadius: '4px',
+                            height: 'auto',
+                            '& .MuiChip-label': { 
+                              padding: '2px 8px',
+                              whiteSpace: 'normal',
+                              fontFamily: 'monospace'
+                            }
+                          }}
+                        />
+                      )}
+                    </Box>
+                    
+                    {/* Display all available metadata */}
+                    {ragResult.metadata && Object.keys(ragResult.metadata).length > 0 && (
+                      <Box sx={{ mb: 1 }}>
+                        <Typography 
+                          variant="caption" 
+                          color="text.secondary"
+                          sx={{ 
+                            display: 'block',
+                            fontWeight: 'bold',
+                            mb: 0.5
+                          }}
+                        >
+                          Additional Metadata:
+                        </Typography>
+                        <Box 
+                          sx={{
+                            backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                            borderRadius: '4px',
+                            p: 1,
+                            fontFamily: 'monospace',
+                            fontSize: '0.75rem',
+                            overflowX: 'auto'
+                          }}
+                        >
+                          {Object.entries(ragResult.metadata).map(([key, value]) => (
+                            <Box 
+                              key={key}
+                              sx={{ 
+                                display: 'flex',
+                                mb: 0.5,
+                                "&:last-child": { mb: 0 }
+                              }}
+                            >
+                              <Box sx={{ color: 'text.secondary', minWidth: '100px' }}>
+                                {key}:
+                              </Box>
+                              <Box sx={{ ml: 1, wordBreak: 'break-all' }}>
+                                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                              </Box>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                    
                     <Divider sx={{ mb: 1 }} />
                     <Typography sx={{ whiteSpace: 'pre-wrap' }}>{ragResult.content}</Typography>
                   </Paper>
@@ -411,8 +743,36 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
               color="text.secondary" 
               sx={{ mb: 1 }}
             >
-              Document ID: {citation.docId}
+              Document ID:
             </Typography>
+            
+            {/* Document ID display */}
+            <Box 
+              sx={{ 
+                mb: 2,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '8px',
+                fontSize: '0.75rem'
+              }}
+            >
+              <Chip
+                size="small"
+                label={citation.docId}
+                sx={{ 
+                  backgroundColor: 'rgba(88, 166, 255, 0.15)',
+                  borderRadius: '4px',
+                  height: 'auto',
+                  '& .MuiChip-label': { 
+                    padding: '4px 8px',
+                    whiteSpace: 'normal',
+                    fontFamily: 'monospace',
+                    fontWeight: 'bold'
+                  }
+                }}
+              />
+            </Box>
+            
             <Divider sx={{ mb: 1 }} />
             <Typography 
               sx={{ 

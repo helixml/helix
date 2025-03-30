@@ -515,12 +515,13 @@ ${content}
       
       // Clean the citation text for comparison
       const cleanSnippet = this.normalizeText(excerpt.snippet);
+      const snippetWords = new Set(cleanSnippet.split(/\s+/).filter(word => word.length > 3));
       
       // Check all chunks with this document_id
       for (const ragResult of matchingRagResults) {
         const cleanContent = this.normalizeText(ragResult.content);
         
-        // Try exact match first
+        // Try exact match first (whole text contains)
         if (cleanContent.includes(cleanSnippet)) {
           // Exact match found
           bestValidationStatus = 'exact';
@@ -528,13 +529,26 @@ ${content}
           break; // Stop searching as we found an exact match
         }
         
-        // If no exact match, try fuzzy match
+        // If no exact match, try word-based similarity
+        const contentWords = cleanContent.split(/\s+/).filter(word => word.length > 3);
+        const matchedWords = Array.from(snippetWords).filter(word => 
+          contentWords.some(contentWord => contentWord.includes(word) || word.includes(contentWord))
+        );
+        
+        const wordSimilarity = snippetWords.size > 0 ? matchedWords.length / snippetWords.size : 0;
+        
+        // Try character-based similarity as fallback
         const similarity = this.calculateTextSimilarity(cleanSnippet, cleanContent);
-        if (similarity > bestSimilarity) {
-          bestSimilarity = similarity;
+        
+        // Use the better of word-based or character-based similarity
+        const combinedSimilarity = Math.max(wordSimilarity, similarity);
+        
+        if (combinedSimilarity > bestSimilarity) {
+          bestSimilarity = combinedSimilarity;
           
           // Update fuzzy status if similarity is high enough
-          if (similarity > 0.7) {
+          // Lower threshold slightly from 0.7 to 0.6 to better handle these cases
+          if (combinedSimilarity > 0.6) {
             bestValidationStatus = 'fuzzy';
             bestValidationMessage = 'Citation partially verified: similar text found in source';
           }
@@ -552,8 +566,10 @@ ${content}
   
   private normalizeText(text: string): string {
     return text
-      .replace(/\s+/g, ' ') // Normalize whitespace
-      .replace(/[^\w\s]/g, '') // Remove punctuation
+      .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
+      .replace(/#/g, ' ')       // Replace # with spaces
+      .replace(/\s+/g, ' ')     // Normalize all whitespace
+      .replace(/[^\w\s]/g, '')  // Remove punctuation
       .toLowerCase()
       .trim();
   }

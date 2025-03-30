@@ -72,6 +72,85 @@ const Citation: React.FC<CitationProps> = ({
         setComparisonModalOpen(true);
     };
 
+    // Helper function to create a unique key for a RAG result (similar to backend logic)
+    const createUniqueRagKey = (ragResult: any): string => {
+        let key = `${ragResult.document_id}-${ragResult.content.substring(0, 50).replace(/\s+/g, '-')}`;
+        
+        // Add chunk identification if available in metadata
+        if (ragResult.metadata) {
+            if (ragResult.metadata.chunk_id) {
+                key += `-chunk-${ragResult.metadata.chunk_id}`;
+            } else if (ragResult.metadata.offset) {
+                key += `-offset-${ragResult.metadata.offset}`;
+            }
+        }
+        
+        return key;
+    };
+
+    // Find the best matching chunk for a given citation excerpt
+    const findBestMatchingChunk = (excerpt: Excerpt, ragResults: any[]): any | null => {
+        // Filter by document ID first
+        const matchingResults = ragResults.filter(r => r.document_id === excerpt.docId);
+        
+        if (matchingResults.length === 0) {
+            return null;
+        }
+        
+        if (matchingResults.length === 1) {
+            return matchingResults[0];
+        }
+        
+        // For multiple chunks, find the best match based on content similarity
+        // Normalize both texts for comparison
+        const normalizeText = (text: string): string => {
+            return text
+                .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
+                .replace(/#/g, ' ')       // Replace # with spaces
+                .replace(/\s+/g, ' ')     // Normalize all whitespace
+                .toLowerCase()
+                .trim();
+        };
+        
+        const excerptText = normalizeText(excerpt.snippet);
+        
+        // First try exact match
+        for (const result of matchingResults) {
+            const resultText = normalizeText(result.content);
+            if (resultText.includes(excerptText)) {
+                return result; // Found an exact match
+            }
+        }
+        
+        // If no exact match, find the chunk with highest similarity
+        let bestMatch = matchingResults[0];
+        let bestSimilarity = 0;
+        
+        for (const result of matchingResults) {
+            const resultText = normalizeText(result.content);
+            
+            // Simple similarity check - more sophisticated methods could be used
+            let similarity = 0;
+            
+            // Count word matches
+            const excerptWords = excerptText.split(/\s+/).filter(w => w.length > 3);
+            const resultWords = resultText.split(/\s+/).filter(w => w.length > 3);
+            
+            const matchingWords = excerptWords.filter(word => 
+                resultWords.some(rWord => rWord.includes(word) || word.includes(rWord))
+            );
+            
+            similarity = excerptWords.length > 0 ? matchingWords.length / excerptWords.length : 0;
+            
+            if (similarity > bestSimilarity) {
+                bestSimilarity = similarity;
+                bestMatch = result;
+            }
+        }
+        
+        return bestMatch;
+    };
+
     return (
         <Box
             className={`citation-box${isStreaming ? ' streaming' : ''} ${className}`}
