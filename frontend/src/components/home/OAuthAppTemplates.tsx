@@ -34,6 +34,8 @@ interface OAuthAppTemplate {
 
 const OAuthAppTemplates: FC = () => {
   const api = useApi()
+  const apiClient = api.getApiClient()
+
   const account = useAccount()
   const { error, success } = useSnackbar()
   
@@ -48,6 +50,12 @@ const OAuthAppTemplates: FC = () => {
   
   const loadProviders = async () => {
     try {
+      const authResponse = await apiClient.v1AuthAuthenticatedList()
+      if (!authResponse.data.authenticated) {
+        console.log('[SIDEBAR] Not authenticated, skipping content load')
+        return
+      }
+
       setLoading(true)
       const providersResponse = await api.get('/api/v1/oauth/providers')
       
