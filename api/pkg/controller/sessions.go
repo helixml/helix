@@ -724,9 +724,7 @@ func (c *Controller) BeginFineTune(ctx context.Context, session *types.Session) 
 	return nil
 }
 
-// generic "update this session handler"
-// this will emit a UserWebsocketEvent with a type of
-// WebsocketEventSessionUpdate
+// WriteSession updates a session and emits a WebsocketEventSessionUpdate
 func (c *Controller) WriteSession(ctx context.Context, session *types.Session) error {
 	// First, check if we need to preserve document IDs from the database
 	existingSession, err := c.Options.Store.GetSession(ctx, session.ID)
@@ -781,15 +779,49 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 			}
 		}
 
-		// If the existing session has RAG results and the new session doesn't, preserve them
-		if len(existingSession.Metadata.SessionRAGResults) > 0 {
-			if len(session.Metadata.SessionRAGResults) == 0 {
-				session.Metadata.SessionRAGResults = existingSession.Metadata.SessionRAGResults
-				log.Debug().
-					Str("session_id", session.ID).
-					Int("rag_results_count", len(existingSession.Metadata.SessionRAGResults)).
-					Msg("WriteSession: preserving RAG results from database")
+		// Properly merge RAG results from existing and new session
+		if existingRagCount > 0 || newRagCount > 0 {
+			// Create a map to store unique RAG results to avoid duplicates
+			existingRagMap := make(map[string]*types.SessionRAGResult)
+
+			// Add existing RAG results to the map if they exist
+			if existingSession.Metadata.SessionRAGResults != nil {
+				for _, result := range existingSession.Metadata.SessionRAGResults {
+					key := createUniqueRagResultKey(result)
+					existingRagMap[key] = result
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("document_id", result.DocumentID).
+						Str("key", key).
+						Msg("WriteSession: preserving existing RAG result")
+				}
 			}
+
+			// Add new RAG results to the map, replacing any with the same key
+			if session.Metadata.SessionRAGResults != nil {
+				for _, result := range session.Metadata.SessionRAGResults {
+					key := createUniqueRagResultKey(result)
+					existingRagMap[key] = result
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("document_id", result.DocumentID).
+						Str("key", key).
+						Msg("WriteSession: adding new RAG result")
+				}
+			}
+
+			// Convert map back to array
+			mergedResults := make([]*types.SessionRAGResult, 0, len(existingRagMap))
+			for _, result := range existingRagMap {
+				mergedResults = append(mergedResults, result)
+			}
+
+			// Update the session with merged results
+			session.Metadata.SessionRAGResults = mergedResults
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("merged_rag_results_count", len(mergedResults)).
+				Msg("WriteSession: merged RAG results from database and new session")
 		}
 	}
 

@@ -945,22 +945,84 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	// Create a map to store unique RAG results to avoid duplicates
 	existingRagMap := make(map[string]*types.SessionRAGResult)
 
+	log.Debug().
+		Str("session_id", session.ID).
+		Int("new_results_count", len(ragResults)).
+		Int("existing_results_count", len(session.Metadata.SessionRAGResults)).
+		Msg("starting deduplication of RAG results")
+
 	// Add existing RAG results to the map if they exist
 	if session.Metadata.SessionRAGResults != nil {
-		for _, result := range session.Metadata.SessionRAGResults {
+		for i, result := range session.Metadata.SessionRAGResults {
 			// Create a unique key using document_id and hash of content
 			key := createUniqueRagResultKey(result)
 			existingRagMap[key] = result
+
+			// Log detailed information about existing results
+			contentPreview := ""
+			if len(result.Content) > 50 {
+				contentPreview = result.Content[:50] + "..."
+			} else {
+				contentPreview = result.Content
+			}
+
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("index", i).
+				Str("document_id", result.DocumentID).
+				Str("key", key).
+				Str("content_preview", contentPreview).
+				Interface("metadata", result.Metadata).
+				Msg("existing RAG result")
 		}
 	}
 
 	// Add new RAG results to the map, avoiding duplicates
-	for _, result := range ragResults {
+	for i, result := range ragResults {
 		key := createUniqueRagResultKey(result)
 
+		// Log detailed information about new results
+		contentPreview := ""
+		if len(result.Content) > 50 {
+			contentPreview = result.Content[:50] + "..."
+		} else {
+			contentPreview = result.Content
+		}
+
 		// Only add if not already present
-		if _, exists := existingRagMap[key]; !exists {
+		existing, exists := existingRagMap[key]
+		if !exists {
 			existingRagMap[key] = result
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("index", i).
+				Str("document_id", result.DocumentID).
+				Str("key", key).
+				Str("content_preview", contentPreview).
+				Interface("metadata", result.Metadata).
+				Msg("adding new RAG result")
+		} else {
+			// Log when we skip a result due to duplicate key
+			existingPreview := ""
+			if len(existing.Content) > 50 {
+				existingPreview = existing.Content[:50] + "..."
+			} else {
+				existingPreview = existing.Content
+			}
+
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("index", i).
+				Str("document_id", result.DocumentID).
+				Str("key", key).
+				Str("new_content_preview", contentPreview).
+				Str("existing_content_preview", existingPreview).
+				Bool("content_different", result.Content != existing.Content).
+				Int("new_content_length", len(result.Content)).
+				Int("existing_content_length", len(existing.Content)).
+				Interface("new_metadata", result.Metadata).
+				Interface("existing_metadata", existing.Metadata).
+				Msg("skipping duplicate RAG result")
 		}
 	}
 
@@ -980,6 +1042,24 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		Int("new_results_count", len(ragResults)).
 		Int("total_unique_results", len(existingRagMap)).
 		Logger()
+
+	// Log details of createUniqueRagResultKey function
+	if len(ragResults) > 0 {
+		sampleResult := ragResults[0]
+		key := createUniqueRagResultKey(sampleResult)
+
+		// Create content hash for debugging
+		h := sha256.New()
+		h.Write([]byte(sampleResult.Content))
+		contentHash := hex.EncodeToString(h.Sum(nil))
+
+		logCtx.Debug().
+			Str("sample_document_id", sampleResult.DocumentID).
+			Str("sample_key", key).
+			Str("content_hash", contentHash).
+			Interface("sample_metadata", sampleResult.Metadata).
+			Msg("sample of key generation")
+	}
 
 	if len(mergedResults) > 0 {
 		// Log sample of first result for debugging
@@ -1058,7 +1138,7 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		Msg("updating session with document IDs")
 
 	// Update the session metadata
-	updatedMeta, err := c.UpdateSessionMetadata(ctx, session, &session.Metadata)
+	_, err = c.UpdateSessionMetadata(ctx, session, &session.Metadata)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to update session metadata with document IDs")
 		return err
@@ -1073,7 +1153,6 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		verifyLogCtx := log.With().
 			Str("session_id", session.ID).
 			Interface("document_ids", verifySession.Metadata.DocumentIDs).
-			Interface("updated_meta", updatedMeta).
 			Logger()
 
 		// Log RAG results verification
@@ -1091,7 +1170,7 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	return nil
 }
 
-// createUniqueRagResultKey creates a unique key for a RAG result using document_id and a hash of the content
+// Add detailed logging to createUniqueRagResultKey to understand how it's generating keys
 func createUniqueRagResultKey(result *types.SessionRAGResult) string {
 	// Create a hash of the content using SHA-256
 	h := sha256.New()
@@ -1101,15 +1180,36 @@ func createUniqueRagResultKey(result *types.SessionRAGResult) string {
 	// Base key combines document_id and content hash
 	key := result.DocumentID + "-" + contentHash
 
+	// Log the metadata keys that might affect the result key
+	metadataKeys := make([]string, 0)
+	if result.Metadata != nil {
+		for k := range result.Metadata {
+			metadataKeys = append(metadataKeys, k)
+		}
+	}
+
+	log.Trace().
+		Str("document_id", result.DocumentID).
+		Str("content_hash", contentHash[:8]+"...").
+		Strs("metadata_keys", metadataKeys).
+		Msg("creating unique RAG result key")
+
 	// If metadata contains offset or chunk_id information, include it in the key
 	// This ensures chunks from the same document are properly distinguished
 	if result.Metadata != nil {
 		if chunkID, ok := result.Metadata["chunk_id"]; ok {
 			key += "-chunk-" + chunkID
+			log.Trace().Str("document_id", result.DocumentID).Str("chunk_id", chunkID).Msg("added chunk_id to key")
 		} else if offset, ok := result.Metadata["offset"]; ok {
 			key += "-offset-" + offset
+			log.Trace().Str("document_id", result.DocumentID).Str("offset", offset).Msg("added offset to key")
 		}
 	}
+
+	log.Trace().
+		Str("document_id", result.DocumentID).
+		Str("final_key", key).
+		Msg("final unique RAG result key")
 
 	return key
 }
