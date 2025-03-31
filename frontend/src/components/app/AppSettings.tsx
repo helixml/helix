@@ -6,6 +6,8 @@ import FormGroup from '@mui/material/FormGroup'
 import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import Alert from '@mui/material/Alert'
+import CircularProgress from '@mui/material/CircularProgress'
 import ModelPicker from '../create/ModelPicker'
 import ProviderEndpointPicker from '../create/ProviderEndpointPicker'
 import {
@@ -23,6 +25,8 @@ interface AppSettingsProps {
   showErrors?: boolean,
   isAdmin?: boolean,
   providerEndpoints?: TypesProviderEndpoint[],
+  onProviderModelsLoaded?: (provider: string) => void,
+  isSafeToSave?: boolean,
 }
 
 const AppSettings: FC<AppSettingsProps> = ({
@@ -33,6 +37,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   showErrors = true,
   isAdmin = false,
   providerEndpoints = [],
+  onProviderModelsLoaded,
+  isSafeToSave = true,
 }) => {
   // Local state for form values
   const [name, setName] = useState(app.name || '')
@@ -43,6 +49,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
   
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -135,6 +142,11 @@ const AppSettings: FC<AppSettingsProps> = ({
       setProvider(value)
     }
     
+    // Don't auto-save while models are loading
+    if (isLoadingModels) {
+      return
+    }
+    
     // Create updated state and call onUpdate immediately for pickers
     const updatedApp: IAppFlatState = {
       ...app,
@@ -179,6 +191,16 @@ const AppSettings: FC<AppSettingsProps> = ({
         label="Description"
         helperText="Enter a short description of what this app does"
       />
+      {!isSafeToSave && (
+        <Alert 
+          severity="info" 
+          sx={{ mb: 3, display: 'flex', alignItems: 'center' }}
+        >
+          <CircularProgress size={20} sx={{ mr: 1 }} /> 
+          Loading model data...
+        </Alert>
+      )}
+      
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Provider</Typography>
         <ProviderEndpointPicker
@@ -198,6 +220,8 @@ const AppSettings: FC<AppSettingsProps> = ({
           onSetModel={(newModel) => {
             handlePickerChange('model', newModel)
           }}
+          onLoadingStateChange={setIsLoadingModels}
+          onProviderModelsLoaded={onProviderModelsLoaded}
         />
       </Box>
       <TextField
