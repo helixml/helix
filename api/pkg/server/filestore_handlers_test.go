@@ -179,3 +179,23 @@ func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_AppPath_Unauthorized
 	suite.NoError(err)
 	suite.False(authorized)
 }
+
+// TestIsFilestoreRouteAuthorized_AppPath_AdminAccess tests that an admin user
+// gets access to app files regardless of other permissions
+func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_AppPath_AdminAccess() {
+	// Create a request with an app path
+	req := httptest.NewRequest("GET", "/apps/app_123/file.pdf", nil)
+
+	// Set up admin user context
+	adminCtx := setRequestUser(context.Background(), types.User{
+		ID:       "admin_user_id",
+		Email:    "admin@email.com",
+		FullName: "Admin User",
+		Admin:    true,
+	})
+	req = req.WithContext(adminCtx)
+
+	authorized, err := suite.server.isFilestoreRouteAuthorized(req)
+	suite.NoError(err)
+	suite.True(authorized, "Admin user should have access to all files")
+}
