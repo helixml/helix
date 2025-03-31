@@ -1,10 +1,13 @@
 import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import throttle from 'lodash/throttle'
+import debounce from 'lodash/debounce'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+import Drawer from '@mui/material/Drawer'
+import Badge from '@mui/material/Badge'
 
 import SendIcon from '@mui/icons-material/Send'
 import ThumbUpOnIcon from '@mui/icons-material/ThumbUp'
@@ -83,6 +86,497 @@ const SCROLL_LOCK_DELAY = 500 // ms
 const VIEWPORT_BUFFER = 2 // Increased from 1 to 2 to keep more blocks rendered
 const MIN_SCROLL_DISTANCE = 200 // pixels
 
+// Modify InputField to fully isolate its state
+const InputField: FC<{
+  initialValue: string;
+  onSubmit: (value: string) => void;
+  disabled?: boolean;
+  label: string;
+  isBigScreen: boolean;
+  activeAssistantAvatar?: string;
+  themeConfig: any;
+  theme: any;
+  loading: boolean;
+  inputRef: React.MutableRefObject<HTMLTextAreaElement | undefined>;
+  appID?: string | null;
+  onInsertText: (text: string) => void;
+}> = React.memo(({
+  initialValue,
+  onSubmit,
+  disabled,
+  label,
+  isBigScreen,
+  activeAssistantAvatar,
+  themeConfig,
+  theme,
+  loading,
+  inputRef,
+  appID,
+  onInsertText,
+}) => {
+  // Use completely internal state - don't propagate changes back up to parent
+  const [localValue, setLocalValue] = useState(initialValue);
+
+  // Update local value when initialValue changes from parent
+  useEffect(() => {
+    setLocalValue(initialValue);
+  }, [initialValue]);
+
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = event.target.value;
+    // Only update local state, no callback to parent
+    performance.mark('input-start');
+    setLocalValue(newValue);
+    
+    // Measure typing performance
+    requestAnimationFrame(() => {
+      try {
+        performance.mark('input-end');
+        // Check if marks exist before measuring
+        if (performance.getEntriesByName('input-start', 'mark').length > 0 &&
+            performance.getEntriesByName('input-end', 'mark').length > 0) {
+          performance.measure('input-latency', 'input-start', 'input-end');
+          const latency = performance.getEntriesByName('input-latency').pop()?.duration;
+          console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms`);
+        }
+        // Clean up
+        performance.clearMarks('input-start');
+        performance.clearMarks('input-end');
+        performance.clearMeasures('input-latency');
+      } catch (e) {
+        console.warn('Error in performance measurement:', e);
+      }
+    });
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      if (event.shiftKey) {
+        setLocalValue(current => current + "\n");
+      } else {
+        if (!loading) {
+          const currentValue = localValue;
+          // Clear input field immediately for better user experience
+          setLocalValue('');
+          // Then call the parent's submission handler
+          onSubmit(currentValue);
+        }
+      }
+      event.preventDefault();
+    }
+  };
+
+  return (
+    <TextField
+      id="textEntry"
+      fullWidth
+      inputRef={inputRef}
+      autoFocus={true}
+      label={label + " (shift+enter to add a newline)"}
+      value={localValue}
+      disabled={disabled}
+      onChange={handleInputChange}
+      name="ai_submit"
+      multiline={true}
+      onKeyDown={handleKeyDown}
+      InputProps={{
+        startAdornment: isBigScreen && (
+          activeAssistantAvatar ? (
+            <Avatar
+              src={activeAssistantAvatar}
+              sx={{
+                width: '30px',
+                height: '30px',
+                mr: 1,
+              }}
+            />
+          ) : null
+        ),
+        endAdornment: (
+          <InputAdornment position="end">
+            <IconButton
+              id="send-button"
+              aria-label="send"
+              disabled={disabled}
+              onClick={() => {
+                const currentValue = localValue;
+                setLocalValue('');
+                onSubmit(currentValue);
+              }}
+              sx={{
+                color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+              }}
+            >
+              <SendIcon />
+            </IconButton>
+          </InputAdornment>
+        ),
+      }}
+    />
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function to prevent unnecessary re-renders
+  return (
+    prevProps.initialValue === nextProps.initialValue &&
+    prevProps.disabled === nextProps.disabled &&
+    prevProps.loading === nextProps.loading
+  );
+});
+
+// Define interface for MemoizedInteraction props
+interface MemoizedInteractionProps {
+  interaction: any; // Use proper type from your app
+  session: any;
+  serverConfig: any;
+  highlightAllFiles: boolean;
+  retryFinetuneErrors: () => void;
+  onReloadSession: () => Promise<any>;
+  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
+  onAddDocuments?: () => void;
+  onRestart?: () => void;
+  onFilterDocument?: (docId: string) => void;
+  headerButtons?: React.ReactNode;
+  children?: React.ReactNode;
+  isLastInteraction: boolean;
+  isOwner: boolean;
+  isAdmin: boolean;
+  scrollToBottom?: () => void;
+  appID?: string | null;
+  onHandleFilterDocument?: (docId: string) => void;
+  session_id: string;
+  hasSubscription: boolean;
+}
+
+// Create a memoized version of the Interaction component
+const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
+  const isLive = props.isLastInteraction && 
+                !props.interaction.finished && 
+                props.interaction.state !== INTERACTION_STATE_EDITING &&
+                props.interaction.state !== INTERACTION_STATE_COMPLETE &&
+                props.interaction.state !== INTERACTION_STATE_ERROR;
+
+  return (
+    <Interaction
+      key={props.interaction.id}
+      serverConfig={props.serverConfig}
+      interaction={props.interaction}
+      session={props.session}
+      highlightAllFiles={props.highlightAllFiles}
+      retryFinetuneErrors={props.retryFinetuneErrors}
+      onReloadSession={props.onReloadSession}
+      onClone={props.onClone}
+      onAddDocuments={props.onAddDocuments}
+      onRestart={props.onRestart}
+      onFilterDocument={props.onFilterDocument}
+      headerButtons={props.headerButtons}
+    >
+      {isLive && (props.isOwner || props.isAdmin) && (
+        <InteractionLiveStream
+          session_id={props.session_id}
+          interaction={props.interaction}
+          session={props.session}
+          serverConfig={props.serverConfig}
+          hasSubscription={props.hasSubscription}
+          onMessageUpdate={props.isLastInteraction ? props.scrollToBottom : undefined}
+          onFilterDocument={props.appID ? props.onHandleFilterDocument : undefined}
+          useInstantScroll={true}
+        />
+      )}
+      {props.children}
+    </Interaction>
+  );
+}, (prevProps, nextProps) => {
+  // More thorough check for interaction changes, including completion state and content
+  const interactionChanged = 
+    // Basic identity/state checks
+    prevProps.interaction.id !== nextProps.interaction.id ||
+    prevProps.interaction.state !== nextProps.interaction.state ||
+    prevProps.interaction.finished !== nextProps.interaction.finished ||
+    
+    // Check output length in case content was added without state change
+    (prevProps.interaction.output?.length !== nextProps.interaction.output?.length) ||
+    
+    // Check for last_stream_pointer changes (indicates streaming position)
+    prevProps.interaction.last_stream_pointer !== nextProps.interaction.last_stream_pointer ||
+    
+    // Check for differences in error state
+    prevProps.interaction.error !== nextProps.interaction.error;
+  
+  // Use more efficient checks for document IDs (length and spot-check first/last)
+  const documentIdsChanged = 
+    !prevProps.session.document_ids || !nextProps.session.document_ids ||
+    prevProps.session.document_ids.length !== nextProps.session.document_ids.length ||
+    (prevProps.session.document_ids.length > 0 && 
+     nextProps.session.document_ids.length > 0 && 
+     prevProps.session.document_ids[0] !== nextProps.session.document_ids[0]) ||
+    (prevProps.session.document_ids.length > 1 && 
+     nextProps.session.document_ids.length > 1 && 
+     prevProps.session.document_ids[prevProps.session.document_ids.length - 1] !== 
+     nextProps.session.document_ids[nextProps.session.document_ids.length - 1]);
+  
+  // Check if RAG results changed by comparing length and most recent item's id/timestamp
+  // This avoids expensive JSON.stringify operations
+  const ragResultsChanged = 
+    !prevProps.session.rag_results || !nextProps.session.rag_results ||
+    prevProps.session.rag_results.length !== nextProps.session.rag_results.length ||
+    (prevProps.session.rag_results.length > 0 && nextProps.session.rag_results.length > 0 && 
+     (prevProps.session.rag_results[0].id !== nextProps.session.rag_results[0].id ||
+      prevProps.session.rag_results[0].timestamp !== nextProps.session.rag_results[0].timestamp));
+  
+  // Check if this was the last interaction and we're streaming
+  const isLastInteraction = prevProps.interaction === 
+    prevProps.session.interactions[prevProps.session.interactions.length - 1];
+  
+  // Always re-render the last interaction when it's not finished yet
+  // This ensures streaming updates are properly displayed
+  const lastInteractionNotFinished = 
+    isLastInteraction && !nextProps.interaction.finished;
+  
+  // Log when state changes to help debug re-render issues
+  if (prevProps.interaction.state !== nextProps.interaction.state) {
+    console.log(
+      `Interaction state changed from ${prevProps.interaction.state} to ${nextProps.interaction.state}`,
+      `interactionChanged=${interactionChanged}`,
+      `shouldSkipRender=${!interactionChanged && 
+        !documentIdsChanged && 
+        !ragResultsChanged && 
+        !lastInteractionNotFinished &&
+        prevProps.highlightAllFiles === nextProps.highlightAllFiles}`
+    );
+  }
+  
+  // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
+  return !interactionChanged && 
+         !documentIdsChanged && 
+         !ragResultsChanged && 
+         !lastInteractionNotFinished &&
+         prevProps.highlightAllFiles === nextProps.highlightAllFiles;
+});
+
+// Performance monitoring component
+const PerformanceMonitor: FC<{
+  sessionId: string;
+  interactionCount: number;
+}> = ({ sessionId, interactionCount }) => {
+  const [open, setOpen] = useState(false);
+  const [metrics, setMetrics] = useState<{
+    inputLatencies: number[];
+    memoryUsage?: number;
+    domNodes?: number;
+    rerenders?: number;
+  }>({
+    inputLatencies: [],
+  });
+
+  const toggleDrawer = () => {
+    setOpen(!open);
+  };
+
+  const resetMetrics = () => {
+    setMetrics({
+      inputLatencies: [],
+    });
+  };
+
+  // Collect and update metrics
+  useEffect(() => {
+    const originalMeasure = performance.measure;
+    // Explicitly define types to fix TypeScript errors
+    performance.measure = function(
+      measureName: string,
+      startOrMeasureOptions?: string | PerformanceMeasureOptions,
+      endMark?: string
+    ): PerformanceMeasure {
+      try {
+        // Check if the marks exist before measuring
+        if (typeof startOrMeasureOptions === 'string' && typeof endMark === 'string') {
+          const startMark = startOrMeasureOptions;
+          if (
+            performance.getEntriesByName(startMark, 'mark').length === 0 ||
+            performance.getEntriesByName(endMark, 'mark').length === 0
+          ) {
+            console.warn(`Cannot measure: mark(s) do not exist - start: ${startMark}, end: ${endMark}`);
+            // Return a dummy measure to satisfy type requirements
+            return originalMeasure.call(performance, measureName);
+          }
+        }
+        
+        const result = originalMeasure.call(performance, measureName, startOrMeasureOptions, endMark);
+        
+        if (measureName === 'input-latency') {
+          const entry = performance.getEntriesByName('input-latency').pop();
+          if (entry) {
+            setMetrics(prev => ({
+              ...prev,
+              inputLatencies: [...prev.inputLatencies, entry.duration].slice(-20), // Keep last 20
+            }));
+          }
+        }
+        return result;
+      } catch (e) {
+        console.warn('Error in performance.measure override:', e);
+        // Return a dummy measure to satisfy type requirements
+        return originalMeasure.call(performance, measureName);
+      }
+    };
+
+    // Collect memory usage in Chrome
+    const memoryTimer = setInterval(() => {
+      if (window.performance && (performance as any).memory) {
+        setMetrics(prev => ({
+          ...prev,
+          memoryUsage: Math.round((performance as any).memory.usedJSHeapSize / (1024 * 1024)),
+          domNodes: document.querySelectorAll('*').length
+        }));
+      }
+    }, 2000);
+
+    return () => {
+      performance.measure = originalMeasure;
+      clearInterval(memoryTimer);
+    };
+  }, []);
+
+  // Calculate average latency
+  const avgLatency = metrics.inputLatencies.length > 0
+    ? metrics.inputLatencies.reduce((a, b) => a + b, 0) / metrics.inputLatencies.length
+    : 0;
+
+  // Format latency for badge display
+  const formatLatencyForBadge = (latency: number): string => {
+    if (latency < 1000) {
+      return Math.round(latency).toString();
+    } else {
+      return `${(latency / 1000).toFixed(1)}s`;
+    }
+  };
+
+  // Adjust color thresholds for higher latency values
+  const getLatencyColor = (latency: number): string => {
+    if (latency < 100) return '#4caf50'; // Green for good (<100ms)
+    if (latency < 200) return '#ff9800'; // Orange for medium (100-200ms)
+    return '#f44336'; // Red for poor (>200ms)
+  };
+
+  return (
+    <>
+      <Badge 
+        badgeContent={formatLatencyForBadge(avgLatency)} 
+        color="default"
+        max={999}
+        showZero
+        sx={{ 
+          position: 'fixed', 
+          bottom: '80px', 
+          right: '20px', 
+          cursor: 'pointer',
+          '.MuiBadge-badge': {
+            color: getLatencyColor(avgLatency),
+            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            fontSize: '0.65rem',
+            minWidth: '32px',
+            height: '18px',
+            padding: '0 6px',
+          }
+        }}
+        onClick={toggleDrawer}
+      >
+        <Button 
+          variant="text" 
+          size="small"
+          sx={{ 
+            minWidth: '10px', 
+            color: 'text.secondary',
+            opacity: 0.6,
+            textTransform: 'none',
+            padding: '2px 8px',
+            fontSize: '0.7rem',
+            '&:hover': {
+              opacity: 1,
+              backgroundColor: 'rgba(0, 0, 0, 0.04)'
+            }
+          }}
+        >
+          perf
+        </Button>
+      </Badge>
+      <Drawer
+        anchor="right"
+        open={open}
+        onClose={toggleDrawer}
+      >
+        <Box sx={{ width: 300, p: 2 }}>
+          <Typography variant="h6">Performance Metrics</Typography>
+          <Typography variant="body2">Session ID: {sessionId}</Typography>
+          <Typography variant="body2">Interactions: {interactionCount}</Typography>
+          <Typography variant="body2">Avg Input Latency: {avgLatency.toFixed(2)}ms</Typography>
+          
+          {metrics.memoryUsage && (
+            <Typography variant="body2">Memory Usage: {metrics.memoryUsage}MB</Typography>
+          )}
+          
+          {metrics.domNodes && (
+            <Typography variant="body2">DOM Nodes: {metrics.domNodes}</Typography>
+          )}
+          
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption">Recent Input Latencies (ms):</Typography>
+            <Box sx={{ 
+              display: 'flex', 
+              height: '50px',
+              borderBottom: '1px solid #ccc',
+              alignItems: 'flex-end'
+            }}>
+              {metrics.inputLatencies.map((latency, i) => {
+                const barWidth = `${100 / Math.max(20, metrics.inputLatencies.length)}%`;
+                return (
+                  <Tooltip 
+                    key={i}
+                    title={`${latency.toFixed(1)}ms`}
+                    placement="top"
+                    arrow
+                  >
+                    <Box 
+                      sx={{
+                        width: barWidth,
+                        height: `${Math.min(100, (latency / 5))}%`,
+                        backgroundColor: latency < 100 ? 'green' : latency < 200 ? 'orange' : 'red',
+                        mx: '1px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                  </Tooltip>
+                );
+              })}
+            </Box>
+          </Box>
+          
+          <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+            <Button 
+              variant="outlined" 
+              size="small"
+              onClick={resetMetrics}
+            >
+              Reset Metrics
+            </Button>
+            <Button 
+              variant="outlined" 
+              size="small"
+              onClick={() => {
+                const fixtureParams = new URLSearchParams(window.location.search);
+                fixtureParams.set('fixturemode', 'true');
+                window.location.search = fixtureParams.toString();
+              }}
+            >
+              Load Fixture
+            </Button>
+          </Box>
+        </Box>
+      </Drawer>
+    </>
+  );
+};
+
 const Session: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -135,21 +629,40 @@ const Session: FC = () => {
   const scrollPositionRef = useRef<number>(0)
 
   // Function to save scroll position
-  const saveScrollPosition = useCallback(() => {
-    if (containerRef.current) {
-      scrollPositionRef.current = containerRef.current.scrollTop;
+  const saveScrollPosition = useCallback((shouldPreserveBottom = false) => {
+    if (!containerRef.current) return;
+    
+    // Save if we were at the bottom (within 20 pixels)
+    const container = containerRef.current;
+    const isNearBottom = 
+      container.scrollHeight - container.scrollTop - container.clientHeight < 20;
+    
+    // Store both the position and whether we were at the bottom
+    scrollPositionRef.current = container.scrollTop;
+    
+    // Store a special flag if we should scroll to bottom when restoring
+    if (shouldPreserveBottom || isNearBottom) {
+      // Use a special value to indicate "scroll to bottom"
+      scrollPositionRef.current = -1;
     }
   }, []);
 
   // Function to restore scroll position
   const restoreScrollPosition = useCallback(() => {
-    if (containerRef.current && scrollPositionRef.current > 0) {
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = scrollPositionRef.current;
-        }
-      });
-    }
+    if (!containerRef.current) return;
+    
+    requestAnimationFrame(() => {
+      if (!containerRef.current) return;
+      
+      // If our saved position is our special "bottom" indicator
+      if (scrollPositionRef.current === -1) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      } 
+      // Otherwise restore to the saved position if it's valid
+      else if (scrollPositionRef.current > 0) {
+        containerRef.current.scrollTop = scrollPositionRef.current;
+      }
+    });
   }, []);
 
   // Add effect to handle auto-scrolling when session changes
@@ -169,7 +682,7 @@ const Session: FC = () => {
 
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
+        behavior: 'auto' // Changed from 'smooth' to prevent jumpiness
       })
     }, 200) // Small timeout to ensure content is rendered
 
@@ -202,10 +715,13 @@ const Session: FC = () => {
     if (!session.data?.interactions || session.data.interactions.length === 0) return
 
     const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
-    const isCurrentlyStreaming = !lastInteraction.finished && lastInteraction.state !== INTERACTION_STATE_EDITING
+    const shouldBeStreaming = !lastInteraction.finished && 
+                             lastInteraction.state !== INTERACTION_STATE_EDITING &&
+                             lastInteraction.state !== INTERACTION_STATE_COMPLETE &&
+                             lastInteraction.state !== INTERACTION_STATE_ERROR
 
     // Only update streaming state
-    setIsStreaming(isCurrentlyStreaming)
+    setIsStreaming(shouldBeStreaming)
     
     // Don't change block structure here - maintain consistency
   }, [session.data?.interactions])
@@ -288,8 +804,19 @@ const Session: FC = () => {
     initializeVisibleBlocks()
   }, [session.data?.id]) // Only run when session ID changes
 
+  // Debounce the input change handler to prevent re-renders on every keystroke
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(event.target.value)
+    performance.mark('input-start');
+    setInputValue(event.target.value);
+    // Measure typing performance
+    requestAnimationFrame(() => {
+      performance.mark('input-end');
+      performance.measure('input-latency', 'input-start', 'input-end');
+      const latency = performance.getEntriesByName('input-latency').pop()?.duration;
+      console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session.data?.interactions?.length || 0}`);
+      performance.clearMarks();
+      performance.clearMeasures();
+    });
   }
 
   const handleFeedbackChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -319,9 +846,9 @@ const Session: FC = () => {
   ])
 
   // Create a wrapper for session.reload to preserve scroll position
-  const safeReloadSession = useCallback(async () => {
-    // Save current scroll position
-    saveScrollPosition();
+  const safeReloadSession = useCallback(async (shouldScrollToBottom = false) => {
+    // Save current scroll position, with flag for preserving bottom if requested
+    saveScrollPosition(shouldScrollToBottom);
     
     // Call the actual reload
     const result = await session.reload();
@@ -331,6 +858,85 @@ const Session: FC = () => {
     
     return result;
   }, [session, saveScrollPosition, restoreScrollPosition]);
+
+  // Function to scroll to bottom immediately without animation to prevent jumpiness
+  const scrollToBottom = useCallback(() => {
+    if (!containerRef.current) return
+
+    const now = Date.now()
+    const timeSinceLastScroll = now - lastScrollTimeRef.current
+    const SCROLL_DEBOUNCE = 200
+
+    // If this is our first scroll or it's been longer than our debounce period
+    if (lastScrollTimeRef.current === 0 || timeSinceLastScroll >= SCROLL_DEBOUNCE) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
+      })
+      lastScrollTimeRef.current = now
+    } else {
+      // Wait for the remaining time before scrolling
+      const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
+      setTimeout(() => {
+        if (!containerRef.current) return
+        containerRef.current.scrollTo({
+          top: containerRef.current.scrollHeight,
+          behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
+        })
+        lastScrollTimeRef.current = Date.now()
+      }, waitTime)
+    }
+  }, [])
+
+  // Add effect to handle final scroll when streaming ends
+  useEffect(() => {
+    // Only trigger when streaming changes from true to false
+    if (isStreaming) return
+
+    // Reset the scroll timer when streaming ends
+    lastScrollTimeRef.current = 0
+
+    // Wait for the bottom bar and final content to render
+    const timer = setTimeout(() => {
+      if (!containerRef.current) return
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
+      })
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [isStreaming])
+
+  // Add new effect for handling streaming state transitions
+  useEffect(() => {
+    if (!isStreaming && session.data?.interactions) {
+      // When streaming ends, ensure we have continuous blocks
+      setVisibleBlocks(prev => {
+        const totalInteractions = session.data!.interactions.length
+        const lastBlock = prev[prev.length - 1]
+
+        if (!lastBlock) {
+          return [{
+            startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
+            endIndex: totalInteractions,
+            isGhost: false
+          }]
+        }
+
+        // Ensure the last block extends to include the new interaction
+        return prev.map((block, index) => {
+          if (index === prev.length - 1) {
+            return {
+              ...block,
+              endIndex: totalInteractions
+            }
+          }
+          return block
+        })
+      })
+    }
+  }, [isStreaming, session.data?.interactions])
 
   const onSend = useCallback(async (prompt: string) => {
     if (!session.data) return
@@ -346,6 +952,9 @@ const Session: FC = () => {
       const ragSourceID = session.data.config.rag_source_data_entity_id || ''
 
       setInputValue("")
+      // Scroll to bottom immediately after submitting to show progress
+      scrollToBottom()
+      
       newSession = await NewInference({
         message: prompt,
         appId: appID,
@@ -362,16 +971,28 @@ const Session: FC = () => {
       formData.set('model_name', session.data.model_name)
 
       setInputValue("")
+      // Scroll to bottom immediately after submitting to show progress
+      scrollToBottom()
+      
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
 
     if (!newSession) return
-    await safeReloadSession()
+    
+    // After reloading the session, force scroll to bottom by passing true
+    await safeReloadSession(true)
+    
+    // Give the DOM time to update, then scroll to bottom again
+    setTimeout(() => {
+      scrollToBottom()
+    }, 100)
 
   }, [
     session.data,
     session.reload,
     NewInference,
+    scrollToBottom,
+    safeReloadSession,
   ])
 
   const onRestart = useCallback(() => {
@@ -629,12 +1250,22 @@ const Session: FC = () => {
     if (!session.data) return null;
     
     // Create a stable reference for interactions
-    const interactionIds = session.data.interactions.map(i => i.id).join(',');
+    const interactionStateIds = session.data.interactions.map(i => `${i.id}:${i.state}:${i.finished}`).join(',');
     return {
       ...session.data,
-      interactionIds, // add this to use for memoization
+      interactionIds: interactionStateIds, // add this to use for memoization
     }
   }, [session.data]);
+
+  // Memoize the interactions list to prevent unnecessary re-renders when typing
+  const memoizedInteractions = useMemo(() => {
+    return session.data?.interactions || [];
+  }, [
+    session.data?.id, 
+    session.data?.interactions?.length, 
+    // Add additional dependency to force update when any interaction state changes
+    session.data?.interactions?.map(i => `${i.id}:${i.state}:${i.finished}`).join(',')
+  ]);
 
   // Modify the container styles
   const containerStyles = useMemo(() => ({
@@ -733,85 +1364,6 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Fix scrollToBottom which keeps getting changed incorrectly
-  const scrollToBottom = useCallback(() => {
-    if (!containerRef.current) return
-
-    const now = Date.now()
-    const timeSinceLastScroll = now - lastScrollTimeRef.current
-    const SCROLL_DEBOUNCE = 200
-
-    // If this is our first scroll or it's been longer than our debounce period
-    if (lastScrollTimeRef.current === 0 || timeSinceLastScroll >= SCROLL_DEBOUNCE) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
-      })
-      lastScrollTimeRef.current = now
-    } else {
-      // Wait for the remaining time before scrolling
-      const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
-      setTimeout(() => {
-        if (!containerRef.current) return
-        containerRef.current.scrollTo({
-          top: containerRef.current.scrollHeight,
-          behavior: 'smooth'
-        })
-        lastScrollTimeRef.current = Date.now()
-      }, waitTime)
-    }
-  }, [])
-
-  // Add effect to handle final scroll when streaming ends
-  useEffect(() => {
-    // Only trigger when streaming changes from true to false
-    if (isStreaming) return
-
-    // Reset the scroll timer when streaming ends
-    lastScrollTimeRef.current = 0
-
-    // Wait for the bottom bar and final content to render
-    const timer = setTimeout(() => {
-      if (!containerRef.current) return
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
-      })
-    }, 200)
-
-    return () => clearTimeout(timer)
-  }, [isStreaming])
-
-  // Add new effect for handling streaming state transitions
-  useEffect(() => {
-    if (!isStreaming && session.data?.interactions) {
-      // When streaming ends, ensure we have continuous blocks
-      setVisibleBlocks(prev => {
-        const totalInteractions = session.data!.interactions.length
-        const lastBlock = prev[prev.length - 1]
-
-        if (!lastBlock) {
-          return [{
-            startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
-            endIndex: totalInteractions,
-            isGhost: false
-          }]
-        }
-
-        // Ensure the last block extends to include the new interaction
-        return prev.map((block, index) => {
-          if (index === prev.length - 1) {
-            return {
-              ...block,
-              endIndex: totalInteractions
-            }
-          }
-          return block
-        })
-      })
-    }
-  }, [isStreaming, session.data?.interactions])
-
   // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
@@ -820,7 +1372,7 @@ const Session: FC = () => {
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
     
     return (
-      <Container maxWidth="lg" sx={{ py: 2 }}>
+      <Container maxWidth="lg" sx={{ py: 2, pb: 20 }}>
         {hasMoreAbove && (
           <div
             id="virtual-space-above"
@@ -852,7 +1404,7 @@ const Session: FC = () => {
             )
           }
 
-          const interactions = sessionData.interactions.slice(block.startIndex, block.endIndex)
+          const blockInteractions = memoizedInteractions.slice(block.startIndex, block.endIndex)
 
           return (
             <div
@@ -860,14 +1412,13 @@ const Session: FC = () => {
               id={`block-${key}`}
               ref={el => blockRefs.current[key] = el}
             >
-              {interactions.map((interaction, index) => {
+              {blockInteractions.map((interaction, index) => {
                 const absoluteIndex = block.startIndex + index
-                const isLastInteraction = absoluteIndex === sessionData.interactions.length - 1
-                const isLive = isLastInteraction && !interaction.finished && interaction.state !== INTERACTION_STATE_EDITING
+                const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
                 const isOwner = account.user?.id === sessionData.owner
 
                 return (
-                  <Interaction
+                  <MemoizedInteraction
                     key={interaction.id}
                     serverConfig={account.serverConfig}
                     interaction={interaction}
@@ -893,19 +1444,15 @@ const Session: FC = () => {
                         </IconButton>
                       </Tooltip>
                     ) : undefined}
-                  >
-                    {isLive && (isOwner || account.admin) && (
-                      <InteractionLiveStream
-                        session_id={sessionData.id}
-                        interaction={interaction}
-                        session={sessionData}
-                        serverConfig={account.serverConfig}
-                        hasSubscription={account.userConfig.stripe_subscription_active || false}
-                        onMessageUpdate={isLastInteraction ? scrollToBottom : undefined}
-                        onFilterDocument={appID ? onHandleFilterDocument : undefined}
-                      />
-                    )}
-                  </Interaction>
+                    isLastInteraction={isLastInteraction}
+                    isOwner={isOwner}
+                    isAdmin={account.admin}
+                    scrollToBottom={scrollToBottom}
+                    appID={appID}
+                    onHandleFilterDocument={onHandleFilterDocument}
+                    session_id={sessionData.id}
+                    hasSubscription={account.userConfig.stripe_subscription_active || false}
+                  />
                 )
               })}
             </div>
@@ -937,6 +1484,7 @@ const Session: FC = () => {
     scrollToBottom,
     onHandleFilterDocument,
     appID,
+    memoizedInteractions,
   ])
 
   useEffect(() => {
@@ -1305,55 +1853,23 @@ const Session: FC = () => {
                       textAreaRef={textFieldRef}
                       onInsertText={handleInsertText}
                     />
-                    <TextField
-                      id="textEntry"
-                      fullWidth
-                      inputRef={textFieldRef}
-                      autoFocus={true}
-                      label={(
-                        (
-                          session.data?.type == SESSION_TYPE_TEXT ?
-                            session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
-                            'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                        ) + " (shift+enter to add a newline)"
-                      )}
-                      value={inputValue}
+                    <InputField
+                      initialValue={inputValue}
+                      onSubmit={onSend}
                       disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                      onChange={handleInputChange}
-                      name="ai_submit"
-                      multiline={true}
-                      onKeyDown={handleKeyDown}
-                      InputProps={{
-                        startAdornment: isBigScreen && (
-                          activeAssistant ? (
-                            activeAssistantAvatar ? (
-                              <Avatar
-                                src={activeAssistantAvatar}
-                                sx={{
-                                  width: '30px',
-                                  height: '30px',
-                                  mr: 1,
-                                }}
-                              />
-                            ) : null
-                          ) : null
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              id="send-button"
-                              aria-label="send"
-                              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                              onClick={() => onSend(inputValue)}
-                              sx={{
-                                color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                              }}
-                            >
-                              <SendIcon />
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
+                      label={
+                        session.data?.type == SESSION_TYPE_TEXT ?
+                          session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
+                          'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                      }
+                      isBigScreen={isBigScreen}
+                      activeAssistantAvatar={activeAssistantAvatar}
+                      themeConfig={themeConfig}
+                      theme={theme}
+                      loading={loading}
+                      inputRef={textFieldRef}
+                      appID={appID}
+                      onInsertText={handleInsertText}
                     />
                   </Cell>
                   {isBigScreen && (
@@ -1601,6 +2117,14 @@ const Session: FC = () => {
             )}
           </Box>
         </Window>
+      )}
+
+      {/* Add performance monitor in development mode */}
+      {process.env.NODE_ENV !== 'production' && session.data && (
+        <PerformanceMonitor 
+          sessionId={session.data.id} 
+          interactionCount={session.data.interactions?.length || 0} 
+        />
       )}
     </Box>
   )

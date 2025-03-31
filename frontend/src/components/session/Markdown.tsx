@@ -80,6 +80,7 @@ export interface CitationData {
     citationNumber?: number;
     validationStatus?: 'exact' | 'fuzzy' | 'failed';
     validationMessage?: string;
+    showQuotes: boolean;
   }[];
   isStreaming?: boolean;
 }
@@ -186,7 +187,8 @@ export class MessageProcessor {
             snippet,
             filename,
             fileUrl,
-            isPartial: true
+            isPartial: true,
+            showQuotes: false
           });
         } else {
           // If we can't extract details, fall back to a generic loading state
@@ -195,7 +197,8 @@ export class MessageProcessor {
             snippet: "Loading source information...",
             filename: "Loading...",
             fileUrl: "#",
-            isPartial: true
+            isPartial: true,
+            showQuotes: false
           });
         }
         
@@ -275,7 +278,8 @@ export class MessageProcessor {
           snippet,
           filename,
           fileUrl,
-          isPartial: false
+          isPartial: false,
+          showQuotes: false
         });
       }
     }
@@ -503,7 +507,8 @@ ${content}
         this.citationData.excerpts[i] = {
           ...excerpt,
           validationStatus: 'failed',
-          validationMessage: 'No matching source document found in RAG results'
+          validationMessage: 'No matching source document found in RAG results',
+          showQuotes: false
         };
         continue;
       }
@@ -512,6 +517,7 @@ ${content}
       let bestValidationStatus: 'exact' | 'fuzzy' | 'failed' = 'failed';
       let bestValidationMessage = 'Citation not verified: text not found in source';
       let bestSimilarity = 0;
+      let showQuotes = false;
       
       // Clean the citation text for comparison
       const cleanSnippet = this.normalizeText(excerpt.snippet);
@@ -526,6 +532,7 @@ ${content}
           // Exact match found
           bestValidationStatus = 'exact';
           bestValidationMessage = 'Citation verified: exact match found in source';
+          showQuotes = true;
           break; // Stop searching as we found an exact match
         }
         
@@ -551,6 +558,7 @@ ${content}
           if (combinedSimilarity > 0.6) {
             bestValidationStatus = 'fuzzy';
             bestValidationMessage = 'Citation partially verified: similar text found in source';
+            showQuotes = false; // Don't show quotes for fuzzy matches
           }
         }
       }
@@ -559,7 +567,8 @@ ${content}
       this.citationData.excerpts[i] = {
         ...excerpt,
         validationStatus: bestValidationStatus,
-        validationMessage: bestValidationMessage
+        validationMessage: bestValidationMessage,
+        showQuotes: showQuotes
       };
     }
   }

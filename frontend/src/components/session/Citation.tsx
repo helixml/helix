@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Box, Button, Container, Tooltip } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import { FilterAlt, CheckCircle, Warning, Cancel } from '@mui/icons-material';
@@ -73,7 +73,7 @@ const Citation: React.FC<CitationProps> = ({
     };
 
     // Helper function to create a unique key for a RAG result (similar to backend logic)
-    const createUniqueRagKey = (ragResult: any): string => {
+    const createUniqueRagKey = useCallback((ragResult: any): string => {
         let key = `${ragResult.document_id}-${ragResult.content.substring(0, 50).replace(/\s+/g, '-')}`;
         
         // Add chunk identification if available in metadata
@@ -86,12 +86,22 @@ const Citation: React.FC<CitationProps> = ({
         }
         
         return key;
-    };
+    }, []);
 
-    // Find the best matching chunk for a given citation excerpt
-    const findBestMatchingChunk = (excerpt: Excerpt, ragResults: any[]): any | null => {
+    // Memoize the normalize text function to avoid recreating it on every render
+    const normalizeText = useCallback((text: string): string => {
+        return text
+            .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
+            .replace(/#/g, ' ')       // Replace # with spaces
+            .replace(/\s+/g, ' ')     // Normalize all whitespace
+            .toLowerCase()
+            .trim();
+    }, []);
+
+    // Find the best matching chunk for a given citation excerpt - memoize this expensive operation
+    const findBestMatchingChunk = useCallback((excerpt: Excerpt, results: any[]): any | null => {
         // Filter by document ID first
-        const matchingResults = ragResults.filter(r => r.document_id === excerpt.docId);
+        const matchingResults = results.filter(r => r.document_id === excerpt.docId);
         
         if (matchingResults.length === 0) {
             return null;
@@ -102,16 +112,6 @@ const Citation: React.FC<CitationProps> = ({
         }
         
         // For multiple chunks, find the best match based on content similarity
-        // Normalize both texts for comparison
-        const normalizeText = (text: string): string => {
-            return text
-                .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
-                .replace(/#/g, ' ')       // Replace # with spaces
-                .replace(/\s+/g, ' ')     // Normalize all whitespace
-                .toLowerCase()
-                .trim();
-        };
-        
         const excerptText = normalizeText(excerpt.snippet);
         
         // First try exact match
@@ -149,7 +149,7 @@ const Citation: React.FC<CitationProps> = ({
         }
         
         return bestMatch;
-    };
+    }, [normalizeText]);
 
     return (
         <Box
@@ -380,6 +380,7 @@ const Citation: React.FC<CitationProps> = ({
                                     position: 'relative',
                                     marginRight: '0.15em',
                                     top: '0.1em',
+                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
                                 }}
                             >
                                 {'\u201C'}
@@ -399,6 +400,7 @@ const Citation: React.FC<CitationProps> = ({
                                     position: 'relative',
                                     marginLeft: '0.15em',
                                     top: '0.1em',
+                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
                                 }}
                             >
                                 {'\u201D'}
@@ -575,7 +577,8 @@ const Citation: React.FC<CitationProps> = ({
                     citation={{
                         docId: selectedExcerpt.docId,
                         snippet: selectedExcerpt.snippet,
-                        validationStatus: selectedExcerpt.validationStatus || 'failed'
+                        validationStatus: selectedExcerpt.validationStatus || 'failed',
+                        fileUrl: selectedExcerpt.fileUrl
                     }}
                     ragResults={ragResults}
                 />
@@ -584,4 +587,4 @@ const Citation: React.FC<CitationProps> = ({
     );
 };
 
-export default Citation;
+export default React.memo(Citation);
