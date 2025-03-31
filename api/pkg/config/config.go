@@ -355,7 +355,7 @@ type WebServer struct {
 	// so we just deep link to the object path and don't apply auth
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
-	LocalFilestorePath string
+	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
 	// Path to UNIX socket for serving embeddings without auth
 	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`

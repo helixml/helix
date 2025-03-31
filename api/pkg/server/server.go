@@ -80,6 +80,7 @@ type HelixAPIServer struct {
 	pingService       *version.PingService
 	oidcClient        auth.OIDC
 	oauthManager      *oauth.Manager
+	fileServerHandler http.Handler
 }
 
 func NewServer(
@@ -179,13 +180,14 @@ func NewServer(
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
-		providerManager:  providerManager,
-		pubsub:           ps,
-		knowledgeManager: knowledgeManager,
-		scheduler:        scheduler,
-		pingService:      pingService,
-		oidcClient:       oidcClient,
-		oauthManager:     oauthManager,
+		providerManager:   providerManager,
+		pubsub:            ps,
+		knowledgeManager:  knowledgeManager,
+		scheduler:         scheduler,
+		pingService:       pingService,
+		oidcClient:        oidcClient,
+		oauthManager:      oauthManager,
+		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
 	}, nil
 }
 
@@ -315,49 +317,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// User search endpoint
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
 
-	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
-		// disable directory listings
-		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Cfg.WebServer.LocalFilestorePath)})
-
-		// we handle our own auth from inside this function
-		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
-		// that will extract the bearer token into a user id for us
-		subRouter.PathPrefix("/filestore/viewer/").Handler(
-			http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", APIPrefix), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// if the session is "shared" then anyone can see the files inside the session
-				// if the user is admin then can see anything
-				// if the user is runner then can see anything
-				// if the path is part of the user path then can see it
-				// if path has presign URL
-				// otherwise access denied
-				canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				if !canAccess {
-					http.Error(w, "Access denied", http.StatusForbidden)
-					return
-				}
-
-				// read the query param called redirect_urls
-				// if it's present and set to the string "true"
-				// then assign a boolean
-				shouldRedirectURLs := r.URL.Query().Get("redirect_urls") == "true"
-				if shouldRedirectURLs && strings.HasSuffix(r.URL.Path, ".url") {
-					url, err := apiServer.Controller.FilestoreReadTextFile(r.URL.Path)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-					} else {
-						http.Redirect(w, r, url, http.StatusFound)
-					}
-				} else {
-					fileServer.ServeHTTP(w, r)
-				}
-			})))
-	}
+	// Authentication is done within the handler itself based on API path
+	subRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix("/filestore/viewer/", http.HandlerFunc(apiServer.filestoreHandler)))
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
