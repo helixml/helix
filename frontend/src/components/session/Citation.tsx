@@ -380,6 +380,7 @@ const Citation: React.FC<CitationProps> = ({
                                     position: 'relative',
                                     marginRight: '0.15em',
                                     top: '0.1em',
+                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
                                 }}
                             >
                                 {'\u201C'}
@@ -399,6 +400,7 @@ const Citation: React.FC<CitationProps> = ({
                                     position: 'relative',
                                     marginLeft: '0.15em',
                                     top: '0.1em',
+                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
                                 }}
                             >
                                 {'\u201D'}
