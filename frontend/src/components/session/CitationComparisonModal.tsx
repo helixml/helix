@@ -419,7 +419,7 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
       }}
     >
       <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="subtitle1" sx={{ fontSize: '1.25rem', fontWeight: 500 }}>
+        <Typography component="div" variant="subtitle1" sx={{ fontSize: '1.25rem', fontWeight: 500 }}>
           Citation Comparison
           {citation.validationStatus === 'exact' && (
             <Box component="span" sx={{ color: '#4caf50', ml: 1 }}> - Exact Match</Box>
