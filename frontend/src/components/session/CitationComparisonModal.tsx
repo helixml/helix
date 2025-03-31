@@ -21,6 +21,7 @@ interface CitationComparisonModalProps {
     docId: string;
     snippet: string;
     validationStatus: 'exact' | 'fuzzy' | 'failed';
+    fileUrl?: string;
   };
   ragResults: ISessionRAGResult[];
 }
@@ -418,7 +419,7 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
       }}
     >
       <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">
+        <Typography variant="subtitle1" sx={{ fontSize: '1.25rem', fontWeight: 500 }}>
           Citation Comparison
           {citation.validationStatus === 'exact' && (
             <Box component="span" sx={{ color: '#4caf50', ml: 1 }}> - Exact Match</Box>
@@ -502,7 +503,31 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
                       color="text.secondary" 
                       sx={{ mb: 1 }}
                     >
-                      Source: {ragResult.source}
+                      Source: 
+                      <Box
+                        component="a"
+                        href={ragResult.document_id === citation.docId && citation.fileUrl ? 
+                            citation.fileUrl : `#`}
+                        target="_blank"
+                        sx={{
+                          color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                          textDecoration: 'none',
+                          fontWeight: 500,
+                          opacity: 0.85,
+                          transition: 'all 0.2s ease',
+                          padding: '2px 6px',
+                          ml: 1,
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                          '&:hover': {
+                            opacity: 1,
+                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                            textDecoration: 'underline',
+                          }
+                        }}
+                      >
+                        {ragResult.source}
+                      </Box>
                       {ragResult.metadata?.offset && (
                         <> (Offset: {ragResult.metadata.offset})</>
                       )}
@@ -663,7 +688,31 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
                       color="text.secondary" 
                       sx={{ mb: 1 }}
                     >
-                      Source: {ragResult.source}
+                      Source: 
+                      <Box
+                        component="a"
+                        href={ragResult.document_id === citation.docId && citation.fileUrl ? 
+                            citation.fileUrl : `#`}
+                        target="_blank"
+                        sx={{
+                          color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                          textDecoration: 'none',
+                          fontWeight: 500,
+                          opacity: 0.85,
+                          transition: 'all 0.2s ease',
+                          padding: '2px 6px',
+                          ml: 1,
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                          '&:hover': {
+                            opacity: 1,
+                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                            textDecoration: 'underline',
+                          }
+                        }}
+                      >
+                        {ragResult.source}
+                      </Box>
                       {ragResult.metadata?.offset && (
                         <> (Offset: {ragResult.metadata.offset})</>
                       )}
@@ -818,21 +867,35 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
                 fontSize: '0.75rem'
               }}
             >
-              <Chip
-                size="small"
-                label={citation.docId}
-                sx={{ 
-                  backgroundColor: 'rgba(88, 166, 255, 0.15)',
-                  borderRadius: '4px',
-                  height: 'auto',
-                  '& .MuiChip-label': { 
-                    padding: '4px 8px',
-                    whiteSpace: 'normal',
-                    fontFamily: 'monospace',
-                    fontWeight: 'bold'
-                  }
+              <Box
+                component="a"
+                href={citation.fileUrl || `/api/v1/documents/view/${citation.docId}`}
+                target="_blank"
+                sx={{
+                  textDecoration: 'none',
                 }}
-              />
+              >
+                <Chip
+                  size="small"
+                  label={citation.docId}
+                  sx={{ 
+                    backgroundColor: 'rgba(88, 166, 255, 0.15)',
+                    borderRadius: '4px',
+                    height: 'auto',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      backgroundColor: 'rgba(88, 166, 255, 0.3)',
+                    },
+                    '& .MuiChip-label': { 
+                      padding: '4px 8px',
+                      whiteSpace: 'normal',
+                      fontFamily: 'monospace',
+                      fontWeight: 'bold'
+                    }
+                  }}
+                />
+              </Box>
             </Box>
             
             <Divider sx={{ mb: 1 }} />
@@ -886,4 +949,4 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
   );
 };
 
-export default CitationComparisonModal; 
+export default React.memo(CitationComparisonModal); 
