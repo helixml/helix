@@ -1,6 +1,5 @@
 import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import throttle from 'lodash/throttle'
-import debounce from 'lodash/debounce'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -21,9 +20,9 @@ import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
 import ShareSessionWindow from '../components/session/ShareSessionWindow'
 import AddFilesWindow from '../components/session/AddFilesWindow'
+import InputField from '../components/session/InputField'
 
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
-import ClickLink from '../components/widgets/ClickLink'
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
@@ -41,7 +40,6 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import InputAdornment from '@mui/material/InputAdornment'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 
 import {
@@ -69,7 +67,6 @@ import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
-import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -85,143 +82,6 @@ const INTERACTIONS_PER_BLOCK = 20
 const SCROLL_LOCK_DELAY = 500 // ms
 const VIEWPORT_BUFFER = 2 // Increased from 1 to 2 to keep more blocks rendered
 const MIN_SCROLL_DISTANCE = 200 // pixels
-
-// Modify InputField to fully isolate its state
-const InputField: FC<{
-  initialValue: string;
-  onSubmit: (value: string) => void;
-  disabled?: boolean;
-  label: string;
-  isBigScreen: boolean;
-  activeAssistantAvatar?: string;
-  themeConfig: any;
-  theme: any;
-  loading: boolean;
-  inputRef: React.MutableRefObject<HTMLTextAreaElement | undefined>;
-  appID?: string | null;
-  onInsertText: (text: string) => void;
-}> = React.memo(({
-  initialValue,
-  onSubmit,
-  disabled,
-  label,
-  isBigScreen,
-  activeAssistantAvatar,
-  themeConfig,
-  theme,
-  loading,
-  inputRef,
-  appID,
-  onInsertText,
-}) => {
-  // Use completely internal state - don't propagate changes back up to parent
-  const [localValue, setLocalValue] = useState(initialValue);
-
-  // Update local value when initialValue changes from parent
-  useEffect(() => {
-    setLocalValue(initialValue);
-  }, [initialValue]);
-
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = event.target.value;
-    // Only update local state, no callback to parent
-    performance.mark('input-start');
-    setLocalValue(newValue);
-    
-    // Measure typing performance
-    requestAnimationFrame(() => {
-      try {
-        performance.mark('input-end');
-        // Check if marks exist before measuring
-        if (performance.getEntriesByName('input-start', 'mark').length > 0 &&
-            performance.getEntriesByName('input-end', 'mark').length > 0) {
-          performance.measure('input-latency', 'input-start', 'input-end');
-          const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-          console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms`);
-        }
-        // Clean up
-        performance.clearMarks('input-start');
-        performance.clearMarks('input-end');
-        performance.clearMeasures('input-latency');
-      } catch (e) {
-        console.warn('Error in performance measurement:', e);
-      }
-    });
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter') {
-      if (event.shiftKey) {
-        setLocalValue(current => current + "\n");
-      } else {
-        if (!loading) {
-          const currentValue = localValue;
-          // Clear input field immediately for better user experience
-          setLocalValue('');
-          // Then call the parent's submission handler
-          onSubmit(currentValue);
-        }
-      }
-      event.preventDefault();
-    }
-  };
-
-  return (
-    <TextField
-      id="textEntry"
-      fullWidth
-      inputRef={inputRef}
-      autoFocus={true}
-      label={label + " (shift+enter to add a newline)"}
-      value={localValue}
-      disabled={disabled}
-      onChange={handleInputChange}
-      name="ai_submit"
-      multiline={true}
-      onKeyDown={handleKeyDown}
-      InputProps={{
-        startAdornment: isBigScreen && (
-          activeAssistantAvatar ? (
-            <Avatar
-              src={activeAssistantAvatar}
-              sx={{
-                width: '30px',
-                height: '30px',
-                mr: 1,
-              }}
-            />
-          ) : null
-        ),
-        endAdornment: (
-          <InputAdornment position="end">
-            <IconButton
-              id="send-button"
-              aria-label="send"
-              disabled={disabled}
-              onClick={() => {
-                const currentValue = localValue;
-                setLocalValue('');
-                onSubmit(currentValue);
-              }}
-              sx={{
-                color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-              }}
-            >
-              <SendIcon />
-            </IconButton>
-          </InputAdornment>
-        ),
-      }}
-    />
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison function to prevent unnecessary re-renders
-  return (
-    prevProps.initialValue === nextProps.initialValue &&
-    prevProps.disabled === nextProps.disabled &&
-    prevProps.loading === nextProps.loading
-  );
-});
 
 // Define interface for MemoizedInteraction props
 interface MemoizedInteractionProps {
@@ -1245,6 +1105,11 @@ const Session: FC = () => {
     setInputValue(current => current + filterAction.value);
   }, [appID, api, setInputValue, snackbar]);
 
+  const handleInsertText = useCallback((text: string) => {
+    // Simply update the parent's state with the new value from the child
+    setInputValue(text);
+  }, []);
+
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
     if (!session.data) return null;
@@ -1691,10 +1556,6 @@ const Session: FC = () => {
 
   if (!session.data) return null
 
-  const handleInsertText = (text: string) => {
-    setInputValue(inputValue + text)
-  }
-
   return (
     <Box
       sx={{
@@ -1848,11 +1709,6 @@ const Session: FC = () => {
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
-                    <ContextMenuModal
-                      appId={appID || ''}
-                      textAreaRef={textFieldRef}
-                      onInsertText={handleInsertText}
-                    />
                     <InputField
                       initialValue={inputValue}
                       onSubmit={onSend}
