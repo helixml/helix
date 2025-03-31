@@ -150,49 +150,99 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
     
     // For exact or fuzzy match, try to find and highlight the quoted text
     try {
-      // Normalize for comparison similar to the similarity function
+      // Simple case-insensitive search
+      // This is a more direct approach that handles special characters better
+      const contentLower = content.toLowerCase();
+      const citationLower = citationText.toLowerCase();
+      
+      // Try to find the citation text in the content
+      const index = contentLower.indexOf(citationLower);
+      
+      if (index >= 0 && (citation.validationStatus === 'exact' || citation.validationStatus === 'fuzzy')) {
+        // We found the citation text - use the original casing from content
+        const beforeMatch = content.substring(0, index);
+        const matchedText = content.substring(index, index + citationText.length);
+        const afterMatch = content.substring(index + citationText.length);
+        
+        return (
+          <Typography sx={{ whiteSpace: 'pre-wrap' }}>
+            {beforeMatch}
+            <Box 
+              component="span" 
+              ref={highlightedTextRef}
+              sx={{ 
+                backgroundColor: 'rgba(88, 166, 255, 0.3)',
+                padding: '2px 4px',
+                borderRadius: '2px',
+              }}
+            >
+              {matchedText}
+            </Box>
+            {afterMatch}
+          </Typography>
+        );
+      }
+      
+      // If the simple approach doesn't work, try with normalized text
       const normalize = (text: string): string => {
         return text
           .replace(/[\r\n]+/g, ' ')
-          .replace(/#/g, ' ')
           .replace(/\s+/g, ' ')
-          .trim();
+          .trim()
+          .toLowerCase();
       };
       
       const normalizedContent = normalize(content);
       const normalizedCitation = normalize(citationText);
       
-      // For exact matches - try to find the exact citation in the content
       if (normalizedContent.includes(normalizedCitation)) {
-        const parts = normalizedContent.split(normalizedCitation);
-        return (
-          <Typography sx={{ whiteSpace: 'pre-wrap' }}>
-            {parts.map((part, index) => (
-              <React.Fragment key={index}>
-                {part}
-                {index < parts.length - 1 && (
-                  <Box 
-                    component="span" 
-                    ref={isMatch && index === 0 ? highlightedTextRef : undefined}
-                    sx={{ 
-                      backgroundColor: 'rgba(88, 166, 255, 0.3)',
-                      padding: '2px 4px',
-                      borderRadius: '2px',
-                    }}
-                  >
-                    {normalizedCitation}
-                  </Box>
-                )}
-              </React.Fragment>
-            ))}
-          </Typography>
-        );
+        // Try to find the best matching position in the original text
+        // by matching word patterns
+        const words = normalizedCitation.split(/\s+/);
+        if (words.length > 3) {
+          // Use first few words to anchor our search
+          const startPattern = words.slice(0, 3).join('\\s+');
+          const startRegex = new RegExp(startPattern, 'i');
+          const startMatch = content.match(startRegex);
+          
+          if (startMatch && startMatch.index !== undefined) {
+            // Find approximate end position based on citation length
+            const startIdx = startMatch.index;
+            const approxEndIdx = startIdx + citationText.length * 1.2; // Add 20% buffer
+            const endIdx = Math.min(approxEndIdx, content.length);
+            
+            // Highlight the approximate region
+            const beforeMatch = content.substring(0, startIdx);
+            const matchedText = content.substring(startIdx, endIdx);
+            const afterMatch = content.substring(endIdx);
+            
+            return (
+              <Typography sx={{ whiteSpace: 'pre-wrap' }}>
+                {beforeMatch}
+                <Box 
+                  component="span" 
+                  ref={highlightedTextRef}
+                  sx={{ 
+                    backgroundColor: 'rgba(88, 166, 255, 0.3)',
+                    padding: '2px 4px',
+                    borderRadius: '2px',
+                  }}
+                >
+                  {matchedText}
+                </Box>
+                {afterMatch}
+              </Typography>
+            );
+          }
+        }
       }
       
-      // If not an exact match but fuzzy - highlight important matching words/phrases
+      // If the normalized approach doesn't work and we have a fuzzy match,
+      // highlight individual significant words
       if (citation.validationStatus === 'fuzzy') {
         // Extract significant words from citation (longer than 3 chars)
-        const significantWords = normalizedCitation
+        const significantWords = citationText
+          .toLowerCase()
           .split(/\s+/)
           .filter(word => word.length > 3);
         
@@ -204,7 +254,7 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
         // Create a regex to find these words in the content
         // Using word boundaries and case insensitive matching
         const wordRegexes = significantWords.map(word => 
-          new RegExp(`\\b${word}\\b`, 'gi')
+          new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
         );
         
         // Make a copy of the content to highlight
