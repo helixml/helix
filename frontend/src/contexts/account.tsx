@@ -234,10 +234,16 @@ export const useAccountContext = (): IAccountContext => {
   
 
   const fetchProviderEndpoints = useCallback(async () => {
-    const response = await api.get('/api/v1/provider-endpoints')
-    if (!response) return
-    setProviderEndpoints(response)
-  }, [])
+    try {
+      const endpoints = await api.get<IProviderEndpoint[]>('/api/v1/provider-endpoints')
+      if (endpoints) {
+        setProviderEndpoints(endpoints)
+      }
+    } catch (error) {
+      console.error('Error fetching provider endpoints:', error)
+      setProviderEndpoints([])
+    }
+  }, [api])
 
   const loadAll = useCallback(async () => {
     try {
