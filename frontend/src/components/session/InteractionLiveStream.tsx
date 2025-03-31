@@ -82,6 +82,7 @@ export const InteractionLiveStream: FC<{
   },
   onMessageUpdate?: () => void,
   onFilterDocument?: (docId: string) => void,
+  useInstantScroll?: boolean,
 }> = ({
   session_id,
   serverConfig,
@@ -91,6 +92,7 @@ export const InteractionLiveStream: FC<{
   onMessageChange,
   onMessageUpdate,
   onFilterDocument,
+  useInstantScroll = false,
 }) => {
     const account = useAccount()
     const {

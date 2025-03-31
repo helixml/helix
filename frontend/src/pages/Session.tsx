@@ -1,5 +1,6 @@
 import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import throttle from 'lodash/throttle'
+import debounce from 'lodash/debounce'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -135,21 +136,40 @@ const Session: FC = () => {
   const scrollPositionRef = useRef<number>(0)
 
   // Function to save scroll position
-  const saveScrollPosition = useCallback(() => {
-    if (containerRef.current) {
-      scrollPositionRef.current = containerRef.current.scrollTop;
+  const saveScrollPosition = useCallback((shouldPreserveBottom = false) => {
+    if (!containerRef.current) return;
+    
+    // Save if we were at the bottom (within 20 pixels)
+    const container = containerRef.current;
+    const isNearBottom = 
+      container.scrollHeight - container.scrollTop - container.clientHeight < 20;
+    
+    // Store both the position and whether we were at the bottom
+    scrollPositionRef.current = container.scrollTop;
+    
+    // Store a special flag if we should scroll to bottom when restoring
+    if (shouldPreserveBottom || isNearBottom) {
+      // Use a special value to indicate "scroll to bottom"
+      scrollPositionRef.current = -1;
     }
   }, []);
 
   // Function to restore scroll position
   const restoreScrollPosition = useCallback(() => {
-    if (containerRef.current && scrollPositionRef.current > 0) {
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = scrollPositionRef.current;
-        }
-      });
-    }
+    if (!containerRef.current) return;
+    
+    requestAnimationFrame(() => {
+      if (!containerRef.current) return;
+      
+      // If our saved position is our special "bottom" indicator
+      if (scrollPositionRef.current === -1) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      } 
+      // Otherwise restore to the saved position if it's valid
+      else if (scrollPositionRef.current > 0) {
+        containerRef.current.scrollTop = scrollPositionRef.current;
+      }
+    });
   }, []);
 
   // Add effect to handle auto-scrolling when session changes
@@ -169,7 +189,7 @@ const Session: FC = () => {
 
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
+        behavior: 'auto' // Changed from 'smooth' to prevent jumpiness
       })
     }, 200) // Small timeout to ensure content is rendered
 
@@ -288,6 +308,7 @@ const Session: FC = () => {
     initializeVisibleBlocks()
   }, [session.data?.id]) // Only run when session ID changes
 
+  // Debounce the input change handler to prevent re-renders on every keystroke
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
@@ -319,9 +340,9 @@ const Session: FC = () => {
   ])
 
   // Create a wrapper for session.reload to preserve scroll position
-  const safeReloadSession = useCallback(async () => {
-    // Save current scroll position
-    saveScrollPosition();
+  const safeReloadSession = useCallback(async (shouldScrollToBottom = false) => {
+    // Save current scroll position, with flag for preserving bottom if requested
+    saveScrollPosition(shouldScrollToBottom);
     
     // Call the actual reload
     const result = await session.reload();
@@ -331,6 +352,85 @@ const Session: FC = () => {
     
     return result;
   }, [session, saveScrollPosition, restoreScrollPosition]);
+
+  // Function to scroll to bottom immediately without animation to prevent jumpiness
+  const scrollToBottom = useCallback(() => {
+    if (!containerRef.current) return
+
+    const now = Date.now()
+    const timeSinceLastScroll = now - lastScrollTimeRef.current
+    const SCROLL_DEBOUNCE = 200
+
+    // If this is our first scroll or it's been longer than our debounce period
+    if (lastScrollTimeRef.current === 0 || timeSinceLastScroll >= SCROLL_DEBOUNCE) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
+      })
+      lastScrollTimeRef.current = now
+    } else {
+      // Wait for the remaining time before scrolling
+      const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
+      setTimeout(() => {
+        if (!containerRef.current) return
+        containerRef.current.scrollTo({
+          top: containerRef.current.scrollHeight,
+          behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
+        })
+        lastScrollTimeRef.current = Date.now()
+      }, waitTime)
+    }
+  }, [])
+
+  // Add effect to handle final scroll when streaming ends
+  useEffect(() => {
+    // Only trigger when streaming changes from true to false
+    if (isStreaming) return
+
+    // Reset the scroll timer when streaming ends
+    lastScrollTimeRef.current = 0
+
+    // Wait for the bottom bar and final content to render
+    const timer = setTimeout(() => {
+      if (!containerRef.current) return
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
+      })
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [isStreaming])
+
+  // Add new effect for handling streaming state transitions
+  useEffect(() => {
+    if (!isStreaming && session.data?.interactions) {
+      // When streaming ends, ensure we have continuous blocks
+      setVisibleBlocks(prev => {
+        const totalInteractions = session.data!.interactions.length
+        const lastBlock = prev[prev.length - 1]
+
+        if (!lastBlock) {
+          return [{
+            startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
+            endIndex: totalInteractions,
+            isGhost: false
+          }]
+        }
+
+        // Ensure the last block extends to include the new interaction
+        return prev.map((block, index) => {
+          if (index === prev.length - 1) {
+            return {
+              ...block,
+              endIndex: totalInteractions
+            }
+          }
+          return block
+        })
+      })
+    }
+  }, [isStreaming, session.data?.interactions])
 
   const onSend = useCallback(async (prompt: string) => {
     if (!session.data) return
@@ -346,6 +446,9 @@ const Session: FC = () => {
       const ragSourceID = session.data.config.rag_source_data_entity_id || ''
 
       setInputValue("")
+      // Scroll to bottom immediately after submitting to show progress
+      scrollToBottom()
+      
       newSession = await NewInference({
         message: prompt,
         appId: appID,
@@ -362,16 +465,28 @@ const Session: FC = () => {
       formData.set('model_name', session.data.model_name)
 
       setInputValue("")
+      // Scroll to bottom immediately after submitting to show progress
+      scrollToBottom()
+      
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
 
     if (!newSession) return
-    await safeReloadSession()
+    
+    // After reloading the session, force scroll to bottom by passing true
+    await safeReloadSession(true)
+    
+    // Give the DOM time to update, then scroll to bottom again
+    setTimeout(() => {
+      scrollToBottom()
+    }, 100)
 
   }, [
     session.data,
     session.reload,
     NewInference,
+    scrollToBottom,
+    safeReloadSession,
   ])
 
   const onRestart = useCallback(() => {
@@ -733,85 +848,6 @@ const Session: FC = () => {
     }
   }, [addBlocksAbove, visibleBlocks])
 
-  // Fix scrollToBottom which keeps getting changed incorrectly
-  const scrollToBottom = useCallback(() => {
-    if (!containerRef.current) return
-
-    const now = Date.now()
-    const timeSinceLastScroll = now - lastScrollTimeRef.current
-    const SCROLL_DEBOUNCE = 200
-
-    // If this is our first scroll or it's been longer than our debounce period
-    if (lastScrollTimeRef.current === 0 || timeSinceLastScroll >= SCROLL_DEBOUNCE) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
-      })
-      lastScrollTimeRef.current = now
-    } else {
-      // Wait for the remaining time before scrolling
-      const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
-      setTimeout(() => {
-        if (!containerRef.current) return
-        containerRef.current.scrollTo({
-          top: containerRef.current.scrollHeight,
-          behavior: 'smooth'
-        })
-        lastScrollTimeRef.current = Date.now()
-      }, waitTime)
-    }
-  }, [])
-
-  // Add effect to handle final scroll when streaming ends
-  useEffect(() => {
-    // Only trigger when streaming changes from true to false
-    if (isStreaming) return
-
-    // Reset the scroll timer when streaming ends
-    lastScrollTimeRef.current = 0
-
-    // Wait for the bottom bar and final content to render
-    const timer = setTimeout(() => {
-      if (!containerRef.current) return
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
-      })
-    }, 200)
-
-    return () => clearTimeout(timer)
-  }, [isStreaming])
-
-  // Add new effect for handling streaming state transitions
-  useEffect(() => {
-    if (!isStreaming && session.data?.interactions) {
-      // When streaming ends, ensure we have continuous blocks
-      setVisibleBlocks(prev => {
-        const totalInteractions = session.data!.interactions.length
-        const lastBlock = prev[prev.length - 1]
-
-        if (!lastBlock) {
-          return [{
-            startIndex: Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK),
-            endIndex: totalInteractions,
-            isGhost: false
-          }]
-        }
-
-        // Ensure the last block extends to include the new interaction
-        return prev.map((block, index) => {
-          if (index === prev.length - 1) {
-            return {
-              ...block,
-              endIndex: totalInteractions
-            }
-          }
-          return block
-        })
-      })
-    }
-  }, [isStreaming, session.data?.interactions])
-
   // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
@@ -820,7 +856,7 @@ const Session: FC = () => {
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
     
     return (
-      <Container maxWidth="lg" sx={{ py: 2 }}>
+      <Container maxWidth="lg" sx={{ py: 2, pb: 20 }}>
         {hasMoreAbove && (
           <div
             id="virtual-space-above"
@@ -903,6 +939,7 @@ const Session: FC = () => {
                         hasSubscription={account.userConfig.stripe_subscription_active || false}
                         onMessageUpdate={isLastInteraction ? scrollToBottom : undefined}
                         onFilterDocument={appID ? onHandleFilterDocument : undefined}
+                        useInstantScroll={true}
                       />
                     )}
                   </Interaction>
