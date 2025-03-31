@@ -127,8 +127,9 @@ func (s *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, er
 		return false, err
 	}
 
-	logger.Debug().
+	logger.Info().
 		Str("user_path", userPath).
+		Str("url_path", req.URL.Path).
 		Bool("path_match", strings.HasPrefix(req.URL.Path, userPath)).
 		Msg("Checking if path is in user's filestore")
 

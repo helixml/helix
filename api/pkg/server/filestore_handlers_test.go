@@ -44,6 +44,7 @@ func (suite *FilestoreSuite) SetupTest() {
 	suite.store = store.NewMockStore(ctrl)
 
 	cfg := &config.ServerConfig{}
+	cfg.Controller.FilePrefixGlobal = "/dev"
 
 	suite.orgID = "org_id_test"
 	suite.userID = "user_id_test"
@@ -198,4 +199,28 @@ func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_AppPath_AdminAccess(
 	authorized, err := suite.server.isFilestoreRouteAuthorized(req)
 	suite.NoError(err)
 	suite.True(authorized, "Admin user should have access to all files")
+}
+
+// TestIsFilestoreRouteAuthorized_UserPath_Authorized tests that a user can access
+// their own filestore path
+func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_UserPath_Authorized() {
+	// Create a request with a user path
+	req := httptest.NewRequest("GET", "/dev/users/user_id_test/file.pdf", nil)
+	req = req.WithContext(suite.authCtx)
+
+	authorized, err := suite.server.isFilestoreRouteAuthorized(req)
+	suite.NoError(err)
+	suite.True(authorized)
+}
+
+// TestIsFilestoreRouteAuthorized_UserPath_Unauthorized tests that a user cannot access
+// another user's filestore path
+func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_UserPath_Unauthorized() {
+	// Create a request with a different user's path
+	req := httptest.NewRequest("GET", "/dev/users/different_user_id/file.pdf", nil)
+	req = req.WithContext(suite.authCtx)
+
+	authorized, err := suite.server.isFilestoreRouteAuthorized(req)
+	suite.NoError(err)
+	suite.False(authorized)
 }
