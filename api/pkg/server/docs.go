@@ -248,8 +248,6 @@ const docTemplate = `{
                 }
             }
         },
-<<<<<<< HEAD
-=======
         "/api/v1/apps/{id}/api-actions": {
             "post": {
                 "security": [
@@ -389,7 +387,6 @@ const docTemplate = `{
                 }
             }
         },
->>>>>>> main
         "/api/v1/auth/authenticated": {
             "get": {
                 "description": "Check if the user is authenticated",
@@ -2573,20 +2570,10 @@ const docTemplate = `{
                 },
                 "oauth_provider": {
                     "description": "OAuth configuration",
-<<<<<<< HEAD
                     "type": "string"
                 },
                 "oauth_scopes": {
                     "description": "Required OAuth scopes for this API",
-=======
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OAuthProviderType"
-                        }
-                    ]
-                },
-                "oauth_scopes": {
->>>>>>> main
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -3618,29 +3605,6 @@ const docTemplate = `{
                 "MessageContentTypeText"
             ]
         },
-        "types.OAuthProviderType": {
-            "type": "string",
-            "enum": [
-                "",
-                "atlassian",
-                "google",
-                "microsoft",
-                "github",
-                "slack",
-                "linkedin",
-                "custom"
-            ],
-            "x-enum-varnames": [
-                "OAuthProviderTypeUnknown",
-                "OAuthProviderTypeAtlassian",
-                "OAuthProviderTypeGoogle",
-                "OAuthProviderTypeMicrosoft",
-                "OAuthProviderTypeGitHub",
-                "OAuthProviderTypeSlack",
-                "OAuthProviderTypeLinkedIn",
-                "OAuthProviderTypeCustom"
-            ]
-        },
         "types.OpenAIMessage": {
             "type": "object",
             "properties": {
@@ -4442,6 +4406,12 @@ const docTemplate = `{
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
                 },
+                "session_rag_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
+                },
                 "stream": {
                     "type": "boolean"
                 },
@@ -4765,15 +4735,7 @@ const docTemplate = `{
                 },
                 "oauth_provider": {
                     "description": "OAuth configuration",
-<<<<<<< HEAD
                     "type": "string"
-=======
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OAuthProviderType"
-                        }
-                    ]
->>>>>>> main
                 },
                 "oauth_scopes": {
                     "description": "Required OAuth scopes for this API",
