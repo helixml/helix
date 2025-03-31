@@ -86,7 +86,7 @@ if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [
 else
   # Add the Helix Helm chart repository
   echo "Adding the Helix Helm chart repository..."
-  helm repo add helix https://charts.helix.ml
+  helm repo add helix https://charts.helixml.tech
   helm repo update
   # Grab the latest values-example.yaml
   echo "Downloading the latest values-example.yaml..."
