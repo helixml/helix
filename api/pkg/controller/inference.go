@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -940,6 +942,57 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		session.Metadata.DocumentIDs = make(map[string]string)
 	}
 
+	// Create a map to store unique RAG results to avoid duplicates
+	existingRagMap := make(map[string]*types.SessionRAGResult)
+
+	// Add existing RAG results to the map if they exist
+	if session.Metadata.SessionRAGResults != nil {
+		for _, result := range session.Metadata.SessionRAGResults {
+			// Create a unique key using document_id and hash of content
+			key := createUniqueRagResultKey(result)
+			existingRagMap[key] = result
+		}
+	}
+
+	// Add new RAG results to the map, avoiding duplicates
+	for _, result := range ragResults {
+		key := createUniqueRagResultKey(result)
+
+		// Only add if not already present
+		if _, exists := existingRagMap[key]; !exists {
+			existingRagMap[key] = result
+		}
+	}
+
+	// Convert map back to array
+	mergedResults := make([]*types.SessionRAGResult, 0, len(existingRagMap))
+	for _, result := range existingRagMap {
+		mergedResults = append(mergedResults, result)
+	}
+
+	// Store the merged RAG results in the session metadata
+	session.Metadata.SessionRAGResults = mergedResults
+
+	// Enhanced logging for RAG results
+	logCtx := log.With().
+		Str("session_id", session.ID).
+		Int("rag_results_count", len(mergedResults)).
+		Int("new_results_count", len(ragResults)).
+		Int("total_unique_results", len(existingRagMap)).
+		Logger()
+
+	if len(mergedResults) > 0 {
+		// Log sample of first result for debugging
+		sampleResult := mergedResults[0]
+		logCtx.Debug().
+			Str("first_document_id", sampleResult.DocumentID).
+			Str("first_source", sampleResult.Source).
+			Int("first_content_length", len(sampleResult.Content)).
+			Msg("storing merged RAG results in session metadata - sample of first result")
+	} else {
+		logCtx.Warn().Msg("storing empty RAG results array in session metadata")
+	}
+
 	// Add or update document IDs
 	for _, result := range ragResults {
 		if result.DocumentID != "" {
@@ -999,7 +1052,7 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	}
 
 	// Log the updated document IDs
-	log.Debug().
+	logCtx.Debug().
 		Str("session_id", session.ID).
 		Interface("document_ids", session.Metadata.DocumentIDs).
 		Msg("updating session with document IDs")
@@ -1016,14 +1069,49 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	if verifyErr != nil {
 		log.Error().Err(verifyErr).Str("session_id", session.ID).Msg("failed to verify session update")
 	} else {
-		log.Debug().
+		// Enhanced verification logging
+		verifyLogCtx := log.With().
 			Str("session_id", session.ID).
 			Interface("document_ids", verifySession.Metadata.DocumentIDs).
 			Interface("updated_meta", updatedMeta).
-			Msg("verified session document IDs after update")
+			Logger()
+
+		// Log RAG results verification
+		ragResultsCount := 0
+		if verifySession.Metadata.SessionRAGResults != nil {
+			ragResultsCount = len(verifySession.Metadata.SessionRAGResults)
+		}
+
+		verifyLogCtx.Debug().
+			Int("verified_rag_results_count", ragResultsCount).
+			Bool("has_rag_results", verifySession.Metadata.SessionRAGResults != nil).
+			Msg("verified session metadata after update")
 	}
 
 	return nil
+}
+
+// createUniqueRagResultKey creates a unique key for a RAG result using document_id and a hash of the content
+func createUniqueRagResultKey(result *types.SessionRAGResult) string {
+	// Create a hash of the content using SHA-256
+	h := sha256.New()
+	h.Write([]byte(result.Content))
+	contentHash := hex.EncodeToString(h.Sum(nil))
+
+	// Base key combines document_id and content hash
+	key := result.DocumentID + "-" + contentHash
+
+	// If metadata contains offset or chunk_id information, include it in the key
+	// This ensures chunks from the same document are properly distinguished
+	if result.Metadata != nil {
+		if chunkID, ok := result.Metadata["chunk_id"]; ok {
+			key += "-chunk-" + chunkID
+		} else if offset, ok := result.Metadata["offset"]; ok {
+			key += "-offset-" + offset
+		}
+	}
+
+	return key
 }
 
 func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) ([]string, error) {
