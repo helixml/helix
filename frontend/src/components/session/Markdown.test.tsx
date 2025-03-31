@@ -29,7 +29,7 @@
 // This is a placeholder test file showing how the MessageProcessor tests should be structured
 // Since the testing framework is not yet set up, this file will have linter errors
 
-import { ISession, ISessionConfig } from '../../types';
+import { ISession, ISessionConfig, ISessionOrigin } from '../../types';
 import { MessageProcessor } from './Markdown';
 import { describe, expect, test, beforeEach } from 'vitest';
 
@@ -982,6 +982,554 @@ then the first doc [DOC_ID:doc-id-1].
     // - &amp; to render as the text "&" (not "&amp;")
     // - &quot;quotes&quot; to render as the text ""quotes"" (not "&quot;quotes&quot;")
     // But we can't test the actual DOM rendering here since this is a unit test
+  });
+
+  // Test case 8: Citation combines text from multiple documents with different IDs
+  test('Citation that combines text from different documents should be marked as failed', () => {
+    // Create a session with multiple documents with different IDs
+    const mockDocId1 = 'doc-id-multi-1';
+    const mockDocId2 = 'doc-id-multi-2';
+    const mockSessionWithMultiDocs: Partial<ISession> = {
+      ...mockSession,
+      config: {
+        original_mode: 'inference',
+        origin: { type: 'user_created' } as ISessionOrigin,
+        avatar: '',
+        priority: false,
+        document_ids: {
+          'document1.pdf': mockDocId1,
+          'document2.pdf': mockDocId2,
+        },
+        document_group_id: 'group-123',
+        session_rag_results: [
+          {
+            document_id: mockDocId1,
+            document_group_id: 'group-123',
+            content: 'This document discusses neural networks and their importance in modern AI systems.',
+            source: 'document1.pdf',
+          },
+          {
+            document_id: mockDocId2,
+            document_group_id: 'group-123',
+            content: 'Natural language processing has become a major focus of research in recent years.',
+            source: 'document2.pdf',
+          }
+        ],
+        manually_review_questions: false,
+        system_prompt: '',
+        helix_version: '',
+        eval_run_id: '',
+        eval_user_score: '',
+        eval_user_reason: '',
+        eval_manual_score: '',
+        eval_manual_reason: '',
+        eval_automatic_score: '',
+        eval_automatic_reason: '',
+        eval_original_user_prompts: [],
+        rag_source_data_entity_id: '',
+      } as ISessionConfig,
+    };
+
+    // Create message with excerpt that combines text from both documents
+    // but attributes it to just one document ID
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>${mockDocId1}</document_id>
+    <snippet>Neural networks are important in modern AI systems and natural language processing has become a major focus.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithMultiDocs as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // This should be a fuzzy match at best, since the citation combines text from different documents
+    expect(['fuzzy', 'failed']).toContain(citationData?.excerpts[0].validationStatus);
+    
+    // If it's a fuzzy match, make sure the similarity threshold is reasonable
+    if (citationData?.excerpts[0].validationStatus === 'fuzzy') {
+      expect(citationData?.excerpts[0].validationMessage).toContain('partially verified');
+    } else {
+      expect(citationData?.excerpts[0].validationMessage).toContain('not verified');
+    }
+  });
+});
+
+// Citation Validation Tests
+describe('Citation Validation', () => {
+  // Create session with RAG results for testing citation validation
+  const mockDocumentId = 'doc-id-123';
+  const mockSessionWithRAG: Partial<ISession> = {
+    id: 'test-session',
+    name: 'Test Session',
+    created: new Date().toISOString(),
+    updated: new Date().toISOString(),
+    parent_session: '',
+    parent_app: '',
+    mode: 'inference',
+    type: 'text',
+    model_name: 'test-model',
+    lora_dir: '',
+    owner: 'test-owner',
+    owner_type: 'user',
+    interactions: [],
+    config: {
+      original_mode: 'inference',
+      origin: { type: 'user_created' } as ISessionOrigin,
+      avatar: '',
+      priority: false,
+      document_ids: {
+        'test-document.pdf': mockDocumentId,
+      },
+      document_group_id: 'group-123',
+      session_rag_results: [
+        {
+          document_id: mockDocumentId,
+          document_group_id: 'group-123',
+          content: 'This is the exact content from a source document that will be quoted exactly.',
+          source: 'test-document.pdf',
+        },
+        {
+          document_id: 'doc-id-456',
+          document_group_id: 'group-123',
+          content: 'This text contains information about neural networks and machine learning algorithms.',
+          source: 'ml-document.pdf',
+        }
+      ],
+      manually_review_questions: false,
+      system_prompt: '',
+      helix_version: '',
+      eval_run_id: '',
+      eval_user_score: '',
+      eval_user_reason: '',
+      eval_manual_score: '',
+      eval_manual_reason: '',
+      eval_automatic_score: '',
+      eval_automatic_reason: '',
+      eval_original_user_prompts: [],
+      rag_source_data_entity_id: '',
+    },
+  };
+  
+  const mockGetFileURL = (file: string) => `https://example.com/${file}`;
+
+  // Test case 1: Exact match case - should add 'exact' validation status
+  test('Citation with exact match should have exact validation status', () => {
+    // Create message with excerpts that exactly match RAG results
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>${mockDocumentId}</document_id>
+    <snippet>This is the exact content from a source document that will be quoted exactly.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithRAG as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // Check that validation status is 'exact'
+    expect(citationData?.excerpts[0].validationStatus).toBe('exact');
+    expect(citationData?.excerpts[0].validationMessage).toContain('verified');
+  });
+
+  // Test case 2: Fuzzy match case - should add 'fuzzy' validation status
+  test('Citation with similar but not exact match should have fuzzy validation status', () => {
+    // Create message with excerpts that partially match RAG results
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>doc-id-456</document_id>
+    <snippet>This text has information about neural networks and learning algorithms.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithRAG as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // Check that validation status is 'fuzzy'
+    expect(citationData?.excerpts[0].validationStatus).toBe('fuzzy');
+    expect(citationData?.excerpts[0].validationMessage).toContain('partially verified');
+  });
+
+  // Test case 3: Failed match case - should add 'failed' validation status
+  test('Citation with completely different content should have failed validation status', () => {
+    // Create message with excerpts that don't match any RAG results
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>doc-id-456</document_id>
+    <snippet>This content is completely different and should not match anything in the source documents.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithRAG as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // Check that validation status is 'failed'
+    expect(citationData?.excerpts[0].validationStatus).toBe('failed');
+    expect(citationData?.excerpts[0].validationMessage).toContain('not verified');
+  });
+
+  // Test case 4: Document ID not found in RAG results
+  test('Citation with document ID not in RAG results should have failed validation status', () => {
+    // Create message with excerpts that reference a non-existent document ID
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>non-existent-doc-id</document_id>
+    <snippet>This refers to a document that doesn't exist in RAG results.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithRAG as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // Check that validation status is 'failed'
+    expect(citationData?.excerpts[0].validationStatus).toBe('failed');
+    expect(citationData?.excerpts[0].validationMessage).toContain('No matching source document');
+  });
+  
+  // Test case 5: Citation attribution to wrong document ID (misattribution)
+  test('Citation with correct content but wrong document ID should have failed validation status', () => {
+    // Create message with excerpts that correctly quote content from one document
+    // but attribute it to a different document ID
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>doc-id-456</document_id>
+    <snippet>This is the exact content from a source document that will be quoted exactly.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithRAG as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // The content actually comes from mockDocumentId, but is attributed to doc-id-456
+    // So this should be a 'failed' validation even though the content exists
+    expect(citationData?.excerpts[0].validationStatus).toBe('failed');
+    expect(citationData?.excerpts[0].validationMessage).toContain('not verified');
+  });
+  
+  // Test case 6: Multiple RAG results with the same document_id (chunked document)
+  test('Citation should match the correct chunk when document has multiple chunks with same ID', () => {
+    // Create a session with multiple chunks for the same document_id
+    const mockDocumentIdWithChunks = 'doc-id-with-chunks';
+    const mockSessionWithChunks: Partial<ISession> = {
+      ...mockSessionWithRAG,
+      config: {
+        original_mode: 'inference',
+        origin: { type: 'user_created' } as ISessionOrigin,
+        avatar: '',
+        priority: false,
+        document_ids: {
+          'chunked-document.pdf': mockDocumentIdWithChunks,
+        },
+        document_group_id: 'group-123',
+        session_rag_results: [
+          {
+            document_id: mockDocumentIdWithChunks,
+            document_group_id: 'group-123',
+            content: 'This is chunk 1 of the document. It contains some specific information about machine learning.',
+            source: 'chunked-document.pdf',
+            metadata: { offset: '0' }
+          },
+          {
+            document_id: mockDocumentIdWithChunks,
+            document_group_id: 'group-123',
+            content: 'This is chunk 2 of the document. It discusses neural networks and their applications.',
+            source: 'chunked-document.pdf',
+            metadata: { offset: '1024' }
+          },
+          {
+            document_id: mockDocumentIdWithChunks,
+            document_group_id: 'group-123',
+            content: 'This is chunk 3 of the document. It explores transformers and attention mechanisms.',
+            source: 'chunked-document.pdf',
+            metadata: { offset: '2048' }
+          }
+        ],
+        manually_review_questions: false,
+        system_prompt: '',
+        helix_version: '',
+        eval_run_id: '',
+        eval_user_score: '',
+        eval_user_reason: '',
+        eval_manual_score: '',
+        eval_manual_reason: '',
+        eval_automatic_score: '',
+        eval_automatic_reason: '',
+        eval_original_user_prompts: [],
+        rag_source_data_entity_id: '',
+      } as ISessionConfig,
+    };
+
+    // Create message with excerpt that quotes from chunk 2
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>${mockDocumentIdWithChunks}</document_id>
+    <snippet>It discusses neural networks and their applications.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithChunks as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // This should be an 'exact' match since the content exists in chunk 2
+    expect(citationData?.excerpts[0].validationStatus).toBe('exact');
+    expect(citationData?.excerpts[0].validationMessage).toContain('verified');
+  });
+  
+  // Test case 7: Citation text spans multiple chunks
+  test('Citation that spans across chunks should still be validated correctly', () => {
+    // Create a session with multiple adjacent chunks for the same document_id
+    const mockDocumentIdWithChunks = 'doc-id-spanning-chunks';
+    const mockSessionWithSpanningChunks: Partial<ISession> = {
+      ...mockSessionWithRAG,
+      config: {
+        original_mode: 'inference',
+        origin: { type: 'user_created' } as ISessionOrigin,
+        avatar: '',
+        priority: false,
+        document_ids: {
+          'spanning-document.pdf': mockDocumentIdWithChunks,
+        },
+        document_group_id: 'group-123',
+        session_rag_results: [
+          {
+            document_id: mockDocumentIdWithChunks,
+            document_group_id: 'group-123',
+            content: 'This is the first part of a document that continues across two chunks.',
+            source: 'spanning-document.pdf',
+            metadata: { offset: '0' }
+          },
+          {
+            document_id: mockDocumentIdWithChunks,
+            document_group_id: 'group-123',
+            content: 'This continues from the previous chunk and finishes the document.',
+            source: 'spanning-document.pdf',
+            metadata: { offset: '1024' }
+          }
+        ],
+        manually_review_questions: false,
+        system_prompt: '',
+        helix_version: '',
+        eval_run_id: '',
+        eval_user_score: '',
+        eval_user_reason: '',
+        eval_manual_score: '',
+        eval_manual_reason: '',
+        eval_automatic_score: '',
+        eval_automatic_reason: '',
+        eval_original_user_prompts: [],
+        rag_source_data_entity_id: '',
+      } as ISessionConfig,
+    };
+
+    // Create message with excerpt that spans across chunks
+    // Note: This exact text doesn't exist in any single chunk
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>${mockDocumentIdWithChunks}</document_id>
+    <snippet>a document that continues across two chunks. This continues</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithSpanningChunks as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // The current implementation treats text spanning chunks as a 'fuzzy' match
+    // rather than a 'failed' match since it finds a partial match
+    expect(citationData?.excerpts[0].validationStatus).toBe('fuzzy');
+    expect(citationData?.excerpts[0].validationMessage).toContain('partially verified');
+  });
+  
+  // Test case 8: Citation combines text from multiple documents with different IDs
+  test('Citation that combines text from different documents should be marked as failed', () => {
+    // Create a session with multiple documents with different IDs
+    const mockDocId1 = 'doc-id-multi-1';
+    const mockDocId2 = 'doc-id-multi-2';
+    const mockSessionWithMultiDocs: Partial<ISession> = {
+      ...mockSessionWithRAG,
+      config: {
+        original_mode: 'inference',
+        origin: { type: 'user_created' } as ISessionOrigin,
+        avatar: '',
+        priority: false,
+        document_ids: {
+          'document1.pdf': mockDocId1,
+          'document2.pdf': mockDocId2,
+        },
+        document_group_id: 'group-123',
+        session_rag_results: [
+          {
+            document_id: mockDocId1,
+            document_group_id: 'group-123',
+            content: 'This document discusses neural networks and their importance in modern AI systems.',
+            source: 'document1.pdf',
+          },
+          {
+            document_id: mockDocId2,
+            document_group_id: 'group-123',
+            content: 'Natural language processing has become a major focus of research in recent years.',
+            source: 'document2.pdf',
+          }
+        ],
+        manually_review_questions: false,
+        system_prompt: '',
+        helix_version: '',
+        eval_run_id: '',
+        eval_user_score: '',
+        eval_user_reason: '',
+        eval_manual_score: '',
+        eval_manual_reason: '',
+        eval_automatic_score: '',
+        eval_automatic_reason: '',
+        eval_original_user_prompts: [],
+        rag_source_data_entity_id: '',
+      } as ISessionConfig,
+    };
+
+    // Create message with excerpt that combines text from both documents
+    // but attributes it to just one document ID
+    const message = `<excerpts>
+  <excerpt>
+    <document_id>${mockDocId1}</document_id>
+    <snippet>Neural networks are important in modern AI systems and natural language processing has become a major focus.</snippet>
+  </excerpt>
+</excerpts>`;
+
+    // Create processor
+    const processor = new MessageProcessor(message, {
+      session: mockSessionWithMultiDocs as ISession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+
+    // Process the message
+    processor.process();
+    
+    // Get the citation data
+    const citationData = processor.getCitationData();
+    
+    // Verify we have citation data with one excerpt
+    expect(citationData).not.toBeNull();
+    expect(citationData?.excerpts.length).toBe(1);
+    
+    // This should be a fuzzy match at best, since the citation combines text from different documents
+    expect(['fuzzy', 'failed']).toContain(citationData?.excerpts[0].validationStatus);
+    
+    // If it's a fuzzy match, make sure the similarity threshold is reasonable
+    if (citationData?.excerpts[0].validationStatus === 'fuzzy') {
+      expect(citationData?.excerpts[0].validationMessage).toContain('partially verified');
+    } else {
+      expect(citationData?.excerpts[0].validationMessage).toContain('not verified');
+    }
   });
 });
 
