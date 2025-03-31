@@ -1,11 +1,11 @@
 # Production docker-compose.yaml for HelixML :latest
-# See https://docs.helix.ml/helix/private-deployment/controlplane/
+# See https://docs.helixml.tech/helix/private-deployment/controlplane/
 
 version: '3'
 
 services:
   api:
-    image: registry.helix.ml/helix/controlplane:latest
+    image: registry.helixml.tech/helix/controlplane:latest
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
     # for SERVER_URL and KEYCLOAK_FRONTEND_URL to match how you
@@ -96,7 +96,7 @@ services:
     command: ["start", "--proxy", "edge"]
   llamaindex:
     profiles: [full]
-    image: registry.helix.ml/helix/llamaindex:latest
+    image: registry.helixml.tech/helix/llamaindex:latest
     # ports:
       # - 5000:5000
     restart: always
@@ -106,7 +106,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   gptscript_runner:
-    image: registry.helix.ml/helix/gptscript-runner:latest
+    image: registry.helixml.tech/helix/gptscript-runner:latest
     restart: always
     env_file:
       - .env
@@ -125,7 +125,7 @@ services:
     ports:
       - 9998:9998
   typesense:
-    image: registry.helix.ml/helix/typesense:latest
+    image: registry.helixml.tech/helix/typesense:latest
     restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     ports:

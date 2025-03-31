@@ -196,7 +196,7 @@ const SidebarContent: React.FC<{
   }
 
   const openDocumentation = () => {
-    window.open("https://docs.helix.ml/docs/overview", "_blank")
+    window.open("https://docs.helixml.tech/docs/overview", "_blank")
   }
 
   const postNavigateTo = () => {
