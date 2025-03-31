@@ -786,7 +786,7 @@ if [ "$RUNNER" = true ]; then
     # Check for NVIDIA GPU
     if ! check_nvidia_gpu; then
         echo "NVIDIA GPU not detected. Skipping runner installation."
-        echo "Set up a runner separately, per http://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner"
+        echo "Set up a runner separately, per https://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner"
         exit 1
     fi
 

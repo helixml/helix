@@ -91,7 +91,7 @@ Tips for Writing Effective Tests
 ### API Integration Example
 
 This is a more complicated example demonstrating an [API
-integration](https://docs.helix.ml/helix/develop/apps/#api-integrations) with Coinbase.
+integration](https://docs.helixml.tech/helix/develop/apps/#api-integrations) with Coinbase.
 
 In these tests we test various user scenarios. In one, the user asks for historical data, but the
 API doesn't have any historical data. Initially the test will fail because it doesn't know this. But
@@ -134,7 +134,7 @@ assistants:
 
 Prerequisites:
 
-- Helix CLI Installed: Ensure you have the [Helix command-line interface installed](https://docs.helix.ml/helix/using-helix/client/).
+- Helix CLI Installed: Ensure you have the [Helix command-line interface installed](https://docs.helixml.tech/helix/using-helix/client/).
 - API Key: Set the `HELIX_API_KEY` environment variable with your Helix API key.
 - Helix URL (Optional): If you're using a custom Helix instance, set the `HELIX_URL` environment variable.
 
@@ -294,4 +294,4 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 
 The Helix Testing Tool is a powerful utility that simplifies the testing process for Helix applications. By defining tests in your helix.yaml file and using the tool to run them, you can efficiently validate your assistant's behavior, generate informative reports, and maintain high-quality applications.
 
-For further assistance or questions, refer to the [Helix documentation](https://docs.helix.ml/helix/) or contact support.
+For further assistance or questions, refer to the [Helix documentation](https://docs.helixml.tech/helix/) or contact support.

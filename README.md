@@ -8,8 +8,8 @@
 
 <p align="center">
   <a href="https://app.tryhelix.ai/">SaaS</a> •
-  <a href="https://docs.helix.ml/docs/controlplane">Private Deployment</a> •
-  <a href="https://docs.helix.ml/docs/overview">Docs</a> •
+  <a href="https://docs.helixml.tech/docs/controlplane">Private Deployment</a> •
+  <a href="https://docs.helixml.tech/docs/overview">Docs</a> •
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
@@ -22,7 +22,7 @@
 
 Private GenAI stack. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
-Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop. Build and deploy [LLM apps by writing a helix.yaml](https://docs.helix.ml/helix/develop/getting-started/).
+Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop. Build and deploy [LLM apps by writing a helix.yaml](https://docs.helixml.tech/helix/develop/getting-started/).
 
 Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
 
@@ -37,15 +37,15 @@ sudo ./install.sh
 ```
 The installer will prompt you before making changes to your system. By default, the dashboard will be available on `http://localhost:8080`.
 
-For setting up a deployment with a DNS name, see `./install.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
+For setting up a deployment with a DNS name, see `./install.sh --help` or read [the detailed docs](https://docs.helixml.tech/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
-Attach your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attach-a-runner-to-an-existing-control-plane) or use any [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#install-control-plane-pointing-at-any-openai-compatible-api).
+Attach your own GPU runners per [runners docs](https://docs.helixml.tech/helix/private-deployment/controlplane/#attach-a-runner-to-an-existing-control-plane) or use any [external OpenAI-compatible LLM](https://docs.helixml.tech/helix/private-deployment/controlplane/#install-control-plane-pointing-at-any-openai-compatible-api).
 
 ## Install on Kubernetes
 
 Use our helm charts:
-* [Control Plane helm chart](https://docs.helix.ml/helix/private-deployment/helix-controlplane-helm-chart/)
-* [Runner helm chart](https://docs.helix.ml/helix/private-deployment/helix-runner-helm-chart/)
+* [Control Plane helm chart](https://docs.helixml.tech/helix/private-deployment/helix-controlplane-helm-chart/)
+* [Runner helm chart](https://docs.helixml.tech/helix/private-deployment/helix-runner-helm-chart/)
 
 ## Developer Instructions
 
