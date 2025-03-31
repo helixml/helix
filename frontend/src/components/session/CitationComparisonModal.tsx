@@ -206,12 +206,24 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
           const startMatch = content.match(startRegex);
           
           if (startMatch && startMatch.index !== undefined) {
-            // Find approximate end position based on citation length
+            // Find end position based on citation length - no buffer for exact match
             const startIdx = startMatch.index;
-            const approxEndIdx = startIdx + citationText.length * 1.2; // Add 20% buffer
-            const endIdx = Math.min(approxEndIdx, content.length);
             
-            // Highlight the approximate region
+            // Find end pattern to get exact end position if possible
+            const endWords = words.slice(-3).join('\\s+');
+            const endRegex = new RegExp(endWords, 'i');
+            const endMatch = content.substring(startIdx).match(endRegex);
+            
+            let endIdx;
+            if (endMatch && endMatch.index !== undefined) {
+              // Use precise end position
+              endIdx = startIdx + endMatch.index + endMatch[0].length;
+            } else {
+              // Fallback: use citation length as guide, with no buffer
+              endIdx = Math.min(startIdx + citationText.length, content.length);
+            }
+            
+            // Highlight the region
             const beforeMatch = content.substring(0, startIdx);
             const matchedText = content.substring(startIdx, endIdx);
             const afterMatch = content.substring(endIdx);
