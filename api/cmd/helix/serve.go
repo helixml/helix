@@ -51,7 +51,6 @@ func NewServeConfig() (*config.ServerConfig, error) {
 
 	serverConfig.Janitor.AppURL = serverConfig.WebServer.URL
 	serverConfig.Stripe.AppURL = serverConfig.WebServer.URL
-	serverConfig.WebServer.LocalFilestorePath = serverConfig.FileStore.LocalFSPath
 
 	if serverConfig.GitHub.Enabled {
 		if serverConfig.GitHub.ClientID == "" {
