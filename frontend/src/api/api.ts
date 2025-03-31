@@ -429,8 +429,12 @@ export interface TypesAssistantAPI {
   headers?: Record<string, string>;
   name?: string;
   /** OAuth configuration */
+<<<<<<< HEAD
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
+=======
+  oauth_provider?: TypesOAuthProviderType;
+>>>>>>> main
   oauth_scopes?: string[];
   query?: Record<string, string>;
   request_prep_template?: string;
@@ -447,6 +451,8 @@ export interface TypesAssistantConfig {
   gptscripts?: TypesAssistantGPTScript[];
   id?: string;
   image?: string;
+  /** Defaults to 4 */
+  is_actionable_history_length?: number;
   is_actionable_template?: string;
   knowledge?: TypesAssistantKnowledge[];
   lora_id?: string;
@@ -882,6 +888,17 @@ export enum TypesMessageContentType {
   MessageContentTypeText = "text",
 }
 
+export enum TypesOAuthProviderType {
+  OAuthProviderTypeUnknown = "",
+  OAuthProviderTypeAtlassian = "atlassian",
+  OAuthProviderTypeGoogle = "google",
+  OAuthProviderTypeMicrosoft = "microsoft",
+  OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeSlack = "slack",
+  OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeCustom = "custom",
+}
+
 export interface TypesOpenAIMessage {
   /** The message content */
   content?: string;
@@ -1003,6 +1020,8 @@ export interface TypesRAGSettings {
   disable_downloading?: boolean;
   /** this is one of l2, inner_product or cosine - will default to cosine */
   distance_function?: string;
+  /** if true, we will use the vision pipeline -- Future - might want to specify different pipelines */
+  enable_vision?: boolean;
   /** RAG endpoint configuration if used with a custom RAG service */
   index_url?: string;
   /** the prompt template to use for the RAG query */
@@ -1349,7 +1368,11 @@ export interface TypesToolAPIConfig {
   headers?: Record<string, string>;
   model?: string;
   /** OAuth configuration */
+<<<<<<< HEAD
   oauth_provider?: string;
+=======
+  oauth_provider?: TypesOAuthProviderType;
+>>>>>>> main
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   /** Query parameters that will be always set */
@@ -1430,6 +1453,12 @@ export interface TypesUser {
   type?: TypesOwnerType;
   updated_at?: string;
   username?: string;
+}
+
+export interface TypesUserAppAccessResponse {
+  can_read?: boolean;
+  can_write?: boolean;
+  is_admin?: boolean;
 }
 
 export interface TypesUserResponse {
@@ -1724,8 +1753,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Runs an API action for an app
+     *
+<<<<<<< HEAD
+=======
+     * @name V1AppsApiActionsCreate
+     * @summary Run an API action
+     * @request POST:/api/v1/apps/{id}/api-actions
+     * @secure
+     */
+    v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
+      this.request<TypesRunAPIActionResponse, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/api-actions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Runs a gptscript for an app
+     *
+     * @name V1AppsGptscriptCreate
+     * @summary Run a GptScript
+     * @request POST:/api/v1/apps/{id}/gptscript
+     * @secure
+     */
+    v1AppsGptscriptCreate: (id: string, request: TypesGptScriptRequest, params: RequestParams = {}) =>
+      this.request<TypesGptScriptResponse, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/gptscript`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the access rights the current user has for this app
+     *
+     * @tags apps
+     * @name V1AppsUserAccessDetail
+     * @summary Get current user's access level for an app
+     * @request GET:/api/v1/apps/{id}/user-access
+     * @secure
+     */
+    v1AppsUserAccessDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUserAppAccessResponse, any>({
+        path: `/api/v1/apps/${id}/user-access`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * No description
      *
+>>>>>>> main
      * @name V1AppsGithubUpdate
      * @request PUT:/api/v1/apps/github/{id}
      * @secure

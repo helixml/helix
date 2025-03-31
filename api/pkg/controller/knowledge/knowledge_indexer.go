@@ -322,6 +322,9 @@ func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, version 
 }
 
 func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, version string, data []*indexerData, startedAt time.Time) error {
+	if k == nil {
+		return fmt.Errorf("knowledge is nil")
+	}
 	ragClient := r.getRagClient(k)
 
 	log.Info().
@@ -347,6 +350,11 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			StartedAt:      startedAt,
 		})
 
+		pipeline := types.TextPipeline
+		if k.RAGSettings.EnableVision {
+			pipeline = types.VisionPipeline
+		}
+
 		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 			DataEntityID:    types.GetDataEntityID(k.ID, version),
 			Filename:        d.Source,
@@ -356,6 +364,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			ContentOffset:   0,
 			Content:         string(d.Data),
 			Metadata:        convertMetadataToStringMap(d.Metadata),
+			Pipeline:        pipeline,
 		})
 		if err != nil {
 			// return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
@@ -472,6 +481,11 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
+	pipeline := types.TextPipeline
+	if k != nil && k.RAGSettings.EnableVision {
+		pipeline = types.VisionPipeline
+	}
+
 	// Keep a cache of metadata for files
 	metadataCache := make(map[string]map[string]string)
 
@@ -553,6 +567,7 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 			ContentOffset:   chunk.Index,
 			Content:         chunk.Text,
 			Metadata:        metadata,
+			Pipeline:        pipeline,
 		})
 	}
 

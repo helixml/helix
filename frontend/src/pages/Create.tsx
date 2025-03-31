@@ -33,6 +33,7 @@ import useRouter from '../hooks/useRouter'
 import useSessions from '../hooks/useSessions'
 import useSnackbar from '../hooks/useSnackbar'
 import useTracking from '../hooks/useTracking'
+import useUserAppAccess from '../hooks/useUserAppAccess'
 import { useStreaming } from '../contexts/streaming'
 
 import {
@@ -87,12 +88,13 @@ const Create: FC = () => {
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
   const [isLoadingApp, setIsLoadingApp] = useState(false)
-  const initialModelSetRef = useRef(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const appID = router.params.app_id || ''
   const model = router.params.model || ''
+
+  const userAppAccess = useUserAppAccess(appID)
 
   const activeAssistantID = router.params.assistant_id || '0'
   const activeAssistant = apps.app && getAssistant(apps.app, activeAssistantID)
@@ -107,9 +109,8 @@ const Create: FC = () => {
   // Then, in the Create component, we'll add a check to see if the current user owns the app
   // This should be added near the top of the component, after the existing useEffect hooks
   const userOwnsApp = useMemo(() => {
-    if (!apps.app || !account.user) return false
-    return apps.app.owner === account.user.id
-  }, [apps.app, account.user])
+    return userAppAccess.canRead
+  }, [userAppAccess.canRead])
 
   /*
    *

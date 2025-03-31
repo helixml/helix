@@ -187,7 +187,7 @@ class VectorchordEmbeddingRetriever:
                 score = doc.meta.get('score')
                 documents[i].score = score
 
-            logger.info(f"Vector result {i}: id={getattr(doc, 'id', 'unknown')}, "
-                     f"score={score}")
+            filename=doc.meta.get('filename', 'unknown') if hasattr(doc, 'meta') else 'unknown'
+            logger.info(f"Vector result {i}: id={getattr(doc, 'id', 'unknown')}, score={score}, filename={filename}")
         
         return {"documents": documents}

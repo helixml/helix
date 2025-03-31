@@ -10,7 +10,7 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { IAssistantApi, ITool } from '../../types';
+import { IAppFlatState, IAssistantApi, ITool } from '../../types';
 import Window from '../widgets/Window';
 import StringMapEditor from '../widgets/StringMapEditor';
 import ClickLink from '../widgets/ClickLink';
@@ -32,6 +32,7 @@ import Avatar from '@mui/material/Avatar';
 import IconButton from '@mui/material/IconButton';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import useApi from '../../hooks/useApi';
+import Link from '@mui/material/Link';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
@@ -39,6 +40,8 @@ interface ApiIntegrationsProps {
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
   onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
+  app: IAppFlatState,
+  onUpdate: (updates: IAppFlatState) => Promise<void>,
 }
 
 // Interface for OAuth provider objects from the API
@@ -54,7 +57,9 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   tools,
   onSaveApiTool,
   onDeleteApiTool,
-  isReadOnly
+  isReadOnly,
+  app,
+  onUpdate,
 }) => {
   const [editingTool, setEditingTool] = useState<{tool: IAssistantApi, index: number} | null>(null);
   const [showErrors, setShowErrors] = useState(false);
@@ -63,7 +68,24 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [oauthProvider, setOAuthProvider] = useState('');
   const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
   const [configuredProviders, setConfiguredProviders] = useState<OAuthProvider[]>([]);
+  const [actionableTemplate, setActionableTemplate] = useState(app.is_actionable_template || '');
+  const [actionableHistoryLength, setActionableHistoryLength] = useState(app.is_actionable_history_length || 0);
   const api = useApi();
+
+  // Initialize local state when app prop changes
+  useEffect(() => {
+    setActionableTemplate(app.is_actionable_template || '');
+    setActionableHistoryLength(app.is_actionable_history_length || 0);
+  }, [app]);
+
+  const handleBlur = (field: 'template' | 'history') => {
+    // Only update if values have changed
+    if (field === 'template' && actionableTemplate !== app.is_actionable_template) {
+      onUpdate({...app, is_actionable_template: actionableTemplate});
+    } else if (field === 'history' && actionableHistoryLength !== app.is_actionable_history_length) {
+      onUpdate({...app, is_actionable_history_length: actionableHistoryLength});
+    }
+  };
 
   // Fetch configured OAuth providers from the API
   useEffect(() => {
@@ -227,6 +249,45 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       >
         Add API Tool
       </Button>
+
+      <Accordion sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography>Advanced Configuration</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            You can view default template
+            in the <Link href="https://github.com/helixml/helix/blob/a27b8c53cdcfafb6663a6553d23c56ef67ebd50a/api/pkg/tools/informative_or_actionable.go#L232-L321" target="_blank">
+              Helix repository
+            </Link>. The goal is to help the model decide whether a tool should be used to perform an action or not.
+          </Typography>
+          <TextField
+            value={actionableTemplate}
+            onChange={(e) => setActionableTemplate(e.target.value)}
+            onBlur={() => handleBlur('template')}
+            label="'Is Actionable' template"
+            fullWidth
+            multiline
+            rows={4}
+            disabled={isReadOnly}
+            sx={{ mb: 2 }}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The history length is the number of messages that will be used to determine if the tool should be used to perform an action.
+            The more context you provide, the worse results you will get on smaller models. For large models this can have an opposite effect.
+          </Typography>          
+          <TextField
+            value={actionableHistoryLength}
+            onChange={(e) => setActionableHistoryLength(Number(e.target.value))}
+            onBlur={() => handleBlur('history')}
+            label="'Is Actionable' history length"
+            type="number"
+            fullWidth
+            disabled={isReadOnly}
+          />
+        </AccordionDetails>
+      </Accordion>
+
       <Box sx={{ mb: 2, overflowY: 'auto' }}>
         {apis.map((apiTool, index) => (
           <Box

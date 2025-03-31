@@ -248,6 +248,148 @@ const docTemplate = `{
                 }
             }
         },
+<<<<<<< HEAD
+=======
+        "/api/v1/apps/{id}/api-actions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Runs an API action for an app",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Run an API action",
+                "parameters": [
+                    {
+                        "description": "Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/gptscript": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Runs a gptscript for an app",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Run a GptScript",
+                "parameters": [
+                    {
+                        "description": "Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GptScriptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GptScriptResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/user-access": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the access rights the current user has for this app",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Get current user's access level for an app",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserAppAccessResponse"
+                        }
+                    }
+                }
+            }
+        },
+>>>>>>> main
         "/api/v1/auth/authenticated": {
             "get": {
                 "description": "Check if the user is authenticated",
@@ -2431,10 +2573,20 @@ const docTemplate = `{
                 },
                 "oauth_provider": {
                     "description": "OAuth configuration",
+<<<<<<< HEAD
                     "type": "string"
                 },
                 "oauth_scopes": {
                     "description": "Required OAuth scopes for this API",
+=======
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OAuthProviderType"
+                        }
+                    ]
+                },
+                "oauth_scopes": {
+>>>>>>> main
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -2489,6 +2641,10 @@ const docTemplate = `{
                 },
                 "image": {
                     "type": "string"
+                },
+                "is_actionable_history_length": {
+                    "description": "Defaults to 4",
+                    "type": "integer"
                 },
                 "is_actionable_template": {
                     "type": "string"
@@ -3462,6 +3618,29 @@ const docTemplate = `{
                 "MessageContentTypeText"
             ]
         },
+        "types.OAuthProviderType": {
+            "type": "string",
+            "enum": [
+                "",
+                "atlassian",
+                "google",
+                "microsoft",
+                "github",
+                "slack",
+                "linkedin",
+                "custom"
+            ],
+            "x-enum-varnames": [
+                "OAuthProviderTypeUnknown",
+                "OAuthProviderTypeAtlassian",
+                "OAuthProviderTypeGoogle",
+                "OAuthProviderTypeMicrosoft",
+                "OAuthProviderTypeGitHub",
+                "OAuthProviderTypeSlack",
+                "OAuthProviderTypeLinkedIn",
+                "OAuthProviderTypeCustom"
+            ]
+        },
         "types.OpenAIMessage": {
             "type": "object",
             "properties": {
@@ -3774,6 +3953,10 @@ const docTemplate = `{
                 "distance_function": {
                     "description": "this is one of l2, inner_product or cosine - will default to cosine",
                     "type": "string"
+                },
+                "enable_vision": {
+                    "description": "if true, we will use the vision pipeline -- Future - might want to specify different pipelines",
+                    "type": "boolean"
                 },
                 "index_url": {
                     "description": "RAG endpoint configuration if used with a custom RAG service",
@@ -4582,7 +4765,15 @@ const docTemplate = `{
                 },
                 "oauth_provider": {
                     "description": "OAuth configuration",
+<<<<<<< HEAD
                     "type": "string"
+=======
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OAuthProviderType"
+                        }
+                    ]
+>>>>>>> main
                 },
                 "oauth_scopes": {
                     "description": "Required OAuth scopes for this API",
@@ -4770,6 +4961,20 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UserAppAccessResponse": {
+            "type": "object",
+            "properties": {
+                "can_read": {
+                    "type": "boolean"
+                },
+                "can_write": {
+                    "type": "boolean"
+                },
+                "is_admin": {
+                    "type": "boolean"
                 }
             }
         },

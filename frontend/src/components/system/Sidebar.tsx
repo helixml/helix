@@ -13,6 +13,7 @@ import Tab from '@mui/material/Tab'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
+import { styled, keyframes } from '@mui/material/styles'
 
 import WebhookIcon from '@mui/icons-material/Webhook'
 import HomeIcon from '@mui/icons-material/Home'
@@ -36,6 +37,7 @@ import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
+import useApi from '../../hooks/useApi'
 import { AccountContext } from '../../contexts/account'
 import SlideMenuContainer, { triggerMenuChange } from './SlideMenuContainer'
 
@@ -47,6 +49,57 @@ const RESOURCE_TYPES = [
   'chat',
   'apps',
 ]
+
+const shimmer = keyframes`
+  0% {
+    background-position: -200% center;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+  }
+  100% {
+    background-position: 200% center;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+`
+
+const pulse = keyframes`
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+`
+
+const ShimmerButton = styled(Button)(({ theme }) => ({
+  background: `linear-gradient(
+    90deg, 
+    ${theme.palette.secondary.dark} 0%,
+    ${theme.palette.secondary.main} 20%,
+    ${theme.palette.secondary.light} 50%,
+    ${theme.palette.secondary.main} 80%,
+    ${theme.palette.secondary.dark} 100%
+  )`,
+  backgroundSize: '200% auto',
+  animation: `${shimmer} 2s linear infinite, ${pulse} 3s ease-in-out infinite`,
+  transition: 'all 0.3s ease-in-out',
+  boxShadow: '0 0 15px rgba(0, 229, 255, 0.3)',
+  fontWeight: 'bold',
+  letterSpacing: '0.5px',
+  padding: '6px 16px',
+  fontSize: '0.875rem',
+  '&:hover': {
+    transform: 'scale(1.05)',
+    boxShadow: '0 0 25px rgba(0, 229, 255, 0.6)',
+    backgroundSize: '200% auto',
+    animation: `${shimmer} 1s linear infinite`,
+  },
+}))
 
 // Wrap the inner content in the SlideMenuContainer to enable animations
 const SidebarContent: React.FC<{
@@ -60,6 +113,7 @@ const SidebarContent: React.FC<{
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
   const router = useRouter()
+  const api = useApi()
   const account = useAccount()
   const apps = useApps()
   const sessions = useSessions()
@@ -78,38 +132,50 @@ const SidebarContent: React.FC<{
     router.params,
   ])
 
+  const apiClient = api.getApiClient()
+
   // Ensure apps are loaded when apps tab is selected
   useEffect(() => {
-    console.log(`[SIDEBAR] Active tab changed to ${activeTab}`)
-    const currentResourceType = RESOURCE_TYPES[activeTab]
-    
-    // Make sure the URL reflects the correct resource type
-    const urlResourceType = router.params.resource_type || 'chat'
-    
-    // If there's a mismatch between activeTab and URL resource_type, update the URL
-    if (currentResourceType !== urlResourceType) {
-      console.log(`[SIDEBAR] Fixing resource_type mismatch: URL has ${urlResourceType}, should be ${currentResourceType}`)
-      
-      // Create a copy of the params with the correct resource_type
-      const newParams = { ...router.params } as Record<string, string>;
-      newParams.resource_type = currentResourceType;
-      
-      // If switching to chat tab, remove app_id if present
-      if (currentResourceType === 'chat' && router.params.app_id) {
-        delete newParams.app_id;
+    const checkAuthAndLoad = async () => {
+      try {
+        const authResponse = await apiClient.v1AuthAuthenticatedList()
+        if (!authResponse.data.authenticated) {
+          return
+        }
+        
+        const currentResourceType = RESOURCE_TYPES[activeTab]
+        
+        // Make sure the URL reflects the correct resource type
+        const urlResourceType = router.params.resource_type || 'chat'
+        
+        // If there's a mismatch between activeTab and URL resource_type, update the URL
+        if (currentResourceType !== urlResourceType) {
+          // Create a copy of the params with the correct resource_type
+          const newParams = { ...router.params } as Record<string, string>;
+          newParams.resource_type = currentResourceType;
+          
+          // If switching to chat tab, remove app_id if present
+          if (currentResourceType === 'chat' && router.params.app_id) {
+            delete newParams.app_id;
+          }
+          
+          // Update the URL without triggering a reload
+          router.replaceParams(newParams)
+        }
+        
+        // Load the appropriate content for the tab
+        if (currentResourceType === 'apps') {
+          apps.loadApps()
+        } else if (currentResourceType === 'chat') {
+          // Load sessions/chats when on the chat tab
+          sessions.loadSessions()
+        }
+      } catch (error) {
+        console.error('[SIDEBAR] Error checking authentication:', error)
       }
-      
-      // Update the URL without triggering a reload
-      router.replaceParams(newParams)
     }
-    
-    // Load the appropriate content for the tab
-    if (currentResourceType === 'apps') {
-      apps.loadApps()
-    } else if (currentResourceType === 'chat') {
-      // Load sessions/chats when on the chat tab
-      sessions.loadSessions()
-    }
+
+    checkAuthAndLoad()
   }, [activeTab, router.params])
 
   const filteredModels = useMemo(() => {
@@ -193,13 +259,9 @@ const SidebarContent: React.FC<{
     // Get the resource types
     const fromResourceType = RESOURCE_TYPES[activeTab]
     const toResourceType = RESOURCE_TYPES[newValue]
-    
-    console.log('[SIDEBAR HANDLER] Switching from', fromResourceType, 'to', toResourceType)
-    console.log('[SIDEBAR HANDLER] Current router params:', router.params)
-    
+        
     // If switching to chat tab, navigate to home screen directly
-    if (toResourceType === 'chat') {
-      console.log('[SIDEBAR HANDLER] Navigating to home for chat tab')
+    if (toResourceType === 'chat') {      
       account.orgNavigate('home')
       return
     }
@@ -217,8 +279,6 @@ const SidebarContent: React.FC<{
     if (RESOURCE_TYPES[newValue] === 'chat' && newParams.app_id) {
       delete newParams.app_id;
     }
-    
-    console.log('[SIDEBAR HANDLER] About to navigate with params:', newParams)
     
     // Use a more forceful navigation method instead of just merging params
     // This will trigger a full route change
@@ -579,16 +639,17 @@ const SidebarContent: React.FC<{
                   </>
                 ) : (
                   <>
-                    <Button 
+                    <ShimmerButton 
                       id='login-button'
-                      variant="outlined"
+                      variant="contained"
+                      color="secondary"
                       endIcon={<LoginIcon />}
                       onClick={ () => {
                         account.onLogin()
                       }}
                     >
                       Login / Register
-                    </Button>
+                    </ShimmerButton>
                   </>
                 )
               }
