@@ -14,8 +14,6 @@ import (
 )
 
 func (s *HelixAPIServer) filestoreHandler(w http.ResponseWriter, r *http.Request) {
-	// http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", APIPrefix), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	// http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	// if the session is "shared" then anyone can see the files inside the session
 	// if the user is admin then can see anything
 	// if the user is runner then can see anything
@@ -47,7 +45,6 @@ func (s *HelixAPIServer) filestoreHandler(w http.ResponseWriter, r *http.Request
 	} else {
 		s.fileServerHandler.ServeHTTP(w, r)
 	}
-	// }))
 }
 
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
