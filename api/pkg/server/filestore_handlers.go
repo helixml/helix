@@ -221,7 +221,7 @@ func (s *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path strin
 
 	err = s.authorizeUserToApp(ctx, user, app, requiredAction)
 	if err != nil {
-		return false, appID, err
+		return false, appID, nil
 	}
 
 	logger.Debug().Msg("User authorized to access app")
