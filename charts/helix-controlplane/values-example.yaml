@@ -1,6 +1,6 @@
 # For more information visit:
-# https://docs.helix.ml/helix/private-deployment/manual-install/kubernetes/ and
-# https://docs.helix.ml/helix/private-deployment/environment-variables/
+# http://docs.helixml.tech/helix/private-deployment/manual-install/kubernetes/ and
+# http://docs.helixml.tech/helix/private-deployment/environment-variables/
 
 global:
   # Set this AND envVariables.APP_URL to the public URL of your hostname, e.g.

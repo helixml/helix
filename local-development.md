@@ -58,7 +58,7 @@ helix/
 ```bash
 ./stack up
 ```
-This will bring up the control plane which serves the front-end and various other components on the stack. Refer Helix architecture [docs](https://docs.helix.ml/helix/getting-started/architecture/)
+This will bring up the control plane which serves the front-end and various other components on the stack. Refer Helix architecture [docs](http://docs.helixml.tech/helix/getting-started/architecture/)
 
 The control comes up on http://localhost:8080 by default.
 
@@ -90,7 +90,7 @@ You can EITHER attach a GPU runner, or configure an external LLM provider by set
 
 If you want to attach a GPU runner:
 
-Follow the [instructions on the docs to attach a runner](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
+Follow the [instructions on the docs to attach a runner](http://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner)
 
 If you're local machine isn't able to host a runner, you have a few options:
 
@@ -240,6 +240,6 @@ Bring down the stack
 
 ## Further Reading
 
-- [Helix Documentation](https://docs.helix.ml/)
+- [Helix Documentation](http://docs.helixml.tech/)
 
 Happy coding! If you have any questions or run into issues, feel free to reach out to the maintainers on [👥 Discord](https://discord.gg/VJftd844GE).
