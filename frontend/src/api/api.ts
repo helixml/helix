@@ -428,7 +428,8 @@ export interface TypesAssistantAPI {
   headers?: Record<string, string>;
   name?: string;
   /** OAuth configuration */
-  oauth_provider?: TypesOAuthProviderType;
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   query?: Record<string, string>;
   request_prep_template?: string;
@@ -882,17 +883,6 @@ export enum TypesMessageContentType {
   MessageContentTypeText = "text",
 }
 
-export enum TypesOAuthProviderType {
-  OAuthProviderTypeUnknown = "",
-  OAuthProviderTypeAtlassian = "atlassian",
-  OAuthProviderTypeGoogle = "google",
-  OAuthProviderTypeMicrosoft = "microsoft",
-  OAuthProviderTypeGitHub = "github",
-  OAuthProviderTypeSlack = "slack",
-  OAuthProviderTypeLinkedIn = "linkedin",
-  OAuthProviderTypeCustom = "custom",
-}
-
 export interface TypesOpenAIMessage {
   /** The message content */
   content?: string;
@@ -1231,6 +1221,7 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
+  session_rag_results?: TypesSessionRAGResult[];
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
@@ -1301,6 +1292,23 @@ export interface TypesTeamMembership {
   user_id?: string;
 }
 
+export interface TypesTemplateAppConfig {
+  /** Base API URL for the provider */
+  api_url?: string;
+  assistants?: TypesAssistantConfig[];
+  description?: string;
+  metadata?: Record<string, any>;
+  name?: string;
+  type?: TypesTemplateAppType;
+}
+
+export enum TypesTemplateAppType {
+  TemplateAppTypeGitHub = "github",
+  TemplateAppTypeJira = "jira",
+  TemplateAppTypeSlack = "slack",
+  TemplateAppTypeGoogle = "google",
+}
+
 export interface TypesTestStep {
   expected_output?: string;
   prompt?: string;
@@ -1345,7 +1353,7 @@ export interface TypesToolAPIConfig {
   headers?: Record<string, string>;
   model?: string;
   /** OAuth configuration */
-  oauth_provider?: TypesOAuthProviderType;
+  oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   /** Query parameters that will be always set */
@@ -2584,6 +2592,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List available template apps configurations.
+     *
+     * @tags template_apps
+     * @name V1TemplateAppsList
+     * @summary List template apps
+     * @request GET:/api/v1/template-apps
+     * @secure
+     */
+    v1TemplateAppsList: (params: RequestParams = {}) =>
+      this.request<TypesTemplateAppConfig[], any>({
+        path: `/api/v1/template-apps`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get template app configuration by type.
+     *
+     * @tags template_apps
+     * @name V1TemplateAppsDetail
+     * @summary Get template app by type
+     * @request GET:/api/v1/template-apps/{type}
+     * @secure
+     */
+    v1TemplateAppsDetail: (type: string, params: RequestParams = {}) =>
+      this.request<TypesTemplateAppConfig, SystemHTTPError>({
+        path: `/api/v1/template-apps/${type}`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

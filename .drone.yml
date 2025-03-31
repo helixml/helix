@@ -102,10 +102,10 @@ steps:
     
   commands:
     # Build API server
-    - go install ./api/..
+    - go install ./api/...
     # Run tests
-    - cd integration-test/api
-    - go test -v ./...
+    - cd integration-test
+    - go test -v -tags=integration ./...
   when:
     event:
     - push

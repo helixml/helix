@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -783,50 +784,157 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return existing, nil
 }
 
-// getAppOAuthTokenEnv retrieves OAuth tokens for the app and returns them as environment variables
-func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.App) []string {
-	envPairs := []string{}
+// getAppOAuthTokenEnv retrieves OAuth tokens for the app
+func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.App) map[string]string {
+	oauthTokens := make(map[string]string)
 
 	// Skip if OAuth manager is not available
 	if s.oauthManager == nil {
-		return envPairs
+		log.Debug().Msg("OAuth manager is not available, skipping token retrieval")
+		return oauthTokens
+	}
+
+	log.Info().
+		Str("app_id", appRecord.ID).
+		Str("user_id", user.ID).
+		Msg("Getting OAuth tokens for app")
+
+	// DEBUG: Print available OAuth providers for diagnostics
+	providers, err := s.Store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
+		Enabled: true,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list available OAuth providers")
+	} else {
+		providerStrings := make([]string, 0, len(providers))
+		for _, p := range providers {
+			providerStrings = append(providerStrings, p.Name)
+		}
+		log.Info().
+			Strs("available_providers", providerStrings).
+			Str("user_id", user.ID).
+			Msg("Available OAuth providers for user")
 	}
 
 	// First check each tool for OAuth provider requirements
-	for _, assistant := range appRecord.Config.Helix.Assistants {
-		// Check each tool for OAuth requirements
-		for _, tool := range assistant.Tools {
-			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				providerType := tool.Config.API.OAuthProvider
-				requiredScopes := tool.Config.API.OAuthScopes
+	for idx, assistant := range appRecord.Config.Helix.Assistants {
+		log.Debug().
+			Int("assistant_index", idx).
+			Str("assistant_name", assistant.Name).
+			Int("tool_count", len(assistant.Tools)).
+			Msg("Checking assistant for OAuth tools")
 
-				token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerType, requiredScopes)
-				if err == nil && token != "" {
-					// Add the token as an environment variable
-					envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-					envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
-					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
-				} else {
-					var scopeErr *oauth.ScopeError
-					if errors.As(err, &scopeErr) {
-						log.Warn().
-							Str("app_id", appRecord.ID).
+		// Check each tool for OAuth requirements
+		for tIdx, tool := range assistant.Tools {
+			log.Debug().
+				Int("tool_index", tIdx).
+				Str("tool_name", tool.Name).
+				Str("tool_type", string(tool.ToolType)).
+				Interface("tool_config", tool.Config).
+				Msg("Checking tool for OAuth requirements")
+
+			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+				log.Debug().
+					Str("tool_name", tool.Name).
+					Str("oauth_provider", tool.Config.API.OAuthProvider).
+					Strs("oauth_scopes", tool.Config.API.OAuthScopes).
+					Msg("Tool API configuration")
+
+				if tool.Config.API.OAuthProvider != "" {
+					providerName := tool.Config.API.OAuthProvider
+					requiredScopes := tool.Config.API.OAuthScopes
+
+					log.Debug().
+						Str("provider", providerName).
+						Strs("scopes", requiredScopes).
+						Msg("Checking OAuth token for tool")
+
+					// DEBUG: Check if user has connections for this provider
+					connections, connErr := s.Store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+						UserID:     user.ID,
+						ProviderID: "", // We'll do filtering manually
+					})
+					if connErr != nil {
+						log.Error().
+							Err(connErr).
+							Str("provider", providerName).
 							Str("user_id", user.ID).
-							Str("provider", string(providerType)).
-							Strs("missing_scopes", scopeErr.Missing).
-							Msg("Missing required OAuth scopes for tool")
+							Msg("Failed to list user connections for provider")
 					} else {
-						log.Debug().
-							Err(err).
-							Str("provider", string(providerType)).
-							Msg("Failed to get OAuth token for tool")
+						// Filter connections for this provider
+						var matchingConnections []*types.OAuthConnection
+						var matchingProvider *types.OAuthProvider
+						for _, p := range providers {
+							if p.Name == providerName {
+								matchingProvider = p
+								break
+							}
+						}
+
+						if matchingProvider != nil {
+							for _, conn := range connections {
+								if conn.ProviderID == matchingProvider.ID {
+									matchingConnections = append(matchingConnections, conn)
+								}
+							}
+
+							log.Info().
+								Str("provider", providerName).
+								Str("provider_id", matchingProvider.ID).
+								Str("user_id", user.ID).
+								Int("connection_count", len(matchingConnections)).
+								Msg("Found OAuth connections for provider")
+						}
+					}
+
+					token, err := s.oauthManager.GetTokenForTool(ctx, user.ID, providerName, requiredScopes)
+					if err == nil && token != "" {
+						// Add the token directly to the map
+						oauthTokens[providerName] = token
+						log.Info().
+							Str("provider", providerName).
+							Str("provider_key", providerName).
+							Str("token_prefix", token[:10]+"...").
+							Msg("Added OAuth token to app environment")
+					} else {
+						var scopeErr *oauth.ScopeError
+						if errors.As(err, &scopeErr) {
+							log.Warn().
+								Str("app_id", appRecord.ID).
+								Str("user_id", user.ID).
+								Str("provider", providerName).
+								Strs("missing_scopes", scopeErr.Missing).
+								Strs("required_scopes", requiredScopes).
+								Msg("Missing required OAuth scopes for tool")
+						} else {
+							log.Warn().
+								Err(err).
+								Str("provider", providerName).
+								Str("error_type", fmt.Sprintf("%T", err)).
+								Msg("Failed to get OAuth token for tool")
+						}
 					}
 				}
 			}
 		}
 	}
 
-	return envPairs
+	// Log if no OAuth tokens were found
+	if len(oauthTokens) == 0 {
+		log.Warn().
+			Str("app_id", appRecord.ID).
+			Str("user_id", user.ID).
+			Msg("No OAuth tokens found for app")
+	} else {
+		log.Info().
+			Str("app_id", appRecord.ID).
+			Str("user_id", user.ID).
+			Int("token_count", len(oauthTokens)).
+			Interface("provider_keys", maps.Keys(oauthTokens)).
+			Msg("Retrieved OAuth tokens for app")
+	}
+
+	return oauthTokens
 }
 
 // appRunScript godoc
@@ -869,9 +977,14 @@ func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*
 		envPairs = append(envPairs, key+"="+value)
 	}
 
-	// Get OAuth tokens as environment variables
-	oauthEnvPairs := s.getAppOAuthTokenEnv(r.Context(), user, appRecord)
-	envPairs = append(envPairs, oauthEnvPairs...)
+	// Get OAuth tokens as a map
+	oauthTokensMap := s.getAppOAuthTokenEnv(r.Context(), user, appRecord)
+
+	// Convert OAuth tokens map to environment variables format
+	for provider, token := range oauthTokensMap {
+		envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(provider))
+		envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
+	}
 
 	logger := log.With().
 		Str("app_id", user.AppID).
@@ -993,14 +1106,38 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 
 	req.Tool = tool
 
-	// Get OAuth tokens as environment variables
-	oauthEnvVars := s.getAppOAuthTokenEnv(r.Context(), user, app)
-	req.OAuthEnvVars = oauthEnvVars
+	log.Info().
+		Str("app_id", id).
+		Str("user_id", user.ID).
+		Str("action", req.Action).
+		Str("tool", tool.Name).
+		Msg("Running API action")
+
+	// Get OAuth tokens directly as a map
+	req.OAuthTokens = s.getAppOAuthTokenEnv(r.Context(), user, app)
+
+	log.Info().
+		Str("app_id", id).
+		Str("user_id", user.ID).
+		Str("action", req.Action).
+		Int("oauth_token_count", len(req.OAuthTokens)).
+		Interface("oauth_providers", maps.Keys(req.OAuthTokens)).
+		Msg("API action with OAuth tokens")
 
 	response, err := s.Controller.ToolsPlanner.RunAPIActionWithParameters(r.Context(), &req)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", id).
+			Str("action", req.Action).
+			Msg("Failed to run API action")
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	log.Info().
+		Str("app_id", id).
+		Str("action", req.Action).
+		Msg("API action completed successfully")
 
 	return response, nil
 }

@@ -180,7 +180,8 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 // RefreshTokenIfNeeded refreshes the token if it's expired or about to expire
 func (p *OAuth2Provider) RefreshTokenIfNeeded(ctx context.Context, connection *types.OAuthConnection) error {
 	// Check if the token needs refreshing (expired or expires soon)
-	if connection.ExpiresAt.After(time.Now().Add(5 * time.Minute)) {
+	// Treat zero time value (0001-01-01T00:00:00Z) as non-expiring token
+	if connection.ExpiresAt.IsZero() || connection.ExpiresAt.After(time.Now().Add(5*time.Minute)) {
 		return nil // Token is still valid
 	}
 
