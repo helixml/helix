@@ -605,15 +605,6 @@ ${content}
   }
 }
 
-// Add an areEqual function for React.memo to optimize rendering
-const arePropsEqual = (prevProps: InteractionMarkdownProps, nextProps: InteractionMarkdownProps) => {
-  // Only re-render if these specific props change
-  return prevProps.text === nextProps.text &&
-    prevProps.isStreaming === nextProps.isStreaming &&
-    prevProps.showBlinker === nextProps.showBlinker &&
-    prevProps.session?.id === nextProps.session?.id;
-};
-
 export interface InteractionMarkdownProps {
   text: string;
   session: ISession;
