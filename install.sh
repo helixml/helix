@@ -850,7 +850,7 @@ else
 fi
 
 # Check if api-1 container is running
-if docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
     API_HOST="http://api:80"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
@@ -873,7 +873,7 @@ docker run --privileged --gpus all --shm-size=10g \\
     \${OLDER_GPU_PARAM} \\
     \${HF_TOKEN_PARAM} \\
     \${EXTRA_OLLAMA_MODELS_PARAM} \\
-    registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
+    registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
     --memory \${GPU_MEMORY}GB \\

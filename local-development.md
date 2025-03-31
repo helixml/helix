@@ -76,7 +76,7 @@ IMAGE                                       PORTS                               
 ankane/pgvector                             0.0.0.0:5433->5432/tcp, :::5433->5432/tcp   helix-pgvector-1
 helix-frontend                              0.0.0.0:8081->8081/tcp, :::8081->8081/tcp   helix-frontend-1
 helix-gptscript_runner                                                                  helix-gptscript_runner-1
-registry.helix.ml/helix/llamaindex:latest                                               helix-llamaindex-1
+registry.helixml.tech/helix/llamaindex:latest                                               helix-llamaindex-1
 webhookrelay/webhookrelayd                                                              helix-webhook_relay_github-1
 webhookrelay/webhookrelayd                                                              helix-webhook_relay_stripe-1
 helix-api                                   0.0.0.0:8080->80/tcp, :::8080->80/tcp       helix-api-1

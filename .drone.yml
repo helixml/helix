@@ -218,8 +218,8 @@ steps:
     dockerfile: Dockerfile
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/controlplane
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/controlplane
     username: admin
     password:
       from_secret: helix_registry_password
@@ -255,8 +255,8 @@ steps:
     dockerfile: haystack_service/Dockerfile
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/haystack
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/haystack
     username: admin
     password:
       from_secret: helix_registry_password
@@ -291,8 +291,8 @@ steps:
     dockerfile: Dockerfile.runner
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/runner
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/runner
     build_args:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
@@ -333,8 +333,8 @@ steps:
     - "${DRONE_TAG:-main}-small" # Default to branch
     - "latest-small"
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/runner
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/runner
     build_args:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
@@ -359,8 +359,8 @@ steps:
     tags:
     - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/runner
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/runner
     build_args:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
@@ -404,8 +404,8 @@ steps:
     - "${DRONE_TAG:-main}-large"
     - "latest-large"
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/runner
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/runner
     build_args:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
@@ -430,8 +430,8 @@ steps:
     tags:
     - "${DRONE_COMMIT_SHA:-main}-large"
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/runner
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/runner
     build_args:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
@@ -472,8 +472,8 @@ steps:
     dockerfile: Dockerfile.gptscript
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/gptscript-runner
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/gptscript-runner
     username: admin
     password:
       from_secret: helix_registry_password
@@ -506,8 +506,8 @@ steps:
     dockerfile: Dockerfile.gptscript_devserver
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/gptscript_devserver
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/gptscript_devserver
     username: admin
     password:
       from_secret: helix_registry_password
@@ -540,8 +540,8 @@ steps:
     dockerfile: Dockerfile.typesense
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/typesense
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/typesense
     username: admin
     password:
       from_secret: helix_registry_password
@@ -574,8 +574,8 @@ steps:
     dockerfile: Dockerfile.demos
     auto_tag: true
     daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/demos
+    registry: registry.helixml.tech
+    repo: registry.helixml.tech/helix/demos
     username: admin
     password:
       from_secret: helix_registry_password
