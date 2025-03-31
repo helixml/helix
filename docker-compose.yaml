@@ -1,5 +1,5 @@
 # Production docker-compose.yaml for HelixML :latest
-# See https://docs.helix.ml/helix/private-deployment/controlplane/
+# See http://docs.helixml.tech/helix/private-deployment/controlplane/
 
 version: '3'
 
