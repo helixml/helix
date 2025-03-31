@@ -664,17 +664,10 @@ definitions:
       name:
         type: string
       oauth_provider:
-<<<<<<< HEAD
         description: OAuth configuration
         type: string
       oauth_scopes:
         description: Required OAuth scopes for this API
-=======
-        allOf:
-        - $ref: '#/definitions/types.OAuthProviderType'
-        description: OAuth configuration
-      oauth_scopes:
->>>>>>> main
         items:
           type: string
         type: array
@@ -1403,26 +1396,6 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
-  types.OAuthProviderType:
-    enum:
-    - ""
-    - atlassian
-    - google
-    - microsoft
-    - github
-    - slack
-    - linkedin
-    - custom
-    type: string
-    x-enum-varnames:
-    - OAuthProviderTypeUnknown
-    - OAuthProviderTypeAtlassian
-    - OAuthProviderTypeGoogle
-    - OAuthProviderTypeMicrosoft
-    - OAuthProviderTypeGitHub
-    - OAuthProviderTypeSlack
-    - OAuthProviderTypeLinkedIn
-    - OAuthProviderTypeCustom
   types.OpenAIMessage:
     properties:
       content:
@@ -1998,6 +1971,10 @@ definitions:
       rag_source_data_entity_id:
         description: the RAG source data entity we produced from this session
         type: string
+      session_rag_results:
+        items:
+          $ref: '#/definitions/types.SessionRAGResult'
+        type: array
       stream:
         type: boolean
       system_prompt:
@@ -2228,14 +2205,8 @@ definitions:
       model:
         type: string
       oauth_provider:
-<<<<<<< HEAD
         description: OAuth configuration
         type: string
-=======
-        allOf:
-        - $ref: '#/definitions/types.OAuthProviderType'
-        description: OAuth configuration
->>>>>>> main
       oauth_scopes:
         description: Required OAuth scopes for this API
         items:
@@ -2539,8 +2510,6 @@ paths:
       summary: Grant access to an app to a team or organization member
       tags:
       - apps
-<<<<<<< HEAD
-=======
   /api/v1/apps/{id}/api-actions:
     post:
       consumes:
@@ -2628,7 +2597,6 @@ paths:
       summary: Get current user's access level for an app
       tags:
       - apps
->>>>>>> main
   /api/v1/apps/github/{id}:
     put:
       parameters:

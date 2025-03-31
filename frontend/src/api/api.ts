@@ -1,6 +1,5 @@
 /* eslint-disable */
 /* tslint:disable */
-// @ts-nocheck
 /*
  * ---------------------------------------------------------------
  * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
@@ -429,12 +428,8 @@ export interface TypesAssistantAPI {
   headers?: Record<string, string>;
   name?: string;
   /** OAuth configuration */
-<<<<<<< HEAD
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
-=======
-  oauth_provider?: TypesOAuthProviderType;
->>>>>>> main
   oauth_scopes?: string[];
   query?: Record<string, string>;
   request_prep_template?: string;
@@ -888,17 +883,6 @@ export enum TypesMessageContentType {
   MessageContentTypeText = "text",
 }
 
-export enum TypesOAuthProviderType {
-  OAuthProviderTypeUnknown = "",
-  OAuthProviderTypeAtlassian = "atlassian",
-  OAuthProviderTypeGoogle = "google",
-  OAuthProviderTypeMicrosoft = "microsoft",
-  OAuthProviderTypeGitHub = "github",
-  OAuthProviderTypeSlack = "slack",
-  OAuthProviderTypeLinkedIn = "linkedin",
-  OAuthProviderTypeCustom = "custom",
-}
-
 export interface TypesOpenAIMessage {
   /** The message content */
   content?: string;
@@ -1237,6 +1221,7 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
+  session_rag_results?: TypesSessionRAGResult[];
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
@@ -1368,11 +1353,7 @@ export interface TypesToolAPIConfig {
   headers?: Record<string, string>;
   model?: string;
   /** OAuth configuration */
-<<<<<<< HEAD
   oauth_provider?: string;
-=======
-  oauth_provider?: TypesOAuthProviderType;
->>>>>>> main
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   /** Query parameters that will be always set */
@@ -1665,7 +1646,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -1712,7 +1692,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -1720,12 +1699,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List access grants for an app (organization owners and members can list access grants)
      *
      * @tags apps
-     * @name V1AppsAccessGrantsList
+     * @name V1AppsAccessGrantsDetail
      * @summary List app access grants
      * @request GET:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsList: (id: string, params: RequestParams = {}) =>
+    v1AppsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesAccessGrant[], any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "GET",
@@ -1755,8 +1734,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * @description Runs an API action for an app
      *
-<<<<<<< HEAD
-=======
      * @name V1AppsApiActionsCreate
      * @summary Run an API action
      * @request POST:/api/v1/apps/{id}/api-actions
@@ -1812,7 +1789,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * No description
      *
->>>>>>> main
      * @name V1AppsGithubUpdate
      * @request PUT:/api/v1/apps/github/{id}
      * @secure
@@ -1823,7 +1799,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -2035,12 +2010,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List knowledge versions
      *
      * @tags knowledge
-     * @name V1KnowledgeVersionsList
+     * @name V1KnowledgeVersionsDetail
      * @summary List knowledge versions
      * @request GET:/api/v1/knowledge/{id}/versions
      * @secure
      */
-    v1KnowledgeVersionsList: (id: string, params: RequestParams = {}) =>
+    v1KnowledgeVersionsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesKnowledgeVersion[], any>({
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
@@ -2143,7 +2118,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -2190,7 +2164,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -2198,12 +2171,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List members of an organization
      *
      * @tags organizations
-     * @name V1OrganizationsMembersList
+     * @name V1OrganizationsMembersDetail
      * @summary List organization members
      * @request GET:/api/v1/organizations/{id}/members
      * @secure
      */
-    v1OrganizationsMembersList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsMembersDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesOrganizationMembership[], any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "GET",
@@ -2279,12 +2252,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all roles in an organization. Organization members can list roles.
      *
      * @tags organizations
-     * @name V1OrganizationsRolesList
+     * @name V1OrganizationsRolesDetail
      * @summary List roles in an organization
      * @request GET:/api/v1/organizations/{id}/roles
      * @secure
      */
-    v1OrganizationsRolesList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsRolesDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesRole[], any>({
         path: `/api/v1/organizations/${id}/roles`,
         method: "GET",
@@ -2296,12 +2269,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all teams in an organization. Organization members can list teams.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsList
+     * @name V1OrganizationsTeamsDetail
      * @summary List teams in an organization
      * @request GET:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesTeam[], any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "GET",
@@ -2375,12 +2348,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all members of a team.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsMembersList
+     * @name V1OrganizationsTeamsMembersDetail
      * @summary List members of a team
      * @request GET:/api/v1/organizations/{id}/teams/{team_id}/members
      * @secure
      */
-    v1OrganizationsTeamsMembersList: (id: string, teamId: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsMembersDetail: (id: string, teamId: string, params: RequestParams = {}) =>
       this.request<TypesTeamMembership[], any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "GET",
