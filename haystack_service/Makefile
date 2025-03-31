@@ -12,11 +12,11 @@ lint: install
 
 .PHONY: build
 build: install
-	docker build -t registry.helix.ml/helix/haystack:latest .
+	docker build -t registry.helixml.tech/helix/haystack:latest .
 
 .PHONY: docker
 docker: build
-	docker run -p 8000:8000 registry.helix.ml/helix/haystack:latest
+	docker run -p 8000:8000 registry.helixml.tech/helix/haystack:latest
 
 .PHONY: dev
 dev: install

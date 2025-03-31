@@ -2,7 +2,7 @@ version: '3'
 
 services:
   demos:
-    image: registry.helix.ml/helix/demos:latest
+    image: registry.helixml.tech/helix/demos:latest
     restart: always
     environment:
       - PORT=80
