@@ -782,8 +782,8 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 		}
 
 		// If the existing session has RAG results and the new session doesn't, preserve them
-		if existingSession.Metadata.SessionRAGResults != nil && len(existingSession.Metadata.SessionRAGResults) > 0 {
-			if session.Metadata.SessionRAGResults == nil || len(session.Metadata.SessionRAGResults) == 0 {
+		if len(existingSession.Metadata.SessionRAGResults) > 0 {
+			if len(session.Metadata.SessionRAGResults) == 0 {
 				session.Metadata.SessionRAGResults = existingSession.Metadata.SessionRAGResults
 				log.Debug().
 					Str("session_id", session.ID).
@@ -1528,7 +1528,7 @@ func (c *Controller) GetSessionRAGResults(ctx context.Context, sessionID string)
 		return []*types.SessionRAGResult{}, nil
 	}
 
-	if assistantInteraction.RagResults != nil && len(assistantInteraction.RagResults) > 0 {
+	if len(assistantInteraction.RagResults) > 0 {
 		log.Debug().
 			Str("session_id", sessionID).
 			Int("rag_results_count", len(assistantInteraction.RagResults)).

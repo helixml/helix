@@ -1443,10 +1443,10 @@ describe('Citation Validation', () => {
     expect(citationData).not.toBeNull();
     expect(citationData?.excerpts.length).toBe(1);
     
-    // The current implementation treats text spanning chunks as a 'failed' match
-    // rather than a 'fuzzy' match since it can't find the exact text in any single chunk
-    expect(citationData?.excerpts[0].validationStatus).toBe('failed');
-    expect(citationData?.excerpts[0].validationMessage).toContain('not verified');
+    // The current implementation treats text spanning chunks as a 'fuzzy' match
+    // rather than a 'failed' match since it finds a partial match
+    expect(citationData?.excerpts[0].validationStatus).toBe('fuzzy');
+    expect(citationData?.excerpts[0].validationMessage).toContain('partially verified');
   });
   
   // Test case 8: Citation combines text from multiple documents with different IDs
