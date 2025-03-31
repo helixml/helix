@@ -44,11 +44,12 @@ type ChainStrategy struct {
 	cfg   *config.ServerConfig
 	store store.Store
 
-	apiClient            openai.Client // Default API client is none is passed through the options
-	httpClient           *http.Client
-	gptScriptExecutor    gptscript.Executor
-	isActionableTemplate string
-	wg                   sync.WaitGroup
+	apiClient                 openai.Client // Default API client is none is passed through the options
+	httpClient                *http.Client
+	gptScriptExecutor         gptscript.Executor
+	isActionableTemplate      string
+	isActionableHistoryLength int
+	wg                        sync.WaitGroup
 }
 
 func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExecutor gptscript.Executor, client openai.Client) (*ChainStrategy, error) {
@@ -61,12 +62,13 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExec
 
 	retryClient := system.NewRetryClient(3)
 	return &ChainStrategy{
-		cfg:                  cfg,
-		store:                store,
-		apiClient:            client,
-		gptScriptExecutor:    gptScriptExecutor,
-		httpClient:           retryClient.StandardClient(),
-		isActionableTemplate: isActionableTemplate,
+		cfg:                       cfg,
+		store:                     store,
+		apiClient:                 client,
+		gptScriptExecutor:         gptScriptExecutor,
+		httpClient:                retryClient.StandardClient(),
+		isActionableTemplate:      isActionableTemplate,
+		isActionableHistoryLength: cfg.Tools.IsActionableHistoryLength,
 	}, nil
 }
 

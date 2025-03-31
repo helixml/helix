@@ -55,16 +55,16 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       source: sourceType === 'filestore'
         ? { filestore: { path: knowledgePath } }
         : {
-            web: {
-              urls: [url],
-              crawler: {
-                enabled: true,
-                max_depth: 1,
-                max_pages: 5,
-                readability: true
-              }
+          web: {
+            urls: [url],
+            crawler: {
+              enabled: true,
+              max_depth: 1,
+              max_pages: 5,
+              readability: true
             }
-          },
+          }
+        },
       refresh_schedule: '',
       version: '',
       state: '',
@@ -72,11 +72,12 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
         results_count: 0,
         chunk_size: 0,
         chunk_overflow: 0,
+        enable_vision: false,
       },
     };
 
     onAdd(newSource);
-    
+
     // Adding a small delay to show the loading indicator
     // The parent component should handle closing this dialog after processing is complete
     setTimeout(() => {
@@ -108,7 +109,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
             <FormControlLabel value="filestore" control={<Radio />} label="Files" />
           </RadioGroup>
         </FormControl>
-        
+
         {sourceType === 'web' && (
           <TextField
             fullWidth
@@ -140,9 +141,9 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>
-        <Button 
-          onClick={handleSubmit} 
-          variant="contained" 
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
           disabled={isLoading}
           startIcon={isLoading ? <CircularProgress size={20} /> : null}
         >

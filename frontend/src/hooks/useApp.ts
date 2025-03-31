@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { stringify as stringifyYaml } from 'yaml'
 import bluebird from 'bluebird'
 import {
@@ -16,6 +16,7 @@ import {
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ISession,
+  IUserAppAccessState,
 } from '../types'
 import {
   removeEmptyValues,
@@ -26,6 +27,7 @@ import useAccount from './useAccount'
 import useApps from './useApps'
 import useSession from './useSession'
 import useWebsocket from './useWebsocket'
+import useUserAppAccess from './useUserAppAccess'
 import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import { useStreaming } from '../contexts/streaming'
 import {
@@ -46,6 +48,7 @@ export const useApp = (appId: string) => {
   const apps = useApps()
   const endpointProviders = useEndpointProviders()
   const { NewInference } = useStreaming()
+  const userAccess = useUserAppAccess(appId)
   
   /**
    * 
@@ -60,6 +63,13 @@ export const useApp = (appId: string) => {
   const [isAppLoading, setIsAppLoading] = useState(true)
   const [isAppSaving, setIsAppSaving] = useState(false)
   const [initialized, setInitialised] = useState(false)
+  // Flag to prevent saving during initial data load
+  const [isSafeToSave, setIsSafeToSave] = useState(false)
+  const initialSaveRef = useRef(false)
+  
+  // Track which providers have completed model loading
+  const [providersLoaded, setProvidersLoaded] = useState<Record<string, boolean>>({})
+  const currentAppProviderRef = useRef<string | undefined>(undefined)
   
   // Access grant state
   const [accessGrants, setAccessGrants] = useState<IAccessGrant[]>([])
@@ -159,8 +169,10 @@ export const useApp = (appId: string) => {
 
   const isReadOnly = useMemo(() => {
     if(!app) return true
-    return isGithubApp
-  }, [app, isGithubApp])
+    if(isGithubApp) return true
+    // If user access information is available, use it to determine read-only status
+    return userAccess.access ? !userAccess.access.can_write : true
+  }, [app, isGithubApp, userAccess.access])
 
   /**
    * 
@@ -301,6 +313,14 @@ export const useApp = (appId: string) => {
     if (updates.provider !== undefined) {
       assistants[0].provider = updates.provider
     }
+
+    if (updates.is_actionable_history_length !== undefined) {
+      assistants[0].is_actionable_history_length = updates.is_actionable_history_length
+    }
+
+    if (updates.is_actionable_template !== undefined) {
+      assistants[0].is_actionable_template = updates.is_actionable_template
+    }
     
     // Update knowledge sources for all assistants if provided
     if (updates.knowledge !== undefined) {
@@ -332,10 +352,29 @@ export const useApp = (appId: string) => {
    */
   const saveApp = useCallback(async (app: IApp, opts: {
     quiet?: boolean,
+    forceSave?: boolean, // New option to force save even if it's not safe
   } = {
     quiet: true,
+    forceSave: false,
   }) => {
     if (!app) return
+    
+    // Safety check - don't save until we've loaded models and providers
+    // unless explicitly forced
+    if (!isSafeToSave && !opts.forceSave) {
+      console.warn('Attempted to save app before models/providers fully loaded. Save operation blocked for safety.')
+      return
+    }
+
+    // Only log the first save to help diagnose issues
+    if (!initialSaveRef.current) {
+      const assistants = app.config.helix?.assistants || []
+      if (assistants.length > 0) {
+        console.log('First app save - Model:', JSON.stringify(assistants[0].model), 
+          'Provider:', JSON.stringify(assistants[0].provider))
+      }
+      initialSaveRef.current = true
+    }
     
     // Validate before saving
     const validationErrors = validateApp(app)
@@ -364,20 +403,24 @@ export const useApp = (appId: string) => {
     } finally {
       setIsAppSaving(false)
     }
-  }, [api, snackbar])
+  }, [api, snackbar, apps, isSafeToSave, validateApp])
   
   /**
    * Saves the app from the flat state
    * @param updates - The updates to apply
    * @param opts - Options for the save operation
    */
-  const saveFlatApp = useCallback(async (updates: IAppFlatState, opts: { quiet?: boolean } = {}) => {
+  const saveFlatApp = useCallback(async (updates: IAppFlatState, opts: { quiet?: boolean, forceSave?: boolean } = {}) => {
     if (!app) return
+    
+    // If forceSave isn't explicitly set and it's not safe to save, log warning and return
+    if (!opts.forceSave && !isSafeToSave) {
+      console.warn('Attempted to save app before models/providers fully loaded. saveFlatApp operation blocked for safety.')
+      return
+    }
+    
     await saveApp(mergeFlatStateIntoApp(app, updates), opts)
-  }, [
-    app,
-    saveApp,
-  ])
+  }, [app, saveApp, mergeFlatStateIntoApp, isSafeToSave])
 
   /**
    * 
@@ -601,7 +644,7 @@ export const useApp = (appId: string) => {
     }
     
     try {
-      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`)
+      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`, {}, { snackbar: false })
       setAccessGrants(grants || [])
     } catch (error) {
       console.error('Failed to load access grants:', error)
@@ -737,8 +780,53 @@ export const useApp = (appId: string) => {
     app,
   ])
 
-  return {
+  // Add effect to enable safe saving once all data is loaded
+  useEffect(() => {
+    // Check if providers data is loaded
+    const allProvidersLoaded = endpointProviders.data && endpointProviders.data.length > 0
+    // Check if models are loaded
+    const allModelsLoaded = account.models && account.models.length > 0
+    // Check if the app is loaded
+    const appLoaded = !!app
+    
+    // Get the app's current provider
+    const appProvider = app?.config.helix.assistants?.[0]?.provider
+    currentAppProviderRef.current = appProvider
+    
+    // Check if the specific provider's models for this app have been loaded
+    const appProviderLoaded = appProvider ? providersLoaded[appProvider] : true
+    
+    // Only enable saving when all data is loaded including the specific provider's models
+    const allDataLoaded = allProvidersLoaded && allModelsLoaded && appLoaded && appProviderLoaded
+    
+    if (allDataLoaded && !isSafeToSave) {
+      console.log('All data loaded - enabling app saves', {
+        allProvidersLoaded,
+        allModelsLoaded, 
+        appLoaded,
+        appProvider,
+        appProviderLoaded,
+        providersLoaded
+      })
+      // Delay setting to ensure any pending state changes are complete
+      setTimeout(() => {
+        setIsSafeToSave(true)
+      }, 1000)
+    }
+  }, [endpointProviders.data, account.models, app, providersLoaded, isSafeToSave])
 
+  // Callback for ModelPicker to report when it has loaded models for a provider
+  const onProviderModelsLoaded = useCallback((provider: string) => {
+    console.log(`Provider ${provider} models have loaded`)
+    setProvidersLoaded(prev => ({
+      ...prev,
+      [provider]: true
+    }))
+  }, [])
+
+  return {
+    // User access information
+    userAccess,
     session,
 
     // App state
@@ -758,6 +846,8 @@ export const useApp = (appId: string) => {
     initialized,
     isGithubApp,
     isReadOnly,
+    isSafeToSave, // Export this state
+    onProviderModelsLoaded, // Export the callback
 
     // Validation methods
     validateApp,

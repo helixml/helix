@@ -48,9 +48,12 @@ const App: FC = () => {
   } = useRouter()
 
   const appTools = useApp(params.app_id)
+  // Get user access information from appTools
+  const { userAccess } = appTools
 
   const [deletingAPIKey, setDeletingAPIKey] = useState('')
   const [isAccessDenied, setIsAccessDenied] = useState(false)
+  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false)
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
@@ -89,8 +92,22 @@ const App: FC = () => {
     account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
   }
 
+  // Load initial data
   useEffect(() => {
-    endpointProviders.loadData()
+    const loadInitialData = async () => {
+      try {
+        await Promise.all([
+          endpointProviders.loadData(),
+          account.fetchModels(),
+          account.fetchProviderEndpoints()
+        ])
+        setIsInitialDataLoaded(true)
+      } catch (error) {
+        console.error('Error loading initial data:', error)
+        snackbar.error('Failed to load providers and models')
+      }
+    }
+    loadInitialData()
   }, [])
 
   useEffect(() => {
@@ -114,6 +131,12 @@ const App: FC = () => {
   if (!account.user) return null
   if (isAccessDenied) return <AccessDenied />
   if (!appTools.app) return null
+  // Add check for initial data loading
+  if (!isInitialDataLoaded) return null
+  // Don't block rendering on isSafeToSave, we'll disable editing instead
+  // if (!appTools.isSafeToSave) return null
+
+  const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
 
   return (
     <Page
@@ -137,7 +160,7 @@ const App: FC = () => {
             variant="outlined"
             onClick={appTools.handleCopyEmbedCode}
             startIcon={<ContentCopyIcon />}
-            disabled={account.apiKeys.length === 0 || appTools.isReadOnly}
+            disabled={account.apiKeys.length === 0 || isReadOnly}
           >
             Embed
           </Button>
@@ -170,7 +193,8 @@ const App: FC = () => {
               <Tab label="IDE" value="ide" />
               <Tab label="Logs" value="logs" />
               {
-                appTools.app?.organization_id && (
+                // Only show Access tab if user is an admin and app has an organization_id
+                appTools.app?.organization_id && userAccess.isAdmin && (
                   <Tab label="Access" value="access" />
                 )
               }
@@ -190,10 +214,12 @@ const App: FC = () => {
                       id={appTools.id}
                       app={appTools.flatApp}
                       onUpdate={appTools.saveFlatApp}
-                      readOnly={appTools.isReadOnly}
+                      readOnly={isReadOnly}
                       showErrors={appTools.showErrors}
                       isAdmin={account.admin}
                       providerEndpoints={endpointProviders.data}
+                      onProviderModelsLoaded={appTools.onProviderModelsLoaded}
+                      isSafeToSave={appTools.isSafeToSave}
                     />
                   )}
 
@@ -203,7 +229,7 @@ const App: FC = () => {
                         appId={appTools.id}
                         accessGrants={appTools.accessGrants}
                         isLoading={false}
-                        isReadOnly={false}
+                        isReadOnly={isReadOnly}
                         onCreateGrant={appTools.createAccessGrant}
                         onDeleteGrant={appTools.deleteAccessGrant}
                       />
@@ -217,7 +243,7 @@ const App: FC = () => {
                       </Typography>
                       <KnowledgeEditor
                         appId={appTools.id}
-                        disabled={appTools.isReadOnly}
+                        disabled={isReadOnly}
                         saveKnowledgeToApp={async (knowledge) => {
                           // the knowledge has changed so we need to keep the app hook
                           // in sync so it knows about the knowledge IDs then we
@@ -240,21 +266,23 @@ const App: FC = () => {
                     </Box>
                   )}
 
-                  {tabValue === 'integrations' && (
+                  {tabValue === 'integrations' && appTools.flatApp && (
                     <>
                       <ApiIntegrations
                         apis={appTools.apiTools}
                         tools={appTools.apiToolsFromTools}
                         onSaveApiTool={appTools.onSaveApiTool}
                         onDeleteApiTool={appTools.onDeleteApiTool}
-                        isReadOnly={appTools.isReadOnly}
+                        isReadOnly={isReadOnly}
+                        app={appTools.flatApp}
+                        onUpdate={appTools.saveFlatApp}
                       />
 
                       <ZapierIntegrations
                         zapier={appTools.zapierTools}
                         onSaveZapierTool={appTools.onSaveZapierTool}
                         onDeleteZapierTool={appTools.onDeleteZapierTool}
-                        isReadOnly={appTools.isReadOnly}
+                        isReadOnly={isReadOnly}
                       />
                     </>
                   )}
@@ -274,7 +302,7 @@ const App: FC = () => {
                       }}
                       onEdit={(tool, index) => appTools.setEditingGptScript({ tool, index })}
                       onDeleteGptScript={appTools.onDeleteGptScript}
-                      isReadOnly={appTools.isReadOnly}
+                      isReadOnly={isReadOnly}
                       isGithubApp={appTools.isGithubApp}
                     />
                   )}
@@ -286,7 +314,7 @@ const App: FC = () => {
                       onDeleteKey={(key) => setDeletingAPIKey(key)}
                       allowedDomains={appTools.flatApp?.allowedDomains || []}
                       setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
-                      isReadOnly={appTools.isReadOnly}
+                      isReadOnly={isReadOnly}
                     />
                   )}
 
@@ -375,7 +403,7 @@ const App: FC = () => {
         setEditingGptScript={appTools.setEditingGptScript}
         onSaveGptScript={appTools.onSaveGptScript}
         showErrors={appTools.showErrors}
-        isReadOnly={appTools.isReadOnly}
+        isReadOnly={isReadOnly}
       />
 
     </Page>

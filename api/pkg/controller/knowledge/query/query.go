@@ -106,12 +106,17 @@ func (q *Query) getDocuments(ctx context.Context, prompt string, knowledges []*t
 				return nil, fmt.Errorf("error getting RAG client: %w", err)
 			}
 
+			pipeline := types.TextPipeline
+			if knowledge.RAGSettings.EnableVision {
+				pipeline = types.VisionPipeline
+			}
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
+				Pipeline:          pipeline,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("error querying RAG: %w", err)
