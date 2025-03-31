@@ -50,7 +50,7 @@ const CHAT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/using-helix/text-inference/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/text-inference/"),
   }]
 }
 
@@ -69,7 +69,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/using-helix/image-inference/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/image-inference/"),
   }]
 }
 
@@ -88,7 +88,7 @@ const APPS_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/develop/getting-started/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/develop/getting-started/"),
   }]
 }
 
@@ -127,7 +127,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/using-helix/text-finetuning/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/text-finetuning/"),
   }]
 }
 
@@ -150,7 +150,7 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/using-helix/image-finetuning/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/image-finetuning/"),
   }]
 }
 
@@ -177,7 +177,7 @@ const JS_APP_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/develop/getting-started/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/develop/getting-started/"),
   }]
 }
 
@@ -195,7 +195,7 @@ const API_FEATURE: IFeature = {
     title: 'Docs (coming soon)',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/develop/apps/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/develop/apps/"),
   }]
 }
 
@@ -213,7 +213,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/develop/apps/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/develop/apps/"),
   }]
 }
 
@@ -231,7 +231,7 @@ const DASHBOARD_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/private-deployment/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/private-deployment/"),
   }]
 }
 
@@ -264,7 +264,7 @@ const SETTINGS_FEATURE: IFeature = {
     title: 'Settings',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => window.open("https://docs.helix.ml/helix/private-deployment/environment-variables/"),
+    handler: () => window.open("https://docs.helixml.tech/helix/private-deployment/environment-variables/"),
   }]
 }
 

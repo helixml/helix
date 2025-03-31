@@ -21,7 +21,7 @@ const (
 	// TODO: take from assistant
 	discordModel = string("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
 	// Users will be redirected to this URL to install the bot
-	installationDocsURL = "http://docs.helixml.tech/helix/"
+	installationDocsURL = "https://docs.helixml.tech/helix/"
 	// history limit
 	historyLimit = 30
 )

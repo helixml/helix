@@ -19,7 +19,7 @@ func TestDefault_Crawl(t *testing.T) {
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
-				URLs: []string{"http://docs.helixml.tech/helix"},
+				URLs: []string{"https://docs.helixml.tech/helix"},
 				Crawler: &types.WebsiteCrawler{
 					Enabled:  true,
 					MaxDepth: 200,
@@ -62,12 +62,12 @@ func TestDefault_Crawl(t *testing.T) {
 		if strings.Contains(doc.Content, appsText) {
 			appsTextFound = true
 
-			assert.Equal(t, "http://docs.helixml.tech/helix/develop/apps/", doc.SourceURL)
+			assert.Equal(t, "https://docs.helixml.tech/helix/develop/apps/", doc.SourceURL)
 		}
 		if strings.Contains(doc.Content, privateDeploymentText) {
 			privateDeploymentTextFound = true
 
-			assert.Equal(t, "http://docs.helixml.tech/helix/private-deployment/manual-install/docker/", doc.SourceURL)
+			assert.Equal(t, "https://docs.helixml.tech/helix/private-deployment/manual-install/docker/", doc.SourceURL)
 		}
 	}
 
