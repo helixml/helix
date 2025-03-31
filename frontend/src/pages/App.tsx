@@ -53,6 +53,7 @@ const App: FC = () => {
 
   const [deletingAPIKey, setDeletingAPIKey] = useState('')
   const [isAccessDenied, setIsAccessDenied] = useState(false)
+  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false)
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
@@ -91,8 +92,22 @@ const App: FC = () => {
     account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
   }
 
+  // Load initial data
   useEffect(() => {
-    endpointProviders.loadData()
+    const loadInitialData = async () => {
+      try {
+        await Promise.all([
+          endpointProviders.loadData(),
+          account.fetchModels(),
+          account.fetchProviderEndpoints()
+        ])
+        setIsInitialDataLoaded(true)
+      } catch (error) {
+        console.error('Error loading initial data:', error)
+        snackbar.error('Failed to load providers and models')
+      }
+    }
+    loadInitialData()
   }, [])
 
   useEffect(() => {
@@ -116,8 +131,12 @@ const App: FC = () => {
   if (!account.user) return null
   if (isAccessDenied) return <AccessDenied />
   if (!appTools.app) return null
+  // Add check for initial data loading
+  if (!isInitialDataLoaded) return null
+  // Don't block rendering on isSafeToSave, we'll disable editing instead
+  // if (!appTools.isSafeToSave) return null
 
-  const isReadOnly = appTools.isReadOnly
+  const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
 
   return (
     <Page
@@ -199,6 +218,8 @@ const App: FC = () => {
                       showErrors={appTools.showErrors}
                       isAdmin={account.admin}
                       providerEndpoints={endpointProviders.data}
+                      onProviderModelsLoaded={appTools.onProviderModelsLoaded}
+                      isSafeToSave={appTools.isSafeToSave}
                     />
                   )}
 
