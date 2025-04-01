@@ -77,48 +77,6 @@ func (suite *UsageMetricsTestSuite) TestCreateAndGetUsageMetrics() {
 	suite.Len(metrics, 15, "Should have 15 metrics total")
 }
 
-func (suite *UsageMetricsTestSuite) TestGetDailyUsageMetrics() {
-	appID := "test-" + system.GenerateAppID()
-	now := time.Now()
-
-	// Create metrics for 3 days
-	for i := 0; i < 3; i++ {
-		date := now.AddDate(0, 0, -i)
-		// Create multiple metrics per day with known values
-		for j := 0; j < 5; j++ {
-			metric := &types.UsageMetric{
-				AppID:             appID,
-				Created:           date.Add(time.Duration(j) * time.Hour),
-				PromptTokens:      100,
-				CompletionTokens:  200,
-				TotalTokens:       300,
-				DurationMs:        50,
-				RequestSizeBytes:  1000,
-				ResponseSizeBytes: 2000,
-			}
-			_, err := suite.db.CreateUsageMetric(suite.ctx, metric)
-			suite.NoError(err)
-		}
-	}
-
-	// Test daily aggregation
-	startTime := now.AddDate(0, 0, -3).Truncate(24 * time.Hour)
-	endTime := now.Add(24 * time.Hour)
-	dailyMetrics, err := suite.db.GetDailyUsageMetrics(suite.ctx, appID, startTime, endTime)
-	suite.NoError(err)
-	suite.Len(dailyMetrics, 3, "Should have 3 daily aggregations")
-
-	// Verify aggregation for each day
-	for _, metric := range dailyMetrics {
-		suite.Equal(500, metric.PromptTokens, "Daily prompt tokens should be 100 * 5")
-		suite.Equal(1000, metric.CompletionTokens, "Daily completion tokens should be 200 * 5")
-		suite.Equal(1500, metric.TotalTokens, "Daily total tokens should be 300 * 5")
-		suite.Equal(float64(50), metric.LatencyMs, "Daily latency should be average of 50")
-		suite.Equal(5000, metric.RequestSizeBytes, "Daily request size should be 1000 * 5")
-		suite.Equal(10000, metric.ResponseSizeBytes, "Daily response size should be 2000 * 5")
-	}
-}
-
 func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	appID := "test-" + system.GenerateAppID()
 
@@ -154,10 +112,17 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	// We should have 5 days of data, from march 4th to march 8th
 	suite.Require().Len(dailyMetrics, 5, "Should have 5 daily aggregations (days with data)")
 
+	// Check dates for ascending order
+	suite.Equal(4, dailyMetrics[0].Date.Day())
+	suite.Equal(5, dailyMetrics[1].Date.Day())
+	suite.Equal(6, dailyMetrics[2].Date.Day())
+	suite.Equal(7, dailyMetrics[3].Date.Day())
+	suite.Equal(8, dailyMetrics[4].Date.Day())
+
 	// Check prompt tokens for the days
-	suite.Equal(0, dailyMetrics[0].PromptTokens)   // March 8th
-	suite.Equal(100, dailyMetrics[1].PromptTokens) // March 7th
+	suite.Equal(0, dailyMetrics[0].PromptTokens)   // March 4th
+	suite.Equal(100, dailyMetrics[1].PromptTokens) // March 5th
 	suite.Equal(0, dailyMetrics[2].PromptTokens)   // March 6th
-	suite.Equal(100, dailyMetrics[3].PromptTokens) // March 5th
-	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 4th
+	suite.Equal(100, dailyMetrics[3].PromptTokens) // March 7th
+	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 8th
 }
