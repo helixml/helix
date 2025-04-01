@@ -9,7 +9,7 @@ global:
 
 image:
   # It's good practice to pin the version of the software you're running!
-  # Get this from https://get.helix.ml/latest.txt or check https://github.com/helixml/helix/releases
+  # Get this from https://get.helixml.tech/latest.txt or check https://github.com/helixml/helix/releases
   # YOU MUST SET THIS VALUE OR IT WILL NOT WORK
   tag: "1.6.13"
 

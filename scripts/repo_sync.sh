@@ -2,7 +2,7 @@
 set -e
 
 # the repo path to this repository
-REPO_URL="https://charts.helix.ml"
+REPO_URL="https://charts.helixml.tech"
 
 function gen_packages() {
   echo "Packaging charts from source code"
@@ -22,7 +22,7 @@ function gen_packages() {
 
 function index() {
   echo "Fetch charts and index.yaml"
-  gsutil rsync gs://charts.helix.ml ./temp/
+  gsutil rsync gs://charts.helixml.tech ./temp/
 
   echo "Indexing repository"
   if [ -f index.yaml ]; then
@@ -34,7 +34,7 @@ function index() {
 
 function upload() {
   echo "Upload charts to GCS bucket"
-  gsutil rsync ./temp/ gs://charts.helix.ml
+  gsutil rsync ./temp/ gs://charts.helixml.tech
 }
 
 # generate helm chart packages

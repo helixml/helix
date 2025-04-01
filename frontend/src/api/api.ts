@@ -1597,7 +1597,7 @@ export class HttpClient<SecurityDataType = unknown> {
  * @title HelixML API reference
  * @version 0.1
  * @baseUrl https://app.tryhelix.ai
- * @contact Helix support <info@helix.ml> (https://app.tryhelix.ai/)
+ * @contact Helix support <info@helixml.tech> (https://app.tryhelix.ai/)
  *
  * This is a HelixML AI API.
  */

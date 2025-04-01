@@ -2372,7 +2372,7 @@ definitions:
 host: app.tryhelix.ai
 info:
   contact:
-    email: info@helix.ml
+    email: info@helixml.tech
     name: Helix support
     url: https://app.tryhelix.ai/
   description: This is a HelixML AI API.
