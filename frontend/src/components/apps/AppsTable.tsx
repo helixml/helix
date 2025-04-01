@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useCallback } from 'react'
+import React, { FC, useMemo, useCallback, useState, useEffect } from 'react'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import Box from '@mui/material/Box'
@@ -6,17 +6,17 @@ import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
+import { SparkLineChart } from '@mui/x-charts';
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
-import useAccount from '../../hooks/useAccount'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import ToolDetail from '../tools/ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useApi from '../../hooks/useApi'
 
 import {
   IApp,
@@ -34,6 +34,12 @@ import {
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
 
+interface TypesAggregatedUsageMetric {
+  date: string;
+  total_tokens: number;
+  // Add other fields if they exist in the API type
+}
+
 const AppsDataGrid: FC<React.PropsWithChildren<{
   data: IApp[],
   onEdit: (app: IApp) => void,
@@ -44,14 +50,44 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   onDelete,
 }) => {
 
+  const api = useApi()
+  const apiClient = api.getApiClient()
   const theme = useTheme()
-  const account = useAccount()
+  
+  // Add state for usage data with proper typing
+  const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
+
+  // Fetch usage data for all apps
+  useEffect(() => {
+    const fetchUsageData = async () => {
+      const usagePromises = data.map(app => 
+        apiClient.v1AppsDailyUsageDetail(app.id)
+          .then(response => ({ [app.id]: response.data as TypesAggregatedUsageMetric[] }))
+          .catch(() => ({ [app.id]: null }))
+      )
+      const results = await Promise.all(usagePromises)
+      const combinedData = results.reduce((acc, curr) => ({ ...acc, ...curr }), {} as {[key: string]: TypesAggregatedUsageMetric[] | null})
+      setUsageData(combinedData)
+    }
+    fetchUsageData()
+  }, [data])
 
   const tableData = useMemo(() => {
     return data.map(app => {
       const assistant = app.config.helix?.assistants?.[0]
       const gptScripts = assistant?.gptscripts || []
-      const apiTools = (assistant?.tools || []).filter(t => t.tool_type == 'api')
+      const apiTools = (assistant?.tools || []).filter(t => t.tool_type == 'api')      
+
+      
+
+      // Get usage data for this app with proper typing
+      const appUsage = usageData[app.id] || []
+      // const last7DaysData = appUsage?.slice(-7) || []
+      const usageValues = appUsage.map((day: TypesAggregatedUsageMetric) => day.total_tokens || 0)
+      const todayTokens = appUsage[appUsage.length - 1]?.total_tokens || 0
+      const totalTokens = appUsage.reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)
+
+      console.log(usageValues)
 
       const gptscriptsElem = gptScripts.length > 0 ? (
         <>
@@ -95,11 +131,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
       const apisElem = apiTools.length > 0 ? (
         <>
-          <Box sx={{mt: 2, mb: 2}}>
-            <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-              API Tools
-            </Typography>
-          </Box>
           {
             // TODO: support more than 1 assistant
             apiTools.map((apiTool, index) => {
@@ -160,7 +191,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             {accessType}
           </Typography>
         ),
-        details: (
+        actions: (
           <>
             { gptscriptsElem }
             { apisElem }
@@ -175,11 +206,44 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             { new Date(app.updated).toLocaleString() }
           </Box>
         ),
+        usage: (
+          <Box sx={{ width: 200, height: 50 }}>
+            <Tooltip
+              title={
+                <Box>
+                  <Typography variant="body2">Last 7 Days Usage:</Typography>
+                  {appUsage.map((day: TypesAggregatedUsageMetric, i: number) => (
+                    <Typography key={i} variant="caption" component="div">
+                      {new Date(day.date).toLocaleDateString()}: {day.total_tokens || 0} tokens
+                    </Typography>
+                  ))}
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    Today: {todayTokens} tokens
+                  </Typography>
+                  <Typography variant="body2">
+                    Total (7 days): {totalTokens} tokens
+                  </Typography>
+                </Box>
+              }
+            >
+              <Box>
+                <SparkLineChart
+                  data={usageValues}
+                  height={50}
+                  width={200}
+                  showTooltip={true}
+                  curve="linear"
+                />
+              </Box>
+            </Tooltip>
+          </Box>
+        ),
       }
     })
   }, [
     theme,
     data,
+    usageData
   ])
 
   const getActions = useCallback((app: any) => {
@@ -235,8 +299,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         name: 'updated',
         title: 'Updated At',
       }, {
-        name: 'details',
-        title: 'Details',
+        name: 'actions',
+        title: 'Actions',
+      }, {
+        name: 'usage',
+        title: 'Usage',
       }]}
       data={ tableData }
       getActions={ getActions }
