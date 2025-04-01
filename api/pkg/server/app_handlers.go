@@ -1024,7 +1024,7 @@ func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request
 	user := getRequestUser(r)
 	id := getID(r)
 
-	from := time.Now().Add(-time.Hour * 24)
+	from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
 	to := time.Now()
 
 	var err error
