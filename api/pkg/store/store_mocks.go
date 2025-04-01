@@ -358,6 +358,21 @@ func (mr *MockStoreMockRecorder) CreateTeamMembership(ctx, membership any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTeamMembership", reflect.TypeOf((*MockStore)(nil).CreateTeamMembership), ctx, membership)
 }
 
+// CreateUsageMetric mocks base method.
+func (m *MockStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateUsageMetric", ctx, metric)
+	ret0, _ := ret[0].(*types.UsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateUsageMetric indicates an expected call of CreateUsageMetric.
+func (mr *MockStoreMockRecorder) CreateUsageMetric(ctx, metric any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUsageMetric", reflect.TypeOf((*MockStore)(nil).CreateUsageMetric), ctx, metric)
+}
+
 // CreateUser mocks base method.
 func (m *MockStore) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
 	m.ctrl.T.Helper()
@@ -655,6 +670,20 @@ func (mr *MockStoreMockRecorder) DeleteTeamMembership(ctx, teamID, userID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTeamMembership", reflect.TypeOf((*MockStore)(nil).DeleteTeamMembership), ctx, teamID, userID)
 }
 
+// DeleteUsageMetrics mocks base method.
+func (m *MockStore) DeleteUsageMetrics(ctx context.Context, appID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUsageMetrics", ctx, appID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUsageMetrics indicates an expected call of DeleteUsageMetrics.
+func (mr *MockStoreMockRecorder) DeleteUsageMetrics(ctx, appID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUsageMetrics", reflect.TypeOf((*MockStore)(nil).DeleteUsageMetrics), ctx, appID)
+}
+
 // DeleteUser mocks base method.
 func (m *MockStore) DeleteUser(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -757,6 +786,21 @@ func (m *MockStore) GetAppWithTools(ctx context.Context, id string) (*types.App,
 func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
+}
+
+// GetDailyUsageMetrics mocks base method.
+func (m *MockStore) GetDailyUsageMetrics(ctx context.Context, appID string, from, to time.Time) ([]*types.AggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDailyUsageMetrics", ctx, appID, from, to)
+	ret0, _ := ret[0].([]*types.AggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDailyUsageMetrics indicates an expected call of GetDailyUsageMetrics.
+func (mr *MockStoreMockRecorder) GetDailyUsageMetrics(ctx, appID, from, to any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDailyUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetDailyUsageMetrics), ctx, appID, from, to)
 }
 
 // GetDataEntity mocks base method.
@@ -1074,6 +1118,21 @@ func (mr *MockStoreMockRecorder) GetTeamMembership(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamMembership", reflect.TypeOf((*MockStore)(nil).GetTeamMembership), ctx, q)
 }
 
+// GetUsageMetrics mocks base method.
+func (m *MockStore) GetUsageMetrics(ctx context.Context, appID string, from, to time.Time) ([]*types.UsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageMetrics", ctx, appID, from, to)
+	ret0, _ := ret[0].([]*types.UsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUsageMetrics indicates an expected call of GetUsageMetrics.
+func (mr *MockStoreMockRecorder) GetUsageMetrics(ctx, appID, from, to any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetUsageMetrics), ctx, appID, from, to)
+}
+
 // GetUser mocks base method.
 func (m *MockStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
 	m.ctrl.T.Helper()
@@ -1375,6 +1434,21 @@ func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
 }
 
+// LookupKnowledge mocks base method.
+func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LookupKnowledge", ctx, q)
+	ret0, _ := ret[0].(*types.Knowledge)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LookupKnowledge indicates an expected call of LookupKnowledge.
+func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
+}
+
 // SearchUsers mocks base method.
 func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
@@ -1389,21 +1463,6 @@ func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([
 func (mr *MockStoreMockRecorder) SearchUsers(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchUsers", reflect.TypeOf((*MockStore)(nil).SearchUsers), ctx, query)
-}
-
-// LookupKnowledge mocks base method.
-func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LookupKnowledge", ctx, q)
-	ret0, _ := ret[0].(*types.Knowledge)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// LookupKnowledge indicates an expected call of LookupKnowledge.
-func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
 // SetLicenseKey mocks base method.
