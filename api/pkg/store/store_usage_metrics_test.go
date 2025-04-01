@@ -53,7 +53,7 @@ func (suite *UsageMetricsTestSuite) TestCreateAndGetUsageMetrics() {
 				PromptTokens:      100 + j,
 				CompletionTokens:  200 + j,
 				TotalTokens:       300 + j,
-				LatencyMs:         50 + j,
+				DurationMs:        50 + j,
 				RequestSizeBytes:  1000 + j,
 				ResponseSizeBytes: 2000 + j,
 			}
@@ -92,7 +92,7 @@ func (suite *UsageMetricsTestSuite) TestGetDailyUsageMetrics() {
 				PromptTokens:      100,
 				CompletionTokens:  200,
 				TotalTokens:       300,
-				LatencyMs:         50,
+				DurationMs:        50,
 				RequestSizeBytes:  1000,
 				ResponseSizeBytes: 2000,
 			}
@@ -128,7 +128,7 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 		PromptTokens:      100,
 		CompletionTokens:  200,
 		TotalTokens:       300,
-		LatencyMs:         50,
+		DurationMs:        50,
 		RequestSizeBytes:  1000,
 		ResponseSizeBytes: 2000,
 	}

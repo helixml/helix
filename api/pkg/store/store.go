@@ -246,6 +246,11 @@ type Store interface {
 	GetOAuthRequestTokenByState(ctx context.Context, state string) ([]*types.OAuthRequestToken, error)
 	DeleteOAuthRequestToken(ctx context.Context, id string) error
 	GenerateRandomState(ctx context.Context) (string, error)
+
+	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
+	GetUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
+	GetDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
+	DeleteUsageMetrics(ctx context.Context, appID string) error
 }
 
 type EmbeddingsStore interface {
