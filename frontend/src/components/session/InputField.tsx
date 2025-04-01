@@ -63,8 +63,7 @@ const InputField: FC<InputFieldProps> = React.memo(({
         if (performance.getEntriesByName('input-start', 'mark').length > 0 &&
             performance.getEntriesByName('input-end', 'mark').length > 0) {
           performance.measure('input-latency', 'input-start', 'input-end');
-          const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-          console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms`);
+          const latency = performance.getEntriesByName('input-latency').pop()?.duration;          
         }
         // Clean up
         performance.clearMarks('input-start');

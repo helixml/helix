@@ -84,37 +84,36 @@ func fillInMissingDates(appID string, metrics []*types.AggregatedUsageMetric, fr
 	var completeMetrics []*types.AggregatedUsageMetric
 
 	existingDates := make(map[metricDate]bool)
+	metricsMap := make(map[metricDate]*types.AggregatedUsageMetric)
 	for _, metric := range metrics {
-		existingDates[metricDate{
+		date := metricDate{
 			Year:  metric.Date.Year(),
 			Month: int(metric.Date.Month()),
 			Day:   metric.Date.Day(),
-		}] = true
+		}
+		existingDates[date] = true
+		metricsMap[date] = metric
 	}
 
-	currentDate := to
-	for !currentDate.Before(from) {
+	// Start from 'from' date and move forward to 'to' date
+	currentDate := from
+	for !currentDate.After(to) {
 		date := currentDate.Truncate(24 * time.Hour)
-		if existingDates[metricDate{
+		mDate := metricDate{
 			Year:  date.Year(),
 			Month: int(date.Month()),
 			Day:   date.Day(),
-		}] {
-			// Find and append the existing metric
-			for _, metric := range metrics {
-				if metric.Date.Equal(date) {
-					completeMetrics = append(completeMetrics, metric)
-					break
-				}
-			}
+		}
+
+		if metric, exists := metricsMap[mDate]; exists {
+			completeMetrics = append(completeMetrics, metric)
 		} else {
-			// Create an empty metric for the missing date
 			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
 				Date:  date,
 				AppID: appID,
 			})
 		}
-		currentDate = currentDate.AddDate(0, 0, -1)
+		currentDate = currentDate.AddDate(0, 0, 1)
 	}
 
 	return completeMetrics
