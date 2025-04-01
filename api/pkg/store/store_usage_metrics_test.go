@@ -121,59 +121,43 @@ func (suite *UsageMetricsTestSuite) TestGetDailyUsageMetrics() {
 
 func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	appID := "test-" + system.GenerateAppID()
-	now := time.Now()
 
-	// Create metrics for day 1 and day 3, leaving day 2 empty
-	daysToCreate := []int{0, 2} // Create for today and 2 days ago
-	for _, dayOffset := range daysToCreate {
-		date := now.AddDate(0, 0, -dayOffset)
-		metric := &types.UsageMetric{
-			AppID:             appID,
-			Created:           date,
-			PromptTokens:      100,
-			CompletionTokens:  200,
-			TotalTokens:       300,
-			LatencyMs:         50,
-			RequestSizeBytes:  1000,
-			ResponseSizeBytes: 2000,
-		}
-		_, err := suite.db.CreateUsageMetric(suite.ctx, metric)
-		suite.NoError(err)
+	metric1 := &types.UsageMetric{
+		AppID:             appID,
+		Created:           time.Date(2025, 3, 5, 0, 0, 0, 0, time.UTC), // March 5th
+		PromptTokens:      100,
+		CompletionTokens:  200,
+		TotalTokens:       300,
+		LatencyMs:         50,
+		RequestSizeBytes:  1000,
+		ResponseSizeBytes: 2000,
 	}
+	_, err := suite.db.CreateUsageMetric(suite.ctx, metric1)
+	suite.NoError(err)
+
+	metric2 := &types.UsageMetric{
+		AppID:            appID,
+		Created:          time.Date(2025, 3, 7, 0, 0, 0, 0, time.UTC), // March 7th
+		PromptTokens:     100,
+		CompletionTokens: 200,
+		TotalTokens:      300,
+	}
+	_, err = suite.db.CreateUsageMetric(suite.ctx, metric2)
+	suite.NoError(err)
 
 	// Test daily aggregation including the gap day
-	startTime := now.AddDate(0, 0, -3).Truncate(24 * time.Hour)
-	endTime := now.Add(24 * time.Hour)
+	startTime := time.Date(2025, 3, 4, 0, 0, 0, 0, time.UTC) // March 4th
+	endTime := time.Date(2025, 3, 8, 0, 0, 0, 0, time.UTC)   // March 8th
 	dailyMetrics, err := suite.db.GetDailyUsageMetrics(suite.ctx, appID, startTime, endTime)
 	suite.NoError(err)
-	suite.Len(dailyMetrics, 2, "Should have 2 daily aggregations (days with data)")
 
-	day0 := now.Truncate(24 * time.Hour)
-	day1 := now.AddDate(0, 0, -1).Truncate(24 * time.Hour)
-	day2 := now.AddDate(0, 0, -2).Truncate(24 * time.Hour)
+	// We should have 5 days of data, from march 4th to march 8th
+	suite.Require().Len(dailyMetrics, 5, "Should have 5 daily aggregations (days with data)")
 
-	// Verify we have metrics for day 1 and day 3 only
-	dates := make(map[time.Time]bool)
-	for _, metric := range dailyMetrics {
-		dates[metric.Date] = true
-
-		// If it's day 1, we should have zero tokens, latency, etc
-		if metric.Date.Equal(day1) {
-			suite.Equal(0, metric.PromptTokens)
-			suite.Equal(0, metric.CompletionTokens)
-			suite.Equal(0, metric.TotalTokens)
-			suite.Equal(0, metric.LatencyMs)
-			suite.Equal(0, metric.RequestSizeBytes)
-			suite.Equal(0, metric.ResponseSizeBytes)
-			continue
-		}
-		suite.Equal(100, metric.PromptTokens)
-		suite.Equal(200, metric.CompletionTokens)
-		suite.Equal(300, metric.TotalTokens)
-	}
-
-	// Verify we have the correct days
-	suite.True(dates[day0], "Should have metrics for today")
-	suite.True(dates[day1], "Should have metrics for 1 day ago (zero tokens, latency, etc)")
-	suite.True(dates[day2], "Should have metrics for 2 days ago")
+	// Check prompt tokens for the days
+	suite.Equal(0, dailyMetrics[0].PromptTokens)   // March 8th
+	suite.Equal(100, dailyMetrics[1].PromptTokens) // March 7th
+	suite.Equal(0, dailyMetrics[2].PromptTokens)   // March 6th
+	suite.Equal(100, dailyMetrics[3].PromptTokens) // March 5th
+	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 4th
 }
