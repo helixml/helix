@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install:
-# curl -LO https://get.helix.ml/install.sh && chmod +x install.sh
+# curl -LO https://get.helixml.tech/install.sh && chmod +x install.sh
 
 set -euo pipefail
 
@@ -33,7 +33,7 @@ OPENAI_BASE_URL=""
 AUTO_APPROVE=false
 OLDER_GPU=false
 HF_TOKEN=""
-PROXY=https://get.helix.ml
+PROXY=https://get.helixml.tech
 EXTRA_OLLAMA_MODELS=""
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
@@ -898,7 +898,7 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
     echo
-    echo "curl -Ls -O https://get.helix.ml/install.sh"
+    echo "curl -Ls -O https://get.helixml.tech/install.sh"
     echo "chmod +x install.sh"
     echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
