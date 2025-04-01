@@ -1756,6 +1756,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get app daily usage
+     *
+     * @tags apps
+     * @name V1AppsDailyUsageDetail
+     * @summary Get app usage
+     * @request GET:/api/v1/apps/{id}/daily-usage
+     * @secure
+     */
+    v1AppsDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/apps/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Runs a gptscript for an app
      *
      * @name V1AppsGptscriptCreate
@@ -1770,6 +1799,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List user's LLM calls with pagination and optional session filtering for a specific app
+     *
+     * @tags llm_calls
+     * @name V1AppsLlmCallsDetail
+     * @summary List LLM calls
+     * @request GET:/api/v1/apps/{id}/llm-calls
+     * @secure
+     */
+    v1AppsLlmCallsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        pageSize?: number;
+        /** Filter by session ID */
+        sessionFilter?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedLLMCalls, any>({
+        path: `/api/v1/apps/${id}/llm-calls`,
+        method: "GET",
+        query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2065,7 +2124,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List user's LLM calls with pagination and optional session filtering for a specific app
+     * @description List LLM calls with pagination and optional session filtering
      *
      * @tags llm_calls
      * @name V1LlmCallsList
