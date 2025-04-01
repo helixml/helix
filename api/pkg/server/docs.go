@@ -2345,6 +2345,36 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AggregatedUsageMetric": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "date": {
+                    "description": "ID    string    ` + "`" + `json:\"id\" gorm:\"primaryKey\"` + "`" + `",
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "number"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "request_size_bytes": {
+                    "type": "integer"
+                },
+                "response_size_bytes": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.App": {
             "type": "object",
             "properties": {
@@ -4369,6 +4399,12 @@ const docTemplate = `{
                 "rag_source_data_entity_id": {
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
+                },
+                "session_rag_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
                 },
                 "stream": {
                     "type": "boolean"
