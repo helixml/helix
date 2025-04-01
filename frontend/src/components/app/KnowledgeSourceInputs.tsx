@@ -11,15 +11,15 @@ import Tooltip from '@mui/material/Tooltip';
 import Switch from '@mui/material/Switch';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-
 import { IKnowledgeSource } from '../../types';
 import { default_max_depth } from '../../hooks/useKnowledge';
+import Checkbox from '@mui/material/Checkbox';
 
 interface KnowledgeSourceInputsProps {
   knowledge: IKnowledgeSource;
   updateKnowledge: (id: string, updates: Partial<IKnowledgeSource>) => void;
   disabled: boolean;
-  errors: {[key: string]: string[]};
+  errors: { [key: string]: string[] };
   onCompletePreparation: (id: string) => void;
 }
 
@@ -40,6 +40,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
   const [readability, setReadability] = useState<boolean>(true);
   const [refreshSchedule, setRefreshSchedule] = useState<string>('');
   const [customSchedule, setCustomSchedule] = useState<string>('');
+  const [enableVision, setEnableVision] = useState<boolean>(false);
 
   // Initialize local state from props
   useEffect(() => {
@@ -50,15 +51,16 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
     setChunkOverflow(knowledge.rag_settings.chunk_overflow);
     setMaxDepth(knowledge.source.web?.crawler?.max_depth || default_max_depth);
     setReadability(knowledge.source.web?.crawler?.readability ?? true);
-    setRefreshSchedule(knowledge.refresh_schedule === '' ? 'One off' : 
-                       (knowledge.refresh_schedule === '@hourly' || knowledge.refresh_schedule === '@daily' ? knowledge.refresh_schedule : 'custom'));
-    
+    setRefreshSchedule(knowledge.refresh_schedule === '' ? 'One off' :
+      (knowledge.refresh_schedule === '@hourly' || knowledge.refresh_schedule === '@daily' ? knowledge.refresh_schedule : 'custom'));
+    setEnableVision(knowledge.rag_settings.enable_vision || false);
+
     // Handle the case where refresh_schedule might be undefined
     const schedule = knowledge.refresh_schedule || '';
-    const isCustomSchedule = schedule !== '' && 
-                       schedule !== '@hourly' && 
-                       schedule !== '@daily';
-    
+    const isCustomSchedule = schedule !== '' &&
+      schedule !== '@hourly' &&
+      schedule !== '@daily';
+
     setCustomSchedule(isCustomSchedule ? schedule : '0 0 * * *');
   }, [knowledge]);
 
@@ -75,11 +77,11 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
           onChange={(e) => setUrls(e.target.value)}
           onBlur={() => {
             updateKnowledge(knowledge.id, {
-              source: { 
-                web: { 
-                  ...knowledge.source.web, 
-                  urls: urls.split(',').map(url => url.trim()) 
-                } 
+              source: {
+                web: {
+                  ...knowledge.source.web,
+                  urls: urls.split(',').map(url => url.trim())
+                }
               }
             });
           }}
@@ -127,7 +129,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
         <TextField
           fullWidth
           label="Chunk Size (optional)"
-          type="number"              
+          type="number"
           value={chunkSize === undefined ? '' : chunkSize}
           onChange={(e) => {
             const value = e.target.value ? parseInt(e.target.value) : undefined;
@@ -159,6 +161,25 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
           }}
           disabled={disabled}
         />
+        <FormControlLabel
+          label="Vision"
+          title='Enable vision RAG pipeline'
+          control={
+            <Checkbox
+              checked={enableVision}
+              onChange={(e, checked) => setEnableVision(checked)}
+              onBlur={() => {
+                updateKnowledge(knowledge.id, {
+                  rag_settings: {
+                    ...knowledge.rag_settings,
+                    enable_vision: enableVision
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+          }
+        />
       </Box>
 
       {sourceType === 'web' && (
@@ -185,7 +206,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
                 });
               }}
               disabled={disabled}
-            /> 
+            />
             <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
               <FormControlLabel
                 control={
@@ -213,8 +234,8 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
                 label="Filter out headers, footers, etc."
                 sx={{ mb: 2 }}
               />
-            </Tooltip>               
-          </Box>            
+            </Tooltip>
+          </Box>
         </>
       )}
 
@@ -225,12 +246,12 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
           onChange={(e) => {
             const newValue = e.target.value;
             setRefreshSchedule(newValue);
-            
+
             // Update parent state immediately for selects
             let newSchedule = newValue;
             if (newSchedule === 'One off') newSchedule = '';
             if (newSchedule === 'custom') newSchedule = '0 0 * * *';
-            
+
             updateKnowledge(knowledge.id, {
               refresh_schedule: newSchedule,
             });
@@ -243,7 +264,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
           <MenuItem value="custom">Custom (cron)</MenuItem>
         </Select>
       </FormControl>
-      
+
       {refreshSchedule === 'custom' && (
         <TextField
           fullWidth
@@ -262,8 +283,8 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
       )}
 
       {knowledge && knowledge.state === 'preparing' && (
-        <Alert 
-          severity="warning" 
+        <Alert
+          severity="warning"
           sx={{ mt: 2, mb: 2 }}
           action={
             <Button

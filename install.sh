@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install:
-# curl -LO https://get.helix.ml/install.sh && chmod +x install.sh
+# curl -LO https://get.helixml.tech/install.sh && chmod +x install.sh
 
 set -euo pipefail
 
@@ -33,7 +33,7 @@ OPENAI_BASE_URL=""
 AUTO_APPROVE=false
 OLDER_GPU=false
 HF_TOKEN=""
-PROXY=https://get.helix.ml
+PROXY=https://get.helixml.tech
 EXTRA_OLLAMA_MODELS=""
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
@@ -786,7 +786,7 @@ if [ "$RUNNER" = true ]; then
     # Check for NVIDIA GPU
     if ! check_nvidia_gpu; then
         echo "NVIDIA GPU not detected. Skipping runner installation."
-        echo "Set up a runner separately, per https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner"
+        echo "Set up a runner separately, per https://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner"
         exit 1
     fi
 
@@ -850,7 +850,7 @@ else
 fi
 
 # Check if api-1 container is running
-if docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
     API_HOST="http://api:80"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
@@ -873,7 +873,7 @@ docker run --privileged --gpus all --shm-size=10g \\
     \${OLDER_GPU_PARAM} \\
     \${HF_TOKEN_PARAM} \\
     \${EXTRA_OLLAMA_MODELS_PARAM} \\
-    registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
+    registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
     --memory \${GPU_MEMORY}GB \\
@@ -898,7 +898,7 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
     echo
-    echo "curl -Ls -O https://get.helix.ml/install.sh"
+    echo "curl -Ls -O https://get.helixml.tech/install.sh"
     echo "chmod +x install.sh"
     echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi

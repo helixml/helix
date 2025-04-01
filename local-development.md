@@ -1,6 +1,6 @@
 # HelixML Local Development guide
 
-Welcome to the local development documentation for **Helix.ml**! This guide will help you set up your development environment, understand the project structure, run the application locally, and contribute to the Helix.
+Welcome to the local development documentation for **HelixML**! This guide will help you set up your development environment, understand the project structure, run the application locally, and contribute to the Helix.
 
 ## Prerequisites
 
@@ -58,7 +58,7 @@ helix/
 ```bash
 ./stack up
 ```
-This will bring up the control plane which serves the front-end and various other components on the stack. Refer Helix architecture [docs](https://docs.helix.ml/helix/getting-started/architecture/)
+This will bring up the control plane which serves the front-end and various other components on the stack. Refer Helix architecture [docs](https://docs.helixml.tech/helix/getting-started/architecture/)
 
 The control comes up on http://localhost:8080 by default.
 
@@ -76,7 +76,7 @@ IMAGE                                       PORTS                               
 ankane/pgvector                             0.0.0.0:5433->5432/tcp, :::5433->5432/tcp   helix-pgvector-1
 helix-frontend                              0.0.0.0:8081->8081/tcp, :::8081->8081/tcp   helix-frontend-1
 helix-gptscript_runner                                                                  helix-gptscript_runner-1
-registry.helix.ml/helix/llamaindex:latest                                               helix-llamaindex-1
+registry.helixml.tech/helix/llamaindex:latest                                               helix-llamaindex-1
 webhookrelay/webhookrelayd                                                              helix-webhook_relay_github-1
 webhookrelay/webhookrelayd                                                              helix-webhook_relay_stripe-1
 helix-api                                   0.0.0.0:8080->80/tcp, :::8080->80/tcp       helix-api-1
@@ -90,7 +90,7 @@ You can EITHER attach a GPU runner, or configure an external LLM provider by set
 
 If you want to attach a GPU runner:
 
-Follow the [instructions on the docs to attach a runner](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
+Follow the [instructions on the docs to attach a runner](https://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner)
 
 If you're local machine isn't able to host a runner, you have a few options:
 
@@ -240,6 +240,6 @@ Bring down the stack
 
 ## Further Reading
 
-- [Helix Documentation](https://docs.helix.ml/)
+- [Helix Documentation](https://docs.helixml.tech/)
 
 Happy coding! If you have any questions or run into issues, feel free to reach out to the maintainers on [👥 Discord](https://discord.gg/VJftd844GE).

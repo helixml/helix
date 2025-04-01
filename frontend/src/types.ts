@@ -1,3 +1,5 @@
+import { TypesUserAppAccessResponse } from './api/api'
+
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
 // did). At time of writing, it's unused in the frontend because the frontend
@@ -205,6 +207,7 @@ export interface ISessionConfig {
   priority: boolean,
   document_ids: Record<string, string>,
   document_group_id: string,
+  session_rag_results: ISessionRAGResult[],
   manually_review_questions: boolean,
   system_prompt: string,
   helix_version: string,
@@ -602,6 +605,7 @@ export interface IAssistantConfig {
   rag_source_id?: string;
   lora_id?: string;
   is_actionable_template?: string;
+  is_actionable_history_length?: number;
   apis?: IAssistantApi[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
@@ -626,6 +630,7 @@ export interface IKnowledgeSource {
     results_count: number;
     chunk_size: number;
     chunk_overflow: number;
+    enable_vision: boolean;
   };
   state: string;
   message?: string;
@@ -765,6 +770,8 @@ export interface IAppFlatState {
   model?: string
   provider?: string
   knowledge?: IKnowledgeSource[] // Added knowledge parameter
+  is_actionable_template?: string;
+  is_actionable_history_length?: number;
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
@@ -996,4 +1003,14 @@ export interface CreateAccessGrantRequest {
   user_reference?: string; // User ID or email
   team_id?: string;        // Team ID
   roles: string[];         // Role names
+}
+
+export interface IUserAppAccessState {
+  loading: boolean
+  error: string | null
+  access: TypesUserAppAccessResponse | null
+  refresh: () => Promise<void>
+  isAdmin: boolean
+  canWrite: boolean
+  canRead: boolean
 }

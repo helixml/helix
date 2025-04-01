@@ -69,7 +69,7 @@ func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
 		Name:     c.Name,
 		Path:     c.Path,
 		Value:    value,
-		MaxAge:   int(time.Hour.Seconds()),
+		MaxAge:   int(0),
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -198,8 +198,9 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	cm := NewCookieManager(s.Cfg)
 	state, err := cm.Get(r, stateCookie)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get state")
-		http.Error(w, "failed to get state cookie", http.StatusBadRequest)
+		log.Error().Err(err).Msg("Failed to get state")
+		// Redirect to the homepage
+		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
 	}
 	if r.URL.Query().Get("state") != state {
@@ -350,12 +351,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		Token: accessToken,
 		Name:  user.FullName,
 	}
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to encode user response")
-		http.Error(w, "Failed to encode user response: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	writeResponse(w, response, http.StatusOK)
 }
 
 // user godoc
@@ -403,39 +399,31 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
 		log.Debug().Err(err).Str("cookie", accessTokenCookie.Name).Msg("failed to get cookie")
-		err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+
+		writeResponse(w, types.AuthenticatedResponse{
 			Authenticated: false,
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to encode authenticated response")
-			http.Error(w, "Failed to encode authenticated response: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+		}, http.StatusOK)
 		return
 	}
 
 	err = s.oidcClient.VerifyAccessToken(ctx, accessToken)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to verify access_token")
-		err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+		log.Debug().
+			Err(err).
+			Time("current_time", time.Now().UTC()).
+			Msg("Failed to verify access_token")
+
+		writeResponse(w, types.AuthenticatedResponse{
 			Authenticated: false,
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to encode authenticated response")
-			http.Error(w, "Failed to encode authenticated response: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+		}, http.StatusOK)
 		return
 	}
 
-	err = json.NewEncoder(w).Encode(types.AuthenticatedResponse{
+	// Authenticated and verified
+
+	writeResponse(w, types.AuthenticatedResponse{
 		Authenticated: true,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to encode authenticated response")
-		http.Error(w, "Failed to encode authenticated response: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	}, http.StatusOK)
 }
 
 // user godoc

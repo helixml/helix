@@ -1,8 +1,10 @@
-import React from 'react';
-import { Box, Button, Container } from '@mui/material';
+import React, { useState, useCallback } from 'react';
+import { Box, Button, Container, Tooltip } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import { FilterAlt } from '@mui/icons-material';
+import { FilterAlt, CheckCircle, Warning, Cancel } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles'
+import CitationComparisonModal from './CitationComparisonModal';
+import { ISessionRAGResult } from '../../types';
 
 // Reuse the same animations from the Markdown component
 const pulseFade = keyframes`
@@ -34,6 +36,8 @@ export interface Excerpt {
     fileUrl: string;
     isPartial: boolean;
     citationNumber?: number;
+    validationStatus?: 'exact' | 'fuzzy' | 'failed';
+    validationMessage?: string;
 }
 
 interface CitationProps {
@@ -41,19 +45,111 @@ interface CitationProps {
     isStreaming?: boolean;
     className?: string;
     onFilterDocument?: (docId: string) => void;
+    ragResults?: ISessionRAGResult[];
 }
 
 const Citation: React.FC<CitationProps> = ({
     excerpts,
     isStreaming = false,
     className = '',
-    onFilterDocument
+    onFilterDocument,
+    ragResults = []
 }) => {
     const theme = useTheme()
+    const [comparisonModalOpen, setComparisonModalOpen] = useState(false);
+    const [selectedExcerpt, setSelectedExcerpt] = useState<Excerpt | null>(null);
+
     // If there are no excerpts, return nothing
     if (!excerpts || excerpts.length === 0) {
         return null;
     }
+
+    // Function to handle clicking on a validation icon
+    const handleValidationClick = (excerpt: Excerpt) => {
+        if (!excerpt.validationStatus) return;
+        
+        setSelectedExcerpt(excerpt);
+        setComparisonModalOpen(true);
+    };
+
+    // Helper function to create a unique key for a RAG result (similar to backend logic)
+    const createUniqueRagKey = useCallback((ragResult: any): string => {
+        let key = `${ragResult.document_id}-${ragResult.content.substring(0, 50).replace(/\s+/g, '-')}`;
+        
+        // Add chunk identification if available in metadata
+        if (ragResult.metadata) {
+            if (ragResult.metadata.chunk_id) {
+                key += `-chunk-${ragResult.metadata.chunk_id}`;
+            } else if (ragResult.metadata.offset) {
+                key += `-offset-${ragResult.metadata.offset}`;
+            }
+        }
+        
+        return key;
+    }, []);
+
+    // Memoize the normalize text function to avoid recreating it on every render
+    const normalizeText = useCallback((text: string): string => {
+        return text
+            .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
+            .replace(/#/g, ' ')       // Replace # with spaces
+            .replace(/\s+/g, ' ')     // Normalize all whitespace
+            .toLowerCase()
+            .trim();
+    }, []);
+
+    // Find the best matching chunk for a given citation excerpt - memoize this expensive operation
+    const findBestMatchingChunk = useCallback((excerpt: Excerpt, results: any[]): any | null => {
+        // Filter by document ID first
+        const matchingResults = results.filter(r => r.document_id === excerpt.docId);
+        
+        if (matchingResults.length === 0) {
+            return null;
+        }
+        
+        if (matchingResults.length === 1) {
+            return matchingResults[0];
+        }
+        
+        // For multiple chunks, find the best match based on content similarity
+        const excerptText = normalizeText(excerpt.snippet);
+        
+        // First try exact match
+        for (const result of matchingResults) {
+            const resultText = normalizeText(result.content);
+            if (resultText.includes(excerptText)) {
+                return result; // Found an exact match
+            }
+        }
+        
+        // If no exact match, find the chunk with highest similarity
+        let bestMatch = matchingResults[0];
+        let bestSimilarity = 0;
+        
+        for (const result of matchingResults) {
+            const resultText = normalizeText(result.content);
+            
+            // Simple similarity check - more sophisticated methods could be used
+            let similarity = 0;
+            
+            // Count word matches
+            const excerptWords = excerptText.split(/\s+/).filter(w => w.length > 3);
+            const resultWords = resultText.split(/\s+/).filter(w => w.length > 3);
+            
+            const matchingWords = excerptWords.filter(word => 
+                resultWords.some(rWord => rWord.includes(word) || word.includes(rWord))
+            );
+            
+            similarity = excerptWords.length > 0 ? matchingWords.length / excerptWords.length : 0;
+            
+            if (similarity > bestSimilarity) {
+                bestSimilarity = similarity;
+                bestMatch = result;
+            }
+        }
+        
+        return bestMatch;
+    }, [normalizeText]);
 
     return (
         <Box
@@ -284,6 +380,7 @@ const Citation: React.FC<CitationProps> = ({
                                     position: 'relative',
                                     marginRight: '0.15em',
                                     top: '0.1em',
+                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
                                 }}
                             >
                                 {'\u201C'}
@@ -303,10 +400,65 @@ const Citation: React.FC<CitationProps> = ({
                                     position: 'relative',
                                     marginLeft: '0.15em',
                                     top: '0.1em',
+                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
                                 }}
                             >
                                 {'\u201D'}
                             </Box>
+                            
+                            {/* Validation status indicator */}
+                            {excerpt.validationStatus && (
+                                <Tooltip title={excerpt.validationMessage || ''} placement="top">
+                                    <Box
+                                        component="span"
+                                        sx={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            marginLeft: '5px',
+                                            opacity: 0.9,
+                                            cursor: 'help',
+                                            '&:hover': {
+                                                opacity: 1
+                                            }
+                                        }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleValidationClick(excerpt);
+                                        }}
+                                    >
+                                        {excerpt.validationStatus === 'exact' && (
+                                            <CheckCircle 
+                                                fontSize="small" 
+                                                sx={{ 
+                                                    color: '#4caf50',
+                                                    fontSize: '0.9rem',
+                                                    cursor: 'pointer'
+                                                }} 
+                                            />
+                                        )}
+                                        {excerpt.validationStatus === 'fuzzy' && (
+                                            <Warning 
+                                                fontSize="small" 
+                                                sx={{ 
+                                                    color: '#ff9800',
+                                                    fontSize: '0.9rem',
+                                                    cursor: 'pointer'
+                                                }} 
+                                            />
+                                        )}
+                                        {excerpt.validationStatus === 'failed' && (
+                                            <Cancel 
+                                                fontSize="small" 
+                                                sx={{ 
+                                                    color: '#f44336',
+                                                    fontSize: '0.9rem',
+                                                    cursor: 'pointer'
+                                                }} 
+                                            />
+                                        )}
+                                    </Box>
+                                </Tooltip>
+                            )}
                         </Box>
                     </Box>
 
@@ -416,8 +568,23 @@ const Citation: React.FC<CitationProps> = ({
                     </Box>
                 </Box>
             ))}
+
+            {/* Citation Comparison Modal */}
+            {selectedExcerpt && (
+                <CitationComparisonModal
+                    open={comparisonModalOpen}
+                    onClose={() => setComparisonModalOpen(false)}
+                    citation={{
+                        docId: selectedExcerpt.docId,
+                        snippet: selectedExcerpt.snippet,
+                        validationStatus: selectedExcerpt.validationStatus || 'failed',
+                        fileUrl: selectedExcerpt.fileUrl
+                    }}
+                    ragResults={ragResults}
+                />
+            )}
         </Box>
     );
 };
 
-export default Citation;
+export default React.memo(Citation);

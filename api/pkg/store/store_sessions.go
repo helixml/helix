@@ -121,10 +121,17 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	}
 
 	// Log session metadata before update
+	ragResultsCount := 0
+	if session.Metadata.SessionRAGResults != nil {
+		ragResultsCount = len(session.Metadata.SessionRAGResults)
+	}
+
 	log.Debug().
 		Str("session_id", session.ID).
 		Interface("document_ids", session.Metadata.DocumentIDs).
 		Str("parent_app", session.ParentApp).
+		Int("rag_results_count", ragResultsCount).
+		Bool("has_rag_results", session.Metadata.SessionRAGResults != nil).
 		Msg("🔍 Before UpdateSession - session metadata")
 
 	// Create a debug SQL logger to see the actual SQL query
@@ -141,10 +148,18 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	if getErr != nil {
 		log.Error().Err(getErr).Str("session_id", session.ID).Msg("❌ Failed to retrieve updated session")
 	} else {
+		// Check RAG results in updated session
+		updatedRagResultsCount := 0
+		if updatedSession.Metadata.SessionRAGResults != nil {
+			updatedRagResultsCount = len(updatedSession.Metadata.SessionRAGResults)
+		}
+
 		log.Debug().
 			Str("session_id", session.ID).
 			Interface("document_ids_after", updatedSession.Metadata.DocumentIDs).
 			Str("parent_app", updatedSession.ParentApp).
+			Int("rag_results_count_after", updatedRagResultsCount).
+			Bool("has_rag_results_after", updatedSession.Metadata.SessionRAGResults != nil).
 			Msg("✅ After UpdateSession - session metadata verified")
 	}
 

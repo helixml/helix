@@ -44,7 +44,7 @@ func InstallHelixCLI(t *testing.T, tmpDir string) string {
 	require.NoError(t, err)
 
 	// Download install script
-	downloadCmd := exec.Command("curl", "-sL", "-O", "https://get.helix.ml/install.sh")
+	downloadCmd := exec.Command("curl", "-sL", "-O", "https://get.helixml.tech/install.sh")
 	output, err := downloadCmd.CombinedOutput()
 	require.NoError(t, err, "Failed to download install script: %s", string(output))
 

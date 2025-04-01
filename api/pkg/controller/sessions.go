@@ -319,6 +319,17 @@ func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.S
 	session.Updated = time.Now()
 	session.Metadata = *meta
 
+	// Log RAG results before update
+	ragResultsCount := 0
+	if meta.SessionRAGResults != nil {
+		ragResultsCount = len(meta.SessionRAGResults)
+	}
+	log.Debug().
+		Str("session_id", session.ID).
+		Int("rag_results_count", ragResultsCount).
+		Bool("has_rag_results", meta.SessionRAGResults != nil).
+		Msg("🟢 updating session metadata with RAG results")
+
 	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		return nil, err
@@ -333,6 +344,17 @@ func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.S
 		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to send WebSocket notification for metadata update")
 		// We don't return an error here as the metadata was successfully updated in the database
 	}
+
+	// Verify RAG results in updated metadata
+	updatedRagResultsCount := 0
+	if sessionData.Metadata.SessionRAGResults != nil {
+		updatedRagResultsCount = len(sessionData.Metadata.SessionRAGResults)
+	}
+	log.Debug().
+		Str("session_id", sessionData.ID).
+		Int("updated_rag_results_count", updatedRagResultsCount).
+		Bool("has_updated_rag_results", sessionData.Metadata.SessionRAGResults != nil).
+		Msg("🟢 session metadata updated with RAG results")
 
 	return &sessionData.Metadata, nil
 }
@@ -702,19 +724,32 @@ func (c *Controller) BeginFineTune(ctx context.Context, session *types.Session) 
 	return nil
 }
 
-// generic "update this session handler"
-// this will emit a UserWebsocketEvent with a type of
-// WebsocketEventSessionUpdate
+// WriteSession updates a session and emits a WebsocketEventSessionUpdate
 func (c *Controller) WriteSession(ctx context.Context, session *types.Session) error {
 	// First, check if we need to preserve document IDs from the database
 	existingSession, err := c.Options.Store.GetSession(ctx, session.ID)
 	if err == nil && existingSession != nil {
-		// Log the document IDs from the existing session and the new session
+		// Log the document IDs and RAG results from the existing session and the new session
+		existingRagCount := 0
+		newRagCount := 0
+
+		if existingSession.Metadata.SessionRAGResults != nil {
+			existingRagCount = len(existingSession.Metadata.SessionRAGResults)
+		}
+
+		if session.Metadata.SessionRAGResults != nil {
+			newRagCount = len(session.Metadata.SessionRAGResults)
+		}
+
 		log.Debug().
 			Str("session_id", session.ID).
 			Interface("existing_document_ids", existingSession.Metadata.DocumentIDs).
 			Interface("new_document_ids", session.Metadata.DocumentIDs).
-			Msg("WriteSession: comparing document IDs between existing and new session")
+			Int("existing_rag_results_count", existingRagCount).
+			Int("new_rag_results_count", newRagCount).
+			Bool("existing_has_rag_results", existingSession.Metadata.SessionRAGResults != nil).
+			Bool("new_has_rag_results", session.Metadata.SessionRAGResults != nil).
+			Msg("WriteSession: comparing document IDs and RAG results between existing and new session")
 
 		// If the existing session has document IDs and the new session doesn't, preserve them
 		if len(existingSession.Metadata.DocumentIDs) > 0 {
@@ -742,6 +777,51 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 					Str("document_group_id", existingSession.Metadata.DocumentGroupID).
 					Msg("WriteSession: preserving document group ID from database")
 			}
+		}
+
+		// Properly merge RAG results from existing and new session
+		if existingRagCount > 0 || newRagCount > 0 {
+			// Create a map to store unique RAG results to avoid duplicates
+			existingRagMap := make(map[string]*types.SessionRAGResult)
+
+			// Add existing RAG results to the map if they exist
+			if existingSession.Metadata.SessionRAGResults != nil {
+				for _, result := range existingSession.Metadata.SessionRAGResults {
+					key := createUniqueRagResultKey(result)
+					existingRagMap[key] = result
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("document_id", result.DocumentID).
+						Str("key", key).
+						Msg("WriteSession: preserving existing RAG result")
+				}
+			}
+
+			// Add new RAG results to the map, replacing any with the same key
+			if session.Metadata.SessionRAGResults != nil {
+				for _, result := range session.Metadata.SessionRAGResults {
+					key := createUniqueRagResultKey(result)
+					existingRagMap[key] = result
+					log.Debug().
+						Str("session_id", session.ID).
+						Str("document_id", result.DocumentID).
+						Str("key", key).
+						Msg("WriteSession: adding new RAG result")
+				}
+			}
+
+			// Convert map back to array
+			mergedResults := make([]*types.SessionRAGResult, 0, len(existingRagMap))
+			for _, result := range existingRagMap {
+				mergedResults = append(mergedResults, result)
+			}
+
+			// Update the session with merged results
+			session.Metadata.SessionRAGResults = mergedResults
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("merged_rag_results_count", len(mergedResults)).
+				Msg("WriteSession: merged RAG results from database and new session")
 		}
 	}
 
@@ -1452,4 +1532,42 @@ func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.Da
 	}
 
 	return nil
+}
+
+// GetSessionRAGResults returns the RAG results stored in the session metadata
+func (c *Controller) GetSessionRAGResults(ctx context.Context, sessionID string) ([]*types.SessionRAGResult, error) {
+	session, err := c.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Return the RAG results from the session metadata
+	if session.Metadata.SessionRAGResults != nil {
+		log.Debug().
+			Str("session_id", sessionID).
+			Int("rag_results_count", len(session.Metadata.SessionRAGResults)).
+			Msg("retrieved RAG results from session metadata")
+		return session.Metadata.SessionRAGResults, nil
+	}
+
+	// If no results in metadata, check if we have RAG results in the latest assistant interaction
+	assistantInteraction, err := data.GetAssistantInteraction(session)
+	if err != nil {
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("no assistant interaction found, and no rag results in metadata")
+		// No error, just return empty results
+		return []*types.SessionRAGResult{}, nil
+	}
+
+	if len(assistantInteraction.RagResults) > 0 {
+		log.Debug().
+			Str("session_id", sessionID).
+			Int("rag_results_count", len(assistantInteraction.RagResults)).
+			Msg("retrieved RAG results from latest assistant interaction")
+		return assistantInteraction.RagResults, nil
+	}
+
+	// No RAG results found
+	return []*types.SessionRAGResult{}, nil
 }
