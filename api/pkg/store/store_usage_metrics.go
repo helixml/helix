@@ -56,20 +56,20 @@ func (s *PostgresStore) GetDailyUsageMetrics(ctx context.Context, appID string, 
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
-			AVG(latency_ms) as latency_ms,
+			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes
 		`).
 		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
 		Group("date, app_id").
-		Order("date DESC").
+		Order("date ASC").
 		Find(&metrics).Error
 
 	if err != nil {
 		return nil, err
 	}
 
-	completeMetrics := fillInMissingDates(metrics, from, to)
+	completeMetrics := fillInMissingDates(appID, metrics, from, to)
 
 	return completeMetrics, nil
 }
@@ -80,7 +80,7 @@ type metricDate struct {
 	Day   int
 }
 
-func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+func fillInMissingDates(appID string, metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
 	var completeMetrics []*types.AggregatedUsageMetric
 
 	existingDates := make(map[metricDate]bool)
@@ -111,7 +111,7 @@ func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, 
 			// Create an empty metric for the missing date
 			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
 				Date:  date,
-				AppID: metrics[0].AppID,
+				AppID: appID,
 			})
 		}
 		currentDate = currentDate.AddDate(0, 0, -1)
