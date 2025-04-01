@@ -371,6 +371,18 @@ export interface TypesAddTeamMemberRequest {
   user_reference?: string;
 }
 
+export interface TypesAggregatedUsageMetric {
+  app_id?: string;
+  completion_tokens?: number;
+  /** ID    string    `json:"id" gorm:"primaryKey"` */
+  date?: string;
+  latency_ms?: number;
+  prompt_tokens?: number;
+  request_size_bytes?: number;
+  response_size_bytes?: number;
+  total_tokens?: number;
+}
+
 export interface TypesApp {
   app_source?: TypesAppSource;
   config?: TypesAppConfig;
@@ -1231,6 +1243,7 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
+  session_rag_results?: TypesSessionRAGResult[];
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */

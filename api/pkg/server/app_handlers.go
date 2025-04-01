@@ -1039,6 +1039,15 @@ func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse to date: %s", err))
 		}
 	}
+
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
