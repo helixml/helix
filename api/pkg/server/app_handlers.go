@@ -1002,3 +1002,58 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 
 	return response, nil
 }
+
+// getAppUsage godoc
+// @Summary Get app usage
+// @Description Get app usage
+// @Tags    apps
+// @Param   id path string true "App ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Success 200 {array} types.AggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request) ([]*types.AggregatedUsageMetric, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	from := time.Now().Add(-time.Hour * 24)
+	to := time.Now()
+
+	var err error
+
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
+		}
+	}
+
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse to date: %s", err))
+		}
+	}
+
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	metrics, err := s.Store.GetDailyUsageMetrics(r.Context(), id, from, to)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return metrics, nil
+}
