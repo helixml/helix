@@ -231,7 +231,7 @@ type LaunchpadDeployment struct {
 }
 
 func (c *LaunchpadClient) ListDeployments() ([]LaunchpadDeployment, error) {
-	url := "https://deploy.helix.ml/api/deployments"
+	url := "https://deploy.helixml.tech/api/deployments"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -262,7 +262,7 @@ func (c *LaunchpadClient) ListDeployments() ([]LaunchpadDeployment, error) {
 }
 
 func (c *LaunchpadClient) DeleteDeployment(deploymentID string) error {
-	url := fmt.Sprintf("https://deploy.helix.ml/api/deployments/%s", deploymentID)
+	url := fmt.Sprintf("https://deploy.helixml.tech/api/deployments/%s", deploymentID)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err
@@ -299,7 +299,7 @@ func (c *LaunchpadClient) CreateInstance(name string) (*LaunchpadDeployment, err
 		return nil, err
 	}
 
-	url := "https://deploy.helix.ml/api/deployments"
+	url := "https://deploy.helixml.tech/api/deployments"
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, err
@@ -333,7 +333,7 @@ func (c *LaunchpadClient) CreateInstance(name string) (*LaunchpadDeployment, err
 
 // GetLogs downloads a zip file of the logs to a temporary directory and returns the path to the zip file
 func (c *LaunchpadClient) GetLogs(deploymentID, tempDir string) (string, error) {
-	url := fmt.Sprintf("https://deploy.helix.ml/api/deployments/%s/logs", deploymentID)
+	url := fmt.Sprintf("https://deploy.helixml.tech/api/deployments/%s/logs", deploymentID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err

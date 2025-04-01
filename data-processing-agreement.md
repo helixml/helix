@@ -1,7 +1,7 @@
 **HELIXML INC. DATA PROCESSING AGREEMENT**
 Last updated August 27th 2024
 
-This Data Processing Agreement for HelixML Inc. Services (“DPA”) forms a part of the software subscription agreement or other written agreement between HelixML Inc. (“Helix”) and Customer (“Agreement”) regarding Helix’s subscriptions and/or products or services provided by Helix and ordered by Customer (the “Service”) in accordance with the Agreement. All contacts regarding this DPA must be made to: founders@helix.ml.
+This Data Processing Agreement for HelixML Inc. Services (“DPA”) forms a part of the software subscription agreement or other written agreement between HelixML Inc. (“Helix”) and Customer (“Agreement”) regarding Helix’s subscriptions and/or products or services provided by Helix and ordered by Customer (the “Service”) in accordance with the Agreement. All contacts regarding this DPA must be made to: founders@helixml.tech.
 
 ### 1. DEFINITIONS
 Capitalized terms shall have the meaning set out below. Any capitalized terms not defined in this DPA shall have the meaning set out in the Agreement or as otherwise defined in the applicable data protection laws and regulations:

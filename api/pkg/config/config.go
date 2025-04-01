@@ -41,7 +41,7 @@ type ServerConfig struct {
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
-	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helixml.tech"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -147,7 +147,7 @@ type Notifications struct {
 }
 
 type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helix.ml"`
+	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helixml.tech"`
 
 	SMTP struct {
 		Host     string `envconfig:"EMAIL_SMTP_HOST"`

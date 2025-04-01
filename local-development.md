@@ -1,6 +1,6 @@
 # HelixML Local Development guide
 
-Welcome to the local development documentation for **Helix.ml**! This guide will help you set up your development environment, understand the project structure, run the application locally, and contribute to the Helix.
+Welcome to the local development documentation for **HelixML**! This guide will help you set up your development environment, understand the project structure, run the application locally, and contribute to the Helix.
 
 ## Prerequisites
 
