@@ -1007,7 +1007,9 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 
 // getAppUsage godoc
 // @Summary Get app usage
-// @Description Get app usage
+// @Description Get app daily usage
+// @Accept json
+// @Produce json
 // @Tags    apps
 // @Param   id path string true "App ID"
 // @Param   from query string false "Start date"
@@ -1016,6 +1018,7 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
+// @Router /api/v1/apps/{id}/daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request) ([]*types.AggregatedUsageMetric, *system.HTTPError) {
 	user := getRequestUser(r)
