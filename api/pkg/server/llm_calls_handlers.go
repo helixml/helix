@@ -70,7 +70,7 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 // @Param   pageSize      query    int     false  "Page size"
 // @Param   sessionFilter query    string  false  "Filter by session ID"
 // @Success 200 {object} types.PaginatedLLMCalls
-// @Router /api/v1/llm_calls [get]
+// @Router /api/v1/apps/{id}/llm-calls [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
 	appID := getID(r)
