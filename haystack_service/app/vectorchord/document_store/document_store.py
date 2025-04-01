@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023-present deepset GmbH <info@deepset.ai> and HelixML, Inc <luke@helix.ml>
+# SPDX-FileCopyrightText: 2023-present deepset GmbH <info@deepset.ai> and HelixML, Inc <luke@helixml.tech>
 #
 # SPDX-License-Identifier: Apache-2.0
 import logging
@@ -472,23 +472,6 @@ class VectorchordDocumentStore:
     def _create_bm25_index_if_not_exists(self):
         """Create the BM25 index if it doesn't exist and update content_bm25vector column."""
         try:
-            # First, update all existing documents to have their content tokenized
-            # Use 'Bert' as the default tokenizer
-            tokenizer = "Bert"
-            query = SQL("""
-                UPDATE {schema_name}.{table_name}
-                SET content_bm25vector = tokenize(content, %s)
-                WHERE content IS NOT NULL AND content_bm25vector IS NULL
-            """).format(
-                schema_name=Identifier(self.schema_name),
-                table_name=Identifier(self.table_name),
-            )
-            self._execute_sql(
-                query,
-                params=(tokenizer,),
-                error_msg=f"Failed to update content_bm25vector for {self.schema_name}.{self.table_name}",
-            )
-
             # Then create the index
             index_name = (
                 SQL("{table_name}_bm25_idx")
@@ -766,7 +749,11 @@ class VectorchordDocumentStore:
                     raise
 
             # Get the IDs of documents we just inserted with content
-            doc_ids = [doc["id"] for doc in pg_documents if doc["content"]]
+            doc_ids = [
+                doc["id"]
+                for doc in pg_documents
+                if doc["content"] and not doc["blob_data"]
+            ]
 
             if doc_ids:
                 # Convert list of IDs to a comma-separated string of quoted IDs
@@ -848,10 +835,6 @@ class VectorchordDocumentStore:
                 blob_data = blob.data
                 blob_meta = blob.meta
                 blob_mime_type = blob.mime_type
-
-                # This is a hack to avoid saving the image data to the database as text
-                # But content is required for the OpenAI Embedding API to work.
-                content = None
 
             # Return a dict with PostgreSQL compatible keys and values
             pg_document = {
@@ -982,7 +965,7 @@ class VectorchordDocumentStore:
 
         # Use the provided vector_function or fall back to the default
         vector_function = vector_function or self.vector_function
-        
+
         # Define score based on vector function
         if vector_function == "cosine_similarity":
             score_definition = SQL("1 - (embedding <=> %s::vector) AS score")
@@ -997,8 +980,13 @@ class VectorchordDocumentStore:
         # Convert query_embedding to proper PostgreSQL vector format
         try:
             query_embedding_str = f"[{','.join(str(val) for val in query_embedding)}]"
-            if not (query_embedding_str.startswith("[") and query_embedding_str.endswith("]")):
-                raise ValueError(f"Failed to create valid vector string, got: {query_embedding_str}")
+            if not (
+                query_embedding_str.startswith("[")
+                and query_embedding_str.endswith("]")
+            ):
+                raise ValueError(
+                    f"Failed to create valid vector string, got: {query_embedding_str}"
+                )
         except Exception as e:
             raise ValueError(f"Error formatting query_embedding as vector: {str(e)}")
 
@@ -1010,10 +998,13 @@ class VectorchordDocumentStore:
         if filters:
             try:
                 from .filters import _convert_filters_to_where_clause_and_params
-                filter_where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
-                where_clause = SQL("{filter_where_clause} AND embedding IS NOT NULL").format(
-                    filter_where_clause=filter_where_clause
+
+                filter_where_clause, filter_params = (
+                    _convert_filters_to_where_clause_and_params(filters)
                 )
+                where_clause = SQL(
+                    "{filter_where_clause} AND embedding IS NOT NULL"
+                ).format(filter_where_clause=filter_where_clause)
                 # Add filter parameters
                 if isinstance(filter_params, tuple):
                     params.extend(filter_params)

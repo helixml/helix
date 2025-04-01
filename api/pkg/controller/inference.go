@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,8 @@ import (
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v2"
+
+	"slices"
 
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/rs/zerolog/log"
@@ -554,6 +558,10 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 
 	log.Trace().Interface("documentIDs", filterDocumentIDs).Msg("document IDs")
 
+	pipeline := types.TextPipeline
+	if entity.Config.RAGSettings.EnableVision {
+		pipeline = types.VisionPipeline
+	}
 	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
 		Prompt:            prompt,
 		DataEntityID:      entity.ID,
@@ -561,6 +569,7 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
 		DocumentIDList:    filterDocumentIDs,
+		Pipeline:          pipeline,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error querying RAG: %w", err)
@@ -630,6 +639,10 @@ func (c *Controller) evaluateKnowledge(
 			}
 			log.Trace().Interface("inference filterDocumentIDs", filterDocumentIDs).Msg("filterDocumentIDs")
 
+			pipeline := types.TextPipeline
+			if knowledge.RAGSettings.EnableVision {
+				pipeline = types.VisionPipeline
+			}
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -637,6 +650,7 @@ func (c *Controller) evaluateKnowledge(
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
 				DocumentIDList:    filterDocumentIDs,
+				Pipeline:          pipeline,
 			})
 			if err != nil {
 				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
@@ -764,8 +778,90 @@ func (c *Controller) emitStepInfo(ctx context.Context, stepInfo *types.StepInfo)
 
 // TODO: use different struct with just document ID and content
 func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) error {
+	var msg openai.ChatCompletionMessage
+	var err error
+	if anyKnowledgeHasImages(knowledgeResults) {
+		msg, err = buildVisionChatCompletionMessage(req, ragResults, k, knowledgeResults)
+		if err != nil {
+			return fmt.Errorf("failed to build vision chat completion message: %w", err)
+		}
+	} else {
+		msg, err = buildTextChatCompletionMessage(req, ragResults, k, knowledgeResults)
+		if err != nil {
+			return fmt.Errorf("failed to build text chat completion message: %w", err)
+		}
+	}
+
+	req.Messages[len(req.Messages)-1] = msg
+
+	return nil
+}
+
+func anyKnowledgeHasImages(knowledgeResults []*prompts.BackgroundKnowledge) bool {
+	return slices.ContainsFunc(knowledgeResults, knowledgeHasImage)
+}
+
+func knowledgeHasImage(result *prompts.BackgroundKnowledge) bool {
+	return strings.HasPrefix(result.Content, "data:image/")
+}
+
+// buildVisionChatCompletionMessage builds a vision chat completion message
+// See canon: https://platform.openai.com/docs/guides/images?api-mode=chat&lang=python#provide-multiple-image-inputs
+func buildVisionChatCompletionMessage(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (openai.ChatCompletionMessage, error) {
+	imageParts := make([]openai.ChatMessagePart, 0, len(req.Messages))
+	textOnlyKnowledgeResults := make([]*prompts.BackgroundKnowledge, 0, len(knowledgeResults))
+	for _, result := range knowledgeResults {
+		if knowledgeHasImage(result) {
+			imageParts = append(imageParts, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL: result.Content,
+				},
+			})
+		} else {
+			// Can't pass knowledge results with images to the text completion prompt
+			textOnlyKnowledgeResults = append(textOnlyKnowledgeResults, result)
+		}
+	}
+
 	lastMessage := getLastMessage(*req)
 
+	extended, err := buildTextChatCompletionContent(lastMessage, ragResults, k, textOnlyKnowledgeResults)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to build text chat completion content: %w", err)
+	}
+
+	// Now rebuild the final message with the text at the top like in the example
+	res := openai.ChatCompletionMessage{
+		Role: openai.ChatMessageRoleUser,
+		MultiContent: append([]openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: extended,
+			},
+		}, imageParts...),
+	}
+
+	return res, nil
+}
+
+// buildTextChatCompletionMessage builds a standard text chat completion message extended with the
+// text knowledge and prompt
+func buildTextChatCompletionMessage(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (openai.ChatCompletionMessage, error) {
+	lastMessage := getLastMessage(*req)
+
+	extended, err := buildTextChatCompletionContent(lastMessage, ragResults, k, knowledgeResults)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to build text chat completion content: %w", err)
+	}
+
+	lastCompletionMessage := req.Messages[len(req.Messages)-1]
+	lastCompletionMessage.Content = extended
+
+	return lastCompletionMessage, nil
+}
+
+func buildTextChatCompletionContent(lastMessage string, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (string, error) {
 	promptRequest := &prompts.KnowledgePromptRequest{
 		UserPrompt:       lastMessage,
 		RAGResults:       ragResults,
@@ -778,12 +874,10 @@ func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []
 
 	extended, err := prompts.KnowledgePrompt(promptRequest)
 	if err != nil {
-		return fmt.Errorf("failed to extend message with knowledge: %w", err)
+		return "", fmt.Errorf("failed to extend message with knowledge: %w", err)
 	}
 
-	req.Messages[len(req.Messages)-1].Content = extended
-
-	return nil
+	return extended, nil
 }
 
 // setSystemPrompt if the assistant has a system prompt, set it in the request. If there is already
@@ -848,6 +942,137 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		session.Metadata.DocumentIDs = make(map[string]string)
 	}
 
+	// Create a map to store unique RAG results to avoid duplicates
+	existingRagMap := make(map[string]*types.SessionRAGResult)
+
+	log.Debug().
+		Str("session_id", session.ID).
+		Int("new_results_count", len(ragResults)).
+		Int("existing_results_count", len(session.Metadata.SessionRAGResults)).
+		Msg("starting deduplication of RAG results")
+
+	// Add existing RAG results to the map if they exist
+	if session.Metadata.SessionRAGResults != nil {
+		for i, result := range session.Metadata.SessionRAGResults {
+			// Create a unique key using document_id and hash of content
+			key := createUniqueRagResultKey(result)
+			existingRagMap[key] = result
+
+			// Log detailed information about existing results
+			contentPreview := ""
+			if len(result.Content) > 50 {
+				contentPreview = result.Content[:50] + "..."
+			} else {
+				contentPreview = result.Content
+			}
+
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("index", i).
+				Str("document_id", result.DocumentID).
+				Str("key", key).
+				Str("content_preview", contentPreview).
+				Interface("metadata", result.Metadata).
+				Msg("existing RAG result")
+		}
+	}
+
+	// Add new RAG results to the map, avoiding duplicates
+	for i, result := range ragResults {
+		key := createUniqueRagResultKey(result)
+
+		// Log detailed information about new results
+		contentPreview := ""
+		if len(result.Content) > 50 {
+			contentPreview = result.Content[:50] + "..."
+		} else {
+			contentPreview = result.Content
+		}
+
+		// Only add if not already present
+		existing, exists := existingRagMap[key]
+		if !exists {
+			existingRagMap[key] = result
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("index", i).
+				Str("document_id", result.DocumentID).
+				Str("key", key).
+				Str("content_preview", contentPreview).
+				Interface("metadata", result.Metadata).
+				Msg("adding new RAG result")
+		} else {
+			// Log when we skip a result due to duplicate key
+			existingPreview := ""
+			if len(existing.Content) > 50 {
+				existingPreview = existing.Content[:50] + "..."
+			} else {
+				existingPreview = existing.Content
+			}
+
+			log.Debug().
+				Str("session_id", session.ID).
+				Int("index", i).
+				Str("document_id", result.DocumentID).
+				Str("key", key).
+				Str("new_content_preview", contentPreview).
+				Str("existing_content_preview", existingPreview).
+				Bool("content_different", result.Content != existing.Content).
+				Int("new_content_length", len(result.Content)).
+				Int("existing_content_length", len(existing.Content)).
+				Interface("new_metadata", result.Metadata).
+				Interface("existing_metadata", existing.Metadata).
+				Msg("skipping duplicate RAG result")
+		}
+	}
+
+	// Convert map back to array
+	mergedResults := make([]*types.SessionRAGResult, 0, len(existingRagMap))
+	for _, result := range existingRagMap {
+		mergedResults = append(mergedResults, result)
+	}
+
+	// Store the merged RAG results in the session metadata
+	session.Metadata.SessionRAGResults = mergedResults
+
+	// Enhanced logging for RAG results
+	logCtx := log.With().
+		Str("session_id", session.ID).
+		Int("rag_results_count", len(mergedResults)).
+		Int("new_results_count", len(ragResults)).
+		Int("total_unique_results", len(existingRagMap)).
+		Logger()
+
+	// Log details of createUniqueRagResultKey function
+	if len(ragResults) > 0 {
+		sampleResult := ragResults[0]
+		key := createUniqueRagResultKey(sampleResult)
+
+		// Create content hash for debugging
+		h := sha256.New()
+		h.Write([]byte(sampleResult.Content))
+		contentHash := hex.EncodeToString(h.Sum(nil))
+
+		logCtx.Debug().
+			Str("sample_document_id", sampleResult.DocumentID).
+			Str("sample_key", key).
+			Str("content_hash", contentHash).
+			Interface("sample_metadata", sampleResult.Metadata).
+			Msg("sample of key generation")
+	}
+
+	if len(mergedResults) > 0 {
+		// Log sample of first result for debugging
+		sampleResult := mergedResults[0]
+		logCtx.Debug().
+			Str("first_document_id", sampleResult.DocumentID).
+			Str("first_source", sampleResult.Source).
+			Int("first_content_length", len(sampleResult.Content)).
+			Msg("storing merged RAG results in session metadata - sample of first result")
+	} else {
+		logCtx.Warn().Msg("storing empty RAG results array in session metadata")
+	}
+
 	// Add or update document IDs
 	for _, result := range ragResults {
 		if result.DocumentID != "" {
@@ -907,13 +1132,13 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	}
 
 	// Log the updated document IDs
-	log.Debug().
+	logCtx.Debug().
 		Str("session_id", session.ID).
 		Interface("document_ids", session.Metadata.DocumentIDs).
 		Msg("updating session with document IDs")
 
 	// Update the session metadata
-	updatedMeta, err := c.UpdateSessionMetadata(ctx, session, &session.Metadata)
+	_, err = c.UpdateSessionMetadata(ctx, session, &session.Metadata)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to update session metadata with document IDs")
 		return err
@@ -924,14 +1149,69 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	if verifyErr != nil {
 		log.Error().Err(verifyErr).Str("session_id", session.ID).Msg("failed to verify session update")
 	} else {
-		log.Debug().
+		// Enhanced verification logging
+		verifyLogCtx := log.With().
 			Str("session_id", session.ID).
 			Interface("document_ids", verifySession.Metadata.DocumentIDs).
-			Interface("updated_meta", updatedMeta).
-			Msg("verified session document IDs after update")
+			Logger()
+
+		// Log RAG results verification
+		ragResultsCount := 0
+		if verifySession.Metadata.SessionRAGResults != nil {
+			ragResultsCount = len(verifySession.Metadata.SessionRAGResults)
+		}
+
+		verifyLogCtx.Debug().
+			Int("verified_rag_results_count", ragResultsCount).
+			Bool("has_rag_results", verifySession.Metadata.SessionRAGResults != nil).
+			Msg("verified session metadata after update")
 	}
 
 	return nil
+}
+
+// Add detailed logging to createUniqueRagResultKey to understand how it's generating keys
+func createUniqueRagResultKey(result *types.SessionRAGResult) string {
+	// Create a hash of the content using SHA-256
+	h := sha256.New()
+	h.Write([]byte(result.Content))
+	contentHash := hex.EncodeToString(h.Sum(nil))
+
+	// Base key combines document_id and content hash
+	key := result.DocumentID + "-" + contentHash
+
+	// Log the metadata keys that might affect the result key
+	metadataKeys := make([]string, 0)
+	if result.Metadata != nil {
+		for k := range result.Metadata {
+			metadataKeys = append(metadataKeys, k)
+		}
+	}
+
+	log.Trace().
+		Str("document_id", result.DocumentID).
+		Str("content_hash", contentHash[:8]+"...").
+		Strs("metadata_keys", metadataKeys).
+		Msg("creating unique RAG result key")
+
+	// If metadata contains offset or chunk_id information, include it in the key
+	// This ensures chunks from the same document are properly distinguished
+	if result.Metadata != nil {
+		if chunkID, ok := result.Metadata["chunk_id"]; ok {
+			key += "-chunk-" + chunkID
+			log.Trace().Str("document_id", result.DocumentID).Str("chunk_id", chunkID).Msg("added chunk_id to key")
+		} else if offset, ok := result.Metadata["offset"]; ok {
+			key += "-offset-" + offset
+			log.Trace().Str("document_id", result.DocumentID).Str("offset", offset).Msg("added offset to key")
+		}
+	}
+
+	log.Trace().
+		Str("document_id", result.DocumentID).
+		Str("final_key", key).
+		Msg("final unique RAG result key")
+
+	return key
 }
 
 func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) ([]string, error) {

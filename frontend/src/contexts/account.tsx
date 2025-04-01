@@ -234,10 +234,16 @@ export const useAccountContext = (): IAccountContext => {
   
 
   const fetchProviderEndpoints = useCallback(async () => {
-    const response = await api.get('/api/v1/provider-endpoints')
-    if (!response) return
-    setProviderEndpoints(response)
-  }, [])
+    try {
+      const endpoints = await api.get<IProviderEndpoint[]>('/api/v1/provider-endpoints')
+      if (endpoints) {
+        setProviderEndpoints(endpoints)
+      }
+    } catch (error) {
+      console.error('Error fetching provider endpoints:', error)
+      setProviderEndpoints([])
+    }
+  }, [api])
 
   const loadAll = useCallback(async () => {
     try {
@@ -321,7 +327,7 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
-        // Set up token refresh interval - using 5 minutes instead of 30 seconds
+        // Set up token refresh interval - using 4 minutes instead of 30 seconds
         // to reduce server load and prevent potential race conditions
         const refreshInterval = setInterval(async () => {
           try {
@@ -345,7 +351,7 @@ export const useAccountContext = (): IAccountContext => {
               onLogin()
             }
           }
-        }, 300 * 1000) // 5 minutes
+        }, 240 * 1000) // 4 minutes
         
         // Clean up interval on component unmount
         return () => clearInterval(refreshInterval)

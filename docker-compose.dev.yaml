@@ -172,7 +172,7 @@ services:
       - 7317:7317
   llamaindex:
     profiles: [full]
-    image: registry.helix.ml/helix/llamaindex:latest
+    image: registry.helixml.tech/helix/llamaindex:latest
     # build:
     #   context: llamaindex
     #   dockerfile: Dockerfile
@@ -208,7 +208,7 @@ services:
       dockerfile: Dockerfile.runner
       args:
         TAG: 2024-12-07a-small
-    #image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
+    #image: ${RUNNER_IMAGE:-registry.helixml.tech/helix/runner:latest-large}
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env
@@ -276,8 +276,15 @@ services:
       - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
       # Socket configuration for api communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      # Vision RAG Settings
+      - RAG_VISION_ENABLED=${RAG_VISION_ENABLED:-false}
+      - RAG_VISION_BASE_URL=${RAG_VISION_BASE_URL:-}
+      - RAG_VISION_API_KEY=${RAG_VISION_API_KEY:-}
+      - RAG_VISION_EMBEDDINGS_MODEL=${RAG_VISION_EMBEDDINGS_MODEL:-"MrLight/dse-qwen2-2b-mrl-v1"}
+      - RAG_VISION_EMBEDDINGS_DIM=${RAG_VISION_EMBEDDINGS_DIM:-1536}
+      - RAG_VISION_EMBEDDINGS_SOCKET=${RAG_VISION_EMBEDDINGS_SOCKET:-}
+      - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
     volumes:
-      - ./haystack_service:/app
       - helix-socket:/socket
     depends_on:
       - pgvector

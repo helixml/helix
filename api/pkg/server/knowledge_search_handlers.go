@@ -83,6 +83,10 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 				filterDocumentIDs = append(filterDocumentIDs, rag.ParseDocID(filterAction))
 			}
 			log.Trace().Interface("filterDocumentIDs", filterDocumentIDs).Msg("filterDocumentIDs")
+			pipeline := types.TextPipeline
+			if knowledge.RAGSettings.EnableVision {
+				pipeline = types.VisionPipeline
+			}
 			resp, err := client.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -90,6 +94,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
 				DocumentIDList:    filterDocumentIDs,
+				Pipeline:          pipeline,
 			})
 			if err != nil {
 				log.Error().Err(err).Msgf("error querying RAG for knowledge %s", knowledge.ID)

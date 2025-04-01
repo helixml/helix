@@ -18,6 +18,8 @@ const ModelPicker: FC<{
   displayMode?: 'full' | 'short', // Controls how the model name is displayed
   border?: boolean, // Adds a border around the picker
   compact?: boolean, // Reduces the text size
+  onLoadingStateChange?: (isLoading: boolean) => void, // Callback for loading state changes
+  onProviderModelsLoaded?: (provider: string) => void, // Callback to notify when provider models have loaded
 }> = ({
   type,
   model,
@@ -25,7 +27,9 @@ const ModelPicker: FC<{
   onSetModel,
   displayMode = 'full',
   border = false,
-  compact = false
+  compact = false,
+  onLoadingStateChange,
+  onProviderModelsLoaded,
 }) => {
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
@@ -58,18 +62,24 @@ const ModelPicker: FC<{
   useEffect(() => {
     // If we have a model already set, always respect it as a user selection
     if (!initializedRef.current && model) {
-      setUserSelectedModel(true);
-      initializedRef.current = true;
+      setUserSelectedModel(true)
+      initializedRef.current = true
     }
-  }, [model]);
+  }, [model])
 
   // Track any explicit model setting as a user selection
   useEffect(() => {
-    // Any time the model changes after initialization, consider it a user selection
-    if (initializedRef.current && model) {
-      setUserSelectedModel(true);
+    // Only consider it a user selection if:
+    // 1. We're not loading models
+    // 2. We have the correct provider's models loaded
+    // 3. The model exists in our current model list
+    if (!isLoadingModels && 
+        loadedProviderRef.current === provider && 
+        model && 
+        models.some(m => m.id === model)) {
+      setUserSelectedModel(true)
     }
-  }, [model]);
+  }, [model, models, isLoadingModels, provider])
 
   // Fetch models when provider changes
   useEffect(() => {
@@ -79,17 +89,28 @@ const ModelPicker: FC<{
       
       // Mark that we're loading models
       setIsLoadingModels(true)
+      onLoadingStateChange?.(true)
       
       fetchModels(provider).then(() => {
+        console.log(`Models loaded for provider ${provider}`)
         // Only after models are loaded, mark as initialized and not loading
         initializedRef.current = true
         setIsLoadingModels(false)
+        onLoadingStateChange?.(false)
+        
+        // Notify parent that this provider's models have loaded
+        if (provider) {
+          console.log(`Calling onProviderModelsLoaded for ${provider}`)
+          onProviderModelsLoaded?.(provider)
+        }
+        
         // We never reset userSelectedModel to ensure we don't overwrite user choices
       }).catch(err => {
         // Log any errors but still consider initialized to prevent blocking UI
         console.error('Error loading models:', err)
         initializedRef.current = true
         setIsLoadingModels(false)
+        onLoadingStateChange?.(false)
       })
     }
   }, [provider, fetchModels])
@@ -97,10 +118,16 @@ const ModelPicker: FC<{
   // Handle type changes with client-side filtering only
   useEffect(() => {
     // Skip this effect if models are still loading to prevent race conditions
-    if (isLoadingModels) {
+    // OR if we haven't loaded models for the current provider yet
+    if (isLoadingModels || loadedProviderRef.current !== provider) {
       return
     }
     
+    // Skip auto-selection if we already have a valid model and user hasn't changed type
+    if (model && userSelectedModel) {
+      return
+    }
+
     const currentModels = models.filter(m => 
       m.type === type || (type === "text" && m.type === "chat")
     )
@@ -108,17 +135,16 @@ const ModelPicker: FC<{
     // Always check if current model is compatible with the type
     const isCurrentModelValid = currentModels.some(m => m.id === model)
     
-    // If type changed or current model is invalid for this type, select a new model
-    if (currentModels.length > 0 && (!isCurrentModelValid || !model)) {
-      // Force model selection when type changes, regardless of userSelectedModel
+    // Only select a new model if:
+    // 1. We have models to choose from AND
+    // 2. Either we have no current model OR the current model is invalid for this type
+    if (currentModels.length > 0 && (!model || !isCurrentModelValid)) {
+      // Force model selection when type changes or model is invalid
       onSetModel(currentModels[0].id)
       // Consider this a deliberate selection to prevent further auto-switching
       setUserSelectedModel(true)
     }
-    
-    // Never reset a selected model even if it's not in the current list
-    // This prevents race conditions and preserves user selection
-  }, [type, model, models, onSetModel, userSelectedModel, isLoadingModels])
+  }, [type, model, models, onSetModel, userSelectedModel, isLoadingModels, provider])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)

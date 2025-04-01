@@ -76,14 +76,14 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
               mt: 0,
             }}
           >
-            curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli
+            curl -Ls -O https://get.helixml.tech/install.sh && bash install.sh --cli
           </Typography>
           <Button
             variant="text"
             size="small"
             startIcon={<ContentCopyIcon />}
             onClick={() => {
-              navigator.clipboard.writeText("curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli");
+              navigator.clipboard.writeText("curl -Ls -O https://get.helixml.tech/install.sh && bash install.sh --cli");
               snackbarSuccess('Command copied to clipboard');
             }}
             sx={{ textTransform: 'none', flexShrink: 0 }}

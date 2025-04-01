@@ -54,6 +54,7 @@ export const generateFixtureSession = (numInteractions: number = 300): ISession 
       priority: false,
       document_ids: {},
       document_group_id: '',
+      session_rag_results: [],
       manually_review_questions: false,
       system_prompt: '',
       helix_version: '1.0.0',
