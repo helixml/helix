@@ -100,6 +100,15 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
                   xAxis={[{
                     data: chartData.xAxis,
                     scaleType: 'time',
+                    valueFormatter: (value: number) => {
+                      const date = new Date(value);
+                      return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+                    },
+                    tickNumber: 7,
+                    labelStyle: {
+                      angle: 0,
+                      textAnchor: 'middle'
+                    }
                   }]}
                   series={chartData.series}
                   height={300}

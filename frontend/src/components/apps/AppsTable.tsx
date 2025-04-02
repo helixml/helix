@@ -209,7 +209,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             <Tooltip
               title={
                 <Box>
-                  <Typography variant="body2">Last 7 Days Usage:</Typography>
+                  <Typography variant="body2">Daily usage:</Typography>
                   {appUsage.map((day: TypesAggregatedUsageMetric, i: number) => (
                     <Typography key={i} variant="caption" component="div">
                       {new Date(day.date).toLocaleDateString()}: {day.total_tokens || 0} tokens
