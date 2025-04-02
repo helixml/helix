@@ -1855,6 +1855,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get app users daily usage
+     *
+     * @tags apps
+     * @name V1AppsUsersDailyUsageDetail
+     * @summary Get app users daily usage
+     * @request GET:/api/v1/apps/{id}/users-daily-usage
+     * @secure
+     */
+    v1AppsUsersDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/apps/${id}/users-daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1AppsGithubUpdate
