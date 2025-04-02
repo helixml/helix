@@ -1460,6 +1460,11 @@ export interface TypesUserSearchResponse {
   users?: TypesUser[];
 }
 
+export interface TypesUsersAggregatedUsageMetric {
+  metrics?: TypesAggregatedUsageMetric[];
+  user?: TypesUser;
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -2470,6 +2475,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get provider daily usage per user
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsUsersDailyUsageDetail
+     * @summary Get provider daily usage per user
+     * @request GET:/api/v1/provider-endpoints/{id}/users-daily-usage
+     * @secure
+     */
+    v1ProviderEndpointsUsersDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesUsersAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/users-daily-usage`,
         method: "GET",
         query: query,
         secure: true,
