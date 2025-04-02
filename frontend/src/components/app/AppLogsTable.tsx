@@ -151,7 +151,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
-        <Typography variant="h6">Usage</Typography>
+        <Typography variant="h6">Usage tokens</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
           Refresh
         </Button>
@@ -174,12 +174,21 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             }]}
             series={chartData.series}
             height={300}
+            slotProps={{
+              legend: {
+                hidden: true
+              }
+            }}
           />
         ) : (
           <Typography variant="body1" textAlign="center">No usage data available</Typography>
         )}
       </Box>
-      <TableContainer>
+
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
+        <Typography variant="h6">LLM calls</Typography>        
+      </Box>
+      <TableContainer sx={{ mt: 2 }}>
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>
