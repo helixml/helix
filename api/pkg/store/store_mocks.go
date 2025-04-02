@@ -1178,6 +1178,21 @@ func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMeta", reflect.TypeOf((*MockStore)(nil).GetUserMeta), ctx, id)
 }
 
+// GetUsersAggregatedUsageMetrics mocks base method.
+func (m *MockStore) GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from, to time.Time) ([]*types.UsersAggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsersAggregatedUsageMetrics", ctx, provider, from, to)
+	ret0, _ := ret[0].([]*types.UsersAggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUsersAggregatedUsageMetrics indicates an expected call of GetUsersAggregatedUsageMetrics.
+func (mr *MockStoreMockRecorder) GetUsersAggregatedUsageMetrics(ctx, provider, from, to any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsersAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetUsersAggregatedUsageMetrics), ctx, provider, from, to)
+}
+
 // ListAPIKeys mocks base method.
 func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	m.ctrl.T.Helper()
