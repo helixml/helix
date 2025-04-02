@@ -25,6 +25,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
+import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
 import { useApi } from '../../hooks/useApi';
 
@@ -37,6 +38,7 @@ const ProviderEndpointsTable: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});
@@ -90,6 +92,11 @@ const ProviderEndpointsTable: FC = () => {
     setEditDialogOpen(false);
     setSelectedEndpoint(null);
     handleMenuClose();
+  };
+
+  const handleUsageClick = (endpoint: IProviderEndpoint) => {
+    setSelectedEndpoint(endpoint);
+    setUsageDialogOpen(true);
   };
 
   const isSystemEndpoint = (endpoint: IProviderEndpoint) => {
@@ -211,7 +218,7 @@ const ProviderEndpointsTable: FC = () => {
                         </Box>
                       }
                     >
-                      <Box>
+                      <Box onClick={() => handleUsageClick(endpoint)} sx={{ cursor: 'pointer' }}>
                         <SparkLineChart
                           data={(usageData[endpoint.name] || []).map(day => day.total_tokens || 0)}
                           height={50}
@@ -272,6 +279,11 @@ const ProviderEndpointsTable: FC = () => {
         open={editDialogOpen}
         endpoint={selectedEndpoint}
         onClose={handleEditDialogClose}
+      />
+      <ProviderEndpointUsageDialog
+        open={usageDialogOpen}
+        endpoint={selectedEndpoint}
+        onClose={() => setUsageDialogOpen(false)}
       />
     </Paper>
   );
