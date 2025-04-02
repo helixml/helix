@@ -1013,6 +1013,21 @@ func (mr *MockStoreMockRecorder) GetOrganizationMembership(ctx, q any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationMembership", reflect.TypeOf((*MockStore)(nil).GetOrganizationMembership), ctx, q)
 }
 
+// GetProviderDailyUsageMetrics mocks base method.
+func (m *MockStore) GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from, to time.Time) ([]*types.AggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProviderDailyUsageMetrics", ctx, providerID, from, to)
+	ret0, _ := ret[0].([]*types.AggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProviderDailyUsageMetrics indicates an expected call of GetProviderDailyUsageMetrics.
+func (mr *MockStoreMockRecorder) GetProviderDailyUsageMetrics(ctx, providerID, from, to any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProviderDailyUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetProviderDailyUsageMetrics), ctx, providerID, from, to)
+}
+
 // GetProviderEndpoint mocks base method.
 func (m *MockStore) GetProviderEndpoint(ctx context.Context, q *GetProviderEndpointsQuery) (*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
