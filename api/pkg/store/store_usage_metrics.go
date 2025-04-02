@@ -199,6 +199,102 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 	return metrics, nil
 }
 
+func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error) {
+	metrics := []*types.UsersAggregatedUsageMetric{}
+
+	// First get the aggregated metrics per user
+	var userMetrics []struct {
+		UserID            string    `gorm:"column:user_id"`
+		Date              time.Time `gorm:"column:date"`
+		PromptTokens      int       `gorm:"column:prompt_tokens"`
+		CompletionTokens  int       `gorm:"column:completion_tokens"`
+		TotalTokens       int       `gorm:"column:total_tokens"`
+		DurationMs        float64   `gorm:"column:duration_ms"`
+		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
+		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
+	}
+
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select(`
+			user_id,
+			date,
+			SUM(prompt_tokens) as prompt_tokens,
+			SUM(completion_tokens) as completion_tokens,
+			SUM(total_tokens) as total_tokens,
+			AVG(duration_ms) as duration_ms,
+			SUM(request_size_bytes) as request_size_bytes,
+			SUM(response_size_bytes) as response_size_bytes
+		`).
+		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
+		Group("user_id, date").
+		Order("user_id ASC, date ASC").
+		Find(&userMetrics).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a map to group metrics by user_id
+	userMetricsMap := make(map[string][]*types.AggregatedUsageMetric)
+	userIDs := make(map[string]bool)
+
+	for _, m := range userMetrics {
+		userIDs[m.UserID] = true
+		userMetricsMap[m.UserID] = append(userMetricsMap[m.UserID], &types.AggregatedUsageMetric{
+			Date:              m.Date,
+			PromptTokens:      m.PromptTokens,
+			CompletionTokens:  m.CompletionTokens,
+			TotalTokens:       m.TotalTokens,
+			LatencyMs:         m.DurationMs,
+			RequestSizeBytes:  m.RequestSizeBytes,
+			ResponseSizeBytes: m.ResponseSizeBytes,
+		})
+	}
+
+	// Get user information for all users that have metrics
+	var users []types.User
+	if len(userIDs) > 0 {
+		userIDList := make([]string, 0, len(userIDs))
+		for userID := range userIDs {
+			userIDList = append(userIDList, userID)
+		}
+
+		err = s.gdb.WithContext(ctx).
+			Model(&types.User{}).
+			Where("id IN ?", userIDList).
+			Find(&users).Error
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Create final response combining user info with their metrics
+	for _, user := range users {
+		userMetrics := userMetricsMap[user.ID]
+		if userMetrics == nil {
+			userMetrics = []*types.AggregatedUsageMetric{}
+		}
+
+		// Fill in missing dates
+		completeMetrics := fillInMissingDates(userMetrics, from, to)
+
+		// Convert []*AggregatedUsageMetric to []AggregatedUsageMetric
+		convertedMetrics := make([]types.AggregatedUsageMetric, len(completeMetrics))
+		for i, m := range completeMetrics {
+			convertedMetrics[i] = *m
+		}
+
+		metrics = append(metrics, &types.UsersAggregatedUsageMetric{
+			User:    user,
+			Metrics: convertedMetrics,
+		})
+	}
+
+	return metrics, nil
+}
+
 type metricDate struct {
 	Year  int
 	Month int
