@@ -414,6 +414,71 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 	writeResponse(rw, metrics, http.StatusOK)
 }
 
+// getProviderUsersDailyUsage godoc
+// @Summary Get provider daily usage per user
+// @Description Get provider daily usage per user
+// @Accept json
+// @Produce json
+// @Tags    providers
+// @Param   id path string true "Provider ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Success 200 {array} types.UsersAggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/users-daily-usage [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
+		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
+		return
+	}
+
+	from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
+	to := time.Now()
+
+	var err error
+
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse from date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse to date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	visible, err := s.providerVisible(r.Context(), user, id)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	if !visible {
+		writeErrResponse(rw, errors.New("not authorized to access this provider"), http.StatusForbidden)
+		return
+	}
+
+	metrics, err := s.Store.GetUsersAggregatedUsageMetrics(r.Context(), id, from, to)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error getting provider daily usage: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, metrics, http.StatusOK)
+}
+
 func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, id string) (bool, error) {
 	globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
 	if err != nil {
