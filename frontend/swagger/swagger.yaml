@@ -2688,6 +2688,51 @@ paths:
       summary: Get current user's access level for an app
       tags:
       - apps
+  /api/v1/apps/{id}/users-daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get app users daily usage
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get app users daily usage
+      tags:
+      - apps
   /api/v1/apps/github/{id}:
     put:
       parameters:
