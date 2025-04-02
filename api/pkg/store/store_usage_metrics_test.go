@@ -65,14 +65,14 @@ func (suite *UsageMetricsTestSuite) TestCreateAndGetUsageMetrics() {
 	// Test getting metrics for a specific day
 	startTime := now.AddDate(0, 0, -1).Truncate(24 * time.Hour)
 	endTime := startTime.Add(24 * time.Hour)
-	metrics, err := suite.db.GetUsageMetrics(suite.ctx, appID, startTime, endTime)
+	metrics, err := suite.db.GetAppUsageMetrics(suite.ctx, appID, startTime, endTime)
 	suite.NoError(err)
 	suite.Len(metrics, 5, "Should have 5 metrics for the specific day")
 
 	// Test getting metrics for all 3 days
 	startTime = now.AddDate(0, 0, -3).Truncate(24 * time.Hour)
 	endTime = now.Add(24 * time.Hour)
-	metrics, err = suite.db.GetUsageMetrics(suite.ctx, appID, startTime, endTime)
+	metrics, err = suite.db.GetAppUsageMetrics(suite.ctx, appID, startTime, endTime)
 	suite.NoError(err)
 	suite.Len(metrics, 15, "Should have 15 metrics total")
 }
@@ -106,7 +106,7 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	// Test daily aggregation including the gap day
 	startTime := time.Date(2025, 3, 4, 0, 0, 0, 0, time.UTC) // March 4th
 	endTime := time.Date(2025, 3, 8, 0, 0, 0, 0, time.UTC)   // March 8th
-	dailyMetrics, err := suite.db.GetDailyUsageMetrics(suite.ctx, appID, startTime, endTime)
+	dailyMetrics, err := suite.db.GetAppDailyUsageMetrics(suite.ctx, appID, startTime, endTime)
 	suite.NoError(err)
 
 	// We should have 5 days of data, from march 4th to march 8th
