@@ -104,7 +104,7 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 
 // GetUsersAggregatedUsageMetrics returns a list of users and their aggregated usage metrics for a given provider. Usage aggregated per day
 func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error) {
-	var metrics []*types.UsersAggregatedUsageMetric
+	metrics := []*types.UsersAggregatedUsageMetric{}
 
 	// First get the aggregated metrics per user
 	var userMetrics []struct {
