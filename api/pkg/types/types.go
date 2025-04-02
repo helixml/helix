@@ -1582,8 +1582,7 @@ type UsageMetric struct {
 
 type AggregatedUsageMetric struct {
 	// ID    string    `json:"id" gorm:"primaryKey"`
-	Date  time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
-	AppID string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
+	Date time.Time `json:"date"` // The date of the metric (without time, just the date)
 
 	PromptTokens      int     `json:"prompt_tokens"`
 	CompletionTokens  int     `json:"completion_tokens"`

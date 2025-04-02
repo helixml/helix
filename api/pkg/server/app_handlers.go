@@ -1056,7 +1056,7 @@ func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	metrics, err := s.Store.GetDailyUsageMetrics(r.Context(), id, from, to)
+	metrics, err := s.Store.GetAppDailyUsageMetrics(r.Context(), id, from, to)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
