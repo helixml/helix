@@ -87,8 +87,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       const todayTokens = appUsage[appUsage.length - 1]?.total_tokens || 0
       const totalTokens = appUsage.reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)
 
-      console.log(usageValues)
-
       const gptscriptsElem = gptScripts.length > 0 ? (
         <>
           <Box sx={{mb: 2}}>
@@ -163,7 +161,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               )}
             </Cell>
             <Cell grow>
-              <Typography variant="body1">
+              <Typography variant="body1">                
                 <a
                   style={{
                     textDecoration: 'none',
