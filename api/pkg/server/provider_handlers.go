@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -361,7 +362,7 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/providers/{id}/daily-usage [get]
+// @Router /api/v1/provider-endpoints/{id}/daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
@@ -393,25 +394,15 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 		}
 	}
 
-	existingEndpoint, err := s.Store.GetProviderEndpoint(r.Context(), &store.GetProviderEndpointsQuery{ID: id})
+	visible, err := s.providerVisible(r.Context(), user, id)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeErrResponse(rw, errors.New("provider endpoint not found"), http.StatusNotFound)
-			return
-		}
-		writeErrResponse(rw, fmt.Errorf("error getting provider endpoint: %w", err), http.StatusInternalServerError)
+		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Only allow access to owned endpoints or global endpoints or if user is an admin
-	if user.Admin {
-		// OK, allowed
-	} else {
-		// Check if user is owner of endpoint or if it's global
-		if existingEndpoint.Owner != user.ID && existingEndpoint.EndpointType != types.ProviderEndpointTypeGlobal {
-			writeErrResponse(rw, errors.New("unauthorized"), http.StatusUnauthorized)
-			return
-		}
+	if !visible {
+		writeErrResponse(rw, errors.New("not authorized to access this provider"), http.StatusForbidden)
+		return
 	}
 
 	metrics, err := s.Store.GetProviderDailyUsageMetrics(r.Context(), id, from, to)
@@ -421,4 +412,35 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 	}
 
 	writeResponse(rw, metrics, http.StatusOK)
+}
+
+func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, id string) (bool, error) {
+	globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
+	if err != nil {
+		return false, fmt.Errorf("error listing providers: %w", err)
+	}
+
+	for _, provider := range globalProviderEndpoints {
+		if string(provider) == id {
+			return true, nil
+		}
+	}
+
+	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      user.ID,
+		OwnerType:  user.Type,
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing provider endpoints")
+		return false, fmt.Errorf("error listing provider endpoints: %w", err)
+	}
+
+	for _, endpoint := range providerEndpoints {
+		if endpoint.ID == id || endpoint.Name == id {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
