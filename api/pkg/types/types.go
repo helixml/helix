@@ -1580,6 +1580,11 @@ type UsageMetric struct {
 	ResponseSizeBytes int       `json:"response_size_bytes"`
 }
 
+type UsersAggregatedUsageMetric struct {
+	User    User                    `json:"user"`
+	Metrics []AggregatedUsageMetric `json:"metrics"`
+}
+
 type AggregatedUsageMetric struct {
 	// ID    string    `json:"id" gorm:"primaryKey"`
 	Date time.Time `json:"date"` // The date of the metric (without time, just the date)
