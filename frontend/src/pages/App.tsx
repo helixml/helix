@@ -32,7 +32,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useFilestore from '../hooks/useFilestore';
-import AppLogsTable from '../components/app/AppLogsTable'
+import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 
 const App: FC = () => {
@@ -330,7 +330,7 @@ const App: FC = () => {
 
                   {tabValue === 'usage' && (
                     <Box sx={{ mt: 2 }}>
-                      <AppLogsTable appId={appTools.id} />
+                      <AppUsage appId={appTools.id} />
                     </Box>
                   )}
 
