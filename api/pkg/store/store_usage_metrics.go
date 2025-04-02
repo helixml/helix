@@ -32,7 +32,7 @@ func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.Usa
 	return metric, nil
 }
 
-func (s *PostgresStore) GetUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error) {
+func (s *PostgresStore) GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error) {
 	if appID == "" {
 		return nil, errors.New("app_id is required")
 	}
@@ -46,7 +46,7 @@ func (s *PostgresStore) GetUsageMetrics(ctx context.Context, appID string, from 
 	return metrics, err
 }
 
-func (s *PostgresStore) GetDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error) {
+func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error) {
 	var metrics []*types.AggregatedUsageMetric
 	err := s.gdb.WithContext(ctx).
 		Model(&types.UsageMetric{}).
@@ -69,7 +69,35 @@ func (s *PostgresStore) GetDailyUsageMetrics(ctx context.Context, appID string, 
 		return nil, err
 	}
 
-	completeMetrics := fillInMissingDates(appID, metrics, from, to)
+	completeMetrics := fillInMissingDates(metrics, from, to)
+
+	return completeMetrics, nil
+}
+
+func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error) {
+	var metrics []*types.AggregatedUsageMetric
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select(`
+			date,
+			provider,
+			SUM(prompt_tokens) as prompt_tokens,
+			SUM(completion_tokens) as completion_tokens,
+			SUM(total_tokens) as total_tokens,
+			AVG(duration_ms) as duration_ms,
+			SUM(request_size_bytes) as request_size_bytes,
+			SUM(response_size_bytes) as response_size_bytes
+		`).
+		Where("provider = ? AND date >= ? AND date <= ?", providerID, from, to).
+		Group("date, provider").
+		Order("date ASC").
+		Find(&metrics).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	completeMetrics := fillInMissingDates(metrics, from, to)
 
 	return completeMetrics, nil
 }
@@ -80,7 +108,7 @@ type metricDate struct {
 	Day   int
 }
 
-func fillInMissingDates(appID string, metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
 	var completeMetrics []*types.AggregatedUsageMetric
 
 	existingDates := make(map[metricDate]bool)
@@ -109,8 +137,7 @@ func fillInMissingDates(appID string, metrics []*types.AggregatedUsageMetric, fr
 			completeMetrics = append(completeMetrics, metric)
 		} else {
 			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
-				Date:  date,
-				AppID: appID,
+				Date: date,
 			})
 		}
 		currentDate = currentDate.AddDate(0, 0, 1)
