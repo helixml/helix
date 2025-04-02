@@ -372,7 +372,6 @@ export interface TypesAddTeamMemberRequest {
 }
 
 export interface TypesAggregatedUsageMetric {
-  app_id?: string;
   completion_tokens?: number;
   /** ID    string    `json:"id" gorm:"primaryKey"` */
   date?: string;
@@ -2522,6 +2521,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/providers-endpoints/${id}`,
         method: "PUT",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get provider daily usage
+     *
+     * @tags providers
+     * @name V1ProvidersDailyUsageDetail
+     * @summary Get provider daily usage
+     * @request GET:/api/v1/providers/{id}/daily-usage
+     * @secure
+     */
+    v1ProvidersDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/providers/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
