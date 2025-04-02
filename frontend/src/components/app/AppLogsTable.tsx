@@ -12,6 +12,7 @@ import {
   Box,
   Typography,
   Modal,
+  Divider,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import useApi from '../../hooks/useApi';
@@ -146,7 +147,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       sx={{ 
         width: '100%', 
         overflow: 'hidden',
-        bgcolor: 'rgba(0, 0, 0, 0.2)',
+        bgcolor: 'transparent',
         backdropFilter: 'blur(10px)'
       }}
     >
@@ -184,6 +185,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           <Typography variant="body1" textAlign="center">No usage data available</Typography>
         )}
       </Box>
+
+      <Divider sx={{ my: 2 }} />
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
         <Typography variant="h6">LLM calls</Typography>        
