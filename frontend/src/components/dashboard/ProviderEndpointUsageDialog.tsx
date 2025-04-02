@@ -59,6 +59,8 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
   // Calculate total tokens for each user over the last 7 days
   const userTotals = usageData.map(userData => ({
     user: userData.user,
+    promptTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.prompt_tokens || 0), 0),
+    completionTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.completion_tokens || 0), 0),
     totalTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.total_tokens || 0), 0)
   }));
 
@@ -113,17 +115,35 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
                   <TableRow>
                     <TableCell>User</TableCell>
                     <TableCell>Email</TableCell>
-                    <TableCell align="right">Total Tokens (7 days)</TableCell>
+                    <TableCell align="right">Prompt Tokens</TableCell>
+                    <TableCell align="right">Completion Tokens</TableCell>
+                    <TableCell align="right">Total Tokens</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {userTotals.map(({ user, totalTokens }) => (
+                  {userTotals.map(({ user, promptTokens, completionTokens, totalTokens }) => (
                     <TableRow key={user?.id || 'unknown'}>
                       <TableCell>{user?.username || 'Unknown User'}</TableCell>
                       <TableCell>{user?.email || 'N/A'}</TableCell>
+                      <TableCell align="right">{promptTokens.toLocaleString()}</TableCell>
+                      <TableCell align="right">{completionTokens.toLocaleString()}</TableCell>
                       <TableCell align="right">{totalTokens.toLocaleString()}</TableCell>
                     </TableRow>
                   ))}
+                  {userTotals.length > 1 && (
+                    <TableRow>
+                      <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>Total</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                        {userTotals.reduce((sum, user) => sum + user.promptTokens, 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                        {userTotals.reduce((sum, user) => sum + user.completionTokens, 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                        {userTotals.reduce((sum, user) => sum + user.totalTokens, 0).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
