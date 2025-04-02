@@ -15,6 +15,7 @@ import {
   MenuItem,
   Tooltip,
 } from '@mui/material';
+import { SparkLineChart } from '@mui/x-charts';
 import { IProviderEndpoint } from '../../types';
 import useAccount from '../../hooks/useAccount';
 import AddIcon from '@mui/icons-material/Add';
@@ -25,6 +26,12 @@ import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
+import { useApi } from '../../hooks/useApi';
+
+interface TypesAggregatedUsageMetric {
+  date: string;
+  total_tokens: number;
+}
 
 const ProviderEndpointsTable: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -32,8 +39,28 @@ const ProviderEndpointsTable: FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});
   const account = useAccount();
+  const api = useApi()
+  const apiClient = api.getApiClient()  
   const { loadData } = useEndpointProviders();
+
+  // Fetch usage data for all providers
+  useEffect(() => {
+    const fetchUsageData = async () => {
+      if (!account.providerEndpoints) return;
+      
+      const usagePromises = account.providerEndpoints.map(endpoint => 
+        apiClient.v1ProviderEndpointsDailyUsageDetail(endpoint.id && endpoint.id !== "-" ? endpoint.id : endpoint.name)
+          .then(response => ({ [endpoint.name]: response.data as TypesAggregatedUsageMetric[] }))
+          .catch(() => ({ [endpoint.name]: null }))
+      )
+      const results = await Promise.all(usagePromises)
+      const combinedData = results.reduce((acc, curr) => ({ ...acc, ...curr }), {} as {[key: string]: TypesAggregatedUsageMetric[] | null})
+      setUsageData(combinedData)
+    }
+    fetchUsageData()
+  }, [account.providerEndpoints])
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, endpoint: IProviderEndpoint) => {
     setAnchorEl(event.currentTarget);
@@ -142,8 +169,8 @@ const ProviderEndpointsTable: FC = () => {
               <TableCell>Type</TableCell>
               <TableCell>Owner</TableCell>
               <TableCell>Base URL</TableCell>
-              <TableCell>Auth</TableCell>
               <TableCell>Default</TableCell>
+              <TableCell>Usage</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -162,9 +189,40 @@ const ProviderEndpointsTable: FC = () => {
                 </TableCell>
                 <TableCell>{endpoint.endpoint_type}</TableCell>
                 <TableCell>{endpoint.owner_type ? `${endpoint.owner} (${endpoint.owner_type})` : endpoint.owner}</TableCell>
-                <TableCell>{endpoint.base_url}</TableCell>
-                <TableCell>{renderAuthCell(endpoint)}</TableCell>
+                <TableCell>{endpoint.base_url}</TableCell>                
                 <TableCell>{endpoint.default ? 'Yes' : 'No'}</TableCell>
+                <TableCell>
+                  <Box sx={{ width: 200, height: 50 }}>
+                    <Tooltip
+                      title={
+                        <Box>
+                          <Typography variant="body2">Last 7 Days Usage:</Typography>
+                          {(usageData[endpoint.name] || []).map((day: TypesAggregatedUsageMetric, i: number) => (
+                            <Typography key={i} variant="caption" component="div">
+                              {new Date(day.date).toLocaleDateString()}: {day.total_tokens || 0} tokens
+                            </Typography>
+                          ))}
+                          <Typography variant="body2" sx={{ mt: 1 }}>
+                            Today: {usageData[endpoint.name]?.[(usageData[endpoint.name] || []).length - 1]?.total_tokens || 0} tokens
+                          </Typography>
+                          <Typography variant="body2">
+                            Total (7 days): {(usageData[endpoint.name] || []).reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)} tokens
+                          </Typography>
+                        </Box>
+                      }
+                    >
+                      <Box>
+                        <SparkLineChart
+                          data={(usageData[endpoint.name] || []).map(day => day.total_tokens || 0)}
+                          height={50}
+                          width={200}
+                          showTooltip={true}
+                          curve="linear"
+                        />
+                      </Box>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
                 <TableCell>
                   {isSystemEndpoint(endpoint) ? (
                     <Tooltip title="System endpoints can only be configured through environment variables in your Helix instance">
