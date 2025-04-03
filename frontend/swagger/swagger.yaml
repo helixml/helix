@@ -382,66 +382,6 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
-  model.OpenAIModel:
-    properties:
-      created:
-        type: integer
-      description:
-        type: string
-      hide:
-        type: boolean
-      id:
-        type: string
-      name:
-        type: string
-      object:
-        type: string
-      owned_by:
-        type: string
-      parent:
-        type: string
-      permission:
-        items:
-          $ref: '#/definitions/model.OpenAIPermission'
-        type: array
-      root:
-        type: string
-      type:
-        type: string
-    type: object
-  model.OpenAIModelsList:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/model.OpenAIModel'
-        type: array
-    type: object
-  model.OpenAIPermission:
-    properties:
-      allow_create_engine:
-        type: boolean
-      allow_fine_tuning:
-        type: boolean
-      allow_logprobs:
-        type: boolean
-      allow_sampling:
-        type: boolean
-      allow_search_indices:
-        type: boolean
-      allow_view:
-        type: boolean
-      created:
-        type: integer
-      group: {}
-      id:
-        type: string
-      is_blocking:
-        type: boolean
-      object:
-        type: string
-      organization:
-        type: string
-    type: object
   openai.ChatCompletionResponseFormatJSONSchema:
     properties:
       description:
@@ -1513,6 +1453,66 @@ definitions:
           $ref: '#/definitions/github_com_sashabaranov_go-openai.ToolCall'
         type: array
     type: object
+  types.OpenAIModel:
+    properties:
+      created:
+        type: integer
+      description:
+        type: string
+      hide:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      object:
+        type: string
+      owned_by:
+        type: string
+      parent:
+        type: string
+      permission:
+        items:
+          $ref: '#/definitions/types.OpenAIPermission'
+        type: array
+      root:
+        type: string
+      type:
+        type: string
+    type: object
+  types.OpenAIModelsList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
+    type: object
+  types.OpenAIPermission:
+    properties:
+      allow_create_engine:
+        type: boolean
+      allow_fine_tuning:
+        type: boolean
+      allow_logprobs:
+        type: boolean
+      allow_sampling:
+        type: boolean
+      allow_search_indices:
+        type: boolean
+      allow_view:
+        type: boolean
+      created:
+        type: integer
+      group: {}
+      id:
+        type: string
+      is_blocking:
+        type: boolean
+      object:
+        type: string
+      organization:
+        type: string
+    type: object
   types.OpenAIResponse:
     properties:
       choices:
@@ -1652,6 +1652,10 @@ definitions:
       api_key_file:
         description: Must be mounted to the container
         type: string
+      available_models:
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
       base_url:
         type: string
       created:
@@ -3039,22 +3043,6 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
-  /api/v1/models:
-    get:
-      parameters:
-      - description: Provider
-        in: query
-        name: provider
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/model.OpenAIModelsList'
-            type: array
-      security:
-      - BearerAuth: []
   /api/v1/organizations:
     get:
       responses:
@@ -3313,6 +3301,45 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/provider-endpoints:
+    get:
+      parameters:
+      - description: Include models
+        in: query
+        name: with_models
+        type: boolean
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ProviderEndpoint'
+            type: array
+      security:
+      - BearerAuth: []
+    post:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+      security:
+      - BearerAuth: []
+  /api/v1/provider-endpoints/{id}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+    put:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UpdateProviderEndpoint'
+      security:
+      - BearerAuth: []
   /api/v1/provider-endpoints/{id}/daily-usage:
     get:
       consumes:
@@ -3412,40 +3439,6 @@ paths:
             items:
               $ref: '#/definitions/types.Provider'
             type: array
-      security:
-      - BearerAuth: []
-  /api/v1/providers-endpoints:
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.ProviderEndpoint'
-            type: array
-      security:
-      - BearerAuth: []
-    post:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.ProviderEndpoint'
-      security:
-      - BearerAuth: []
-  /api/v1/providers-endpoints/{id}:
-    delete:
-      responses:
-        "204":
-          description: No Content
-      security:
-      - BearerAuth: []
-    put:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
   /api/v1/search:
@@ -3658,6 +3651,22 @@ paths:
       summary: Creates an embedding vector representing the input text
       tags:
       - embeddings
+  /v1/models:
+    get:
+      parameters:
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OpenAIModelsList'
+            type: array
+      security:
+      - BearerAuth: []
 schemes:
 - https
 swagger: "2.0"
