@@ -262,6 +262,39 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface ModelOpenAIModel {
+  created?: number;
+  description?: string;
+  hide?: boolean;
+  id?: string;
+  name?: string;
+  object?: string;
+  owned_by?: string;
+  parent?: string;
+  permission?: ModelOpenAIPermission[];
+  root?: string;
+  type?: string;
+}
+
+export interface ModelOpenAIModelsList {
+  data?: ModelOpenAIModel[];
+}
+
+export interface ModelOpenAIPermission {
+  allow_create_engine?: boolean;
+  allow_fine_tuning?: boolean;
+  allow_logprobs?: boolean;
+  allow_sampling?: boolean;
+  allow_search_indices?: boolean;
+  allow_view?: boolean;
+  created?: number;
+  group?: any;
+  id?: string;
+  is_blocking?: boolean;
+  object?: string;
+  organization?: string;
+}
+
 export interface OpenaiChatCompletionResponseFormatJSONSchema {
   description?: string;
   name?: string;
@@ -2182,6 +2215,28 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1ModelsList
+     * @request GET:/api/v1/models
+     * @secure
+     */
+    v1ModelsList: (
+      query?: {
+        /** Provider */
+        provider?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ModelOpenAIModelsList[], any>({
+        path: `/api/v1/models`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 

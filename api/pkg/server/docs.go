@@ -935,6 +935,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider",
+                        "name": "provider",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.OpenAIModelsList"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations": {
             "get": {
                 "security": [
@@ -2426,6 +2454,97 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if Time is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "model.OpenAIModel": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "hide": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "owned_by": {
+                    "type": "string"
+                },
+                "parent": {
+                    "type": "string"
+                },
+                "permission": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.OpenAIPermission"
+                    }
+                },
+                "root": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.OpenAIModelsList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.OpenAIModel"
+                    }
+                }
+            }
+        },
+        "model.OpenAIPermission": {
+            "type": "object",
+            "properties": {
+                "allow_create_engine": {
+                    "type": "boolean"
+                },
+                "allow_fine_tuning": {
+                    "type": "boolean"
+                },
+                "allow_logprobs": {
+                    "type": "boolean"
+                },
+                "allow_sampling": {
+                    "type": "boolean"
+                },
+                "allow_search_indices": {
+                    "type": "boolean"
+                },
+                "allow_view": {
+                    "type": "boolean"
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "group": {},
+                "id": {
+                    "type": "string"
+                },
+                "is_blocking": {
+                    "type": "boolean"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "organization": {
+                    "type": "string"
                 }
             }
         },
