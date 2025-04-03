@@ -248,22 +248,10 @@ const Home: FC = () => {
                             onSetType={setCurrentType}
                           />
                         )}
-                        <Box sx={{ maxWidth: '400px' }}>
-                          <AdvancedModelPicker
-                            open={true}
-                            onClose={() => {}}
-                            onSelectModel={setCurrentModel}
-                          />
-                          {/* <ModelPicker
-                            type={currentType}
-                            model={currentModel}
-                            provider={undefined}
-                            displayMode="short"
-                            border
-                            compact
-                            onSetModel={setCurrentModel}
-                          /> */}
-                        </Box>
+                        <AdvancedModelPicker
+                          selectedModelId={currentModel}
+                          onSelectModel={setCurrentModel}
+                        />
                         {/* Plus button - Only show if not in Image mode */}
                         {currentType !== 'image' && (
                           <Tooltip title="Add Documents" placement="top">
