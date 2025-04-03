@@ -16,7 +16,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Updated listModels function
+// listModels godoc
+// @Summary List models
+// @Description List models
+// @Tags    models
+
+// @Success 200 {array} model.OpenAIModelsList
+// @Param provider query string false "Provider"
+// @Router /api/v1/models [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
 	provider := r.URL.Query().Get("provider")
 	if provider == "" {
@@ -46,14 +54,7 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 		Models: models,
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-
-	err = json.NewEncoder(rw).Encode(response)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	writeResponse(rw, response, http.StatusOK)
 }
 
 // Updated function to determine models

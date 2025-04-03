@@ -382,6 +382,66 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  model.OpenAIModel:
+    properties:
+      created:
+        type: integer
+      description:
+        type: string
+      hide:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      object:
+        type: string
+      owned_by:
+        type: string
+      parent:
+        type: string
+      permission:
+        items:
+          $ref: '#/definitions/model.OpenAIPermission'
+        type: array
+      root:
+        type: string
+      type:
+        type: string
+    type: object
+  model.OpenAIModelsList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/model.OpenAIModel'
+        type: array
+    type: object
+  model.OpenAIPermission:
+    properties:
+      allow_create_engine:
+        type: boolean
+      allow_fine_tuning:
+        type: boolean
+      allow_logprobs:
+        type: boolean
+      allow_sampling:
+        type: boolean
+      allow_search_indices:
+        type: boolean
+      allow_view:
+        type: boolean
+      created:
+        type: integer
+      group: {}
+      id:
+        type: string
+      is_blocking:
+        type: boolean
+      object:
+        type: string
+      organization:
+        type: string
+    type: object
   openai.ChatCompletionResponseFormatJSONSchema:
     properties:
       description:
@@ -2979,6 +3039,22 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/models:
+    get:
+      parameters:
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.OpenAIModelsList'
+            type: array
+      security:
+      - BearerAuth: []
   /api/v1/organizations:
     get:
       responses:
