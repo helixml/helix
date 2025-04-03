@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -50,11 +52,14 @@ var blankAPIKey = "********"
 // @Tags    providers
 
 // @Success 200 {array} types.ProviderEndpoint
+// @Param with_models query bool false "Include models"
 // @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
+
+	includeModels := r.URL.Query().Get("with_models") == "true"
 
 	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      user.ID,
@@ -116,6 +121,45 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			providerEndpoints[idx].Default = true
 		}
 	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Load models if required
+	if includeModels {
+		for idx := range providerEndpoints {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+					Provider: providerEndpoints[idx].Name,
+					Owner:    providerEndpoints[idx].Owner,
+				})
+				if err != nil {
+					log.Err(err).
+						Str("provider", providerEndpoints[idx].Name).
+						Str("endpoint_id", providerEndpoints[idx].ID).
+						Str("owner", providerEndpoints[idx].Owner).
+						Msg("error getting provider")
+					return
+				}
+				models, err := provider.ListModels(ctx)
+				if err != nil {
+					log.Err(err).
+						Str("provider", providerEndpoints[idx].Name).
+						Str("endpoint_id", providerEndpoints[idx].ID).
+						Str("owner", providerEndpoints[idx].Owner).
+						Msg("error listing models")
+					return
+				}
+				mu.Lock()
+				providerEndpoints[idx].AvailableModels = models
+				mu.Unlock()
+			}(idx)
+		}
+	}
+
+	wg.Wait()
 
 	rw.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(rw).Encode(providerEndpoints)
