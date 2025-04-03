@@ -152,6 +152,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 						Msg("error listing models")
 					return
 				}
+
 				mu.Lock()
 				providerEndpoints[idx].AvailableModels = models
 				mu.Unlock()
@@ -161,13 +162,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	wg.Wait()
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(providerEndpoints)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	writeResponse(rw, providerEndpoints, http.StatusOK)
 }
 
 // createProviderEndpoint godoc
