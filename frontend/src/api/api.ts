@@ -262,39 +262,6 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
-export interface ModelOpenAIModel {
-  created?: number;
-  description?: string;
-  hide?: boolean;
-  id?: string;
-  name?: string;
-  object?: string;
-  owned_by?: string;
-  parent?: string;
-  permission?: ModelOpenAIPermission[];
-  root?: string;
-  type?: string;
-}
-
-export interface ModelOpenAIModelsList {
-  data?: ModelOpenAIModel[];
-}
-
-export interface ModelOpenAIPermission {
-  allow_create_engine?: boolean;
-  allow_fine_tuning?: boolean;
-  allow_logprobs?: boolean;
-  allow_sampling?: boolean;
-  allow_search_indices?: boolean;
-  allow_view?: boolean;
-  created?: number;
-  group?: any;
-  id?: string;
-  is_blocking?: boolean;
-  object?: string;
-  organization?: string;
-}
-
 export interface OpenaiChatCompletionResponseFormatJSONSchema {
   description?: string;
   name?: string;
@@ -948,6 +915,39 @@ export interface TypesOpenAIMessage {
   tool_calls?: GithubComSashabaranovGoOpenaiToolCall[];
 }
 
+export interface TypesOpenAIModel {
+  created?: number;
+  description?: string;
+  hide?: boolean;
+  id?: string;
+  name?: string;
+  object?: string;
+  owned_by?: string;
+  parent?: string;
+  permission?: TypesOpenAIPermission[];
+  root?: string;
+  type?: string;
+}
+
+export interface TypesOpenAIModelsList {
+  data?: TypesOpenAIModel[];
+}
+
+export interface TypesOpenAIPermission {
+  allow_create_engine?: boolean;
+  allow_fine_tuning?: boolean;
+  allow_logprobs?: boolean;
+  allow_sampling?: boolean;
+  allow_search_indices?: boolean;
+  allow_view?: boolean;
+  created?: number;
+  group?: any;
+  id?: string;
+  is_blocking?: boolean;
+  object?: string;
+  organization?: string;
+}
+
 export interface TypesOpenAIResponse {
   choices?: TypesChoice[];
   created?: number;
@@ -1023,6 +1023,7 @@ export interface TypesProviderEndpoint {
   api_key?: string;
   /** Must be mounted to the container */
   api_key_file?: string;
+  available_models?: TypesOpenAIModel[];
   base_url?: string;
   created?: string;
   /** Set from environment variable */
@@ -2221,28 +2222,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * No description
      *
-     * @name V1ModelsList
-     * @request GET:/api/v1/models
-     * @secure
-     */
-    v1ModelsList: (
-      query?: {
-        /** Provider */
-        provider?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ModelOpenAIModelsList[], any>({
-        path: `/api/v1/models`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
      * @name V1OrganizationsList
      * @request GET:/api/v1/organizations
      * @secure
@@ -2545,10 +2524,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/provider-endpoints
      * @secure
      */
-    v1ProviderEndpointsList: (params: RequestParams = {}) =>
+    v1ProviderEndpointsList: (
+      query?: {
+        /** Include models */
+        with_models?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProviderEndpoint[], any>({
         path: `/api/v1/provider-endpoints`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -2871,6 +2857,28 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name ModelsList
+     * @request GET:/v1/models
+     * @secure
+     */
+    modelsList: (
+      query?: {
+        /** Provider */
+        provider?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOpenAIModelsList[], any>({
+        path: `/v1/models`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
   };
