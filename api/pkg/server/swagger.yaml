@@ -3313,6 +3313,40 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/provider-endpoints:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ProviderEndpoint'
+            type: array
+      security:
+      - BearerAuth: []
+    post:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+      security:
+      - BearerAuth: []
+  /api/v1/provider-endpoints/{id}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+    put:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UpdateProviderEndpoint'
+      security:
+      - BearerAuth: []
   /api/v1/provider-endpoints/{id}/daily-usage:
     get:
       consumes:
@@ -3412,40 +3446,6 @@ paths:
             items:
               $ref: '#/definitions/types.Provider'
             type: array
-      security:
-      - BearerAuth: []
-  /api/v1/providers-endpoints:
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.ProviderEndpoint'
-            type: array
-      security:
-      - BearerAuth: []
-    post:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.ProviderEndpoint'
-      security:
-      - BearerAuth: []
-  /api/v1/providers-endpoints/{id}:
-    delete:
-      responses:
-        "204":
-          description: No Content
-      security:
-      - BearerAuth: []
-    put:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
   /api/v1/search:

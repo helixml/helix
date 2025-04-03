@@ -50,7 +50,7 @@ var blankAPIKey = "********"
 // @Tags    providers
 
 // @Success 200 {array} types.ProviderEndpoint
-// @Router /api/v1/providers-endpoints [get]
+// @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -132,7 +132,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 // @Tags    providers
 
 // @Success 200 {object} types.ProviderEndpoint
-// @Router /api/v1/providers-endpoints [post]
+// @Router /api/v1/provider-endpoints [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -212,7 +212,7 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 // @Tags    providers
 
 // @Success 200 {object} types.UpdateProviderEndpoint
-// @Router /api/v1/providers-endpoints/{id} [put]
+// @Router /api/v1/provider-endpoints/{id} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -309,7 +309,7 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 // @Tags    providers
 
 // @Success 204 "No Content"
-// @Router /api/v1/providers-endpoints/{id} [delete]
+// @Router /api/v1/provider-endpoints/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
