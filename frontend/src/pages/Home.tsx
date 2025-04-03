@@ -12,6 +12,7 @@ import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import ModelPicker from '../components/create/ModelPicker'
+import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
@@ -248,7 +249,12 @@ const Home: FC = () => {
                           />
                         )}
                         <Box sx={{ maxWidth: '400px' }}>
-                          <ModelPicker
+                          <AdvancedModelPicker
+                            open={true}
+                            onClose={() => {}}
+                            onSelectModel={setCurrentModel}
+                          />
+                          {/* <ModelPicker
                             type={currentType}
                             model={currentModel}
                             provider={undefined}
@@ -256,7 +262,7 @@ const Home: FC = () => {
                             border
                             compact
                             onSetModel={setCurrentModel}
-                          />
+                          /> */}
                         </Box>
                         {/* Plus button - Only show if not in Image mode */}
                         {currentType !== 'image' && (
