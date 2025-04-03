@@ -150,9 +150,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         }}>
           {filteredModels.map((model) => (
             <ListItem
-              key={`${model.provider}-${model.name}`}
+              key={`${model.provider}-${model.id}`}
               button
-              onClick={() => model.name && onSelectModel(model.name)}
+              onClick={() => model.id && onSelectModel(model.id)}
               sx={{
                 '&:hover': {
                   backgroundColor: 'rgba(0, 0, 0, 0.04)',
@@ -165,7 +165,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 <ProviderIcon providerName={model.provider} />
               </ListItemIcon>
               <ListItemText
-                primary={model.name || 'Unnamed Model'}
+                primary={model.id || 'Unnamed Model'}
                 secondary={model.provider}
                 primaryTypographyProps={{
                   variant: 'subtitle1',
@@ -199,7 +199,7 @@ function fuzzySearch(query: string, models: ModelWithProvider[]) {
       return false;
     }
 
-    return model.name?.toLowerCase().includes(query.toLowerCase()) || model.provider.toLowerCase().includes(query.toLowerCase());
+    return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider.toLowerCase().includes(query.toLowerCase());
   });
 }
 
