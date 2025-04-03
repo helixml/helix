@@ -2539,6 +2539,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @name V1ProviderEndpointsList
+     * @request GET:/api/v1/provider-endpoints
+     * @secure
+     */
+    v1ProviderEndpointsList: (params: RequestParams = {}) =>
+      this.request<TypesProviderEndpoint[], any>({
+        path: `/api/v1/provider-endpoints`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1ProviderEndpointsCreate
+     * @request POST:/api/v1/provider-endpoints
+     * @secure
+     */
+    v1ProviderEndpointsCreate: (params: RequestParams = {}) =>
+      this.request<TypesProviderEndpoint, any>({
+        path: `/api/v1/provider-endpoints`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1ProviderEndpointsDelete
+     * @request DELETE:/api/v1/provider-endpoints/{id}
+     * @secure
+     */
+    v1ProviderEndpointsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/provider-endpoints/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1ProviderEndpointsUpdate
+     * @request PUT:/api/v1/provider-endpoints/{id}
+     * @secure
+     */
+    v1ProviderEndpointsUpdate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUpdateProviderEndpoint, any>({
+        path: `/api/v1/provider-endpoints/${id}`,
+        method: "PUT",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get provider daily usage
      *
      * @tags providers
@@ -2607,66 +2667,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesProvider[], any>({
         path: `/api/v1/providers`,
         method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1ProvidersEndpointsList
-     * @request GET:/api/v1/providers-endpoints
-     * @secure
-     */
-    v1ProvidersEndpointsList: (params: RequestParams = {}) =>
-      this.request<TypesProviderEndpoint[], any>({
-        path: `/api/v1/providers-endpoints`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1ProvidersEndpointsCreate
-     * @request POST:/api/v1/providers-endpoints
-     * @secure
-     */
-    v1ProvidersEndpointsCreate: (params: RequestParams = {}) =>
-      this.request<TypesProviderEndpoint, any>({
-        path: `/api/v1/providers-endpoints`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1ProvidersEndpointsDelete
-     * @request DELETE:/api/v1/providers-endpoints/{id}
-     * @secure
-     */
-    v1ProvidersEndpointsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/providers-endpoints/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1ProvidersEndpointsUpdate
-     * @request PUT:/api/v1/providers-endpoints/{id}
-     * @secure
-     */
-    v1ProvidersEndpointsUpdate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUpdateProviderEndpoint, any>({
-        path: `/api/v1/providers-endpoints/${id}`,
-        method: "PUT",
         secure: true,
         ...params,
       }),
