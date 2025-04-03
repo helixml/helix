@@ -26,16 +26,16 @@ var _ HelixClient = &InternalHelixServer{}
 
 var chatCompletionTimeout = 180 * time.Second
 
-func ListModels(_ context.Context) ([]model.OpenAIModel, error) {
+func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 	ollamaModels, err := model.GetDefaultOllamaModels()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Ollama models: %w", err)
 	}
 
-	helixModels := make([]model.OpenAIModel, 0, len(ollamaModels))
+	helixModels := make([]types.OpenAIModel, 0, len(ollamaModels))
 
 	for _, m := range ollamaModels {
-		helixModels = append(helixModels, model.OpenAIModel{
+		helixModels = append(helixModels, types.OpenAIModel{
 			ID:          m.ModelName().String(),
 			Object:      "model",
 			OwnedBy:     "helix",
@@ -51,7 +51,7 @@ func ListModels(_ context.Context) ([]model.OpenAIModel, error) {
 		return nil, fmt.Errorf("failed to get Diffusers models: %w", err)
 	}
 	for _, m := range diffusersModels {
-		helixModels = append(helixModels, model.OpenAIModel{
+		helixModels = append(helixModels, types.OpenAIModel{
 			ID:          m.ModelName().String(),
 			Object:      "model",
 			OwnedBy:     "helix",
