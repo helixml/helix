@@ -1236,6 +1236,18 @@
   dependencies:
     "@sentry/types" "7.120.3"
 
+"@tanstack/query-core@5.71.5":
+  version "5.71.5"
+  resolved "https://registry.yarnpkg.com/@tanstack/query-core/-/query-core-5.71.5.tgz#bb373ffca396fa70edb0bc9ef5722add6ba6f0b9"
+  integrity sha512-XOQ5SyjCdwhxyLksGKWSL5poqyEXYPDnsrZAzJm2LgrMm4Yh6VOrfC+IFosXreDw9HNqC11YAMY3HlfHjNzuaA==
+
+"@tanstack/react-query@^5.71.5":
+  version "5.71.5"
+  resolved "https://registry.yarnpkg.com/@tanstack/react-query/-/react-query-5.71.5.tgz#1018f083945ba5e2b91997eec9b9c767efce1e1b"
+  integrity sha512-WpxZWy4fDASjY+iAaXB+aY+LC95PQ34W6EWVkjJ0hdzWWbczFnr9nHvHkVDpwdR18I1NO8igNGQJFrLrgyzI8Q==
+  dependencies:
+    "@tanstack/query-core" "5.71.5"
+
 "@testing-library/dom@^10.4.0":
   version "10.4.0"
   resolved "https://registry.yarnpkg.com/@testing-library/dom/-/dom-10.4.0.tgz#82a9d9462f11d240ecadbf406607c6ceeeff43a8"
