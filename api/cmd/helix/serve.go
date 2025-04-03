@@ -318,6 +318,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}
 
+	if !cfg.DisableUsageLogging {
+		logStores = append(logStores, logger.NewUsageLogger(postgresStore))
+	}
+
 	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)
 
 	// Connect the runner controller to the provider manager

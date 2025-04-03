@@ -174,6 +174,15 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
           {error && <Alert severity="error">{error}</Alert>}
 
           <TextField
+            name="id"
+            label="Endpoint ID"
+            value={endpoint.id}            
+            fullWidth            
+            autoComplete="off"            
+            disabled
+          />
+
+          <TextField
             name="base_url"
             label="Base URL"
             value={formData.base_url}

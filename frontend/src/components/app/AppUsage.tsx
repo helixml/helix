@@ -12,11 +12,14 @@ import {
   Box,
   Typography,
   Modal,
+  Divider,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import useApi from '../../hooks/useApi';
 import { PaginatedLLMCalls, LLMCall } from '../../types';
 import JsonView from '../widgets/JsonView';
+import { LineChart } from '@mui/x-charts';
+import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 
 interface AppLogsTableProps {
   appId: string;
@@ -26,7 +29,9 @@ const win = (window as any)
 
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
+  const apiClient = api.getApiClient();
   const [llmCalls, setLLMCalls] = useState<PaginatedLLMCalls | null>(null);
+  const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [modalContent, setModalContent] = useState<any>(null);
@@ -35,6 +40,15 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
     backdropFilter: 'blur(10px)'
+  };  
+
+  const fetchUsageData = async () => {
+    try {
+      const response = await apiClient.v1AppsUsersDailyUsageDetail(appId);
+      setUsageData(response.data as unknown as TypesUsersAggregatedUsageMetric[]);
+    } catch (error) {
+      console.error('Error fetching usage data:', error);
+    }
   };
 
   const fetchLLMCalls = async () => {
@@ -54,6 +68,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   useEffect(() => {
     if (appId !== 'new') {
       fetchLLMCalls();
+      fetchUsageData();
     }
   }, [page, rowsPerPage, appId]);
 
@@ -68,6 +83,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
   const handleRefresh = () => {
     fetchLLMCalls();
+    fetchUsageData();
   };
 
   const handleOpenModal = (content: any, call: LLMCall) => {
@@ -84,6 +100,46 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     setModalOpen(false);
   };
 
+  // Prepare data for the line chart
+  const prepareChartData = () => {
+    if (!usageData.length) return { xAxis: [], series: [] };
+
+    // Get all unique dates across all users
+    const allDates = new Set<string>();
+    usageData.forEach(userData => {
+      userData.metrics?.forEach(metric => {
+        if (metric.date) allDates.add(metric.date);
+      });
+    });
+
+    // Sort dates
+    const sortedDates = Array.from(allDates).sort();
+    const xAxisDates = sortedDates.map(date => new Date(date));
+
+    // Create series data for each user
+    const series = usageData.map(userData => {
+      const userMetricsByDate = new Map<string, TypesAggregatedUsageMetric>();
+      userData.metrics?.forEach(metric => {
+        if (metric.date) userMetricsByDate.set(metric.date, metric);
+      });
+
+      return {
+        label: userData.user?.username || 'Unknown User',
+        data: sortedDates.map(date => {
+          const metric = userMetricsByDate.get(date);
+          return metric?.total_tokens || 0;
+        }),
+      };
+    });
+
+    return {
+      xAxis: xAxisDates,
+      series,
+    };
+  };
+
+  const chartData = prepareChartData();
+
   if (!llmCalls) return null;
 
   return (
@@ -91,17 +147,51 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       sx={{ 
         width: '100%', 
         overflow: 'hidden',
-        bgcolor: 'rgba(0, 0, 0, 0.2)',
+        bgcolor: 'transparent',
         backdropFilter: 'blur(10px)'
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
-        <Typography variant="h6">LLM Calls</Typography>
+        <Typography variant="h6">Usage tokens</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
           Refresh
         </Button>
       </Box>
-      <TableContainer>
+      <Box sx={{ p: 2, height: 300 }}> 
+        {chartData.series.length > 0 ? (
+          <LineChart
+            xAxis={[{
+              data: chartData.xAxis,
+              scaleType: 'time',
+              valueFormatter: (value: number) => {
+                const date = new Date(value);
+                return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+              },
+              tickNumber: 7,
+              labelStyle: {
+                angle: 0,
+                textAnchor: 'middle'
+              }
+            }]}
+            series={chartData.series}
+            height={300}
+            slotProps={{
+              legend: {
+                hidden: true
+              }
+            }}
+          />
+        ) : (
+          <Typography variant="body1" textAlign="center">No usage data available</Typography>
+        )}
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
+
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
+        <Typography variant="h6">LLM calls</Typography>        
+      </Box>
+      <TableContainer sx={{ mt: 2 }}>
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>

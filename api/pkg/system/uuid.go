@@ -28,6 +28,7 @@ const (
 	UserPrefix                = "usr_"
 	RolePrefix                = "role_"
 	AccessGrantPrefix         = "ag_"
+	UsageMetricPrefix         = "um_"
 )
 
 func GenerateUUID() string {
@@ -119,4 +120,8 @@ func GenerateOpenAIResponseID() string {
 
 func GenerateProviderEndpointID() string {
 	return fmt.Sprintf("%s%s", ProviderEndpointPrefix, newID())
+}
+
+func GenerateUsageMetricID() string {
+	return fmt.Sprintf("%s%s", UsageMetricPrefix, newID())
 }

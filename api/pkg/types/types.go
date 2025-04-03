@@ -1564,6 +1564,39 @@ type ContextMenuAction struct {
 	Value       string `json:"value"`        // The value written to the text area when the action is selected
 }
 
+type UsageMetric struct {
+	ID                string    `json:"id" gorm:"primaryKey"`
+	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
+	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
+	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
+	UserID            string    `json:"user_id"`
+	Provider          string    `json:"provider"`
+	Model             string    `json:"model"`
+	PromptTokens      int       `json:"prompt_tokens"`
+	CompletionTokens  int       `json:"completion_tokens"`
+	TotalTokens       int       `json:"total_tokens"`
+	DurationMs        int       `json:"duration_ms"`
+	RequestSizeBytes  int       `json:"request_size_bytes"`
+	ResponseSizeBytes int       `json:"response_size_bytes"`
+}
+
+type UsersAggregatedUsageMetric struct {
+	User    User                    `json:"user"`
+	Metrics []AggregatedUsageMetric `json:"metrics"`
+}
+
+type AggregatedUsageMetric struct {
+	// ID    string    `json:"id" gorm:"primaryKey"`
+	Date time.Time `json:"date"` // The date of the metric (without time, just the date)
+
+	PromptTokens      int     `json:"prompt_tokens"`
+	CompletionTokens  int     `json:"completion_tokens"`
+	TotalTokens       int     `json:"total_tokens"`
+	LatencyMs         float64 `json:"latency_ms"`
+	RequestSizeBytes  int     `json:"request_size_bytes"`
+	ResponseSizeBytes int     `json:"response_size_bytes"`
+}
+
 // Response for the user access endpoint
 type UserAppAccessResponse struct {
 	CanRead  bool `json:"can_read"`

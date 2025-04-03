@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -20,10 +23,10 @@ import (
 // @Success 200 {array} types.Provider
 // @Router /api/v1/providers [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 
-	providers, err := apiServer.providerManager.ListProviders(r.Context(), user.ID)
+	providers, err := s.providerManager.ListProviders(r.Context(), user.ID)
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -49,11 +52,11 @@ var blankAPIKey = "********"
 // @Success 200 {array} types.ProviderEndpoint
 // @Router /api/v1/providers-endpoints [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 
-	providerEndpoints, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      user.ID,
 		OwnerType:  user.Type,
 		WithGlobal: true,
@@ -76,7 +79,7 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 	})
 
 	// Get global ones from the provider manager
-	globalProviderEndpoints, err := apiServer.providerManager.ListProviders(ctx, "")
+	globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -87,11 +90,11 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 		var baseURL string
 		switch provider {
 		case types.ProviderOpenAI:
-			baseURL = apiServer.Cfg.Providers.OpenAI.BaseURL
+			baseURL = s.Cfg.Providers.OpenAI.BaseURL
 		case types.ProviderTogetherAI:
-			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
+			baseURL = s.Cfg.Providers.TogetherAI.BaseURL
 		case types.ProviderVLLM:
-			baseURL = apiServer.Cfg.Providers.VLLM.BaseURL
+			baseURL = s.Cfg.Providers.VLLM.BaseURL
 		case types.ProviderHelix:
 			baseURL = "internal"
 		}
@@ -109,7 +112,7 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 
 	// Set default
 	for idx := range providerEndpoints {
-		if providerEndpoints[idx].Name == apiServer.Cfg.Inference.Provider {
+		if providerEndpoints[idx].Name == s.Cfg.Inference.Provider {
 			providerEndpoints[idx].Default = true
 		}
 	}
@@ -131,13 +134,13 @@ func (apiServer *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r
 // @Success 200 {object} types.ProviderEndpoint
 // @Router /api/v1/providers-endpoints [post]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 
-	isAdmin := apiServer.isAdmin(r)
+	isAdmin := s.isAdmin(r)
 
-	if !isAdmin && !apiServer.Cfg.Providers.EnableCustomUserProviders {
+	if !isAdmin && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
 	}
@@ -150,7 +153,7 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 	}
 
 	// Check for duplicate names
-	existingProviders, err := apiServer.providerManager.ListProviders(r.Context(), user.ID)
+	existingProviders, err := s.providerManager.ListProviders(r.Context(), user.ID)
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -185,7 +188,7 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	createdEndpoint, err := apiServer.Store.CreateProviderEndpoint(ctx, &endpoint)
+	createdEndpoint, err := s.Store.CreateProviderEndpoint(ctx, &endpoint)
 	if err != nil {
 		log.Err(err).Msg("error creating provider endpoint")
 		http.Error(rw, "Error creating provider endpoint: "+err.Error(), http.StatusInternalServerError)
@@ -211,18 +214,18 @@ func (apiServer *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, 
 // @Success 200 {object} types.UpdateProviderEndpoint
 // @Router /api/v1/providers-endpoints/{id} [put]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
 
-	if !user.Admin && !apiServer.Cfg.Providers.EnableCustomUserProviders {
+	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
 	}
 
 	// Get existing endpoint
-	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
+	existingEndpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
@@ -282,7 +285,7 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 	}
 
 	// Update the endpoint
-	savedEndpoint, err := apiServer.Store.UpdateProviderEndpoint(ctx, existingEndpoint)
+	savedEndpoint, err := s.Store.UpdateProviderEndpoint(ctx, existingEndpoint)
 	if err != nil {
 		log.Err(err).Msg("error updating provider endpoint")
 		http.Error(rw, "Error updating provider endpoint: "+err.Error(), http.StatusInternalServerError)
@@ -308,13 +311,13 @@ func (apiServer *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, 
 // @Success 204 "No Content"
 // @Router /api/v1/providers-endpoints/{id} [delete]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
 
 	// Get existing endpoint
-	existingEndpoint, err := apiServer.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
+	existingEndpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
@@ -326,7 +329,7 @@ func (apiServer *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, 
 	}
 
 	// Prevent deletion of global endpoints
-	if existingEndpoint.EndpointType == types.ProviderEndpointTypeGlobal && !apiServer.isAdmin(r) {
+	if existingEndpoint.EndpointType == types.ProviderEndpointTypeGlobal && !s.isAdmin(r) {
 		http.Error(rw, "Global endpoints cannot be deleted", http.StatusForbidden)
 		return
 	}
@@ -337,11 +340,172 @@ func (apiServer *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, 
 		return
 	}
 
-	if err := apiServer.Store.DeleteProviderEndpoint(ctx, endpointID); err != nil {
+	if err := s.Store.DeleteProviderEndpoint(ctx, endpointID); err != nil {
 		log.Err(err).Msg("error deleting provider endpoint")
 		http.Error(rw, "Error deleting provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rw.WriteHeader(http.StatusOK)
+}
+
+// getProviderDailyUsage godoc
+// @Summary Get provider daily usage
+// @Description Get provider daily usage
+// @Accept json
+// @Produce json
+// @Tags    providers
+// @Param   id path string true "Provider ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Success 200 {array} types.AggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/daily-usage [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
+		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
+		return
+	}
+
+	from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
+	to := time.Now()
+
+	var err error
+
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse from date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse to date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	visible, err := s.providerVisible(r.Context(), user, id)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	if !visible {
+		writeErrResponse(rw, errors.New("not authorized to access this provider"), http.StatusForbidden)
+		return
+	}
+
+	metrics, err := s.Store.GetProviderDailyUsageMetrics(r.Context(), id, from, to)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error getting provider daily usage: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, metrics, http.StatusOK)
+}
+
+// getProviderUsersDailyUsage godoc
+// @Summary Get provider daily usage per user
+// @Description Get provider daily usage per user
+// @Accept json
+// @Produce json
+// @Tags    providers
+// @Param   id path string true "Provider ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Success 200 {array} types.UsersAggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/users-daily-usage [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
+		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
+		return
+	}
+
+	from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
+	to := time.Now()
+
+	var err error
+
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse from date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse to date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	visible, err := s.providerVisible(r.Context(), user, id)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	if !visible {
+		writeErrResponse(rw, errors.New("not authorized to access this provider"), http.StatusForbidden)
+		return
+	}
+
+	metrics, err := s.Store.GetUsersAggregatedUsageMetrics(r.Context(), id, from, to)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error getting provider daily usage: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, metrics, http.StatusOK)
+}
+
+func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, id string) (bool, error) {
+	globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
+	if err != nil {
+		return false, fmt.Errorf("error listing providers: %w", err)
+	}
+
+	for _, provider := range globalProviderEndpoints {
+		if string(provider) == id {
+			return true, nil
+		}
+	}
+
+	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      user.ID,
+		OwnerType:  user.Type,
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing provider endpoints")
+		return false, fmt.Errorf("error listing provider endpoints: %w", err)
+	}
+
+	for _, endpoint := range providerEndpoints {
+		if endpoint.ID == id || endpoint.Name == id {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

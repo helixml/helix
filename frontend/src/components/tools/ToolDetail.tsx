@@ -18,12 +18,9 @@ const ToolDetail: FC<React.PropsWithChildren<{
   if(tool.config.api) {
     details = (
       <>
-        <Box sx={{mb: 2}}>
-          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-            { tool.config.api.url }
-          </Typography>
-          <Typography variant="caption" gutterBottom>
-            { tool.description }
+        <Box sx={{mb: 2}}>          
+          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold'}}>
+            API - { tool.config.api.url }
           </Typography>
         </Box>
         {
@@ -35,19 +32,7 @@ const ToolDetail: FC<React.PropsWithChildren<{
                     <Typography>
                       {action.name}
                     </Typography>
-                  </Cell>
-                  <Cell sx={{width:'50%'}}>
-                    <Row>
-                      <Cell sx={{width: '70px'}}>
-                        <Chip color="secondary" size="small" label={action.method.toUpperCase()} />
-                      </Cell>
-                      <Cell>
-                        <Typography>
-                          {action.path}
-                        </Typography>
-                      </Cell>
-                    </Row>
-                  </Cell>
+                  </Cell>                  
                 </Row>
                 <Row sx={{mt: 0.5, mb: 2}}>
                   <Cell>
