@@ -12,7 +12,7 @@ export function useListProviders() {
   return useQuery({
     queryKey: providersQueryKey(),
     queryFn: async () => {
-      const result = await apiClient.v1ProvidersEndpointsList()
+      const result = await apiClient.v1ProviderEndpointsList()
       return result.data
     },
     enabled: true,
