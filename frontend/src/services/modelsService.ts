@@ -8,12 +8,12 @@ export const modelsQueryKey = (provider: string) => [
 
 export function useListModels(provider: string) {
   const api = useApi()
-  const apiClient = api.getApiClient()  
+  const apiClient = api.getV1Client()  
 
   return useQuery({
     queryKey: modelsQueryKey(provider),
     queryFn: async () => {
-      const result = await apiClient.v1ModelsList({ provider })
+      const result = await apiClient.modelsList({ provider })
       return result.data
     },
     enabled: true,
