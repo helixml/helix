@@ -371,6 +371,17 @@ export interface TypesAddTeamMemberRequest {
   user_reference?: string;
 }
 
+export interface TypesAggregatedUsageMetric {
+  completion_tokens?: number;
+  /** ID    string    `json:"id" gorm:"primaryKey"` */
+  date?: string;
+  latency_ms?: number;
+  prompt_tokens?: number;
+  request_size_bytes?: number;
+  response_size_bytes?: number;
+  total_tokens?: number;
+}
+
 export interface TypesApp {
   app_source?: TypesAppSource;
   config?: TypesAppConfig;
@@ -1231,6 +1242,7 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** the RAG source data entity we produced from this session */
   rag_source_data_entity_id?: string;
+  session_rag_results?: TypesSessionRAGResult[];
   stream?: boolean;
   system_prompt?: string;
   /** without any user input, this will default to true */
@@ -1446,6 +1458,11 @@ export interface TypesUserSearchResponse {
   offset?: number;
   total_count?: number;
   users?: TypesUser[];
+}
+
+export interface TypesUsersAggregatedUsageMetric {
+  metrics?: TypesAggregatedUsageMetric[];
+  user?: TypesUser;
 }
 
 export interface TypesWebsiteCrawler {
@@ -1743,6 +1760,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get app daily usage
+     *
+     * @tags apps
+     * @name V1AppsDailyUsageDetail
+     * @summary Get app usage
+     * @request GET:/api/v1/apps/{id}/daily-usage
+     * @secure
+     */
+    v1AppsDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/apps/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Runs a gptscript for an app
      *
      * @name V1AppsGptscriptCreate
@@ -1762,6 +1808,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List user's LLM calls with pagination and optional session filtering for a specific app
+     *
+     * @tags llm_calls
+     * @name V1AppsLlmCallsDetail
+     * @summary List LLM calls
+     * @request GET:/api/v1/apps/{id}/llm-calls
+     * @secure
+     */
+    v1AppsLlmCallsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        pageSize?: number;
+        /** Filter by session ID */
+        sessionFilter?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedLLMCalls, any>({
+        path: `/api/v1/apps/${id}/llm-calls`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns the access rights the current user has for this app
      *
      * @tags apps
@@ -1775,6 +1851,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/apps/${id}/user-access`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get app users daily usage
+     *
+     * @tags apps
+     * @name V1AppsUsersDailyUsageDetail
+     * @summary Get app users daily usage
+     * @request GET:/api/v1/apps/{id}/users-daily-usage
+     * @secure
+     */
+    v1AppsUsersDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/apps/${id}/users-daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -2052,7 +2157,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List user's LLM calls with pagination and optional session filtering for a specific app
+     * @description List LLM calls with pagination and optional session filtering
      *
      * @tags llm_calls
      * @name V1LlmCallsList
@@ -2372,6 +2477,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get provider daily usage
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsDailyUsageDetail
+     * @summary Get provider daily usage
+     * @request GET:/api/v1/provider-endpoints/{id}/daily-usage
+     * @secure
+     */
+    v1ProviderEndpointsDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get provider daily usage per user
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsUsersDailyUsageDetail
+     * @summary Get provider daily usage per user
+     * @request GET:/api/v1/provider-endpoints/{id}/users-daily-usage
+     * @secure
+     */
+    v1ProviderEndpointsUsersDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesUsersAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/users-daily-usage`,
+        method: "GET",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",

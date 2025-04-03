@@ -32,7 +32,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useFilestore from '../hooks/useFilestore';
-import AppLogsTable from '../components/app/AppLogsTable'
+import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 
 const App: FC = () => {
@@ -191,7 +191,7 @@ const App: FC = () => {
               <Tab label="API Keys" value="apikeys" />
               <Tab label="Developers" value="developers" />
               <Tab label="IDE" value="ide" />
-              <Tab label="Logs" value="logs" />
+              <Tab label="Usage" value="usage" />
               {
                 // Only show Access tab if user is an admin and app has an organization_id
                 appTools.app?.organization_id && userAccess.isAdmin && (
@@ -328,9 +328,9 @@ const App: FC = () => {
                     />
                   )}
 
-                  {tabValue === 'logs' && (
+                  {tabValue === 'usage' && (
                     <Box sx={{ mt: 2 }}>
-                      <AppLogsTable appId={appTools.id} />
+                      <AppUsage appId={appTools.id} />
                     </Box>
                   )}
 

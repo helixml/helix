@@ -38,6 +38,8 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useLoading from '../../hooks/useLoading'
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useApps from '../../hooks/useApps'
+import { getAppName } from '../../utils/apps'
 
 import {
   TOOLBAR_HEIGHT,
@@ -63,8 +65,12 @@ export const SessionToolbar: FC<{
   const themeConfig = useThemeConfig()
   const account = useAccount()
   const isBigScreen = useIsBigScreen()
+  const { apps } = useApps()
 
   const isOwner = account.user?.id === session.owner
+  
+  // Find the app if this session belongs to one
+  const app = session.parent_app ? apps?.find(a => a.id === session.parent_app) : undefined
 
   const onShare = useCallback(() => {
     setParams({
@@ -206,6 +212,28 @@ export const SessionToolbar: FC<{
           <Typography variant="caption" sx={{ color: 'gray' }}>
             Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
             | Model: {session.model_name}
+            {app && (
+              <>
+                | App: <Link 
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    account.orgNavigate('app', {
+                      app_id: app.id,
+                    })
+                  }}
+                  sx={{
+                    color: 'inherit',
+                    textDecoration: 'underline',
+                    '&:hover': {
+                      color: theme.palette.primary.main,
+                    }
+                  }}
+                >
+                  {getAppName(app)}
+                </Link>
+              </>
+            )}
           </Typography>
         </Box>
       </Cell>

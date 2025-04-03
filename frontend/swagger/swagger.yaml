@@ -559,6 +559,24 @@ definitions:
         description: Either user ID or user email
         type: string
     type: object
+  types.AggregatedUsageMetric:
+    properties:
+      completion_tokens:
+        type: integer
+      date:
+        description: ID    string    `json:"id" gorm:"primaryKey"`
+        type: string
+      latency_ms:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_size_bytes:
+        type: integer
+      response_size_bytes:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
   types.App:
     properties:
       app_source:
@@ -1991,6 +2009,10 @@ definitions:
       rag_source_data_entity_id:
         description: the RAG source data entity we produced from this session
         type: string
+      session_rag_results:
+        items:
+          $ref: '#/definitions/types.SessionRAGResult'
+        type: array
       stream:
         type: boolean
       system_prompt:
@@ -2352,6 +2374,15 @@ definitions:
           $ref: '#/definitions/types.User'
         type: array
     type: object
+  types.UsersAggregatedUsageMetric:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      user:
+        $ref: '#/definitions/types.User'
+    type: object
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -2530,6 +2561,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Run an API action
+  /api/v1/apps/{id}/daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get app daily usage
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get app usage
+      tags:
+      - apps
   /api/v1/apps/{id}/gptscript:
     post:
       consumes:
@@ -2564,6 +2640,35 @@ paths:
       security:
       - BearerAuth: []
       summary: Run a GptScript
+  /api/v1/apps/{id}/llm-calls:
+    get:
+      description: List user's LLM calls with pagination and optional session filtering
+        for a specific app
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: pageSize
+        type: integer
+      - description: Filter by session ID
+        in: query
+        name: sessionFilter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedLLMCalls'
+      security:
+      - BearerAuth: []
+      summary: List LLM calls
+      tags:
+      - llm_calls
   /api/v1/apps/{id}/user-access:
     get:
       description: Returns the access rights the current user has for this app
@@ -2581,6 +2686,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Get current user's access level for an app
+      tags:
+      - apps
+  /api/v1/apps/{id}/users-daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get app users daily usage
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get app users daily usage
       tags:
       - apps
   /api/v1/apps/github/{id}:
@@ -2803,8 +2953,7 @@ paths:
       summary: Set license key
   /api/v1/llm_calls:
     get:
-      description: List user's LLM calls with pagination and optional session filtering
-        for a specific app
+      description: List LLM calls with pagination and optional session filtering
       parameters:
       - description: Page number
         in: query
@@ -3088,6 +3237,96 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/provider-endpoints/{id}/daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get provider daily usage
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/users-daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get provider daily usage per user
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.UsersAggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get provider daily usage per user
+      tags:
+      - providers
   /api/v1/providers:
     get:
       responses:

@@ -302,6 +302,76 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get app daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Get app usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/gptscript": {
             "post": {
                 "security": [
@@ -356,6 +426,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/llm-calls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List user's LLM calls with pagination and optional session filtering for a specific app",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "llm_calls"
+                ],
+                "summary": "List LLM calls",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "sessionFilter",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedLLMCalls"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/user-access": {
             "get": {
                 "security": [
@@ -382,6 +497,76 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.UserAppAccessResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/users-daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get app users daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Get app users daily usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -712,7 +897,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List user's LLM calls with pagination and optional session filtering for a specific app",
+                "description": "List LLM calls with pagination and optional session filtering",
                 "produces": [
                     "application/json"
                 ],
@@ -1165,6 +1350,146 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.TeamMembership"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get provider daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Get provider daily usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/users-daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get provider daily usage per user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Get provider daily usage per user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.UsersAggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -2342,6 +2667,33 @@ const docTemplate = `{
                 "user_reference": {
                     "description": "Either user ID or user email",
                     "type": "string"
+                }
+            }
+        },
+        "types.AggregatedUsageMetric": {
+            "type": "object",
+            "properties": {
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "date": {
+                    "description": "ID    string    ` + "`" + `json:\"id\" gorm:\"primaryKey\"` + "`" + `",
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "number"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "request_size_bytes": {
+                    "type": "integer"
+                },
+                "response_size_bytes": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
                 }
             }
         },
@@ -4370,6 +4722,12 @@ const docTemplate = `{
                     "description": "the RAG source data entity we produced from this session",
                     "type": "string"
                 },
+                "session_rag_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
+                },
                 "stream": {
                     "type": "boolean"
                 },
@@ -4893,6 +5251,20 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.User"
                     }
+                }
+            }
+        },
+        "types.UsersAggregatedUsageMetric": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
                 }
             }
         },

@@ -121,6 +121,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthProvider{},
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
+		&types.UsageMetric{},
 	)
 	if err != nil {
 		return err
