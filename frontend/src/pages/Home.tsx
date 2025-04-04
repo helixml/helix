@@ -248,9 +248,23 @@ const Home: FC = () => {
                             onSetType={setCurrentType}
                           />
                         )}
+                      
+                          {/* <ModelPicker
+                            type={currentType}
+                            model={currentModel}
+                            provider={undefined}
+                            displayMode="short"
+                            border
+                            compact
+                            onSetModel={setCurrentModel}
+                          /> */}
+                        
+
+
                         <AdvancedModelPicker
                           selectedModelId={currentModel}
                           onSelectModel={setCurrentModel}
+                          currentType={currentType}
                         />
                         {/* Plus button - Only show if not in Image mode */}
                         {currentType !== 'image' && (
