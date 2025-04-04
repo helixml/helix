@@ -58,6 +58,7 @@ const Home: FC = () => {
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
+  const [currentProvider, setCurrentProvider] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -97,6 +98,7 @@ const Home: FC = () => {
       const session = await NewInference({
         type: currentType,
         message: currentPrompt,
+        provider: currentProvider,
         modelName: currentModel,
         orgId,
       })
@@ -263,7 +265,10 @@ const Home: FC = () => {
 
                         <AdvancedModelPicker
                           selectedModelId={currentModel}
-                          onSelectModel={setCurrentModel}
+                          onSelectModel={function (provider: string, model: string): void {
+                            setCurrentModel(model)
+                            setCurrentProvider(provider)
+                          }}
                           currentType={currentType}
                         />
                         {/* Plus button - Only show if not in Image mode */}
