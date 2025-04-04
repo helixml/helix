@@ -76,7 +76,8 @@ function fuzzySearch(query: string, models: ModelWithProvider[], modelType: stri
 const formatContextLength = (length: number | undefined): string | null => {
   if (!length || length <= 0) return null;
   if (length >= 1000) {
-    return `${length / 1000}k`;
+    // Round up to the nearest thousand before dividing
+    return `${Math.ceil(length / 1000)}k`; 
   }
   return length.toString();
 };
