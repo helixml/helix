@@ -26,6 +26,8 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import { useListProviders } from '../../services/providersService';
 import { TypesProviderEndpoint, TypesOpenAIModel } from '../../api/api';
+import openaiLogo from '../../../assets/img/openai-logo.png'
+import togetheraiLogo from '../../../assets/img/together-logo.png'
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -36,31 +38,23 @@ interface AdvancedModelPickerProps {
 
 const ITEMS_TO_SHOW = 50;
 
-const ProviderIcon: React.FC<{ providerName: string }> = ({ providerName }) => {
-  switch (providerName) {
-    case "openai":
-      return (
-        <Avatar sx={{ bgcolor: '#74AA9C', width: 32, height: 32 }}>
-          <SmartToyIcon />
-        </Avatar>
-      );
-    case "togetherai":
-      return (
-        <Avatar sx={{ bgcolor: '#FF69B4', width: 32, height: 32 }}>
-          <SmartToyIcon />
-        </Avatar>
-      );
-    default:
-      return (
-        <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
-          <SmartToyIcon />
-        </Avatar>
-      );
+const ProviderIcon: React.FC<{ providerBaseUrl: string }> = ({ providerBaseUrl }) => {
+  if (providerBaseUrl.includes('api.openai.com')) {
+    return <Avatar src={openaiLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+  } else if (providerBaseUrl.includes('api.together.xyz')) {
+    return <Avatar src={togetheraiLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+  } else {
+    return (
+      <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
+        <SmartToyIcon />
+      </Avatar>
+    );
   }
 };
 
 interface ModelWithProvider extends TypesOpenAIModel {
   provider: string;
+  provider_base_url: string;
 }
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
@@ -100,6 +94,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       (provider.available_models || []).map((model): ModelWithProvider => ({
         ...model,
         provider: provider.name || '', 
+        provider_base_url: provider.base_url || '',
       }))
     ) ?? [];
   }, [providers]);
@@ -280,7 +275,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
                     <ListItemIcon sx={{ minWidth: 40 }}>
-                      <ProviderIcon providerName={model.provider} />
+                      <ProviderIcon providerBaseUrl={model.provider_base_url} />
                     </ListItemIcon>
                     <ListItemText
                       primary={model.id || 'Unnamed Model'}
