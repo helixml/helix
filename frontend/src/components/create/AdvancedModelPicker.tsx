@@ -137,44 +137,46 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
   return (
     <>
-      <Button
-        variant="text"
-        onClick={handleOpenDialog}
-        endIcon={<ArrowDropDownIcon />}
-        sx={{
-          borderRadius: '8px',
-          color: 'text.primary',
-          textTransform: 'none',
-          fontSize: '0.875rem',
-          padding: '4px 8px',
-          height: '32px',
-          minWidth: 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          border: '1px solid #fff',
-          '&:hover': {
-            backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-          },
-          ...buttonProps?.sx,
-        }}
-        {...buttonProps}
-      >
-        <Typography 
-          variant="caption" 
-          component="span"
-          sx={{ 
-            maxWidth: '150px',
-            overflow: 'auto',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            display: 'inline-block',
-            lineHeight: 1.2,
-            verticalAlign: 'middle',
+      <Tooltip title={displayModelName} placement="bottom-start">
+        <Button
+          variant="text"
+          onClick={handleOpenDialog}
+          endIcon={<ArrowDropDownIcon />}
+          sx={{
+            borderRadius: '8px',
+            color: 'text.primary',
+            textTransform: 'none',
+            fontSize: '0.875rem',
+            padding: '4px 8px',
+            height: '32px',
+            minWidth: 'auto',
+            maxWidth: '200px',
+            display: 'flex',
+            alignItems: 'center',
+            border: '1px solid #fff',
+            '&:hover': {
+              backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+            },
+            ...buttonProps?.sx,
           }}
+          {...buttonProps}
         >
-          {displayModelName}
-        </Typography>
-      </Button>
+          <Typography 
+            variant="caption" 
+            component="span"
+            sx={{ 
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              display: 'inline-block',
+              lineHeight: 1.2,
+              verticalAlign: 'middle',
+            }}
+          >
+            {displayModelName}
+          </Typography>
+        </Button>
+      </Tooltip>
 
       <Dialog 
         open={dialogOpen} 
