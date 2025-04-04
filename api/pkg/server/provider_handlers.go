@@ -78,7 +78,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Sort endpoints by name, we will attach global ones to the end
+	// Sort endpoints by name before adding global ones
 	sort.Slice(providerEndpoints, func(i, j int) bool {
 		return providerEndpoints[i].Name < providerEndpoints[j].Name
 	})
@@ -121,6 +121,20 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			providerEndpoints[idx].Default = true
 		}
 	}
+
+	// Re-sort the endpoints with default first, then by name
+	sort.Slice(providerEndpoints, func(i, j int) bool {
+		// If i is default and j is not, i comes first
+		if providerEndpoints[i].Default && !providerEndpoints[j].Default {
+			return true
+		}
+		// If j is default and i is not, j comes first
+		if providerEndpoints[j].Default && !providerEndpoints[i].Default {
+			return false
+		}
+		// If both are default or both are not default, sort by name
+		return providerEndpoints[i].Name < providerEndpoints[j].Name
+	})
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
