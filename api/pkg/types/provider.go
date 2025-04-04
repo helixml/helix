@@ -63,17 +63,18 @@ type OpenAIPermission struct {
 
 // Model struct represents an OpenAPI model.
 type OpenAIModel struct {
-	CreatedAt   int64              `json:"created"`
-	ID          string             `json:"id"`
-	Object      string             `json:"object"`
-	OwnedBy     string             `json:"owned_by"`
-	Permission  []OpenAIPermission `json:"permission"`
-	Root        string             `json:"root"`
-	Parent      string             `json:"parent"`
-	Name        string             `json:"name,omitempty"`
-	Description string             `json:"description,omitempty"`
-	Hide        bool               `json:"hide,omitempty"`
-	Type        string             `json:"type,omitempty"`
+	CreatedAt     int64              `json:"created"`
+	ID            string             `json:"id"`
+	Object        string             `json:"object"`
+	OwnedBy       string             `json:"owned_by"`
+	Permission    []OpenAIPermission `json:"permission"`
+	Root          string             `json:"root"`
+	Parent        string             `json:"parent"`
+	Name          string             `json:"name,omitempty"`
+	Description   string             `json:"description,omitempty"`
+	Hide          bool               `json:"hide,omitempty"`
+	Type          string             `json:"type,omitempty"`
+	ContextLength int                `json:"context_length,omitempty"`
 }
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API
