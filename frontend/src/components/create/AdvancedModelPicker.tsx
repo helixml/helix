@@ -125,20 +125,22 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   return (
     <>
       <Button
-        variant="outlined"
+        variant="text"
         onClick={handleOpenDialog}
         endIcon={<ArrowDropDownIcon />}
         sx={{
-          borderColor: 'rgba(255, 255, 255, 0.7)',
-          color: 'rgba(255, 255, 255, 0.9)',
+          borderRadius: '8px',
+          color: 'text.primary',
           textTransform: 'none',
           fontSize: '0.875rem',
           padding: '4px 8px',
           height: '32px',
           minWidth: 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          border: '1px solid #fff',
           '&:hover': {
-            borderColor: 'rgba(255, 255, 255, 0.9)',
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
           },
           ...buttonProps?.sx,
         }}
