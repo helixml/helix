@@ -145,6 +145,9 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		}
 	}
 
+	// Remove audio, tts models
+	models = filterUnsupportedModels(models)
+
 	// Sort models: llama-33-70b-instruct models first, then other llama models, then meta-llama/* models, then the rest
 	sort.Slice(models, func(i, j int) bool {
 		// First priority: any XXX/llama-33-70b-instruct model
@@ -224,6 +227,10 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 				// Add the type chat. This is needed
 				// for UI to correctly allow filtering
 				m.Type = "chat"
+
+				// Set the context length
+				m.ContextLength = getOpenAIModelContextLength(m.ID)
+
 				filteredModels = append(filteredModels, m)
 			}
 		}
