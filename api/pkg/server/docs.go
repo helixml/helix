@@ -3984,6 +3984,9 @@ const docTemplate = `{
         "types.OpenAIModel": {
             "type": "object",
             "properties": {
+                "context_length": {
+                    "type": "integer"
+                },
                 "created": {
                     "type": "integer"
                 },

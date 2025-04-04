@@ -1455,6 +1455,8 @@ definitions:
     type: object
   types.OpenAIModel:
     properties:
+      context_length:
+        type: integer
       created:
         type: integer
       description:
