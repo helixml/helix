@@ -16,11 +16,14 @@ import {
   CircularProgress,
   Button,
   ButtonProps,
+  Tooltip,
+  Chip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import MemoryIcon from '@mui/icons-material/Memory';
 import { useListProviders } from '../../services/providersService';
 import { TypesProviderEndpoint, TypesOpenAIModel } from '../../api/api';
 
@@ -68,6 +71,15 @@ function fuzzySearch(query: string, models: ModelWithProvider[], modelType: stri
     return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider.toLowerCase().includes(query.toLowerCase());
   });
 }
+
+// Helper function to format context length
+const formatContextLength = (length: number | undefined): string | null => {
+  if (!length || length <= 0) return null;
+  if (length >= 1000) {
+    return `${length / 1000}k`;
+  }
+  return length.toString();
+};
 
 export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   selectedModelId,
@@ -241,43 +253,75 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                  <CircularProgress />
                </Box>
             )}
-            {!isLoading && filteredModels.map((model) => (
-              <ListItem
-                key={`${model.provider}-${model.id}`}
-                button
-                onClick={() => model.id && handleSelectModel(model.id)}
-                selected={model.id === selectedModelId}
-                sx={{
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
-                  },
-                  borderRadius: 1,
-                  mb: 0.5,
-                  ...(model.id === selectedModelId && {
-                    backgroundColor: 'action.selected',
-                  }),
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 40 }}>
-                  <ProviderIcon providerName={model.provider} />
-                </ListItemIcon>
-                <ListItemText
-                  primary={model.id || 'Unnamed Model'}
-                  secondary={model.provider}
-                  primaryTypographyProps={{
-                    variant: 'body1',
-                    sx: { 
-                      fontWeight: model.id === selectedModelId ? 500 : 400,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' 
-                    } 
+            {!isLoading && filteredModels.map((model) => {
+              const formattedContextLength = formatContextLength(model.context_length);
+              return (
+                <ListItem
+                  key={`${model.provider}-${model.id}`}
+                  button
+                  onClick={() => model.id && handleSelectModel(model.id)}
+                  selected={model.id === selectedModelId}
+                  sx={{
+                    '&:hover': {
+                      backgroundColor: 'action.hover',
+                    },
+                    borderRadius: 1,
+                    mb: 0.5,
+                    ...(model.id === selectedModelId && {
+                      backgroundColor: 'action.selected',
+                    }),
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
-                  secondaryTypographyProps={{
-                    variant: 'body2',
-                    sx: { color: 'text.secondary' }
-                  }}
-                />
-              </ListItem>
-            ))}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
+                    <ListItemIcon sx={{ minWidth: 40 }}>
+                      <ProviderIcon providerName={model.provider} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={model.id || 'Unnamed Model'}
+                      secondary={model.provider}
+                      primaryTypographyProps={{
+                        variant: 'body1',
+                        sx: {
+                          fontWeight: model.id === selectedModelId ? 500 : 400,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                        }
+                      }}
+                      secondaryTypographyProps={{
+                        variant: 'body2',
+                        sx: { color: 'text.secondary' }
+                      }}
+                      sx={{ mr: 1 }}
+                    />
+                  </Box>
+                  {formattedContextLength && (
+                    <Tooltip title="Context Length">
+                      <Chip 
+                        icon={<MemoryIcon sx={{ color: 'success.main' }} />} 
+                        label={formattedContextLength}
+                        size="small"
+                        variant="outlined"
+                        sx={{
+                          color: 'text.secondary',
+                          borderColor: 'transparent',
+                          backgroundColor: 'transparent',
+                          '& .MuiChip-icon': {
+                             color: 'success.main',
+                             marginLeft: '4px',
+                             marginRight: '-4px',
+                          },
+                          '& .MuiChip-label': {
+                             paddingLeft: '4px',
+                          }
+                        }}
+                       />
+                    </Tooltip>
+                  )}
+                </ListItem>
+              );
+            })}
             {!isLoading && filteredModels.length === 0 && searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
                 <Typography color="text.secondary">
