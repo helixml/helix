@@ -151,7 +151,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           component="span"
           sx={{ 
             maxWidth: '150px',
-            overflow: 'hidden',
+            overflow: 'auto',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             display: 'inline-block',
@@ -187,7 +187,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           </IconButton>
         </DialogTitle>
 
-        <DialogContent dividers sx={{ p: 2 }}>
+        <DialogContent 
+          dividers 
+          sx={{ 
+            p: 2, 
+            overflow: 'hidden',
+            display: 'flex', 
+            flexDirection: 'column' 
+          }}
+        >
           <TextField
             fullWidth
             placeholder="Search models..."
@@ -210,7 +218,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
           <List sx={{ 
             overflow: 'auto',
-            maxHeight: 'calc(60vh - 64px - 56px - 32px - 1px)',
+            flexGrow: 1,
             '&::-webkit-scrollbar': {
               width: '8px',
             },
@@ -225,6 +233,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               background: (theme) => theme.palette.mode === 'dark' ? '#777' : '#555',
             },
             paddingRight: '8px',
+            overscrollBehavior: 'contain',
+            paddingBottom: '8px',
           }}>
             {isLoading && filteredModels.length === 0 && (
                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
