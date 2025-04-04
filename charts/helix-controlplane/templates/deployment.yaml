@@ -79,16 +79,24 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.controlplane.inference }}
-            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
+
+            {{- with (.Values.controlplane.inference).defaultProvider }}
             - name: INFERENCE_PROVIDER
               value: {{ . | quote }}
             {{- end }}
-            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
+
+            {{- if .Values.controlplane.fineTuning }}
+            {{- with (.Values.controlplane.fineTuning).defaultProvider }}
+            - name: FINETUNING_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else }}
+            {{- with (.Values.controlplane.inference).defaultProvider }}
             - name: FINETUNING_PROVIDER
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+
             {{- if .Values.controlplane.providers.vllm }}
             {{- with (default "" .Values.controlplane.providers.vllm.baseUrl) }}
             - name: VLLM_BASE_URL
