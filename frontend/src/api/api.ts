@@ -916,6 +916,7 @@ export interface TypesOpenAIMessage {
 }
 
 export interface TypesOpenAIModel {
+  context_length?: number;
   created?: number;
   description?: string;
   hide?: boolean;
