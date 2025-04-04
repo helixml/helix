@@ -43,6 +43,10 @@ controlplane:
 
   # Inference configuration
   inference:
+    # Valid values: openai, togetherai, helix, vllm
+    defaultProvider: "openai"
+
+  fineTuning:
     # Valid values: openai, togetherai, helix
     defaultProvider: "openai"
 
