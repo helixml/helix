@@ -29,7 +29,7 @@ import { TypesProviderEndpoint, TypesOpenAIModel } from '../../api/api';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
-  onSelectModel: (model: string) => void;
+  onSelectModel: (provider: string, model: string) => void;
   buttonProps?: ButtonProps;
   currentType: string; // Model type (chat, image, etc)
 }
@@ -128,8 +128,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     setDialogOpen(false);
   };
 
-  const handleSelectModel = (modelId: string) => {
-    onSelectModel(modelId);
+  const handleSelectModel = (provider: string, modelId: string) => {
+    onSelectModel(provider, modelId);
     handleCloseDialog();
   };
 
@@ -262,7 +262,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 <ListItem
                   key={`${model.provider}-${model.id}`}
                   button
-                  onClick={() => model.id && handleSelectModel(model.id)}
+                  onClick={() => model.id && handleSelectModel(model.provider, model.id)}
                   selected={model.id === selectedModelId}
                   sx={{
                     '&:hover': {

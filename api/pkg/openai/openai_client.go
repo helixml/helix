@@ -221,6 +221,9 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		filteredModels := make([]types.OpenAIModel, 0)
 		for _, m := range models {
 			if strings.HasPrefix(m.ID, "gpt-") {
+				// Add the type chat. This is needed
+				// for UI to correctly allow filtering
+				m.Type = "chat"
 				filteredModels = append(filteredModels, m)
 			}
 		}
