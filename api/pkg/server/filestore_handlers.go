@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (s *HelixAPIServer) filestoreHandler(w http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.Request) {
 	// if the session is "shared" then anyone can see the files inside the session
 	// if the user is admin then can see anything
 	// if the user is runner then can see anything
