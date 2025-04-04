@@ -28,6 +28,7 @@ interface AdvancedModelPickerProps {
   selectedModelId?: string;
   onSelectModel: (model: string) => void;
   buttonProps?: ButtonProps;
+  currentType: string; // Model type (chat, image, etc)
 }
 
 const ITEMS_TO_SHOW = 50;
@@ -59,9 +60,9 @@ interface ModelWithProvider extends TypesOpenAIModel {
   provider: string;
 }
 
-function fuzzySearch(query: string, models: ModelWithProvider[]) {
+function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
   return models.filter((model) => {
-    if (model.type !== 'chat') {
+    if (model.type !== modelType) {
       return false;
     }
     return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider.toLowerCase().includes(query.toLowerCase());
@@ -72,6 +73,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   selectedModelId,
   onSelectModel,
   buttonProps,
+  currentType,
 }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,11 +98,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     let friendlyName = selectedModel?.id || selectedModelId;
     return friendlyName || "Select Model";
   }, [selectedModelId, allModels]);
-
-  // Filter models based on search query
+  
+  // Filter models based on search query and current type
   const filteredModels = useMemo(() => {
-    return fuzzySearch(searchQuery, allModels);
-  }, [searchQuery, allModels]);
+    // For text type, we need to use chat models
+    const effectiveType = currentType === "text" ? "chat" : currentType;
+    return fuzzySearch(searchQuery, allModels, effectiveType);
+  }, [searchQuery, allModels, currentType]);
 
   const handleOpenDialog = () => {
     setSearchQuery('');
