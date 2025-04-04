@@ -5,6 +5,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type UsageLogger struct {
@@ -33,6 +34,13 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 
 	_, err := l.store.CreateUsageMetric(ctx, metric)
 	if err != nil {
+		log.Error().
+			Str("user_id", metric.UserID).
+			Str("model", metric.Model).
+			Str("provider", metric.Provider).
+			Int("prompt_tokens", metric.PromptTokens).
+			Int("completion_tokens", metric.CompletionTokens).
+			Err(err).Msg("failed to log LLM usage")
 		return nil, err
 	}
 
