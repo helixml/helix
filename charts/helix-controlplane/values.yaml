@@ -154,7 +154,7 @@ controlplane:
     embeddingsDim: "3584"
     chunkSize: "1000"
     chunkOverlap: "50"
-
+  providers: {}
 
 imagePullSecrets: []
 nameOverride: ""
