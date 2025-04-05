@@ -442,8 +442,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		runnerID := vars["runner_id"]
-		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
-		log.Debug().Interface("request", r).Msg("nats request")
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("request_path", r.URL.Path).
+			Msg("proxying runner websocket request to nats")
 
 		// Upgrade the incoming HTTP connection to a WebSocket connection.
 		upgrader := websocket.Upgrader{
@@ -453,9 +455,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 				return true
 			},
 		}
+
 		clientConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("Failed to upgrade client connection: %v", err)
+			log.Error().Err(err).Msg("Failed to upgrade client connection")
 			return
 		}
 		// Ensure the client connection is closed on function exit.
@@ -464,7 +467,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		// Connect to the backend WebSocket server.
 		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
 		if err != nil {
-			log.Printf("Failed to connect to backend WebSocket server: %v", err)
+			log.Error().Err(err).Msg("Failed to connect to backend WebSocket server")
 			return
 		}
 		// Ensure the backend connection is closed on function exit.
