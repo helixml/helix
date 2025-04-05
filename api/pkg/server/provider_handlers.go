@@ -145,29 +145,23 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
-					Provider: providerEndpoints[idx].Name,
-					Owner:    providerEndpoints[idx].Owner,
-				})
-				if err != nil {
-					log.Err(err).
-						Str("provider", providerEndpoints[idx].Name).
-						Str("endpoint_id", providerEndpoints[idx].ID).
-						Str("owner", providerEndpoints[idx].Owner).
-						Msg("error getting provider")
-					return
-				}
-				models, err := provider.ListModels(ctx)
+
+				models, err := s.getProviderModels(ctx, providerEndpoints[idx])
 				if err != nil {
 					log.Err(err).
 						Str("provider", providerEndpoints[idx].Name).
 						Str("endpoint_id", providerEndpoints[idx].ID).
 						Str("owner", providerEndpoints[idx].Owner).
 						Msg("error listing models")
+					mu.Lock()
+					providerEndpoints[idx].Status = types.ProviderEndpointStatusError
+					providerEndpoints[idx].Error = err.Error()
+					mu.Unlock()
 					return
 				}
 
 				mu.Lock()
+				providerEndpoints[idx].Status = types.ProviderEndpointStatusOK
 				providerEndpoints[idx].AvailableModels = models
 				mu.Unlock()
 			}(idx)
@@ -177,6 +171,53 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	wg.Wait()
 
 	writeResponse(rw, providerEndpoints, http.StatusOK)
+}
+
+func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error) {
+	// Check for cached models
+	cacheKey := fmt.Sprintf("%s:%s", providerEndpoint.Name, providerEndpoint.Owner)
+	if cached, found := s.cache.Get(cacheKey); found {
+		var models []types.OpenAIModel
+		err := json.Unmarshal([]byte(cached), &models)
+		if err != nil {
+			return nil, err
+		}
+		return models, nil
+	}
+
+	provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		Provider: providerEndpoint.Name,
+		Owner:    providerEndpoint.Owner,
+	})
+	if err != nil {
+		log.Err(err).
+			Str("provider", providerEndpoint.Name).
+			Str("owner", providerEndpoint.Owner).
+			Msg("error getting provider")
+		return nil, err
+	}
+
+	// Models should respond in 5 seconds or less, otherwise we'll kill the request
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	models, err := provider.ListModels(ctx)
+	if err != nil {
+		log.Err(err).
+			Str("provider", providerEndpoint.Name).
+			Str("owner", providerEndpoint.Owner).
+			Msg("error listing models")
+		return nil, err
+	}
+
+	// Cache the models
+	modelsJSON, err := json.Marshal(models)
+	if err != nil {
+		return nil, err
+	}
+	s.cache.SetWithTTL(cacheKey, string(modelsJSON), 1, 5*time.Minute)
+
+	return models, nil
 }
 
 // createProviderEndpoint godoc

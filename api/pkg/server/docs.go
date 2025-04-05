@@ -4303,6 +4303,9 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "error": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -4327,10 +4330,33 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "status": {
+                    "description": "If we can't fetch models",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderEndpointStatus"
+                        }
+                    ]
+                },
                 "updated": {
                     "type": "string"
                 }
             }
+        },
+        "types.ProviderEndpointStatus": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "error",
+                "loading",
+                "disabled"
+            ],
+            "x-enum-varnames": [
+                "ProviderEndpointStatusOK",
+                "ProviderEndpointStatusError",
+                "ProviderEndpointStatusLoading",
+                "ProviderEndpointStatusDisabled"
+            ]
         },
         "types.ProviderEndpointType": {
             "type": "string",
@@ -4611,7 +4637,6 @@ const docTemplate = `{
                     ]
                 },
                 "model_name": {
-                    "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
                 "name": {
@@ -4639,6 +4664,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "parent_session": {
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
                 "type": {

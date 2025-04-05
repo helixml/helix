@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -81,6 +82,7 @@ type HelixAPIServer struct {
 	oidcClient        auth.OIDC
 	oauthManager      *oauth.Manager
 	fileServerHandler http.Handler
+	cache             *ristretto.Cache[string, string]
 }
 
 func NewServer(
@@ -162,6 +164,15 @@ func NewServer(
 		return nil, fmt.Errorf("no oidc client found")
 	}
 
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 30, // maximum cost of cache (1GB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -188,6 +199,7 @@ func NewServer(
 		oidcClient:        oidcClient,
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
+		cache:             cache,
 	}, nil
 }
 
