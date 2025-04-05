@@ -34,6 +34,7 @@ interface AdvancedModelPickerProps {
   onSelectModel: (provider: string, model: string) => void;
   buttonProps?: ButtonProps;
   currentType: string; // Model type (chat, image, etc)
+  displayMode?: 'full' | 'short'; // Controls how the model name is displayed
 }
 
 const ITEMS_TO_SHOW = 50;
@@ -76,17 +77,33 @@ const formatContextLength = (length: number | undefined): string | null => {
   return length.toString();
 };
 
+const getShortModelName = (name: string, displayMode: 'full' | 'short'): string => {
+  if (displayMode === 'full') return name;
+  
+  // Remove everything before the last '/' if it exists
+  let shortName = name.split('/').pop() || name;
+  
+  // Remove 'Meta-' prefix (case insensitive)
+  shortName = shortName.replace(/^Meta-/i, '');
+  
+  // Remove 'Instruct-' suffix (case insensitive)
+  shortName = shortName.replace(/-Instruct-?$/i, '');
+  
+  return shortName;
+}
+
 export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   selectedModelId,
   onSelectModel,
   buttonProps,
   currentType,
+  displayMode = 'full',
 }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
   // Fetch providers and models
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true);
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true);  
 
   // Combine models from all providers
   const allModels: ModelWithProvider[] = useMemo(() => {
@@ -168,7 +185,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               verticalAlign: 'middle',
             }}
           >
-            {displayModelName}
+            {getShortModelName(displayModelName, displayMode)}
           </Typography>
         </Button>
       </Tooltip>
