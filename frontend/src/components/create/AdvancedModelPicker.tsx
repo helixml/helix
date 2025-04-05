@@ -37,8 +37,6 @@ interface AdvancedModelPickerProps {
   displayMode?: 'full' | 'short'; // Controls how the model name is displayed
 }
 
-const ITEMS_TO_SHOW = 50;
-
 const ProviderIcon: React.FC<{ providerBaseUrl: string }> = ({ providerBaseUrl }) => {
   if (providerBaseUrl.includes('api.openai.com')) {
     return <Avatar src={openaiLogo} sx={{ width: 32, height: 32 }} variant="square" />;
