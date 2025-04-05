@@ -10,6 +10,7 @@ interface NewInferenceParams {
   appId?: string;
   assistantId?: string;
   ragSourceId?: string;
+  provider?: string;
   modelName?: string;
   loraDir?: string;
   sessionId?: string;
@@ -201,6 +202,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     appId = '',
     assistantId = '',
     ragSourceId = '',
+    provider = '',
     modelName = '',
     loraDir = '',
     sessionId = '',
@@ -226,6 +228,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       organization_id: orgId,
       assistant_id: assistantId,
       rag_source_id: ragSourceId,
+      provider: provider,
       model: modelName,
       lora_dir: loraDir,
       session_id: sessionId,

@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	model "github.com/helixml/helix/api/pkg/model"
+	types "github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -102,10 +102,10 @@ func (mr *MockClientMockRecorder) CreateEmbeddings(ctx, request any) *gomock.Cal
 }
 
 // ListModels mocks base method.
-func (m *MockClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+func (m *MockClient) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListModels", ctx)
-	ret0, _ := ret[0].([]model.OpenAIModel)
+	ret0, _ := ret[0].([]types.OpenAIModel)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

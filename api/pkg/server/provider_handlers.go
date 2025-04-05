@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -50,11 +52,14 @@ var blankAPIKey = "********"
 // @Tags    providers
 
 // @Success 200 {array} types.ProviderEndpoint
-// @Router /api/v1/providers-endpoints [get]
+// @Param with_models query bool false "Include models"
+// @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
+
+	includeModels := r.URL.Query().Get("with_models") == "true"
 
 	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      user.ID,
@@ -73,7 +78,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Sort endpoints by name, we will attach global ones to the end
+	// Sort endpoints by name before adding global ones
 	sort.Slice(providerEndpoints, func(i, j int) bool {
 		return providerEndpoints[i].Name < providerEndpoints[j].Name
 	})
@@ -117,13 +122,102 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		}
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(providerEndpoints)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
+	// Re-sort the endpoints with default first, then by name
+	sort.Slice(providerEndpoints, func(i, j int) bool {
+		// If i is default and j is not, i comes first
+		if providerEndpoints[i].Default && !providerEndpoints[j].Default {
+			return true
+		}
+		// If j is default and i is not, j comes first
+		if providerEndpoints[j].Default && !providerEndpoints[i].Default {
+			return false
+		}
+		// If both are default or both are not default, sort by name
+		return providerEndpoints[i].Name < providerEndpoints[j].Name
+	})
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Load models if required
+	if includeModels {
+		for idx := range providerEndpoints {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+
+				models, err := s.getProviderModels(ctx, providerEndpoints[idx])
+				if err != nil {
+					log.Err(err).
+						Str("provider", providerEndpoints[idx].Name).
+						Str("endpoint_id", providerEndpoints[idx].ID).
+						Str("owner", providerEndpoints[idx].Owner).
+						Msg("error listing models")
+					mu.Lock()
+					providerEndpoints[idx].Status = types.ProviderEndpointStatusError
+					providerEndpoints[idx].Error = err.Error()
+					mu.Unlock()
+					return
+				}
+
+				mu.Lock()
+				providerEndpoints[idx].Status = types.ProviderEndpointStatusOK
+				providerEndpoints[idx].AvailableModels = models
+				mu.Unlock()
+			}(idx)
+		}
 	}
+
+	wg.Wait()
+
+	writeResponse(rw, providerEndpoints, http.StatusOK)
+}
+
+func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error) {
+	// Check for cached models
+	cacheKey := fmt.Sprintf("%s:%s", providerEndpoint.Name, providerEndpoint.Owner)
+	if cached, found := s.cache.Get(cacheKey); found {
+		var models []types.OpenAIModel
+		err := json.Unmarshal([]byte(cached), &models)
+		if err != nil {
+			return nil, err
+		}
+		return models, nil
+	}
+
+	provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		Provider: providerEndpoint.Name,
+		Owner:    providerEndpoint.Owner,
+	})
+	if err != nil {
+		log.Err(err).
+			Str("provider", providerEndpoint.Name).
+			Str("owner", providerEndpoint.Owner).
+			Msg("error getting provider")
+		return nil, err
+	}
+
+	// Models should respond in 5 seconds or less, otherwise we'll kill the request
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	models, err := provider.ListModels(ctx)
+	if err != nil {
+		log.Err(err).
+			Str("provider", providerEndpoint.Name).
+			Str("owner", providerEndpoint.Owner).
+			Msg("error listing models")
+		return nil, err
+	}
+
+	// Cache the models
+	modelsJSON, err := json.Marshal(models)
+	if err != nil {
+		return nil, err
+	}
+	s.cache.SetWithTTL(cacheKey, string(modelsJSON), 1, 5*time.Minute)
+
+	return models, nil
 }
 
 // createProviderEndpoint godoc
@@ -132,7 +226,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 // @Tags    providers
 
 // @Success 200 {object} types.ProviderEndpoint
-// @Router /api/v1/providers-endpoints [post]
+// @Router /api/v1/provider-endpoints [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -212,7 +306,7 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 // @Tags    providers
 
 // @Success 200 {object} types.UpdateProviderEndpoint
-// @Router /api/v1/providers-endpoints/{id} [put]
+// @Router /api/v1/provider-endpoints/{id} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -309,7 +403,7 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 // @Tags    providers
 
 // @Success 204 "No Content"
-// @Router /api/v1/providers-endpoints/{id} [delete]
+// @Router /api/v1/provider-endpoints/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

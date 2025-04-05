@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -81,6 +82,7 @@ type HelixAPIServer struct {
 	oidcClient        auth.OIDC
 	oauthManager      *oauth.Manager
 	fileServerHandler http.Handler
+	cache             *ristretto.Cache[string, string]
 }
 
 func NewServer(
@@ -162,6 +164,15 @@ func NewServer(
 		return nil, fmt.Errorf("no oidc client found")
 	}
 
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 30, // maximum cost of cache (1GB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -188,6 +199,7 @@ func NewServer(
 		oidcClient:        oidcClient,
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
+		cache:             cache,
 	}, nil
 }
 
@@ -430,8 +442,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		runnerID := vars["runner_id"]
-		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
-		log.Debug().Interface("request", r).Msg("nats request")
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("request_path", r.URL.Path).
+			Msg("proxying runner websocket request to nats")
 
 		// Upgrade the incoming HTTP connection to a WebSocket connection.
 		upgrader := websocket.Upgrader{
@@ -441,9 +455,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 				return true
 			},
 		}
+
 		clientConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("Failed to upgrade client connection: %v", err)
+			log.Error().Err(err).Msg("Failed to upgrade client connection")
 			return
 		}
 		// Ensure the client connection is closed on function exit.
@@ -452,7 +467,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		// Connect to the backend WebSocket server.
 		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
 		if err != nil {
-			log.Printf("Failed to connect to backend WebSocket server: %v", err)
+			log.Error().Err(err).Msg("Failed to connect to backend WebSocket server")
 			return
 		}
 		// Ensure the backend connection is closed on function exit.

@@ -181,6 +181,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			startReq.AppID = session.ParentApp
 		}
 
+		// If the provider is not set, use the provider from the session
+		if startReq.Provider == "" {
+			startReq.Provider = types.Provider(session.Provider)
+		}
+
 		// Set the session ID in the context to enable document ID tracking
 		ctx = oai.SetContextSessionID(ctx, session.ID)
 		log.Debug().
@@ -198,6 +203,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Updated:        time.Now(),
 			Mode:           types.SessionModeInference,
 			Type:           types.SessionTypeText,
+			Provider:       string(startReq.Provider),
 			ModelName:      startReq.Model,
 			ParentApp:      startReq.AppID,
 			OrganizationID: startReq.OrganizationID,

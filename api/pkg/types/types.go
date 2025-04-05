@@ -390,6 +390,7 @@ type Session struct {
 	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
+	Provider  string `json:"provider"`
 	ModelName string `json:"model_name"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the

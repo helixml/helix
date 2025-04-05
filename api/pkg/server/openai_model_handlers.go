@@ -9,14 +9,21 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
-// Updated listModels function
+// listModels godoc
+// @Summary List models
+// @Description List models
+// @Tags    models
+
+// @Success 200 {array} types.OpenAIModelsList
+// @Param provider query string false "Provider"
+// @Router /v1/models [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
 	provider := r.URL.Query().Get("provider")
 	if provider == "" {
@@ -42,22 +49,15 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	response := model.OpenAIModelsList{
+	response := types.OpenAIModelsList{
 		Models: models,
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-
-	err = json.NewEncoder(rw).Encode(response)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	writeResponse(rw, response, http.StatusOK)
 }
 
 // Updated function to determine models
-func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) {
+func (apiServer *HelixAPIServer) determineModels() ([]types.OpenAIModel, error) {
 	// If configured to proxy through to LLM provider, return their models
 	if apiServer.Cfg.Inference.Provider != string(types.ProviderHelix) {
 		var baseURL string
@@ -113,9 +113,9 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 		log.Trace().Str("provider", apiServer.Cfg.Inference.Provider).Msg("Response from provider's models endpoint")
 		log.Trace().RawJSON("response_body", body).Msg("Models response")
 
-		var models []model.OpenAIModel
+		var models []types.OpenAIModel
 		var rawResponse struct {
-			Data []model.OpenAIModel `json:"data"`
+			Data []types.OpenAIModel `json:"data"`
 		}
 		err = json.Unmarshal(body, &rawResponse)
 		if err == nil && len(rawResponse.Data) > 0 {
@@ -176,7 +176,7 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 
 		// If there's a GPT model, filter out non-GPT models
 		if hasGPTModel {
-			filteredModels := make([]model.OpenAIModel, 0)
+			filteredModels := make([]types.OpenAIModel, 0)
 			for _, m := range models {
 				if strings.HasPrefix(m.ID, "gpt-") {
 					filteredModels = append(filteredModels, m)
