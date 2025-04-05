@@ -250,18 +250,6 @@ const Home: FC = () => {
                             onSetType={setCurrentType}
                           />
                         )}
-                      
-                          {/* <ModelPicker
-                            type={currentType}
-                            model={currentModel}
-                            provider={undefined}
-                            displayMode="short"
-                            border
-                            compact
-                            onSetModel={setCurrentModel}
-                          /> */}
-                        
-
 
                         <AdvancedModelPicker
                           selectedModelId={currentModel}

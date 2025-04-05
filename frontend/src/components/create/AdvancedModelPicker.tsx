@@ -25,7 +25,7 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import { useListProviders } from '../../services/providersService';
-import { TypesProviderEndpoint, TypesOpenAIModel } from '../../api/api';
+import { TypesOpenAIModel } from '../../api/api';
 import openaiLogo from '../../../assets/img/openai-logo.png'
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 
