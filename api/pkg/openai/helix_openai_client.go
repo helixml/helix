@@ -42,7 +42,7 @@ func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 			Name:        m.GetHumanReadableName(),
 			Description: m.GetDescription(),
 			Hide:        m.GetHidden(),
-			Type:        "text",
+			Type:        "chat",
 		})
 	}
 
