@@ -1671,6 +1671,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ProviderEndpointType'
         description: 'global, user (TODO: orgs, teams)'
+      error:
+        type: string
       id:
         type: string
       models:
@@ -1686,9 +1688,25 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: user, system, org
+      status:
+        allOf:
+        - $ref: '#/definitions/types.ProviderEndpointStatus'
+        description: If we can't fetch models
       updated:
         type: string
     type: object
+  types.ProviderEndpointStatus:
+    enum:
+    - ok
+    - error
+    - loading
+    - disabled
+    type: string
+    x-enum-varnames:
+    - ProviderEndpointStatusOK
+    - ProviderEndpointStatusError
+    - ProviderEndpointStatusLoading
+    - ProviderEndpointStatusDisabled
   types.ProviderEndpointType:
     enum:
     - global
@@ -1895,9 +1913,6 @@ definitions:
         - $ref: '#/definitions/types.SessionMode'
         description: e.g. inference, finetune
       model_name:
-        description: |-
-          huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
-          stabilityai/stable-diffusion-xl-base-1.0
         type: string
       name:
         description: |-
@@ -1918,6 +1933,11 @@ definitions:
         description: the app this session was spawned from
         type: string
       parent_session:
+        type: string
+      provider:
+        description: |-
+          huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
+          stabilityai/stable-diffusion-xl-base-1.0
         type: string
       type:
         allOf:
