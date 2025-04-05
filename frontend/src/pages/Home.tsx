@@ -252,6 +252,7 @@ const Home: FC = () => {
                         )}
 
                         <AdvancedModelPicker
+                          selectedProvider={currentProvider}
                           selectedModelId={currentModel}
                           onSelectModel={function (provider: string, model: string): void {
                             setCurrentModel(model)
