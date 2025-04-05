@@ -36,13 +36,14 @@ func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 
 	for _, m := range ollamaModels {
 		helixModels = append(helixModels, types.OpenAIModel{
-			ID:          m.ModelName().String(),
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        m.GetHumanReadableName(),
-			Description: m.GetDescription(),
-			Hide:        m.GetHidden(),
-			Type:        "chat",
+			ID:            m.ModelName().String(),
+			Object:        "model",
+			OwnedBy:       "helix",
+			Name:          m.GetHumanReadableName(),
+			Description:   m.GetDescription(),
+			Hide:          m.GetHidden(),
+			Type:          "chat",
+			ContextLength: int(m.GetContextLength()),
 		})
 	}
 
