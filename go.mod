@@ -14,6 +14,7 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/coreos/go-oidc/v3 v3.13.0
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dgraph-io/ristretto/v2 v2.2.0
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/drone/envsubst v1.0.3
 	github.com/dustin/go-humanize v1.0.1
@@ -77,6 +78,7 @@ require (
 )
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
 )
