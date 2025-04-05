@@ -22,6 +22,15 @@ const (
 	ProviderEndpointTypeUser   ProviderEndpointType = "user"
 )
 
+type ProviderEndpointStatus string
+
+const (
+	ProviderEndpointStatusOK       ProviderEndpointStatus = "ok"
+	ProviderEndpointStatusError    ProviderEndpointStatus = "error"
+	ProviderEndpointStatusLoading  ProviderEndpointStatus = "loading"
+	ProviderEndpointStatusDisabled ProviderEndpointStatus = "disabled"
+)
+
 type ProviderEndpoint struct {
 	ID             string               `json:"id" gorm:"primaryKey"`
 	Created        time.Time            `json:"created"`
@@ -37,7 +46,9 @@ type ProviderEndpoint struct {
 	APIKeyFromFile string               `json:"api_key_file"`     // Must be mounted to the container
 	Default        bool                 `json:"default" gorm:"-"` // Set from environment variable
 
-	AvailableModels []OpenAIModel `json:"available_models" gorm:"-"`
+	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
+	Status          ProviderEndpointStatus `json:"status" gorm:"-"` // If we can't fetch models
+	Error           string                 `json:"error" gorm:"-"`
 }
 
 // ModelsList is a list of models, including those that belong to the user or organization.
