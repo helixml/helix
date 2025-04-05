@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -113,6 +113,35 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       }))
     ) ?? [];
   }, [providers]);
+
+  // Auto-select first available model when none is selected
+  useEffect(() => {
+    // For text type, we need to use chat models
+    const effectiveType = currentType === "text" ? "chat" : currentType;
+    
+    // Select first model if none selected or if current model doesn't match the new type
+    if (allModels.length > 0) {
+      // If no model is selected, select the first one of the right type
+      if (!selectedModelId) {
+        const firstModel = allModels.find(model => model.type === effectiveType);
+        if (firstModel && firstModel.id) {
+          onSelectModel(firstModel.provider, firstModel.id);
+        }
+      } 
+      // If a model is selected, check if its type matches current type
+      else {
+        const currentModel = allModels.find(model => model.id === selectedModelId);
+        // If current model doesn't match the expected type, select a new one
+        if (currentModel && currentModel.type !== effectiveType) {
+          const newModel = allModels.find(model => model.type === effectiveType);
+          if (newModel && newModel.id) {
+            onSelectModel(newModel.provider, newModel.id);
+          }
+        }
+      }
+    }
+  }, [allModels, selectedModelId, currentType, onSelectModel]);
+  
 
   // Find the full name/ID of the selected model, default if not found or not selected
   const displayModelName = useMemo(() => {
