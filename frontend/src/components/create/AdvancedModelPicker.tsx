@@ -29,6 +29,7 @@ import { TypesOpenAIModel, TypesProviderEndpoint } from '../../api/api';
 import openaiLogo from '../../../assets/img/openai-logo.png'
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import vllmLogo from '../../../assets/img/vllm-logo.png'
+import helixLogo from '../../../assets/img/logo.png'
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -51,6 +52,11 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
     return <Avatar src={vllmLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
   }
 
+  // If owned by helix, show helix logo
+  if (provider.available_models && provider.available_models.length > 0 && provider.available_models[0].owned_by === "helix") {
+    return <Avatar src={helixLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+  }
+
   // Default robot head
   return (
     <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
@@ -66,8 +72,8 @@ interface ModelWithProvider extends TypesOpenAIModel {
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
   return models.filter((model) => {
-    // If provider is togetherai or openai, check model type
-    if (model.provider?.name === "togetherai" || model.provider?.name === "openai") {
+    // If provider is togetherai or openai or helix, check model type
+    if (model.provider?.name === "togetherai" || model.provider?.name === "openai" || model.provider?.name === "helix") {
       if (model.type !== modelType) {
         return false;
       }
