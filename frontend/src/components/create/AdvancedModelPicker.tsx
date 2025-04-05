@@ -25,43 +25,55 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import { useListProviders } from '../../services/providersService';
-import { TypesOpenAIModel } from '../../api/api';
+import { TypesOpenAIModel, TypesProviderEndpoint } from '../../api/api';
 import openaiLogo from '../../../assets/img/openai-logo.png'
 import togetheraiLogo from '../../../assets/img/together-logo.png'
+import vllmLogo from '../../../assets/img/vllm-logo.png'
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
+  selectedProvider?: string;
   onSelectModel: (provider: string, model: string) => void;
   buttonProps?: ButtonProps;
   currentType: string; // Model type (chat, image, etc)
   displayMode?: 'full' | 'short'; // Controls how the model name is displayed
 }
 
-const ProviderIcon: React.FC<{ providerBaseUrl: string }> = ({ providerBaseUrl }) => {
-  if (providerBaseUrl.includes('api.openai.com')) {
+const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
+  if (provider.base_url?.includes('api.openai.com')) {
     return <Avatar src={openaiLogo} sx={{ width: 32, height: 32 }} variant="square" />;
-  } else if (providerBaseUrl.includes('api.together.xyz')) {
+  } else if (provider.base_url?.includes('api.together.xyz')) {
     return <Avatar src={togetheraiLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
-  } else {
-    return (
-      <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
-        <SmartToyIcon />
-      </Avatar>
-    );
   }
+
+  // Check provider models, if it has more than 1 and "owned_by" = "vllm", then show vllm logo
+  if (provider.available_models && provider.available_models.length > 0 && provider.available_models[0].owned_by === "vllm") {
+    return <Avatar src={vllmLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+  }
+
+  // Default robot head
+  return (
+    <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
+      <SmartToyIcon />
+    </Avatar>
+  );  
 };
 
 interface ModelWithProvider extends TypesOpenAIModel {
-  provider: string;
+  provider: TypesProviderEndpoint;
   provider_base_url: string;
 }
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
   return models.filter((model) => {
-    if (model.type !== modelType) {
-      return false;
+    // If provider is togetherai or openai, check model type
+    if (model.provider?.name === "togetherai" || model.provider?.name === "openai") {
+      if (model.type !== modelType) {
+        return false;
+      }
     }
-    return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider.toLowerCase().includes(query.toLowerCase());
+    // Otherwise it can be a custom vllm/ollama which don't have model types at all
+    return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider?.name?.toLowerCase().includes(query.toLowerCase());
   });
 }
 
@@ -92,6 +104,7 @@ const getShortModelName = (name: string, displayMode: 'full' | 'short'): string 
 
 export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   selectedModelId,
+  selectedProvider,
   onSelectModel,
   buttonProps,
   currentType,
@@ -108,7 +121,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return providers?.flatMap((provider) => 
       (provider.available_models || []).map((model): ModelWithProvider => ({
         ...model,
-        provider: provider.name || '', 
+        provider: provider, 
         provider_base_url: provider.base_url || '',
       }))
     ) ?? [];
@@ -125,17 +138,29 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       if (!selectedModelId) {
         const firstModel = allModels.find(model => model.type === effectiveType);
         if (firstModel && firstModel.id) {
-          onSelectModel(firstModel.provider, firstModel.id);
+          onSelectModel(firstModel.provider?.name || '', firstModel.id);
         }
       } 
       // If a model is selected, check if its type matches current type
       else {
+        // console.log('selected model, finding it from our list', selectedProvider, selectedModelId)
         const currentModel = allModels.find(model => model.id === selectedModelId);
+
         // If current model doesn't match the expected type, select a new one
-        if (currentModel && currentModel.type !== effectiveType) {
-          const newModel = allModels.find(model => model.type === effectiveType);
+        if (currentModel && currentModel.type && currentModel.type !== effectiveType) {          
+          // Try to find a model of the right type from the same provider first
+          let newModel = allModels.find(model => 
+            model.type === effectiveType && 
+            model.provider?.name === selectedProvider
+          );
+          
+          // If no model found from the same provider, fall back to any provider
+          if (!newModel) {
+            newModel = allModels.find(model => model.type === effectiveType);
+          }
+          
           if (newModel && newModel.id) {
-            onSelectModel(newModel.provider, newModel.id);
+            onSelectModel(newModel.provider?.name || '', newModel.id);
           }
         }
       }
@@ -168,6 +193,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   };
 
   const handleSelectModel = (provider: string, modelId: string) => {
+    console.log("selecting model", provider, modelId);
     onSelectModel(provider, modelId);
     handleCloseDialog();
   };
@@ -299,9 +325,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               const formattedContextLength = formatContextLength(model.context_length);
               return (
                 <ListItem
-                  key={`${model.provider}-${model.id}`}
+                  key={`${model.provider.name}-${model.id}`}
                   button
-                  onClick={() => model.id && handleSelectModel(model.provider, model.id)}
+                  onClick={() => model.id && handleSelectModel(model.provider?.name || '', model.id)}
                   selected={model.id === selectedModelId}
                   sx={{
                     '&:hover': {
@@ -319,11 +345,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
                     <ListItemIcon sx={{ minWidth: 40 }}>
-                      <ProviderIcon providerBaseUrl={model.provider_base_url} />
+                      <ProviderIcon provider={model.provider} />
                     </ListItemIcon>
                     <ListItemText
                       primary={model.id || 'Unnamed Model'}
-                      secondary={model.provider}
+                      secondary={model.provider.name}
                       primaryTypographyProps={{
                         variant: 'body1',
                         sx: {
