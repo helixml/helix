@@ -270,6 +270,7 @@ const Home: FC = () => {
                             setCurrentProvider(provider)
                           }}
                           currentType={currentType}
+                          displayMode="short"
                         />
                         {/* Plus button - Only show if not in Image mode */}
                         {currentType !== 'image' && (
