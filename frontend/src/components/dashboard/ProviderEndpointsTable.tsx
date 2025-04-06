@@ -151,7 +151,6 @@ const ProviderEndpointsTable: FC = () => {
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}
           existingEndpoints={providerEndpoints as IProviderEndpoint[]}
-          refreshData={loadData}
         />
       </Paper>
     );
@@ -262,7 +261,6 @@ const ProviderEndpointsTable: FC = () => {
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
         existingEndpoints={providerEndpoints as IProviderEndpoint[]}
-        refreshData={loadData}
       />
       <Menu
         anchorEl={anchorEl}
