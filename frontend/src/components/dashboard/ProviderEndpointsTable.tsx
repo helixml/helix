@@ -282,6 +282,7 @@ const ProviderEndpointsTable: FC = () => {
         open={editDialogOpen}
         endpoint={selectedEndpoint}
         onClose={handleEditDialogClose}
+        refreshData={loadData}
       />
       <ProviderEndpointUsageDialog
         open={usageDialogOpen}
