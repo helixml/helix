@@ -36,12 +36,13 @@ type ServerConfig struct {
 	Organizations      Organizations
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
-	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helixml.tech"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -147,7 +148,7 @@ type Notifications struct {
 }
 
 type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helix.ml"`
+	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helixml.tech"`
 
 	SMTP struct {
 		Host     string `envconfig:"EMAIL_SMTP_HOST"`
@@ -355,7 +356,7 @@ type WebServer struct {
 	// so we just deep link to the object path and don't apply auth
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
-	LocalFilestorePath string
+	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
 	// Path to UNIX socket for serving embeddings without auth
 	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`

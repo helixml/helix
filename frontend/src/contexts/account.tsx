@@ -1,5 +1,5 @@
 import bluebird from 'bluebird'
-import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
+import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
@@ -43,9 +43,7 @@ export interface IAccountContext {
   loadAppApiKeys: (appId: string) => Promise<void>,
   models: IHelixModel[],
   hasImageModels: boolean,
-  fetchModels: (provider?: string) => Promise<void>,
-  providerEndpoints: IProviderEndpoint[],
-  fetchProviderEndpoints: () => Promise<void>,
+  fetchModels: (provider?: string) => Promise<void>,  
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
   orgNavigate: (routeName: string, params?: Record<string, string | undefined>) => void,
@@ -82,8 +80,6 @@ export const AccountContext = createContext<IAccountContext>({
   loadAppApiKeys: async () => { },
   models: [],
   fetchModels: async () => { },
-  providerEndpoints: [],
-  fetchProviderEndpoints: async () => {},
   hasImageModels: false,
   orgNavigate: () => {},
 })
@@ -231,26 +227,12 @@ export const useAccountContext = (): IAccountContext => {
     apiKeys,
     loadAppApiKeys,
   ])
-  
-
-  const fetchProviderEndpoints = useCallback(async () => {
-    try {
-      const endpoints = await api.get<IProviderEndpoint[]>('/api/v1/provider-endpoints')
-      if (endpoints) {
-        setProviderEndpoints(endpoints)
-      }
-    } catch (error) {
-      console.error('Error fetching provider endpoints:', error)
-      setProviderEndpoints([])
-    }
-  }, [api])
 
   const loadAll = useCallback(async () => {
     try {
       await bluebird.all([
         loadStatus(),
-        loadServerConfig(),
-        fetchProviderEndpoints(),
+        loadServerConfig(),        
       ])
     } catch (error) {
       console.error('Error loading data:', error)
@@ -259,7 +241,6 @@ export const useAccountContext = (): IAccountContext => {
   }, [
     loadStatus,
     loadServerConfig,
-    fetchProviderEndpoints,
   ])
 
   const onLogin = useCallback(async () => {
@@ -500,8 +481,6 @@ export const useAccountContext = (): IAccountContext => {
     loadAppApiKeys,
     models,
     fetchModels,
-    fetchProviderEndpoints,
-    providerEndpoints,
     organizationTools,
     isOrgAdmin,
     isOrgMember,
@@ -510,7 +489,7 @@ export const useAccountContext = (): IAccountContext => {
   }
 }
 
-export const AccountContextProvider: FC = ({ children }) => {
+export const AccountContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useAccountContext()
   return (
     <AccountContext.Provider value={value}>

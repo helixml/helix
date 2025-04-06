@@ -13,7 +13,7 @@ global:
   serverUrl: http://localhost:8080
 
 image:
-  repository: registry.helix.ml/helix/controlplane
+  repository: registry.helixml.tech/helix/controlplane
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
@@ -34,7 +34,7 @@ typesense:
   enabled: true
   apiKey: typesense
   image:
-    repository: registry.helix.ml/helix/typesense
+    repository: registry.helixml.tech/helix/typesense
   persistence:
     ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
     ##
@@ -122,7 +122,7 @@ pgvector:
 gptscript:
   enabled: true
   image:
-    repository: registry.helix.ml/helix/gptscript-runner
+    repository: registry.helixml.tech/helix/gptscript-runner
   replicas: 2
   concurrency: 20
   maxTasks: 0 # unlimited
@@ -147,14 +147,14 @@ controlplane:
   haystack:
     enabled: false
     image:
-      repository: registry.helix.ml/helix/haystack
+      repository: registry.helixml.tech/helix/haystack
     embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
     # TODO: these settings should be configurable in the helix.yaml, not
     # globally
     embeddingsDim: "3584"
     chunkSize: "1000"
     chunkOverlap: "50"
-
+  providers: {}
 
 imagePullSecrets: []
 nameOverride: ""

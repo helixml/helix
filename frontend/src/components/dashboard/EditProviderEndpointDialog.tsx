@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
-import useEndpointProviders from '../../hooks/useEndpointProviders';
+import { useUpdateProviderEndpoint } from '../../services/providersService';
 import useAccount from '../../hooks/useAccount';
 
 // Helper function to determine auth type from endpoint
@@ -48,6 +48,7 @@ interface EditProviderEndpointDialogProps {
   open: boolean;
   endpoint: IProviderEndpoint | null;
   onClose: () => void;
+  refreshData: () => void;
 }
 
 type AuthType = 'api_key' | 'api_key_file' | 'none';
@@ -56,9 +57,11 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   open,
   endpoint,
   onClose,
+  refreshData,
 }) => {
-  const { updateEndpoint } = useEndpointProviders();
+  // const { updateEndpoint } = useEndpointProviders();
   const account = useAccount();
+  const { mutate: updateProviderEndpoint } = useUpdateProviderEndpoint(endpoint?.id || '');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -136,14 +139,13 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
 
     setLoading(true);
     try {
-      await updateEndpoint(endpoint.id, {
-        name: endpoint.name,
-        base_url: formData.base_url,
-        api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
-        api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
-        endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
+      await updateProviderEndpoint({
+          base_url: formData.base_url,
+          api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
+          api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
+          endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),        
       });
-      await account.fetchProviderEndpoints();
+      // refreshData();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update endpoint');
@@ -172,6 +174,15 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 2 }}>
           {error && <Alert severity="error">{error}</Alert>}
+
+          <TextField
+            name="id"
+            label="Endpoint ID"
+            value={endpoint.id}            
+            fullWidth            
+            autoComplete="off"            
+            disabled
+          />
 
           <TextField
             name="base_url"

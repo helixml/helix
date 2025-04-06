@@ -1,4 +1,4 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, ReactNode } from 'react'
 import { useTheme, Breakpoint, SxProps } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import Box from '@mui/material/Box'
@@ -10,6 +10,7 @@ const Cell: FC<{
   end?: boolean,
   breakpoint?: Breakpoint,
   sx?: SxProps,
+  children?: ReactNode,
 }> = ({
   id,
   flexGrow = 0,

@@ -27,8 +27,9 @@ const Page: React.FC<{
   headerContent?: ReactNode,
   footerContent?: ReactNode,
   showDrawerButton?: boolean,
-  px?: number,
+  px?: number,  
   sx?: SxProps,
+  children?: ReactNode,
 }> = ({
   topbarContent = null,
   showTopbar = false,

@@ -79,16 +79,24 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.controlplane.inference }}
-            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
+
+            {{- with (.Values.controlplane.inference).defaultProvider }}
             - name: INFERENCE_PROVIDER
               value: {{ . | quote }}
             {{- end }}
-            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
+
+            {{- if .Values.controlplane.fineTuning }}
+            {{- with (.Values.controlplane.fineTuning).defaultProvider }}
+            - name: FINETUNING_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else }}
+            {{- with (.Values.controlplane.inference).defaultProvider }}
             - name: FINETUNING_PROVIDER
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+
             {{- if .Values.controlplane.providers.vllm }}
             {{- with (default "" .Values.controlplane.providers.vllm.baseUrl) }}
             - name: VLLM_BASE_URL
@@ -191,7 +199,7 @@ spec:
         {{- end }}
         {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
-          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helix.ml/helix/haystack" }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helixml.tech/helix/haystack" }}:{{ .Values.image.tag }}"
           imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

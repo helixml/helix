@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -81,6 +82,8 @@ type HelixAPIServer struct {
 	pingService       *version.PingService
 	oidcClient        auth.OIDC
 	oauthManager      *oauth.Manager
+	fileServerHandler http.Handler
+	cache             *ristretto.Cache[string, string]
 }
 
 func NewServer(
@@ -162,6 +165,15 @@ func NewServer(
 		return nil, fmt.Errorf("no oidc client found")
 	}
 
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 30, // maximum cost of cache (1GB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -180,13 +192,15 @@ func NewServer(
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
-		providerManager:  providerManager,
-		pubsub:           ps,
-		knowledgeManager: knowledgeManager,
-		scheduler:        scheduler,
-		pingService:      pingService,
-		oidcClient:       oidcClient,
-		oauthManager:     oauthManager,
+		providerManager:   providerManager,
+		pubsub:            ps,
+		knowledgeManager:  knowledgeManager,
+		scheduler:         scheduler,
+		pingService:       pingService,
+		oidcClient:        oidcClient,
+		oauthManager:      oauthManager,
+		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
+		cache:             cache,
 	}, nil
 }
 
@@ -302,6 +316,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(apiServer.filestoreUpload)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods(http.MethodDelete)
+	// Authentication is done within the handler itself based on API path
+	subRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(APIPrefix+"/filestore/viewer/", http.HandlerFunc(apiServer.filestoreViewerHandler)))
 
 	authRouter.HandleFunc("/data_entities", system.DefaultWrapper(apiServer.createDataEntity)).Methods(http.MethodPost)
 
@@ -316,50 +332,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// User search endpoint
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
 
-	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
-		// disable directory listings
-		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Cfg.WebServer.LocalFilestorePath)})
-
-		// we handle our own auth from inside this function
-		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
-		// that will extract the bearer token into a user id for us
-		subRouter.PathPrefix("/filestore/viewer/").Handler(
-			http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", APIPrefix), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// if the session is "shared" then anyone can see the files inside the session
-				// if the user is admin then can see anything
-				// if the user is runner then can see anything
-				// if the path is part of the user path then can see it
-				// if path has presign URL
-				// otherwise access denied
-				canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				if !canAccess {
-					http.Error(w, "Access denied", http.StatusForbidden)
-					return
-				}
-
-				// read the query param called redirect_urls
-				// if it's present and set to the string "true"
-				// then assign a boolean
-				shouldRedirectURLs := r.URL.Query().Get("redirect_urls") == "true"
-				if shouldRedirectURLs && strings.HasSuffix(r.URL.Path, ".url") {
-					url, err := apiServer.Controller.FilestoreReadTextFile(r.URL.Path)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-					} else {
-						http.Redirect(w, r, url, http.StatusFound)
-					}
-				} else {
-					fileServer.ServeHTTP(w, r)
-				}
-			})))
-	}
-
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
@@ -373,7 +345,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
-
+	authRouter.HandleFunc("/provider-endpoints/{id}/daily-usage", apiServer.getProviderDailyUsage).Methods(http.MethodGet)
+	authRouter.HandleFunc("/provider-endpoints/{id}/users-daily-usage", apiServer.getProviderUsersDailyUsage).Methods(http.MethodGet)
 	// Helix inference route
 	authRouter.HandleFunc("/sessions/chat", apiServer.startChatSessionHandler).Methods(http.MethodPost)
 
@@ -381,7 +354,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/learn", apiServer.startLearnSessionHandler).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods(http.MethodGet)
-	// authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods(http.MethodPost)
 
 	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods(http.MethodGet)
 	subRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods(http.MethodGet)
@@ -409,6 +381,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/apps/github/{id}", system.Wrapper(apiServer.updateGithubApp)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/apps/{id}/daily-usage", system.Wrapper(apiServer.getAppDailyUsage)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/apps/{id}/users-daily-usage", system.Wrapper(apiServer.getAppUsersDailyUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/llm-calls", system.Wrapper(apiServer.listAppLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/api-actions", system.Wrapper(apiServer.appRunAPIAction)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/user-access", system.Wrapper(apiServer.getAppUserAccess)).Methods(http.MethodGet)
@@ -474,8 +448,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		runnerID := vars["runner_id"]
-		log.Info().Msgf("proxying runner websocket request to nats for runner %s", runnerID)
-		log.Debug().Interface("request", r).Msg("nats request")
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("request_path", r.URL.Path).
+			Msg("proxying runner websocket request to nats")
 
 		// Upgrade the incoming HTTP connection to a WebSocket connection.
 		upgrader := websocket.Upgrader{
@@ -485,9 +461,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 				return true
 			},
 		}
+
 		clientConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("Failed to upgrade client connection: %v", err)
+			log.Error().Err(err).Msg("Failed to upgrade client connection")
 			return
 		}
 		// Ensure the client connection is closed on function exit.
@@ -496,7 +473,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		// Connect to the backend WebSocket server.
 		backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
 		if err != nil {
-			log.Printf("Failed to connect to backend WebSocket server: %v", err)
+			log.Error().Err(err).Msg("Failed to connect to backend WebSocket server")
 			return
 		}
 		// Ensure the backend connection is closed on function exit.

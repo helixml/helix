@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
-	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -31,7 +31,7 @@ type Client interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 
-	ListModels(ctx context.Context) ([]model.OpenAIModel, error)
+	ListModels(ctx context.Context) ([]types.OpenAIModel, error)
 
 	CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error)
 
@@ -93,7 +93,7 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 }
 
 // TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
-func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
 	url := c.baseURL + "/models"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -121,9 +121,9 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 	log.Trace().Str("base_url", c.baseURL).Msg("Response from provider's models endpoint")
 	log.Trace().RawJSON("response_body", body).Msg("Models response")
 
-	var models []model.OpenAIModel
+	var models []types.OpenAIModel
 	var rawResponse struct {
-		Data []model.OpenAIModel `json:"data"`
+		Data []types.OpenAIModel `json:"data"`
 	}
 	err = json.Unmarshal(body, &rawResponse)
 	if err == nil && len(rawResponse.Data) > 0 {
@@ -136,6 +136,9 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
 		}
 	}
+
+	// Remove audio, tts models
+	models = filterUnsupportedModels(models)
 
 	// Sort models: llama-33-70b-instruct models first, then other llama models, then meta-llama/* models, then the rest
 	sort.Slice(models, func(i, j int) bool {
@@ -210,9 +213,16 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 
 	// If there's a GPT model, filter out non-GPT models
 	if hasGPTModel {
-		filteredModels := make([]model.OpenAIModel, 0)
+		filteredModels := make([]types.OpenAIModel, 0)
 		for _, m := range models {
 			if strings.HasPrefix(m.ID, "gpt-") {
+				// Add the type chat. This is needed
+				// for UI to correctly allow filtering
+				m.Type = "chat"
+
+				// Set the context length
+				m.ContextLength = getOpenAIModelContextLength(m.ID)
+
 				filteredModels = append(filteredModels, m)
 			}
 		}

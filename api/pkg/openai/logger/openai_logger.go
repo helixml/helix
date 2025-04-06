@@ -13,7 +13,6 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
@@ -51,7 +50,7 @@ func (m *LoggingMiddleware) APIKey() string {
 	return m.client.APIKey()
 }
 
-func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
 	return m.client.ListModels(ctx)
 }
 

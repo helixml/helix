@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, ReactNode } from 'react'
 import { styled } from '@mui/system'
 import Typography from '@mui/material/Typography'
 
@@ -22,8 +22,10 @@ export const RequesterNode = styled('span')({
   color: '#009900',
 })
 
-export const BoldSectionTitle: FC = ({
+export const BoldSectionTitle = ({
   children,
+}: {
+  children: ReactNode,
 }) => {
   return (
     <Typography variant="subtitle1" sx={{

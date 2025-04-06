@@ -141,7 +141,7 @@ export const THEMES: Record<string, ITheme> = {
 }
 
 export const THEME_DOMAINS: Record<string, string> = {
-  'helix.ml': 'helix',
+  'helixml.tech': 'helix',
 }
 
 

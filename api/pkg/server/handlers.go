@@ -206,7 +206,8 @@ func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req 
 
 func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
-	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
+
+	if apiServer.Cfg.FileStore.LocalFSPath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
