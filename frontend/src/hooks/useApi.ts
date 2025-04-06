@@ -169,6 +169,10 @@ export const useApi = () => {
     return apiClientSingleton.api
   }, [])
 
+  const getV1Client = useCallback(() => {
+    return apiClientSingleton.v1
+  }, [])
+
   return {
     get,
     post,
@@ -176,6 +180,7 @@ export const useApi = () => {
     delete: del,
     setToken,
     getApiClient,
+    getV1Client,
   }
 }
 

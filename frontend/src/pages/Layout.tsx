@@ -1,4 +1,4 @@
-import React, { FC, useState, useMemo } from 'react'
+import React, { FC, useState, useMemo, ReactNode } from 'react'
 import { useTheme } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import Typography from '@mui/material/Typography'
@@ -28,8 +28,10 @@ import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
 import useApi from '../hooks/useApi'
 
-const Layout: FC = ({
-  children
+const Layout: FC<{
+  children: ReactNode,
+}> = ({
+  children,
 }) => {
   const theme = useTheme()
   const themeConfig = useThemeConfig()

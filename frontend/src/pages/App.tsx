@@ -24,7 +24,6 @@ import Page from '../components/system/Page'
 import AccessDenied from '../components/system/AccessDenied'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import SavingToast from '../components/widgets/SavingToast'
-import { useEndpointProviders } from '../hooks/useEndpointProviders'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useApp from '../hooks/useApp'
@@ -36,8 +35,7 @@ import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 
 const App: FC = () => {
-  const account = useAccount()
-  const endpointProviders = useEndpointProviders()
+  const account = useAccount()  
   const api = useApi()
   const snackbar = useSnackbar()
   const filestore = useFilestore()
@@ -53,7 +51,6 @@ const App: FC = () => {
 
   const [deletingAPIKey, setDeletingAPIKey] = useState('')
   const [isAccessDenied, setIsAccessDenied] = useState(false)
-  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false)
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
@@ -92,24 +89,6 @@ const App: FC = () => {
     account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
   }
 
-  // Load initial data
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        await Promise.all([
-          endpointProviders.loadData(),
-          account.fetchModels(),
-          account.fetchProviderEndpoints()
-        ])
-        setIsInitialDataLoaded(true)
-      } catch (error) {
-        console.error('Error loading initial data:', error)
-        snackbar.error('Failed to load providers and models')
-      }
-    }
-    loadInitialData()
-  }, [])
-
   useEffect(() => {
     const checkAccess = async () => {
       try {
@@ -131,10 +110,6 @@ const App: FC = () => {
   if (!account.user) return null
   if (isAccessDenied) return <AccessDenied />
   if (!appTools.app) return null
-  // Add check for initial data loading
-  if (!isInitialDataLoaded) return null
-  // Don't block rendering on isSafeToSave, we'll disable editing instead
-  // if (!appTools.isSafeToSave) return null
 
   const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
 
@@ -217,9 +192,9 @@ const App: FC = () => {
                       readOnly={isReadOnly}
                       showErrors={appTools.showErrors}
                       isAdmin={account.admin}
-                      providerEndpoints={endpointProviders.data}
-                      onProviderModelsLoaded={appTools.onProviderModelsLoaded}
-                      isSafeToSave={appTools.isSafeToSave}
+                      // providerEndpoints={endpointProviders.data}
+                      // onProviderModelsLoaded={appTools.onProviderModelsLoaded}
+                      // isSafeToSave={appTools.isSafeToSave}
                     />
                   )}
 

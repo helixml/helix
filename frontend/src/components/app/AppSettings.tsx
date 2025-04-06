@@ -16,6 +16,7 @@ import {
 import {
   IAppFlatState,
 } from '../../types'
+import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 
 interface AppSettingsProps {
   id: string,
@@ -24,9 +25,6 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
-  providerEndpoints?: TypesProviderEndpoint[],
-  onProviderModelsLoaded?: (provider: string) => void,
-  isSafeToSave?: boolean,
 }
 
 const AppSettings: FC<AppSettingsProps> = ({
@@ -36,9 +34,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   readOnly = false,
   showErrors = true,
   isAdmin = false,
-  providerEndpoints = [],
-  onProviderModelsLoaded,
-  isSafeToSave = true,
 }) => {
   // Local state for form values
   const [name, setName] = useState(app.name || '')
@@ -49,7 +44,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
-  const [isLoadingModels, setIsLoadingModels] = useState(false)
   
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -134,6 +128,27 @@ const AppSettings: FC<AppSettingsProps> = ({
     onUpdate(updatedApp)
   }
 
+  const handleModelChange = (provider: string, model: string) => {
+    setModel(model)
+    setProvider(provider)
+    
+    // Create updated state and call onUpdate immediately for pickers
+    const updatedApp: IAppFlatState = {
+      ...app,
+      name,
+      description,
+      systemPrompt,
+      avatar,
+      image,
+      global,
+      model,
+      provider,
+    }
+    
+    onUpdate(updatedApp)
+  }
+
+
   // Handle picker changes - these update immediately since they're selection events
   const handlePickerChange = (field: 'model' | 'provider', value: string) => {
     if (field === 'model') {
@@ -143,9 +158,9 @@ const AppSettings: FC<AppSettingsProps> = ({
     }
     
     // Don't auto-save while models are loading
-    if (isLoadingModels) {
-      return
-    }
+    // if (isLoadingModels) {
+    //   return
+    // }
     
     // Create updated state and call onUpdate immediately for pickers
     const updatedApp: IAppFlatState = {
@@ -191,17 +206,18 @@ const AppSettings: FC<AppSettingsProps> = ({
         label="Description"
         helperText="Enter a short description of what this app does"
       />
-      {!isSafeToSave && (
-        <Alert 
-          severity="info" 
-          sx={{ mb: 3, display: 'flex', alignItems: 'center' }}
-        >
-          <CircularProgress size={20} sx={{ mr: 1 }} /> 
-          Loading model data...
-        </Alert>
-      )}
-      
+
       <Box sx={{ mb: 3 }}>
+        <AdvancedModelPicker
+          selectedProvider={provider}
+          selectedModelId={model}
+          onSelectModel={handleModelChange}
+          currentType="text"
+          displayMode="short"
+        />
+      </Box>
+      
+      {/* <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Provider</Typography>
         <ProviderEndpointPicker
           providerEndpoint={provider}
@@ -223,7 +239,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           onLoadingStateChange={setIsLoadingModels}
           onProviderModelsLoaded={onProviderModelsLoaded}
         />
-      </Box>
+      </Box> */}
       <TextField
         sx={{ mb: 3 }}
         id="app-instructions"

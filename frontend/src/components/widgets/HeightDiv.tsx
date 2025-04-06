@@ -1,10 +1,11 @@
-import React, { FC, useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useEffect, ReactNode, FC } from 'react'
 import { SxProps } from '@mui/system'
 import Box from '@mui/material/Box'
 
 const HeightDiv: FC<{
   percent?: number,
   sx?: SxProps,
+  children?: ReactNode,
 }> = ({
   percent = 100,
   sx = {},

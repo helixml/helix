@@ -1,4 +1,4 @@
-import React, { useState, useContext, useMemo, useEffect } from 'react'
+import React, { useState, useContext, useMemo, useEffect, ReactNode } from 'react'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -105,6 +105,7 @@ const ShimmerButton = styled(Button)(({ theme }) => ({
 const SidebarContent: React.FC<{
   showTopLinks?: boolean,
   menuType: string,
+  children: ReactNode,
 }> = ({
   children,
   showTopLinks = true,
@@ -664,6 +665,7 @@ const SidebarContent: React.FC<{
 // Main Sidebar component that determines which menuType to use
 const Sidebar: React.FC<{
   showTopLinks?: boolean,
+  children: ReactNode,
 }> = ({
   children,
   showTopLinks = true,
