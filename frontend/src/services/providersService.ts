@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProviderEndpoint, RequestParams, TypesUpdateProviderEndpoint } from '../api/api';
+import { TypesProviderEndpoint, RequestParams, TypesUpdateProviderEndpoint, ContentType } from '../api/api';
 
 export const providersQueryKey = (loadModels: boolean = false) => [
   "providers",
@@ -30,10 +30,11 @@ export function useCreateProviderEndpoint() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    
-
     mutationFn: async (providerEndpoint: Partial<TypesProviderEndpoint>) => {
-      const result = await apiClient.v1ProviderEndpointsCreate(providerEndpoint as RequestParams)
+      const result = await apiClient.v1ProviderEndpointsCreate({
+        body: providerEndpoint,
+        type: ContentType.Json
+      })
       return result.data
     },
     onSuccess: () => {
@@ -44,14 +45,17 @@ export function useCreateProviderEndpoint() {
   });
 }
 
-export function useUpdateProviderEndpoint(id: string, providerEndpoint: Partial<TypesUpdateProviderEndpoint>) {
+export function useUpdateProviderEndpoint(id: string) {
   const api = useApi()
   const apiClient = api.getApiClient()  
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
-      const result = await apiClient.v1ProviderEndpointsUpdate(id, providerEndpoint as RequestParams)
+    mutationFn: async (providerEndpoint: Partial<TypesUpdateProviderEndpoint>) => {
+      const result = await apiClient.v1ProviderEndpointsUpdate(id, {
+        body: providerEndpoint,
+        type: ContentType.Json
+      })
       return result.data
     },
     onSuccess: () => {
