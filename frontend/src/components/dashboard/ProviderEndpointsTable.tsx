@@ -17,7 +17,6 @@ import {
 } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts';
 import { IProviderEndpoint } from '../../types';
-import useAccount from '../../hooks/useAccount';
 import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import LockIcon from '@mui/icons-material/Lock';
@@ -26,8 +25,8 @@ import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
 import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
-import useEndpointProviders from '../../hooks/useEndpointProviders';
 import { useApi } from '../../hooks/useApi';
+import { useListProviders } from '../../services/providersService';
 
 interface TypesAggregatedUsageMetric {
   date: string;
@@ -41,18 +40,20 @@ const ProviderEndpointsTable: FC = () => {
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});
-  const account = useAccount();
+  const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});  
   const api = useApi()
-  const apiClient = api.getApiClient()  
-  const { loadData } = useEndpointProviders();
+  const apiClient = api.getApiClient()    
+
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(true);
 
   // Fetch usage data for all providers
   useEffect(() => {
-    const fetchUsageData = async () => {
-      if (!account.providerEndpoints) return;
+    const fetchUsageData = async () => {      
+      if (isLoadingProviders) return;      
+
+      let endpoints = providerEndpoints as IProviderEndpoint[]
       
-      const usagePromises = account.providerEndpoints.map(endpoint => 
+      const usagePromises = endpoints.map(endpoint => 
         apiClient.v1ProviderEndpointsDailyUsageDetail(endpoint.id && endpoint.id !== "-" ? endpoint.id : endpoint.name)
           .then(response => ({ [endpoint.name]: response.data as TypesAggregatedUsageMetric[] }))
           .catch(() => ({ [endpoint.name]: null }))
@@ -62,7 +63,7 @@ const ProviderEndpointsTable: FC = () => {
       setUsageData(combinedData)
     }
     fetchUsageData()
-  }, [account.providerEndpoints])
+  }, [providerEndpoints])
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, endpoint: IProviderEndpoint) => {
     setAnchorEl(event.currentTarget);
@@ -132,7 +133,7 @@ const ProviderEndpointsTable: FC = () => {
     );
   };
 
-  if (!account.providerEndpoints || account.providerEndpoints.length === 0) {
+  if (!providerEndpoints || providerEndpoints.length === 0) {
     return (
       <Paper sx={{ p: 2, width: '100%' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -149,7 +150,8 @@ const ProviderEndpointsTable: FC = () => {
         <CreateProviderEndpointDialog
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}
-          existingEndpoints={account.providerEndpoints}
+          existingEndpoints={providerEndpoints as IProviderEndpoint[]}
+          refreshData={loadData}
         />
       </Paper>
     );
@@ -182,7 +184,7 @@ const ProviderEndpointsTable: FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {account.providerEndpoints.map((endpoint: IProviderEndpoint) => (
+            {(providerEndpoints as IProviderEndpoint[]).map((endpoint: IProviderEndpoint) => (
               <TableRow key={endpoint.name}>
                 <TableCell>
                   <Typography variant="body2">
@@ -259,7 +261,8 @@ const ProviderEndpointsTable: FC = () => {
       <CreateProviderEndpointDialog
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
-        existingEndpoints={account.providerEndpoints}
+        existingEndpoints={providerEndpoints as IProviderEndpoint[]}
+        refreshData={loadData}
       />
       <Menu
         anchorEl={anchorEl}
