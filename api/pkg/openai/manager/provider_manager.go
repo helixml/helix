@@ -306,7 +306,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 
 	openaiClient := openai.New(apiKey, endpoint.BaseURL)
 
-	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.Name), openaiClient, m.logStores...)
+	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.ID), openaiClient, m.logStores...)
 
 	return loggedClient, nil
 }

@@ -351,12 +351,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		Token: accessToken,
 		Name:  user.FullName,
 	}
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to encode user response")
-		http.Error(w, "Failed to encode user response: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	writeResponse(w, response, http.StatusOK)
 }
 
 // user godoc

@@ -51,7 +51,6 @@ func NewServeConfig() (*config.ServerConfig, error) {
 
 	serverConfig.Janitor.AppURL = serverConfig.WebServer.URL
 	serverConfig.Stripe.AppURL = serverConfig.WebServer.URL
-	serverConfig.WebServer.LocalFilestorePath = serverConfig.FileStore.LocalFSPath
 
 	if serverConfig.GitHub.Enabled {
 		if serverConfig.GitHub.ClientID == "" {
@@ -317,6 +316,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			postgresStore,
 			// TODO: bigquery
 		}
+	}
+
+	if !cfg.DisableUsageLogging {
+		logStores = append(logStores, logger.NewUsageLogger(postgresStore))
 	}
 
 	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)

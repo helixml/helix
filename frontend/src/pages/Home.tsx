@@ -12,6 +12,7 @@ import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import ModelPicker from '../components/create/ModelPicker'
+import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
@@ -57,6 +58,7 @@ const Home: FC = () => {
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
+  const [currentProvider, setCurrentProvider] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -96,6 +98,7 @@ const Home: FC = () => {
       const session = await NewInference({
         type: currentType,
         message: currentPrompt,
+        provider: currentProvider,
         modelName: currentModel,
         orgId,
       })
@@ -247,17 +250,17 @@ const Home: FC = () => {
                             onSetType={setCurrentType}
                           />
                         )}
-                        <Box sx={{ maxWidth: '400px' }}>
-                          <ModelPicker
-                            type={currentType}
-                            model={currentModel}
-                            provider={undefined}
-                            displayMode="short"
-                            border
-                            compact
-                            onSetModel={setCurrentModel}
-                          />
-                        </Box>
+
+                        <AdvancedModelPicker
+                          selectedProvider={currentProvider}
+                          selectedModelId={currentModel}
+                          onSelectModel={function (provider: string, model: string): void {
+                            setCurrentModel(model)
+                            setCurrentProvider(provider)
+                          }}
+                          currentType={currentType}
+                          displayMode="short"
+                        />
                         {/* Plus button - Only show if not in Image mode */}
                         {currentType !== 'image' && (
                           <Tooltip title="Add Documents" placement="top">

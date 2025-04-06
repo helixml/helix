@@ -1,4 +1,4 @@
-import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, createContext, useMemo, useState, useCallback, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -269,7 +269,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
   }
 }
 
-export const FilestoreContextProvider: FC = ({ children }) => {
+export const FilestoreContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useFilestoreContext()
   return (
     <FilestoreContext.Provider value={ value }>

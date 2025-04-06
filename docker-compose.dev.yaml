@@ -172,7 +172,7 @@ services:
       - 7317:7317
   llamaindex:
     profiles: [full]
-    image: registry.helix.ml/helix/llamaindex:latest
+    image: registry.helixml.tech/helix/llamaindex:latest
     # build:
     #   context: llamaindex
     #   dockerfile: Dockerfile
@@ -208,7 +208,7 @@ services:
       dockerfile: Dockerfile.runner
       args:
         TAG: 2024-12-07a-small
-    #image: ${RUNNER_IMAGE:-registry.helix.ml/helix/runner:latest-large}
+    #image: ${RUNNER_IMAGE:-registry.helixml.tech/helix/runner:latest-large}
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env

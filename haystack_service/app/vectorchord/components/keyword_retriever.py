@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023-present deepset GmbH <info@deepset.ai> and HelixML, Inc <luke@helix.ml>
+# SPDX-FileCopyrightText: 2023-present deepset GmbH <info@deepset.ai> and HelixML, Inc <luke@helixml.tech>
 #
 # SPDX-License-Identifier: Apache-2.0
 from typing import Any, Dict, List, Optional, Union

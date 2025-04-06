@@ -559,6 +559,24 @@ definitions:
         description: Either user ID or user email
         type: string
     type: object
+  types.AggregatedUsageMetric:
+    properties:
+      completion_tokens:
+        type: integer
+      date:
+        description: ID    string    `json:"id" gorm:"primaryKey"`
+        type: string
+      latency_ms:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_size_bytes:
+        type: integer
+      response_size_bytes:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
   types.App:
     properties:
       app_source:
@@ -1415,6 +1433,68 @@ definitions:
           $ref: '#/definitions/github_com_sashabaranov_go-openai.ToolCall'
         type: array
     type: object
+  types.OpenAIModel:
+    properties:
+      context_length:
+        type: integer
+      created:
+        type: integer
+      description:
+        type: string
+      hide:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      object:
+        type: string
+      owned_by:
+        type: string
+      parent:
+        type: string
+      permission:
+        items:
+          $ref: '#/definitions/types.OpenAIPermission'
+        type: array
+      root:
+        type: string
+      type:
+        type: string
+    type: object
+  types.OpenAIModelsList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
+    type: object
+  types.OpenAIPermission:
+    properties:
+      allow_create_engine:
+        type: boolean
+      allow_fine_tuning:
+        type: boolean
+      allow_logprobs:
+        type: boolean
+      allow_sampling:
+        type: boolean
+      allow_search_indices:
+        type: boolean
+      allow_view:
+        type: boolean
+      created:
+        type: integer
+      group: {}
+      id:
+        type: string
+      is_blocking:
+        type: boolean
+      object:
+        type: string
+      organization:
+        type: string
+    type: object
   types.OpenAIResponse:
     properties:
       choices:
@@ -1554,6 +1634,10 @@ definitions:
       api_key_file:
         description: Must be mounted to the container
         type: string
+      available_models:
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
       base_url:
         type: string
       created:
@@ -1567,6 +1651,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ProviderEndpointType'
         description: 'global, user (TODO: orgs, teams)'
+      error:
+        type: string
       id:
         type: string
       models:
@@ -1582,9 +1668,25 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: user, system, org
+      status:
+        allOf:
+        - $ref: '#/definitions/types.ProviderEndpointStatus'
+        description: If we can't fetch models
       updated:
         type: string
     type: object
+  types.ProviderEndpointStatus:
+    enum:
+    - ok
+    - error
+    - loading
+    - disabled
+    type: string
+    x-enum-varnames:
+    - ProviderEndpointStatusOK
+    - ProviderEndpointStatusError
+    - ProviderEndpointStatusLoading
+    - ProviderEndpointStatusDisabled
   types.ProviderEndpointType:
     enum:
     - global
@@ -1791,9 +1893,6 @@ definitions:
         - $ref: '#/definitions/types.SessionMode'
         description: e.g. inference, finetune
       model_name:
-        description: |-
-          huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
-          stabilityai/stable-diffusion-xl-base-1.0
         type: string
       name:
         description: |-
@@ -1814,6 +1913,11 @@ definitions:
         description: the app this session was spawned from
         type: string
       parent_session:
+        type: string
+      provider:
+        description: |-
+          huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
+          stabilityai/stable-diffusion-xl-base-1.0
         type: string
       type:
         allOf:
@@ -2366,6 +2470,15 @@ definitions:
           $ref: '#/definitions/types.User'
         type: array
     type: object
+  types.UsersAggregatedUsageMetric:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      user:
+        $ref: '#/definitions/types.User'
+    type: object
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -2386,7 +2499,7 @@ definitions:
 host: app.tryhelix.ai
 info:
   contact:
-    email: info@helix.ml
+    email: info@helixml.tech
     name: Helix support
     url: https://app.tryhelix.ai/
   description: This is a HelixML AI API.
@@ -2544,6 +2657,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Run an API action
+  /api/v1/apps/{id}/daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get app daily usage
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get app usage
+      tags:
+      - apps
   /api/v1/apps/{id}/gptscript:
     post:
       consumes:
@@ -2578,6 +2736,35 @@ paths:
       security:
       - BearerAuth: []
       summary: Run a GptScript
+  /api/v1/apps/{id}/llm-calls:
+    get:
+      description: List user's LLM calls with pagination and optional session filtering
+        for a specific app
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: pageSize
+        type: integer
+      - description: Filter by session ID
+        in: query
+        name: sessionFilter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedLLMCalls'
+      security:
+      - BearerAuth: []
+      summary: List LLM calls
+      tags:
+      - llm_calls
   /api/v1/apps/{id}/user-access:
     get:
       description: Returns the access rights the current user has for this app
@@ -2595,6 +2782,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Get current user's access level for an app
+      tags:
+      - apps
+  /api/v1/apps/{id}/users-daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get app users daily usage
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get app users daily usage
       tags:
       - apps
   /api/v1/apps/github/{id}:
@@ -2817,8 +3049,7 @@ paths:
       summary: Set license key
   /api/v1/llm_calls:
     get:
-      description: List user's LLM calls with pagination and optional session filtering
-        for a specific app
+      description: List LLM calls with pagination and optional session filtering
       parameters:
       - description: Page number
         in: query
@@ -3102,19 +3333,13 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
-  /api/v1/providers:
+  /api/v1/provider-endpoints:
     get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.Provider'
-            type: array
-      security:
-      - BearerAuth: []
-  /api/v1/providers-endpoints:
-    get:
+      parameters:
+      - description: Include models
+        in: query
+        name: with_models
+        type: boolean
       responses:
         "200":
           description: OK
@@ -3132,7 +3357,7 @@ paths:
             $ref: '#/definitions/types.ProviderEndpoint'
       security:
       - BearerAuth: []
-  /api/v1/providers-endpoints/{id}:
+  /api/v1/provider-endpoints/{id}:
     delete:
       responses:
         "204":
@@ -3145,6 +3370,107 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.UpdateProviderEndpoint'
+      security:
+      - BearerAuth: []
+  /api/v1/provider-endpoints/{id}/daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get provider daily usage
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/users-daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get provider daily usage per user
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.UsersAggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get provider daily usage per user
+      tags:
+      - providers
+  /api/v1/providers:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Provider'
+            type: array
       security:
       - BearerAuth: []
   /api/v1/search:
@@ -3395,6 +3721,22 @@ paths:
       summary: Creates an embedding vector representing the input text
       tags:
       - embeddings
+  /v1/models:
+    get:
+      parameters:
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OpenAIModelsList'
+            type: array
+      security:
+      - BearerAuth: []
 schemes:
 - https
 swagger: "2.0"

@@ -51,8 +51,8 @@ export const LicenseKeyPrompt: React.FC = () => {
       )}
       <Typography paragraph>
         Please get a valid license key from{' '}
-        <Link href="https://deploy.helix.ml/licenses" target="_blank" rel="noopener">
-          deploy.helix.ml/licenses
+        <Link href="https://deploy.helixml.tech/licenses" target="_blank" rel="noopener">
+          deploy.helixml.tech/licenses
         </Link>
       </Typography>
       {!isLoggedIn && (

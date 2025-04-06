@@ -86,7 +86,7 @@ if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [
 else
   # Add the Helix Helm chart repository
   echo "Adding the Helix Helm chart repository..."
-  helm repo add helix https://charts.helix.ml
+  helm repo add helix https://charts.helixml.tech
   helm repo update
   # Grab the latest values-example.yaml
   echo "Downloading the latest values-example.yaml..."
@@ -97,7 +97,7 @@ fi
 
 # Install Helix using Helm
 echo "Installing Helix..."
-export HELIX_VERSION=${HELIX_VERSION:-$(curl -s https://get.helix.ml/latest.txt)}
+export HELIX_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
 
 # Initialize an empty array for dynamic values
 HELM_VALUES=()

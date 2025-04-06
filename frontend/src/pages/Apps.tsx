@@ -26,12 +26,13 @@ const Apps: FC = () => {
   const apps = useApps()
   const snackbar = useSnackbar()
   const api = useApi()
+  
   const {
     params,
     setParams,
     removeParams,
     navigate,
-  } = useRouter()
+  } = useRouter()  
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 

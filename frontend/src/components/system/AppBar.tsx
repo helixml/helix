@@ -21,6 +21,7 @@ const AppBar: React.FC<{
   px?: number,
   title?: string | React.ReactNode,
   onOpenDrawer?: () => void,
+  children?: React.ReactNode,
 }> = ({
   height = TOOLBAR_HEIGHT,
   px = 3,

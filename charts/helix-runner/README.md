@@ -11,7 +11,7 @@ helm upgrade --install helix-runner \
 ## Install from repository
 
 ```bash
-helm repo add helix https://charts.helix.ml 
+helm repo add helix https://charts.helixml.tech 
 helm repo update
 ```
 

@@ -38,7 +38,7 @@ spec:
         - name: script-runner
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.gptscript.image.repository | default "registry.helix.ml/helix/gptscript-runner" }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.gptscript.image.repository | default "registry.helixml.tech/helix/gptscript-runner" }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef:

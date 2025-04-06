@@ -11,3 +11,22 @@ Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS 
 - Don't ever declare types as map[string]interface{} for JSON marshalling. Declare a regular struct oustide of the function and use it to marshal JSON
 - If a function returns multiple parameters such as `*SomeStruct, error`, don't return `nil, nil` from within the function, if the struct is nil, return an error to avoid extra checking that the struct is nil if the error is nil
 - For logging use `"github.com/rs/zerolog/log"` library
+- When creating logs, do user_id instead of userID in log keys, for example:
+  BAD:
+  ```
+  logger.Debug().
+		Str("userID", user.ID).
+		Str("username", user.Username).
+		Str("userType", string(user.Type)).
+    Str("originalPath", req.URL.Path).
+		Msg("User information from request")
+  ```
+  GOOD:
+  ```
+  logger.Debug().
+		Str("user_id", user.ID).
+		Str("username", user.Username).
+		Str("user_type", string(user.Type)).
+    Str("original_path", req.URL.Path).
+		Msg("User information from request")
+  ```
