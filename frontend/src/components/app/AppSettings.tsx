@@ -25,9 +25,6 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
-  // providerEndpoints?: TypesProviderEndpoint[],
-  // onProviderModelsLoaded?: (provider: string) => void,
-  // isSafeToSave?: boolean,
 }
 
 const AppSettings: FC<AppSettingsProps> = ({
@@ -37,9 +34,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   readOnly = false,
   showErrors = true,
   isAdmin = false,
-  // providerEndpoints = [],
-  // onProviderModelsLoaded,
-  // isSafeToSave = true,
 }) => {
   // Local state for form values
   const [name, setName] = useState(app.name || '')
@@ -50,7 +44,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
-  // const [isLoadingModels, setIsLoadingModels] = useState(false)
   
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -138,11 +131,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
     setProvider(provider)
-    
-    // Don't auto-save while models are loading
-    // if (isLoadingModels) {
-    //   return
-    // }
     
     // Create updated state and call onUpdate immediately for pickers
     const updatedApp: IAppFlatState = {
