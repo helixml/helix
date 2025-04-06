@@ -1,5 +1,5 @@
 import bluebird from 'bluebird'
-import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext } from 'react'
+import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
@@ -489,7 +489,7 @@ export const useAccountContext = (): IAccountContext => {
   }
 }
 
-export const AccountContextProvider: FC = ({ children }) => {
+export const AccountContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useAccountContext()
   return (
     <AccountContext.Provider value={value}>

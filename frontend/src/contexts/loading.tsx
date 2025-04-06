@@ -1,4 +1,4 @@
-import React, { FC, createContext, useMemo, useState } from 'react'
+import React, { createContext, useMemo, useState, ReactNode } from 'react'
 
 export interface ILoadingContext {
   loading: boolean,
@@ -24,7 +24,7 @@ export const useLoadingContext = (): ILoadingContext => {
   return contextValue
 }
 
-export const LoadingContextProvider: FC = ({ children }) => {
+export const LoadingContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useLoadingContext()
   return (
     <LoadingContext.Provider value={ value }>

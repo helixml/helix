@@ -1,4 +1,4 @@
-import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, createContext, useMemo, useState, useCallback, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 
@@ -179,7 +179,7 @@ export const useSessionsContext = (): ISessionsContext => {
   }
 }
 
-export const SessionsContextProvider: FC = ({ children }) => {
+export const SessionsContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useSessionsContext()
   return (
     <SessionsContext.Provider value={ value }>

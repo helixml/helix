@@ -15,6 +15,7 @@ export const InteractionContainer: FC<{
   badge?: string,
   background?: boolean,
   buttons?: React.ReactNode,
+  children?: React.ReactNode,
 }> = ({
   name,
   badge,
