@@ -34,7 +34,7 @@ export function useCreateProviderEndpoint() {
       const result = await apiClient.v1ProviderEndpointsCreate({
         body: providerEndpoint,
         type: ContentType.Json
-      })
+      } as RequestParams)
       return result.data
     },
     onSuccess: () => {
@@ -55,7 +55,7 @@ export function useUpdateProviderEndpoint(id: string) {
       const result = await apiClient.v1ProviderEndpointsUpdate(id, {
         body: providerEndpoint,
         type: ContentType.Json
-      })
+      } as RequestParams)
       return result.data
     },
     onSuccess: () => {
