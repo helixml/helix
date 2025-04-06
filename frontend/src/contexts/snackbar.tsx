@@ -1,4 +1,4 @@
-import React, { FC, createContext, useMemo, useState, useCallback } from 'react'
+import React, { FC, createContext, useMemo, useState, useCallback, ReactNode } from 'react'
 
 export type ISnackbarSeverity = 'error' | 'warning' | 'info' | 'success'
 
@@ -38,7 +38,7 @@ export const useSnackbarContext = (): ISnackbarContext => {
   }
 }
 
-export const SnackbarContextProvider: FC = ({ children }) => {
+export const SnackbarContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useSnackbarContext()
   return (
     <SnackbarContext.Provider value={ value }>

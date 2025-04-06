@@ -1,4 +1,4 @@
-import React, { FC, useEffect, createContext, useMemo, useState, useCallback, useRef } from 'react'
+import React, { useEffect, createContext, useMemo, useState, useCallback, useRef, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 import { throttle } from 'lodash'
@@ -352,7 +352,7 @@ export const useAppsContext = (): IAppsContext => {
 }
 
 // Provider component that wraps children with the context
-export const AppsContextProvider: FC = ({ children }) => {
+export const AppsContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useAppsContext()
   return (
     <AppsContext.Provider value={ value }>

@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box'
 import { SxProps } from '@mui/system'
-import { FC } from 'react'
+import { FC, ReactNode } from 'react'
 import { DropzoneOptions, useDropzone } from 'react-dropzone'
 
 const FileUpload: FC<{
@@ -8,6 +8,7 @@ const FileUpload: FC<{
   onlyImages?: boolean,
   onlyDocuments?: boolean,
   onUpload: (files: File[]) => void,
+  children?: ReactNode,
 }> = ({
   children,
   sx = {},
