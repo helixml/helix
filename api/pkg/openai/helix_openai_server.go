@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
@@ -36,7 +35,7 @@ func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, sche
 	}
 }
 
-func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
 	return ListModels(ctx)
 }
 

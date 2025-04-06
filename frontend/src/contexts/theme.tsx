@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react'
+import React, { useMemo, useState, ReactNode } from 'react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { PaletteMode } from '@mui/material'
@@ -8,7 +8,7 @@ export const ThemeContext = React.createContext({
   toggleMode: () => {},
 })
 
-export const ThemeProviderWrapper: FC = ({ children }) => {
+export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const [mode, setMode] = useState<PaletteMode>('dark')
   const theme = useMemo(() => {

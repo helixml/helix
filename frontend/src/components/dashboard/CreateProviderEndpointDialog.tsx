@@ -20,8 +20,7 @@ import {
 
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
-import useEndpointProviders from '../../hooks/useEndpointProviders';
-import useAccount from '../../hooks/useAccount';
+import { useCreateProviderEndpoint } from '../../services/providersService';
 
 interface CreateProviderEndpointDialogProps {
   open: boolean;
@@ -36,8 +35,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   onClose,
   existingEndpoints,
 }) => {
-  const { createEndpoint } = useEndpointProviders();
-  const account = useAccount();
+  const { mutate: createProviderEndpoint } = useCreateProviderEndpoint();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -107,7 +105,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
 
     setLoading(true);
     try {
-      await createEndpoint({
+      await createProviderEndpoint({
         name: formData.name,
         base_url: formData.base_url,
         api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
@@ -115,7 +113,6 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
         description: formData.description,
       });
-      account.fetchProviderEndpoints();
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create endpoint');

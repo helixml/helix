@@ -1,12 +1,13 @@
-import React, { FC, useState, useRef, useCallback } from 'react'
+import React, { FC, useState, useRef, useCallback, ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import { SxProps } from '@mui/system'
 
-export const ScrollingLoader: FC<{
+const ScrollingLoader: FC<{
   sx?: SxProps,
   onLoad: {
     (): Promise<void>,
-  }
+  },
+  children?: ReactNode,
 }> = ({
   sx = {},
   onLoad,

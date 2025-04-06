@@ -876,6 +876,7 @@ export interface ISessionChatRequest {
   system?: string,
   messages?: IMessage[],
   tools?: string[],
+  provider?: string,
   model?: string,
   rag_source_id?: string,
   lora_id?: string,

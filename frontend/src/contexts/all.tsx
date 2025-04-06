@@ -1,4 +1,4 @@
-import { FC } from 'react'
+import { ReactNode } from 'react'
 
 import {
   RouterContextProvider,
@@ -36,7 +36,7 @@ import {
   StreamingContextProvider,
 } from './streaming'
 
-const AllContextProvider: FC = ({ children }) => {
+const AllContextProvider = ({ children }: { children: ReactNode }) => {
   return (
     <RouterContextProvider>
       <SnackbarContextProvider>

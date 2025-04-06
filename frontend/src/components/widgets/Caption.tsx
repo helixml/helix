@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, ReactNode } from 'react'
 import Typography from '@mui/material/Typography'
 import { SxProps } from '@mui/system'
 
@@ -9,6 +9,7 @@ export type TerminalTextConfig = {
 
 const Caption: FC<{
   sx?: SxProps,
+  children?: ReactNode,
 }> = ({
   sx = {},
   children,

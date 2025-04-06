@@ -1355,6 +1355,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/provider-endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Include models",
+                        "name": "with_models",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ProviderEndpoint"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProviderEndpoint"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateProviderEndpoint"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints/{id}/daily-usage": {
             "get": {
                 "security": [
@@ -1511,70 +1583,6 @@ const docTemplate = `{
                                 "$ref": "#/definitions/types.Provider"
                             }
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/providers-endpoints": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.ProviderEndpoint"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.ProviderEndpoint"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/providers-endpoints/{id}": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.UpdateProviderEndpoint"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
                     }
                 }
             }
@@ -1917,6 +1925,34 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/openai.EmbeddingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider",
+                        "name": "provider",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OpenAIModelsList"
+                            }
                         }
                     }
                 }
@@ -3945,6 +3981,100 @@ const docTemplate = `{
                 }
             }
         },
+        "types.OpenAIModel": {
+            "type": "object",
+            "properties": {
+                "context_length": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "hide": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "owned_by": {
+                    "type": "string"
+                },
+                "parent": {
+                    "type": "string"
+                },
+                "permission": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OpenAIPermission"
+                    }
+                },
+                "root": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.OpenAIModelsList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OpenAIModel"
+                    }
+                }
+            }
+        },
+        "types.OpenAIPermission": {
+            "type": "object",
+            "properties": {
+                "allow_create_engine": {
+                    "type": "boolean"
+                },
+                "allow_fine_tuning": {
+                    "type": "boolean"
+                },
+                "allow_logprobs": {
+                    "type": "boolean"
+                },
+                "allow_sampling": {
+                    "type": "boolean"
+                },
+                "allow_search_indices": {
+                    "type": "boolean"
+                },
+                "allow_view": {
+                    "type": "boolean"
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "group": {},
+                "id": {
+                    "type": "string"
+                },
+                "is_blocking": {
+                    "type": "boolean"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "organization": {
+                    "type": "string"
+                }
+            }
+        },
         "types.OpenAIResponse": {
             "type": "object",
             "properties": {
@@ -4146,6 +4276,12 @@ const docTemplate = `{
                     "description": "Must be mounted to the container",
                     "type": "string"
                 },
+                "available_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OpenAIModel"
+                    }
+                },
                 "base_url": {
                     "type": "string"
                 },
@@ -4166,6 +4302,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.ProviderEndpointType"
                         }
                     ]
+                },
+                "error": {
+                    "type": "string"
                 },
                 "id": {
                     "type": "string"
@@ -4191,10 +4330,33 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "status": {
+                    "description": "If we can't fetch models",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderEndpointStatus"
+                        }
+                    ]
+                },
                 "updated": {
                     "type": "string"
                 }
             }
+        },
+        "types.ProviderEndpointStatus": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "error",
+                "loading",
+                "disabled"
+            ],
+            "x-enum-varnames": [
+                "ProviderEndpointStatusOK",
+                "ProviderEndpointStatusError",
+                "ProviderEndpointStatusLoading",
+                "ProviderEndpointStatusDisabled"
+            ]
         },
         "types.ProviderEndpointType": {
             "type": "string",
@@ -4475,7 +4637,6 @@ const docTemplate = `{
                     ]
                 },
                 "model_name": {
-                    "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
                 "name": {
@@ -4503,6 +4664,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "parent_session": {
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
                 "type": {

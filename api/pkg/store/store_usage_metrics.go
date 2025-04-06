@@ -10,10 +10,6 @@ import (
 )
 
 func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
-	if metric.AppID == "" {
-		return nil, errors.New("app_id is required")
-	}
-
 	if metric.ID == "" {
 		metric.ID = system.GenerateUsageMetricID()
 	}

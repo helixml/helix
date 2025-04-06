@@ -1,4 +1,4 @@
-import React, { FC, createContext, useMemo, useCallback } from 'react'
+import React, { createContext, useMemo, useCallback, ReactNode } from 'react'
 import { useRoute } from 'react-router5'
 import router, { useApplicationRoute } from '../router'
 
@@ -125,7 +125,7 @@ export const useRouterContext = (): IRouterContext => {
   return contextValue
 }
 
-export const RouterContextProvider: FC = ({ children }) => {
+export const RouterContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useRouterContext()
   return (
     <RouterContext.Provider value={ value }>
