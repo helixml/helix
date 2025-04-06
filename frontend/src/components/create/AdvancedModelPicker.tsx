@@ -41,9 +41,9 @@ interface AdvancedModelPickerProps {
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
-  if (provider.base_url?.startsWith('https://api.openai.com')) {
+  if (provider.base_url?.startsWith('https://api.openai.com/')) {
     return <Avatar src={openaiLogo} sx={{ width: 32, height: 32 }} variant="square" />;
-  } else if (provider.base_url?.startsWith('https://api.together.xyz')) {
+  } else if (provider.base_url?.startsWith('https://api.together.xyz/')) {
     return <Avatar src={togetheraiLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
   }
 
