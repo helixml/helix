@@ -21,12 +21,12 @@ import {
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
 import useEndpointProviders from '../../hooks/useEndpointProviders';
-import useAccount from '../../hooks/useAccount';
 
 interface CreateProviderEndpointDialogProps {
   open: boolean;
   onClose: () => void;
   existingEndpoints: IProviderEndpoint[];
+  refreshData: () => void;
 }
 
 type AuthType = 'api_key' | 'api_key_file' | 'none';
@@ -35,9 +35,9 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   open,
   onClose,
   existingEndpoints,
+  refreshData,
 }) => {
   const { createEndpoint } = useEndpointProviders();
-  const account = useAccount();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -115,7 +115,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
         description: formData.description,
       });
-      account.fetchProviderEndpoints();
+      refreshData();
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create endpoint');
