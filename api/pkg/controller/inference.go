@@ -37,7 +37,7 @@ type ChatCompletionOptions struct {
 	RAGSourceID string
 	Provider    string
 	QueryParams map[string]string
-	OAuthTokens map[string]string // OAuth tokens mapped by provider type (lowercase)
+	OAuthTokens map[string]string // OAuth tokens mapped by provider name
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -410,13 +410,6 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 			Msg("Failed to get client for tool execution")
 		return nil, nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
-
-	// Check if the client can support OAuth tokens
-	_, supportsOAuth := apieClient.(*oai.RetryableClient)
-	log.Info().
-		Str("client_type", fmt.Sprintf("%T", apieClient)).
-		Bool("supports_oauth", supportsOAuth).
-		Msg("API client capabilities")
 
 	options = append(options, tools.WithClient(apieClient))
 
