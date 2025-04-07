@@ -171,15 +171,27 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 }
 
 func truncateHistory(history []*types.ToolHistoryMessage, length int) []*types.ToolHistoryMessage {
+	log.Debug().
+		Int("history_length", len(history)).
+		Int("requested_length", length).
+		Msg("Truncating tool history")
+
 	if length == 0 {
+		log.Debug().Msg("Truncate length is 0, returning full history")
 		return history
 	}
 
 	// If length is greater than history, return history
 	if length > len(history) {
+		log.Debug().Msg("Requested truncate length exceeds history length, returning full history")
 		return history
 	}
 
+	log.Debug().
+		Int("original_length", len(history)).
+		Int("truncated_length", length).
+		Int("messages_removed", len(history)-length).
+		Msg("History truncated")
 	return history[len(history)-length:]
 }
 
