@@ -58,7 +58,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	var oauthTokens map[string]string
 
 	// First check if OAuth tokens were directly provided in options
-	if opts.oauthTokens != nil && len(opts.oauthTokens) > 0 {
+	if len(opts.oauthTokens) > 0 {
 		oauthTokens = opts.oauthTokens
 		log.Info().
 			Str("session_id", sessionID).
@@ -156,7 +156,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	}
 
 	// Process the OAuth tokens if we have any
-	if oauthTokens != nil && len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
+	if len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
 		processOAuthTokens(tool, oauthTokens)
 		log.Info().
 			Str("session_id", sessionID).
@@ -209,7 +209,7 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	var oauthTokens map[string]string
 
 	// First check if OAuth tokens were directly provided in options
-	if opts.oauthTokens != nil && len(opts.oauthTokens) > 0 {
+	if len(opts.oauthTokens) > 0 {
 		oauthTokens = opts.oauthTokens
 		log.Info().
 			Str("session_id", sessionID).
@@ -307,7 +307,7 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	}
 
 	// Process the OAuth tokens if we have any
-	if oauthTokens != nil && len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
+	if len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
 		processOAuthTokens(tool, oauthTokens)
 		log.Info().
 			Str("session_id", sessionID).

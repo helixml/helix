@@ -525,7 +525,7 @@ func getParameterType(schema *openapi3.SchemaRef) ParameterType {
 
 // processOAuthTokens processes OAuth tokens for a tool
 func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
-	if oauthTokens == nil || len(oauthTokens) == 0 {
+	if len(oauthTokens) == 0 {
 		log.Debug().
 			Str("tool_name", tool.Name).
 			Msg("No OAuth tokens available for tool")
