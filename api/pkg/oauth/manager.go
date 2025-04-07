@@ -695,13 +695,13 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 					Str("provider_name", providerName).
 					Msg("Failed to refresh token, trying next connection")
 				continue
-			} else {
-				log.Info().
-					Str("connection_id", connection.ID).
-					Str("provider_name", providerName).
-					Time("new_expiry", connection.ExpiresAt).
-					Msg("Successfully refreshed OAuth token")
 			}
+
+			log.Info().
+				Str("connection_id", connection.ID).
+				Str("provider_name", providerName).
+				Time("new_expiry", connection.ExpiresAt).
+				Msg("Successfully refreshed OAuth token")
 		}
 
 		missingScopes := getMissingScopes(connection.Scopes, requiredScopes)
