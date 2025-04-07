@@ -216,8 +216,8 @@ paths:
 				{
 					ID:       "test-assistant",
 					Name:     "Test Assistant",
-					Provider: "together",
-					Model:    "llama3:instruct",
+					Provider: "togetherai",
+					Model:    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 					Tools:    []*types.Tool{githubTool},
 				},
 			},
@@ -343,7 +343,8 @@ paths:
 		// Create a sessions API request rather than directly calling ChatCompletionStream
 		// This better simulates the actual production flow
 		sessionReq := &types.SessionChatRequest{
-			Model:        "llama3:instruct",
+			Model:        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			Provider:     "togetherai",
 			Stream:       true,
 			SystemPrompt: "You are a helpful assistant that can use GitHub to look up repository issues.",
 			AppID:        createdApp.ID, // This is critical - setting the app ID explicitly
