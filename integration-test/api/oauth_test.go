@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -35,6 +38,12 @@ import (
 func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
+	}
+
+	// Load environment variables from .test.env file
+	err := godotenv.Load(".test.env")
+	if err != nil {
+		t.Logf("Warning: Could not load .test.env file: %v", err)
 	}
 
 	// 1. Set up the test environment with a mock GitHub API server to capture auth headers
@@ -58,14 +67,20 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 		// For proper testing, handle auth vs no auth differently
 		if capturedAuthHeader == "" || !strings.Contains(capturedAuthHeader, "Bearer github-test-token") {
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest"}`))
+			_, err := w.Write([]byte(`{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest"}`))
+			if err != nil {
+				t.Logf("MOCK SERVER: Error writing response: %v", err)
+			}
 			t.Logf("MOCK SERVER: Returned 401 - Bad credentials (no valid token)")
 			return
 		}
 
 		// Return appropriate response for a successful call
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`[{"id":1,"title":"Test Issue 1"},{"id":2,"title":"Test Issue 2"}]`))
+		_, err := w.Write([]byte(`[{"id":1,"title":"Test Issue 1"},{"id":2,"title":"Test Issue 2"}]`))
+		if err != nil {
+			t.Logf("MOCK SERVER: Error writing response: %v", err)
+		}
 		t.Logf("MOCK SERVER: Returned 200 OK with issue data")
 	}))
 	defer mockGithubServer.Close()
@@ -81,12 +96,45 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
 
-	// Use local PostgreSQL for tests
-	cfg.Store.Host = "localhost"
-	cfg.Store.Port = 5432
-	cfg.Store.Username = "postgres"
-	cfg.Store.Password = "postgres"
-	cfg.Store.Database = "postgres"
+	// Use database configuration from environment variables
+	if dbHost := os.Getenv("POSTGRES_HOST"); dbHost != "" {
+		cfg.Store.Host = dbHost
+	} else {
+		cfg.Store.Host = "localhost"
+	}
+
+	if dbPort := os.Getenv("POSTGRES_PORT"); dbPort != "" {
+		port, err := strconv.Atoi(dbPort)
+		if err != nil {
+			t.Logf("Warning: Invalid POSTGRES_PORT value: %v, using default 5432", err)
+			cfg.Store.Port = 5432
+		} else {
+			cfg.Store.Port = port
+		}
+	} else {
+		cfg.Store.Port = 5432
+	}
+
+	if dbUser := os.Getenv("POSTGRES_USER"); dbUser != "" {
+		cfg.Store.Username = dbUser
+	} else {
+		cfg.Store.Username = "postgres"
+	}
+
+	if dbPass := os.Getenv("POSTGRES_PASSWORD"); dbPass != "" {
+		cfg.Store.Password = dbPass
+	} else {
+		cfg.Store.Password = "postgres"
+	}
+
+	if dbName := os.Getenv("POSTGRES_DATABASE"); dbName != "" {
+		cfg.Store.Database = dbName
+	} else {
+		cfg.Store.Database = "postgres"
+	}
+
+	t.Logf("Database configuration: host=%s, port=%d, user=%s, db=%s",
+		cfg.Store.Host, cfg.Store.Port, cfg.Store.Username, cfg.Store.Database)
 
 	db, err := store.NewPostgresStore(cfg.Store)
 	require.NoError(t, err, "Failed to create store connection")
@@ -454,7 +502,11 @@ paths:
 			return nil
 		})
 		require.NoError(t, err, "Failed to subscribe to session topic")
-		defer sub.Unsubscribe()
+		defer func() {
+			if err := sub.Unsubscribe(); err != nil {
+				t.Logf("Error unsubscribing from session topic: %v", err)
+			}
+		}()
 
 		// Wait for the streaming to complete or timeout
 		select {
