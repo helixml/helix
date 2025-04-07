@@ -190,7 +190,7 @@ func TestTemplateAppEndpoints(t *testing.T) {
 		// Verify the OAuth configuration for GitHub API tool
 		api := template.Assistants[0].APIs[0]
 		assert.Equal(t, "GitHub API", api.Name)
-		assert.Equal(t, types.OAuthProviderTypeGitHub, api.OAuthProvider)
+		assert.Equal(t, types.OAuthProviderTypeGitHub, types.OAuthProviderType(api.OAuthProvider))
 		assert.Contains(t, api.OAuthScopes, "repo")
 
 		// Create app config from template
@@ -203,7 +203,7 @@ func TestTemplateAppEndpoints(t *testing.T) {
 		apiTool := appConfig.Helix.Assistants[0].Tools[0]
 		assert.Equal(t, types.ToolTypeAPI, apiTool.ToolType)
 		assert.NotNil(t, apiTool.Config.API)
-		assert.Equal(t, types.OAuthProviderTypeGitHub, apiTool.Config.API.OAuthProvider)
+		assert.Equal(t, types.OAuthProviderTypeGitHub, types.OAuthProviderType(apiTool.Config.API.OAuthProvider))
 		assert.Contains(t, apiTool.Config.API.OAuthScopes, "repo")
 	})
 }
