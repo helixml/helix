@@ -383,7 +383,7 @@ paths:
 			Mode:             types.SessionModeInference,
 			Type:             types.SessionTypeText,
 			SystemPrompt:     sessionReq.SystemPrompt,
-			ModelName:        "llama3:instruct",
+			ModelName:        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 			ParentApp:        createdApp.ID,
 			Owner:            testUser.ID,
 			OwnerType:        testUser.Type,
