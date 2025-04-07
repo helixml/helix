@@ -104,7 +104,7 @@ func TestTemplateAppEndpoints(t *testing.T) {
 		// Verify the GitHub API tool configuration
 		assert.GreaterOrEqual(t, len(template.Assistants), 1)
 		assert.GreaterOrEqual(t, len(template.Assistants[0].APIs), 1)
-		assert.Equal(t, types.OAuthProviderTypeGitHub, template.Assistants[0].APIs[0].OAuthProvider)
+		assert.Equal(t, types.OAuthProviderTypeGitHub, types.OAuthProviderType(template.Assistants[0].APIs[0].OAuthProvider))
 	})
 
 	// Test non-existent template
