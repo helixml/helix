@@ -594,14 +594,9 @@ const Session: FC = () => {
     const containerTop = container.scrollTop
     const containerBottom = containerTop + container.clientHeight
     
-    console.log("------ SCROLL DEBUG INFO ------")
-    console.log(`Viewport: top=${containerTop}, bottom=${containerBottom}, height=${container.clientHeight}`)
-
     setVisibleBlocks(prev => {
       let totalHeightAbove = 0
       
-      console.log(`Current blocks: ${prev.length}`)
-
       return prev.map(block => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
         const blockHeight = blockHeights[blockKey] || 0
@@ -635,12 +630,6 @@ const Session: FC = () => {
                               (blockTop <= containerBottom + 300 &&
                                blockBottom >= containerTop - 300)
         
-        // Log block details
-        console.log(`Block ${blockKey}: top=${blockTop}, bottom=${blockBottom}, height=${blockHeight}`)
-        console.log(`  - intersects viewport: ${blockIntersectsViewport}`)
-        console.log(`  - will be ghost: ${!isNearViewport && blockHeight > 0}`)
-        console.log(`  - was ghost before: ${block.isGhost}`)
-
         return {
           ...block,
           isGhost: !isNearViewport && blockHeight > 0,
