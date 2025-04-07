@@ -2,7 +2,6 @@ package tools
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -241,20 +240,4 @@ func testProcessOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 			tool.Config.API.Headers["Authorization"] = authHeader
 		}
 	}
-}
-
-// normalizeProviderType normalizes the provider type string
-func normalizeProviderType(providerType string) string {
-	// Convert to lowercase for case-insensitive comparison
-	normalized := strings.ToLower(providerType)
-	// Remove any "oauth" prefix if present
-	normalized = strings.TrimPrefix(normalized, "oauth")
-	// Remove any remaining non-alphanumeric characters
-	normalized = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			return r
-		}
-		return -1
-	}, normalized)
-	return normalized
 }
