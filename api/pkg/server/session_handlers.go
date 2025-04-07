@@ -607,7 +607,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	if err != nil {
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		session.Interactions[len(session.Interactions)-1].Finished = true
 		writeErr := s.Controller.WriteSession(ctx, session)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
