@@ -28,7 +28,7 @@ interface OAuthAppTemplate {
   name: string
   description: string
   provider: OAuthProvider
-  templateId: string
+  templateType: string
   appType: string
 }
 
@@ -92,7 +92,7 @@ const OAuthAppTemplates: FC = () => {
           name: 'GitHub Repository Analyzer',
           description: 'Analyze GitHub repositories, issues, and PRs',
           provider,
-          templateId: 'github-repo-analyzer',
+          templateType: 'github',
           appType: 'assistant'
         })
       } else if (provider.type === 'jira') {
@@ -101,7 +101,7 @@ const OAuthAppTemplates: FC = () => {
           name: 'Jira Project Manager',
           description: 'Manage and analyze Jira projects and issues',
           provider,
-          templateId: 'jira-project-manager',
+          templateType: 'jira',
           appType: 'assistant'
         })
       } else if (provider.type === 'slack') {
@@ -110,7 +110,7 @@ const OAuthAppTemplates: FC = () => {
           name: 'Slack Channel Assistant',
           description: 'Answer questions and perform tasks in Slack channels',
           provider,
-          templateId: 'slack-assistant',
+          templateType: 'slack',
           appType: 'assistant'
         })
       } else if (provider.type === 'google') {
@@ -119,7 +119,7 @@ const OAuthAppTemplates: FC = () => {
           name: 'Google Drive Navigator',
           description: 'Search and summarize documents in Google Drive',
           provider,
-          templateId: 'google-drive-navigator',
+          templateType: 'google',
           appType: 'assistant'
         })
       } else {
@@ -129,7 +129,7 @@ const OAuthAppTemplates: FC = () => {
           name: `${provider.name} Assistant`,
           description: `AI assistant that connects to your ${provider.name} account`,
           provider,
-          templateId: `${provider.type}-assistant`,
+          templateType: provider.type,
           appType: 'assistant'
         })
       }
@@ -153,7 +153,7 @@ const OAuthAppTemplates: FC = () => {
       
       // Log the template and provider information for debugging
       console.log('Creating app from template:', {
-        templateId: template.templateId,
+        templateType: template.templateType,
         providerId: template.provider.id,
         providerName: template.provider.name,
         providerType: template.provider.type
@@ -162,7 +162,7 @@ const OAuthAppTemplates: FC = () => {
       // Navigate to the app creation page with template information
       account.orgNavigate('apps', { 
         create: 'true',
-        template: template.templateId,
+        template_type: template.templateType,
         provider_name: template.provider.name,
         oauth: 'true'
       });
