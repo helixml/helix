@@ -46,6 +46,13 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if chatCompletionRequest.Temperature == 0.0 {
+		// XXX Note, setting this (below) to 0.0 results in the default being
+		// used, because 0.0 is the nil value in Go. Also, if it's unset,
+		// default to 0.1 because (e.g.) API tools usage is best when it's less
+		// creative!
+		chatCompletionRequest.Temperature = 0.1
+	}
 
 	addCorsHeaders(rw)
 	if r.Method == http.MethodOptions {
