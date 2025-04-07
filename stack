@@ -169,7 +169,7 @@ function test-integration() {
   source .env
   set +a
 
-  cd integration-test/api && go test -v ./...
+  cd integration-test && go test -v -tags=integration ./...
 }
 
 function test() {
