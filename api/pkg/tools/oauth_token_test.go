@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -214,23 +215,30 @@ func TestOAuthTokenProcessing(t *testing.T) {
 
 // testProcessOAuthTokens processes OAuth tokens for a tool (test implementation)
 func testProcessOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
-	if tool.Config.API == nil || tool.Config.API.OAuthProvider == "" {
+	if len(oauthTokens) == 0 {
 		return
 	}
 
-	// Normalize the provider name
-	providerName := normalizeProviderType(tool.Config.API.OAuthProvider)
+	// Only process API tools with an OAuth provider configured
+	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+		toolProviderName := tool.Config.API.OAuthProvider
 
-	// Check if we have a token for this provider
-	if token, exists := oauthTokens[providerName]; exists {
 		// Initialize headers map if it doesn't exist
 		if tool.Config.API.Headers == nil {
 			tool.Config.API.Headers = make(map[string]string)
 		}
 
-		// Only set the Authorization header if it doesn't already exist
-		if _, exists := tool.Config.API.Headers["Authorization"]; !exists {
-			tool.Config.API.Headers["Authorization"] = "Bearer " + token
+		// Check if an Authorization header already exists
+		_, authHeaderExists := tool.Config.API.Headers["Authorization"]
+		if authHeaderExists {
+			return
+		}
+
+		// Check if we have a matching OAuth token for this provider
+		if token, exists := oauthTokens[toolProviderName]; exists && token != "" {
+			// Add the token as a Bearer token in the Authorization header
+			authHeader := fmt.Sprintf("Bearer %s", token)
+			tool.Config.API.Headers["Authorization"] = authHeader
 		}
 	}
 }

@@ -557,6 +557,16 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 			Int("headers_count", len(tool.Config.API.Headers)).
 			Msg("Checking OAuth token for tool with provider")
 
+		// Check if an Authorization header already exists
+		_, authHeaderExists := tool.Config.API.Headers["Authorization"]
+		if authHeaderExists {
+			log.Debug().
+				Str("tool_name", tool.Name).
+				Str("provider", toolProviderName).
+				Msg("Authorization header already exists, skipping OAuth token")
+			return
+		}
+
 		// Check if we have a matching OAuth token for this provider
 		if token, exists := oauthTokens[toolProviderName]; exists && token != "" {
 			log.Debug().
