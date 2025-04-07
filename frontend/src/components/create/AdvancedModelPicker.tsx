@@ -124,8 +124,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
   // Combine models from all providers
   const allModels: ModelWithProvider[] = useMemo(() => {
-    return providers?.flatMap((provider) => 
-      (provider.available_models || []).map((model): ModelWithProvider => ({
+    return providers?.flatMap((provider: TypesProviderEndpoint) => 
+      (provider.available_models || []).map((model: TypesOpenAIModel): ModelWithProvider => ({
         ...model,
         provider: provider, 
         provider_base_url: provider.base_url || '',
@@ -242,6 +242,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               display: 'inline-block',
               lineHeight: 1.2,
               verticalAlign: 'middle',
+              fontSize: '0.875rem',
             }}
           >
             {getShortModelName(displayModelName, displayMode)}
@@ -288,6 +289,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             sx={{ mb: 2 }}
+            autoFocus
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
