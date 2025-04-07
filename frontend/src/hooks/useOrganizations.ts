@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole, TypesAccessGrant, TypesCreateAccessGrantRequest, TypesUserSearchResponse, TypesRole } from '../api/api'
+import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole, TypesAccessGrant, TypesCreateAccessGrantRequest, TypesUserSearchResponse } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useRouter from './useRouter'
@@ -104,21 +104,21 @@ export default function useOrganizations(): IOrganizationTools {
       const orgResult = await api.getApiClient().v1OrganizationsDetail(id)
 
       // Fetch members for the organization
-      const membersResult = await api.getApiClient().v1OrganizationsMembersList(id)
+      const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(id)
 
       // Fetch roles for the organization
-      const rolesResult = await api.getApiClient().v1OrganizationsRolesList(id)
+      const rolesResult = await api.getApiClient().v1OrganizationsRolesDetail(id)
 
       // Fetch teams for the organization
-      const teamsResult = await api.getApiClient().v1OrganizationsTeamsList(id)
+      const teamsResult = await api.getApiClient().v1OrganizationsTeamsDetail(id)
 
       // Fetch team memberships in parallel for each team
       const teamsWithMemberships = await Promise.all(
-        teamsResult.data.map(async (team: TypesTeam) => {
+        teamsResult.data.map(async (team) => {
           try {
             // Only fetch members if team has an ID
             if (team.id) {
-              const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersList(id, team.id)
+              const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersDetail(id, team.id)
 
               // Sort team members by name in a case-insensitive manner
               const sortedTeamMembers = [...teamMembersResult.data].sort((a, b) => {
@@ -198,7 +198,7 @@ export default function useOrganizations(): IOrganizationTools {
           // Only fetch members if org has an ID
           if (org.id) {
             // Call the API to get members for this organization
-            const membersResult = await api.getApiClient().v1OrganizationsMembersList(org.id)
+            const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(org.id)
 
             // Sort organization members by name in a case-insensitive manner
             const sortedMembers = [...membersResult.data].sort((a, b) => {
@@ -394,8 +394,8 @@ export default function useOrganizations(): IOrganizationTools {
       // Now we need to grant the owner admin access to the team
       // We'll use the access grant system to assign the admin role
       // First, get the admin role ID from the organization roles
-      const roles = await api.getApiClient().v1OrganizationsRolesList(organizationId)
-      const adminRole = roles.data.find((role: TypesRole) => role.name && role.name.toLowerCase() === 'admin')
+      const roles = await api.getApiClient().v1OrganizationsRolesDetail(organizationId)
+      const adminRole = roles.data.find(role => role.name && role.name.toLowerCase() === 'admin')
 
       if (adminRole && adminRole.id) {
         // Create access grant with admin role
@@ -565,7 +565,7 @@ export default function useOrganizations(): IOrganizationTools {
   const listAppAccessGrants = useCallback(async (appId: string): Promise<TypesAccessGrant[]> => {
     setLoadingAccessGrants(true)
     try {
-      const response = await api.getApiClient().v1AppsAccessGrantsList(appId)
+      const response = await api.getApiClient().v1AppsAccessGrantsDetail(appId)
       setAppAccessGrants(response.data)
       return response.data
     } catch (error) {
