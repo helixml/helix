@@ -38,13 +38,13 @@ const Apps: FC = () => {
 
   useEffect(() => {
     const handleOAuthAppCreation = async () => {
-      if (params.create === 'true' && params.template && params.provider_name && params.oauth === 'true') {
+      if (params.create === 'true' && params.template_type && params.provider_name && params.oauth === 'true') {
         const timeoutId = setTimeout(() => {
           snackbar.info('App creation is taking longer than expected...');
         }, 3000);
         
         try {
-          await createOAuthApp(params.template, params.provider_name);
+          await createOAuthApp(params.template_type, params.provider_name);
           // Clear the timeout if createOAuthApp completes successfully
           clearTimeout(timeoutId);
         } catch (err) {
@@ -54,16 +54,16 @@ const Apps: FC = () => {
         }
         
         // Clean up URL parameters regardless of outcome
-        removeParams(['create', 'template', 'provider_name', 'oauth']);
+        removeParams(['create', 'template_type', 'provider_name', 'oauth']);
       }
     };
     
     handleOAuthAppCreation();
-  }, [params.create, params.template, params.provider_name, params.oauth]);
+  }, [params.create, params.template_type, params.provider_name, params.oauth]);
 
-  const createOAuthApp = async (templateId: string, providerName: string) => {
+  const createOAuthApp = async (templateType: string, providerName: string) => {
     try {
-      console.log('Creating OAuth app with template:', templateId, 'provider name:', providerName);
+      console.log('Creating OAuth app with template type:', templateType, 'provider name:', providerName);
       
       // Add loading state indication
       snackbar.success('Initializing app creation...');
@@ -88,12 +88,7 @@ const Apps: FC = () => {
       // Get the template app configuration
       let templateConfig;
       try {
-        // Extract the template type from the templateId
-        const templateType = templateId.includes('github') ? 'github' :
-                             templateId.includes('jira') ? 'jira' :
-                             templateId.includes('slack') ? 'slack' :
-                             templateId.includes('google') ? 'google' : '';
-        
+        // Use the template type directly
         if (templateType) {
           const response = await api.getApiClient().v1TemplateAppsDetail(templateType);
           templateConfig = response.data;
@@ -216,7 +211,7 @@ const Apps: FC = () => {
       console.log('Successfully created app:', newApp);
       
       // Clean up URL params and navigate to the new app
-      removeParams(['create', 'template', 'provider_name', 'oauth']);
+      removeParams(['create', 'template_type', 'provider_name', 'oauth']);
       navigate('app', { app_id: newApp.id });
       snackbar.success(`Created new ${provider.name} app`);
     } catch (err) {
@@ -240,7 +235,7 @@ const Apps: FC = () => {
       snackbar.error(errorMessage);
       
       // Clean up URL params even on error
-      removeParams(['create', 'template', 'provider_name', 'oauth']);
+      removeParams(['create', 'template_type', 'provider_name', 'oauth']);
     }
   };
 
