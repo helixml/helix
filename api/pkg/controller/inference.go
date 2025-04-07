@@ -358,6 +358,9 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	if assistant != nil && assistant.IsActionableTemplate != "" {
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
+	if assistant.IsActionableHistoryLength > 0 {
+		options = append(options, tools.WithIsActionableHistoryLength(assistant.IsActionableHistoryLength))
+	}
 	// If assistant has configured a model, use it
 	if assistant != nil && assistant.Model != "" {
 		options = append(options, tools.WithModel(assistant.Model))
