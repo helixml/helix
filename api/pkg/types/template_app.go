@@ -56,7 +56,7 @@ When asked about GitHub repositories, use the API to fetch actual data.`,
 						Name:          "GitHub API",
 						Description:   "GitHub API for accessing repositories, issues, and pull requests",
 						URL:           "https://api.github.com",
-						OAuthProvider: "GitHub",
+						OAuthProvider: string(OAuthProviderTypeGitHub),
 						OAuthScopes:   []string{"repo", "read:user"},
 						Schema: `openapi: 3.0.0
 info:

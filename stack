@@ -164,7 +164,12 @@ function lint() {
 # Before running this, ensure Postgres port is open (5432) for local connections
 # and that API server is stopped (if you started it with ./stack up)
 function test-integration() {
- cd integration-test/api && go test -v ./...
+  # Ingest env variables from .env file
+  set -a
+  source .env
+  set +a
+
+  cd integration-test/api && go test -v ./...
 }
 
 function test() {
