@@ -101,11 +101,11 @@ steps:
     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
     
   commands:
-    # Build API server - make sure the binary is in PATH
-    - go build -o /go/bin/helix
+    # Build API server
+    - go install ./api/..
     # Run tests
-    - cd integration-test
-    - go test -v -tags=integration ./...
+    - cd integration-test/api
+    - go test -v ./...
   when:
     event:
     - push

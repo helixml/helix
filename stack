@@ -169,7 +169,23 @@ function test-integration() {
   source .env
   set +a
 
-  cd integration-test && go test -v -tags=integration ./...
+  # Build the helix binary and ensure it's in PATH
+  echo "Building the helix binary..."
+  go build -o $(go env GOPATH)/bin/helix
+  
+  export LOG_LEVEL=debug
+  
+  # Ensure required services are running
+  echo "Starting required services..."
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
+  
+  echo "Waiting for services to start..."
+  sleep 3
+  
+  # Run the tests with more verbose output
+  echo "Running integration tests..."
+  (cd integration-test/api && go test -v ./...)
+  (cd integration-test/oauth && go test -v ./...)
 }
 
 function test() {
