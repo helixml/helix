@@ -466,15 +466,37 @@ ${content}
   }
 
   private sanitizeHtml(message: string): string {
+    // Temporarily replace code blocks to protect them from sanitization
+    const codeBlocks: string[] = [];
+    let processedMessage = message.replace(/```(?:[\w]*)\n([\s\S]*?)```/g, (match, codeContent) => {
+      codeBlocks.push(match);
+      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    });
+    
     // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
-    return DOMPurify.sanitize(message, {
+    processedMessage = DOMPurify.sanitize(processedMessage, {
       ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary'],
       ALLOWED_ATTR: ['href', 'target', 'class', 'style', 'title', 'id', 'aria-hidden', 'aria-label', 'role'],
       ADD_ATTR: ['target']
     });
+    
+    // Restore code blocks
+    codeBlocks.forEach((codeBlock, index) => {
+      processedMessage = processedMessage.replace(`__CODE_BLOCK_${index}__`, codeBlock);
+    });
+    
+    return processedMessage;
   }
 
   private addBlinker(message: string): string {
+    // Check if we're in the middle of a code block
+    const openCodeBlockCount = (message.match(/```/g) || []).length;
+    // If the count of ``` is odd, we're in the middle of a code block
+    if (openCodeBlockCount % 2 !== 0) {
+      // Don't add blinker in the middle of a code block
+      return message;
+    }
+    
     // Add blinker at the end of content
     return message + '<span class="blinker-class">┃</span>';
   }

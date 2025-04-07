@@ -484,7 +484,7 @@ const Session: FC = () => {
 
   // Add state to track which session we've auto-scrolled
   const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
-
+  
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
 
@@ -593,10 +593,10 @@ const Session: FC = () => {
     const container = containerRef.current
     const containerTop = container.scrollTop
     const containerBottom = containerTop + container.clientHeight
-
+    
     setVisibleBlocks(prev => {
       let totalHeightAbove = 0
-
+      
       return prev.map(block => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
         const blockHeight = blockHeights[blockKey] || 0
@@ -606,12 +606,30 @@ const Session: FC = () => {
         const blockBottom = blockTop + blockHeight
         totalHeightAbove += blockHeight
 
-        // Check if block should be rendered based on viewport and buffer
-        const isNearViewport = (
-          blockTop <= containerBottom + (VIEWPORT_BUFFER * blockHeight) &&
-          blockBottom >= containerTop - (VIEWPORT_BUFFER * blockHeight)
+        // CRITICAL FIX: Never ghost a block that's:
+        // 1. Currently intersecting the viewport
+        // 2. A tall block that spans the viewport
+        // 3. Recently was the active block (within last render cycle)
+        
+        // Check if the block intersects with the viewport
+        const blockIntersectsViewport = (
+          (blockTop <= containerBottom && blockBottom >= containerTop) ||
+          // Special case for blocks taller than viewport - if we're scrolled within the block
+          (blockHeight > container.clientHeight && 
+           ((blockTop <= containerTop && blockBottom >= containerTop) || 
+            (blockTop <= containerBottom && blockBottom >= containerBottom) ||
+            (blockTop <= containerTop && blockBottom >= containerBottom)))
         )
-
+        
+        // Much simpler logic: never ghost a block if it intersects viewport
+        // or was previously not a ghost (this prevents sudden changes)
+        const isNearViewport = blockIntersectsViewport || 
+                              // Keep blocks visible that were visible in the last cycle
+                              (block.isGhost === false) ||
+                              // Use a modest buffer zone
+                              (blockTop <= containerBottom + 300 &&
+                               blockBottom >= containerTop - 300)
+        
         return {
           ...block,
           isGhost: !isNearViewport && blockHeight > 0,
@@ -620,6 +638,21 @@ const Session: FC = () => {
       })
     })
   }, [blockHeights, getBlockKey])
+
+  // Save scroll position unconditionally before any state changes
+  useEffect(() => {
+    const saveScrollOnScroll = () => {
+      if (containerRef.current) {
+        scrollPositionRef.current = containerRef.current.scrollTop;
+      }
+    };
+    
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('scroll', saveScrollOnScroll);
+      return () => container.removeEventListener('scroll', saveScrollOnScroll);
+    }
+  }, []);
 
   // Add scroll handler to update visible blocks
   useEffect(() => {
@@ -638,7 +671,7 @@ const Session: FC = () => {
   useEffect(() => {
     updateVisibleBlocksInViewport()
   }, [blockHeights, updateVisibleBlocksInViewport])
-
+  
   // Measure block heights without affecting scroll
   useEffect(() => {
     requestAnimationFrame(() => {
