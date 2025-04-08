@@ -20,7 +20,7 @@ export function useListProviders(loadModels: boolean = false) {
       return result.data
     },
     enabled: true,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 3 * 1000, // 3 seconds (useful when going between pages)
   });
 }
 
