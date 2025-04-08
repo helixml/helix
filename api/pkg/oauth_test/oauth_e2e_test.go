@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +27,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -40,12 +37,6 @@ import (
 func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
-	}
-
-	// Load environment variables from .test.env file
-	err := godotenv.Load(".test.env")
-	if err != nil {
-		t.Logf("Warning: Could not load .test.env file: %v", err)
 	}
 
 	// 1. Set up the test environment with a mock GitHub API server to capture auth headers
@@ -98,46 +89,7 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
 
-	// Use database configuration from environment variables
-	if dbHost := os.Getenv("POSTGRES_HOST"); dbHost != "" {
-		cfg.Store.Host = dbHost
-	} else {
-		cfg.Store.Host = "localhost"
-	}
-
-	if dbPort := os.Getenv("POSTGRES_PORT"); dbPort != "" {
-		port, err := strconv.Atoi(dbPort)
-		if err != nil {
-			t.Logf("Warning: Invalid POSTGRES_PORT value: %v, using default 5432", err)
-			cfg.Store.Port = 5432
-		} else {
-			cfg.Store.Port = port
-		}
-	} else {
-		cfg.Store.Port = 5432
-	}
-
-	if dbUser := os.Getenv("POSTGRES_USER"); dbUser != "" {
-		cfg.Store.Username = dbUser
-	} else {
-		cfg.Store.Username = "postgres"
-	}
-
-	if dbPass := os.Getenv("POSTGRES_PASSWORD"); dbPass != "" {
-		cfg.Store.Password = dbPass
-	} else {
-		cfg.Store.Password = "postgres"
-	}
-
-	if dbName := os.Getenv("POSTGRES_DATABASE"); dbName != "" {
-		cfg.Store.Database = dbName
-	} else {
-		cfg.Store.Database = "postgres"
-	}
-
-	t.Logf("Database configuration: host=%s, port=%d, user=%s, db=%s",
-		cfg.Store.Host, cfg.Store.Port, cfg.Store.Username, cfg.Store.Database)
-
+	// Use database configuration from environment variables (provided by the test harness)
 	db, err := store.NewPostgresStore(cfg.Store)
 	require.NoError(t, err, "Failed to create store connection")
 	defer db.Close()
