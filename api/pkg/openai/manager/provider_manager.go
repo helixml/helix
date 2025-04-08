@@ -275,7 +275,7 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 	if req.AppID != "" {
 		log.Info().
 			Str("app_id", req.AppID).
-			Str("provider", string(req.Provider)).
+			Str("provider", req.Provider).
 			Str("owner", req.Owner).
 			Msg("TRACE: Provider manager GetClient called with app ID")
 	}
