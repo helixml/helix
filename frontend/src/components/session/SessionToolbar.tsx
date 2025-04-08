@@ -214,7 +214,7 @@ export const SessionToolbar: FC<{
             | Model: {session.model_name}
             {app && (
               <>
-                | App: <Link 
+                &nbsp;| App: <Link 
                   href="#"
                   onClick={(e) => {
                     e.preventDefault()
