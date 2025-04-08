@@ -57,31 +57,38 @@ var blankAPIKey = "********"
 // @Security BearerAuth
 func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := getRequestUser(r)
-
 	includeModels := r.URL.Query().Get("with_models") == "true"
 
-	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-		Owner:      user.ID,
-		OwnerType:  user.Type,
-		WithGlobal: true,
-	})
-	if err != nil {
-		log.Err(err).Msg("error listing provider endpoints")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	user := getRequestUser(r)
 
-	for idx := range providerEndpoints {
-		if providerEndpoints[idx].APIKey != "" {
-			providerEndpoints[idx].APIKey = blankAPIKey
+	var (
+		providerEndpoints []*types.ProviderEndpoint
+		err               error
+	)
+
+	if user != nil {
+		providerEndpoints, err = s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      user.ID,
+			OwnerType:  user.Type,
+			WithGlobal: true,
+		})
+		if err != nil {
+			log.Err(err).Msg("error listing provider endpoints")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
-	}
 
-	// Sort endpoints by name before adding global ones
-	sort.Slice(providerEndpoints, func(i, j int) bool {
-		return providerEndpoints[i].Name < providerEndpoints[j].Name
-	})
+		for idx := range providerEndpoints {
+			if providerEndpoints[idx].APIKey != "" {
+				providerEndpoints[idx].APIKey = blankAPIKey
+			}
+		}
+
+		// Sort endpoints by name before adding global ones
+		sort.Slice(providerEndpoints, func(i, j int) bool {
+			return providerEndpoints[i].Name < providerEndpoints[j].Name
+		})
+	}
 
 	// Get global ones from the provider manager
 	globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
