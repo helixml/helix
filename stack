@@ -164,29 +164,13 @@ function lint() {
 # Before running this, ensure Postgres port is open (5432) for local connections
 # and that API server is stopped (if you started it with ./stack up)
 function test-integration() {
-  # Ingest env variables from .env file
-  set -a
-  source .env
-  set +a
-
-  # Build the helix binary and ensure it's in PATH
-  echo "Building the helix binary..."
-  go build -o $(go env GOPATH)/bin/helix
-  
-  export LOG_LEVEL=debug
-  
-  # Ensure required services are running
-  echo "Starting required services..."
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
-  
-  echo "Waiting for services to start..."
-  sleep 3
-  
-  # Run the tests with more verbose output
-  echo "Running integration tests..."
-  (cd integration-test/api && go test -v ./...)
-  (cd integration-test/oauth && go test -v ./...)
+ cd integration-test/api && go test -v ./...
 }
+
+# Examples:
+# Run all tests:       ./stack test
+# Run specific tests:  ./stack test ./api/pkg/oauth_test
+# Run a single test:   ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
 
 function test() {
   # Ingest env variables from .env file
@@ -227,10 +211,18 @@ function test() {
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
-  # go test -v ./...
   # To debug test hangs, try this:
   # Run tests one at a time and show which test is running
-  go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+
+  # If a test path is provided, run tests from that path,
+  # otherwise run all tests
+  if [[ $# -gt 0 ]]; then
+    echo "Running tests from path: $1"
+    go test -v -p 1 "$1" 2>&1 | sed -u 's/^/[TEST] /'
+  else
+    echo "Running all tests"
+    go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+  fi
 }
 
 eval "$@"
