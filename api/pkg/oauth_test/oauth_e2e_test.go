@@ -1,4 +1,6 @@
-package api
+package oauth
+
+// This test is in a separate package to avoid an import loop.
 
 import (
 	"context"
