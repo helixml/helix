@@ -337,6 +337,25 @@ paths:
 
 		t.Logf("Making direct chat completion stream call with app ID: %s, user ID: %s", createdApp.ID, testUser.ID)
 
+		// Add explicit logging about the OAuth connection
+		connections, err := db.ListOAuthConnections(context.Background(), &store.ListOAuthConnectionsQuery{
+			UserID: testUser.ID,
+		})
+		require.NoError(t, err, "Failed to list OAuth connections")
+		t.Logf("Found %d OAuth connections for user %s", len(connections), testUser.ID)
+		for i, conn := range connections {
+			t.Logf("Connection %d: Provider=%s, ID=%s, Token=%s (prefix), Expires=%v",
+				i, conn.ProviderID, conn.ID, conn.AccessToken[:5], conn.ExpiresAt)
+		}
+
+		// Log enabled OAuth providers
+		provider, err := db.GetOAuthProvider(context.Background(), createdProvider.ID)
+		require.NoError(t, err, "Failed to get OAuth provider")
+		t.Logf("OAuth Provider %s (%s) enabled: %v", provider.Name, provider.ID, provider.Enabled)
+
+		// Add additional context for debugging the AppID in the request
+		t.Logf("APP ID RIGHT BEFORE STREAM: %s", opts.AppID)
+
 		// Make the direct streaming chat completion call through the real controller
 		stream, _, err := ctrl.ChatCompletionStream(ctx, testUser, chatCompletionRequest, opts)
 		require.NoError(t, err, "Failed to create chat completion stream")

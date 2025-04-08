@@ -114,9 +114,19 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
 	req.Stream = true
 
+	if opts == nil {
+		opts = &ChatCompletionOptions{}
+	}
+
+	log.Info().
+		Str("owner_id", user.ID).
+		Str("app_id", opts.AppID).
+		Int("oauth_token_count", len(opts.OAuthTokens)).
+		Bool("has_oauth_manager", c.Options.OAuthManager != nil).
+		Msg("TRACE: ChatCompletionStream called with app ID")
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
-		log.Info().Msg("no assistant found")
 		return nil, nil, err
 	}
 	log.Info().Msgf("ZZZ assistant: %+v", assistant)
@@ -1415,70 +1425,68 @@ func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *
 		Msg("Checking assistants for OAuth tools")
 
 	for aIdx, assistant := range app.Config.Helix.Assistants {
-		toolCount := len(assistant.Tools)
+		// Check APIs array instead of Tools array
+		apiCount := len(assistant.APIs)
 		log.Info().
 			Str("app_id", app.ID).
 			Str("assistant_name", assistant.Name).
 			Int("assistant_index", aIdx).
-			Int("tool_count", toolCount).
-			Msg("Checking assistant tools for OAuth providers")
+			Int("api_count", apiCount).
+			Msg("Checking assistant APIs for OAuth providers")
 
-		for tIdx, tool := range assistant.Tools {
-			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+		for tIdx, api := range assistant.APIs {
+			if api.OAuthProvider != "" {
 				log.Info().
 					Str("app_id", app.ID).
-					Str("tool_name", tool.Name).
-					Int("tool_index", tIdx).
-					Str("tool_type", string(tool.ToolType)).
-					Str("oauth_provider", tool.Config.API.OAuthProvider).
-					Strs("oauth_scopes", tool.Config.API.OAuthScopes).
-					Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
-					Msg("Checking tool for OAuth provider")
+					Str("api_name", api.Name).
+					Int("api_index", tIdx).
+					Str("oauth_provider", api.OAuthProvider).
+					Strs("oauth_scopes", api.OAuthScopes).
+					Bool("has_oauth_provider", api.OAuthProvider != "").
+					Msg("Checking API for OAuth provider")
 
-				if tool.Config.API.OAuthProvider != "" {
-					providerName := tool.Config.API.OAuthProvider
-					requiredScopes := tool.Config.API.OAuthScopes
+				providerName := api.OAuthProvider
+				requiredScopes := api.OAuthScopes
 
-					// Skip if we've already processed this provider
-					if seenProviders[providerName] {
-						log.Info().
-							Str("provider_name", providerName).
-							Msg("Skipping already processed provider")
-						continue
-					}
-					seenProviders[providerName] = true
-
+				// Skip if we've already processed this provider
+				if seenProviders[providerName] {
 					log.Info().
 						Str("provider_name", providerName).
-						Strs("required_scopes", requiredScopes).
-						Msg("Attempting to get OAuth token for tool")
+						Msg("Skipping already processed provider")
+					continue
+				}
+				seenProviders[providerName] = true
 
-					token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
-					if err == nil && token != "" {
-						// Add the token directly to the map using the original provider name
-						oauthTokens[providerName] = token
-						log.Info().
+				log.Info().
+					Str("provider_name", providerName).
+					Strs("required_scopes", requiredScopes).
+					Msg("Attempting to get OAuth token for API")
+
+				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
+				if err == nil && token != "" {
+					// Add the token directly to the map using the original provider name
+					oauthTokens[providerName] = token
+					log.Info().
+						Str("provider", providerName).
+						Str("token_prefix", token[:10]+"...").
+						Msg("Successfully retrieved OAuth token for provider")
+				} else {
+					var scopeErr *oauth.ScopeError
+					if errors.As(err, &scopeErr) {
+						log.Warn().
+							Str("app_id", app.ID).
+							Str("user_id", userID).
 							Str("provider", providerName).
-							Str("token_prefix", token[:10]+"...").
-							Msg("Successfully retrieved OAuth token for provider")
+							Strs("missing_scopes", scopeErr.Missing).
+							Strs("required_scopes", requiredScopes).
+							Strs("available_scopes", scopeErr.Has).
+							Msg("Missing required OAuth scopes for API")
 					} else {
-						var scopeErr *oauth.ScopeError
-						if errors.As(err, &scopeErr) {
-							log.Warn().
-								Str("app_id", app.ID).
-								Str("user_id", userID).
-								Str("provider", providerName).
-								Strs("missing_scopes", scopeErr.Missing).
-								Strs("required_scopes", requiredScopes).
-								Strs("available_scopes", scopeErr.Has).
-								Msg("Missing required OAuth scopes for tool")
-						} else {
-							log.Warn().
-								Err(err).
-								Str("provider", providerName).
-								Str("error_type", fmt.Sprintf("%T", err)).
-								Msg("Failed to get OAuth token for tool")
-						}
+						log.Warn().
+							Err(err).
+							Str("provider", providerName).
+							Str("error_type", fmt.Sprintf("%T", err)).
+							Msg("Failed to get OAuth token for API")
 					}
 				}
 			}
