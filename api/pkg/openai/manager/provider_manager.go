@@ -20,6 +20,7 @@ import (
 type GetClientRequest struct {
 	Provider string
 	Owner    string
+	AppID    string
 }
 
 // RunnerControllerStatus defines the minimum interface needed to check runner status
@@ -51,6 +52,7 @@ type MultiClientManager struct {
 	globalClientsMu  *sync.RWMutex
 	wg               sync.WaitGroup
 	runnerController RunnerControllerStatus
+	mu               sync.RWMutex
 }
 
 func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
@@ -263,6 +265,21 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 }
 
 func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if req == nil {
+		req = &GetClientRequest{}
+	}
+
+	if req.AppID != "" {
+		log.Info().
+			Str("app_id", req.AppID).
+			Str("provider", req.Provider).
+			Str("owner", req.Owner).
+			Msg("TRACE: Provider manager GetClient called with app ID")
+	}
+
 	m.globalClientsMu.RLock()
 	defer m.globalClientsMu.RUnlock()
 
@@ -291,7 +308,6 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		availableProviders = append(availableProviders, string(provider))
 	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
-
 }
 
 func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) (openai.Client, error) {

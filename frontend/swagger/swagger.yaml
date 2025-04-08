@@ -682,10 +682,10 @@ definitions:
       name:
         type: string
       oauth_provider:
-        allOf:
-        - $ref: '#/definitions/types.OAuthProviderType'
         description: OAuth configuration
+        type: string
       oauth_scopes:
+        description: Required OAuth scopes for this API
         items:
           type: string
         type: array
@@ -1414,26 +1414,6 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
-  types.OAuthProviderType:
-    enum:
-    - ""
-    - atlassian
-    - google
-    - microsoft
-    - github
-    - slack
-    - linkedin
-    - custom
-    type: string
-    x-enum-varnames:
-    - OAuthProviderTypeUnknown
-    - OAuthProviderTypeAtlassian
-    - OAuthProviderTypeGoogle
-    - OAuthProviderTypeMicrosoft
-    - OAuthProviderTypeGitHub
-    - OAuthProviderTypeSlack
-    - OAuthProviderTypeLinkedIn
-    - OAuthProviderTypeCustom
   types.OpenAIMessage:
     properties:
       content:
@@ -2221,6 +2201,37 @@ definitions:
         description: composite key
         type: string
     type: object
+  types.TemplateAppConfig:
+    properties:
+      api_url:
+        description: Base API URL for the provider
+        type: string
+      assistants:
+        items:
+          $ref: '#/definitions/types.AssistantConfig'
+        type: array
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/types.TemplateAppType'
+    type: object
+  types.TemplateAppType:
+    enum:
+    - github
+    - jira
+    - slack
+    - google
+    type: string
+    x-enum-varnames:
+    - TemplateAppTypeGitHub
+    - TemplateAppTypeJira
+    - TemplateAppTypeSlack
+    - TemplateAppTypeGoogle
   types.TestStep:
     properties:
       expected_output:
@@ -2298,9 +2309,8 @@ definitions:
       model:
         type: string
       oauth_provider:
-        allOf:
-        - $ref: '#/definitions/types.OAuthProviderType'
         description: OAuth configuration
+        type: string
       oauth_scopes:
         description: Required OAuth scopes for this API
         items:
@@ -3602,6 +3612,44 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
+  /api/v1/template-apps:
+    get:
+      description: List available template apps configurations.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TemplateAppConfig'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List template apps
+      tags:
+      - template_apps
+  /api/v1/template-apps/{type}:
+    get:
+      description: Get template app configuration by type.
+      parameters:
+      - description: Template app type
+        in: path
+        name: type
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TemplateAppConfig'
+        "404":
+          description: Template not found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get template app by type
+      tags:
+      - template_apps
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username

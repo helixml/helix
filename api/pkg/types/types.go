@@ -904,8 +904,8 @@ type ToolAPIConfig struct {
 	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
 
 	// OAuth configuration
-	OAuthProvider OAuthProviderType `json:"oauth_provider" yaml:"oauth_provider"` // The OAuth provider to use for authentication
-	OAuthScopes   []string          `json:"oauth_scopes" yaml:"oauth_scopes"`     // Required OAuth scopes for this API
+	OAuthProvider string   `json:"oauth_provider" yaml:"oauth_provider"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string `json:"oauth_scopes" yaml:"oauth_scopes"`     // Required OAuth scopes for this API
 
 	Model string `json:"model" yaml:"model"`
 }
@@ -966,8 +966,8 @@ type AssistantAPI struct {
 	ResponseErrorTemplate   string `json:"response_error_template,omitempty" yaml:"response_error_template,omitempty"`
 
 	// OAuth configuration
-	OAuthProvider OAuthProviderType `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
-	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`
+	OAuthProvider string   `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
 }
 
 // apps are a collection of assistants
@@ -1495,7 +1495,7 @@ type RunAPIActionRequest struct {
 
 	Tool *Tool `json:"-"` // Set internally
 
-	OAuthEnvVars []string `json:"-"` // OAuth environment variables
+	OAuthTokens map[string]string `json:"-"` // OAuth tokens mapped by provider type (lowercase)
 }
 
 type RunAPIActionResponse struct {

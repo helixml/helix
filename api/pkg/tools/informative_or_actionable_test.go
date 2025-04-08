@@ -12,7 +12,6 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
-	oai "github.com/sashabaranov/go-openai"
 
 	openai_ext "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
@@ -98,7 +97,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 
 	history := []*types.ToolHistoryMessage{
 		{
-			Role:    oai.ChatMessageRoleUser,
+			Role:    openai_ext.ChatMessageRoleUser,
 			Content: "What is the weather like in San Francisco?",
 		},
 	}
@@ -171,7 +170,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 
 	history := []*types.ToolHistoryMessage{
 		{
-			Role:    oai.ChatMessageRoleUser,
+			Role:    openai_ext.ChatMessageRoleUser,
 			Content: "What is the weather like in San Francisco?",
 		},
 	}
@@ -219,7 +218,7 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 
 	history := []*types.ToolHistoryMessage{
 		{
-			Role:    oai.ChatMessageRoleUser,
+			Role:    openai_ext.ChatMessageRoleUser,
 			Content: "What's the reason why oceans have less fish??",
 		},
 	}

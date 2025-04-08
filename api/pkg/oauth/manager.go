@@ -65,12 +65,19 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 		return fmt.Errorf("failed to list providers: %w", err)
 	}
 
-	log.Debug().Int("total_providers", len(providers)).Msg("Found enabled providers in database")
+	log.Info().Int("total_providers", len(providers)).Msg("Found enabled providers in database")
 
 	// Log detailed provider information
 	for _, config := range providers {
-		log.Debug().Str("provider_id", config.ID).Str("provider_name", config.Name).
-			Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
+		log.Info().
+			Str("provider_id", config.ID).
+			Str("provider_name", config.Name).
+			Str("provider_type", string(config.Type)).
+			Bool("provider_enabled", config.Enabled).
+			Str("client_id", config.ClientID).
+			Str("client_secret_prefix", config.ClientSecret[:4]+"...").
+			Str("callback_url", config.CallbackURL).
+			Strs("scopes", config.Scopes).
 			Msg("Found enabled provider in database")
 	}
 
@@ -586,122 +593,215 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 
 // GetTokenForApp retrieves an OAuth token for a specific user's connection to a provider
 // This is used during app execution to inject OAuth tokens
-func (m *Manager) GetTokenForApp(ctx context.Context, userID string, providerType types.OAuthProviderType) (string, error) {
-	// List user's connections
-	connections, err := m.ListUserConnections(ctx, userID)
+func (m *Manager) GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error) {
+	provider, err := m.GetProviderByName(ctx, providerName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get provider %s: %w", providerName, err)
+	}
+
+	connections, err := m.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+		UserID:     userID,
+		ProviderID: provider.ID,
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to list user connections: %w", err)
 	}
 
-	// Find a connection matching the provider type
 	for _, connection := range connections {
-		// We need to determine the provider type
-		var currentProviderType types.OAuthProviderType
-
-		// Check if the Provider field has a valid Type
-		if connection.Provider.Type != "" {
-			// Use the provider type from the connection
-			currentProviderType = connection.Provider.Type
-		} else {
-			// Load the provider to get the type
-			provider, err := m.store.GetOAuthProvider(ctx, connection.ProviderID)
-			if err != nil {
-				log.Error().Err(err).Str("connection_id", connection.ID).Msg("Failed to get provider for connection")
-				continue
-			}
-			// Get the provider type
-			currentProviderType = provider.Type
+		// Refresh the token if needed
+		if err := m.RefreshConnection(ctx, connection); err != nil {
+			log.Warn().Err(err).Str("connection_id", connection.ID).Msg("Failed to refresh token, trying next connection")
+			continue
 		}
 
-		// Check if this matches the requested provider type
-		if currentProviderType == providerType {
-			// Refresh the token if needed
-			if err := m.RefreshConnection(ctx, connection); err != nil {
-				return "", fmt.Errorf("failed to refresh token: %w", err)
-			}
-
-			// Return the access token
-			return connection.AccessToken, nil
-		}
+		// Found a valid connection with a refreshed token
+		return connection.AccessToken, nil
 	}
 
-	return "", fmt.Errorf("no active connection found for provider type: %s", providerType)
+	return "", fmt.Errorf("no active connection found for provider %s", providerName)
 }
 
 // GetTokenForTool retrieves an OAuth token for a tool's OAuth provider and required scopes
 // This is used during tool execution to inject OAuth tokens
-func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerType types.OAuthProviderType, requiredScopes []string) (string, error) {
-	// List user's connections
-	connections, err := m.ListUserConnections(ctx, userID)
+func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerName string, requiredScopes []string) (string, error) {
+	log.Info().Str("user_id", userID).Str("provider_name", providerName).Strs("required_scopes", requiredScopes).Msg("getting token for tool")
+
+	provider, err := m.GetProviderByName(ctx, providerName)
 	if err != nil {
+		log.Error().Err(err).Str("provider_name", providerName).Msg("Failed to get provider")
+		return "", fmt.Errorf("failed to get provider %s: %w", providerName, err)
+	}
+
+	log.Debug().
+		Str("provider_id", provider.ID).
+		Str("provider_name", provider.Name).
+		Str("provider_type", string(provider.Type)).
+		Bool("provider_enabled", provider.Enabled).
+		Msg("Found provider for GetTokenForTool")
+
+	connections, err := m.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+		UserID:     userID,
+		ProviderID: provider.ID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Str("provider_id", provider.ID).Msg("Failed to list user connections")
 		return "", fmt.Errorf("failed to list user connections: %w", err)
 	}
 
-	// Find a connection matching the provider type
-	for _, connection := range connections {
-		// We need to determine the provider type
-		var currentProviderType types.OAuthProviderType
+	log.Info().
+		Str("user_id", userID).
+		Str("provider_name", providerName).
+		Str("provider_id", provider.ID).
+		Int("connection_count", len(connections)).
+		Msg("Retrieved OAuth connections for user")
 
-		// Check if the Provider field has a valid Type
-		if connection.Provider.Type != "" {
-			// Use the provider type from the connection
-			currentProviderType = connection.Provider.Type
-		} else {
-			// Load the provider to get the type
-			provider, err := m.store.GetOAuthProvider(ctx, connection.ProviderID)
+	if len(connections) == 0 {
+		log.Warn().
+			Str("user_id", userID).
+			Str("provider_name", providerName).
+			Str("provider_id", provider.ID).
+			Msg("No connections found for user and provider")
+		return "", fmt.Errorf("no active connection found for provider %s", providerName)
+	}
+
+	for i, connection := range connections {
+		// Log connection details
+		log.Info().
+			Str("user_id", userID).
+			Str("provider_name", providerName).
+			Str("connection_id", connection.ID).
+			Int("connection_index", i).
+			Time("expires_at", connection.ExpiresAt).
+			Bool("token_expired", !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now())).
+			Strs("connection_scopes", connection.Scopes).
+			Msg("Checking connection for token")
+
+		// Check if token is expired
+		// Treat zero time value (0001-01-01T00:00:00Z) as non-expiring token
+		if !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now()) {
+			log.Warn().
+				Str("user_id", userID).
+				Str("provider_name", providerName).
+				Str("connection_id", connection.ID).
+				Time("expires_at", connection.ExpiresAt).
+				Msg("Token expired, attempting to refresh")
+
+			// Try to refresh the token
+			err := m.RefreshConnection(ctx, connection)
 			if err != nil {
-				log.Error().Err(err).Str("connection_id", connection.ID).Msg("Failed to get provider for connection")
+				log.Warn().
+					Err(err).
+					Str("connection_id", connection.ID).
+					Str("provider_name", providerName).
+					Msg("Failed to refresh token, trying next connection")
 				continue
 			}
-			// Get the provider type
-			currentProviderType = provider.Type
+
+			log.Info().
+				Str("connection_id", connection.ID).
+				Str("provider_name", providerName).
+				Time("new_expiry", connection.ExpiresAt).
+				Msg("Successfully refreshed OAuth token")
 		}
 
-		// Check if this matches the requested provider type
-		if currentProviderType == providerType {
-			// Check if connection has required scopes
-			if len(requiredScopes) > 0 {
-				missingScopes := getMissingScopes(connection.Scopes, requiredScopes)
-				if len(missingScopes) > 0 {
-					return "", &ScopeError{
-						Missing: missingScopes,
-						Has:     connection.Scopes,
-					}
-				}
-			}
-
-			// Refresh the token if needed
-			if err := m.RefreshConnection(ctx, connection); err != nil {
-				return "", fmt.Errorf("failed to refresh token: %w", err)
-			}
-
-			// Return the access token
-			return connection.AccessToken, nil
+		missingScopes := getMissingScopes(connection.Scopes, requiredScopes)
+		if len(missingScopes) > 0 {
+			log.Warn().
+				Str("user_id", userID).
+				Str("provider_name", providerName).
+				Strs("missing_scopes", missingScopes).
+				Strs("connection_scopes", connection.Scopes).
+				Strs("required_scopes", requiredScopes).
+				Msg("Missing required scopes for connection")
+			continue
 		}
+
+		log.Info().
+			Str("user_id", userID).
+			Str("provider_name", providerName).
+			Str("connection_id", connection.ID).
+			Bool("has_access_token", connection.AccessToken != "").
+			Str("token_prefix", connection.AccessToken[:10]+"...").
+			Msg("Found valid token for tool")
+
+		return connection.AccessToken, nil
 	}
 
-	return "", fmt.Errorf("no active connection found for provider type: %s", providerType)
+	log.Warn().
+		Str("user_id", userID).
+		Str("provider_name", providerName).
+		Int("connection_count", len(connections)).
+		Msg("No valid connection found for provider - all had expired tokens or missing scopes")
+
+	return "", fmt.Errorf("no active connection found for provider %s", providerName)
 }
 
-// getMissingScopes returns a list of scopes that are required but not present in existing scopes
+// Helper function to check missing scopes
 func getMissingScopes(existingScopes, requiredScopes []string) []string {
-	if len(requiredScopes) == 0 {
-		return nil
-	}
-
-	// Create a map of existing scopes for fast lookup
-	existingScopesMap := make(map[string]bool)
-	for _, scope := range existingScopes {
-		existingScopesMap[scope] = true
-	}
-
-	// Identify missing scopes
 	var missingScopes []string
-	for _, requiredScope := range requiredScopes {
-		if !existingScopesMap[requiredScope] {
-			missingScopes = append(missingScopes, requiredScope)
+	for _, required := range requiredScopes {
+		found := false
+		for _, existing := range existingScopes {
+			if existing == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingScopes = append(missingScopes, required)
+		}
+	}
+	return missingScopes
+}
+
+// Add GetProviderByName method
+func (m *Manager) GetProviderByName(ctx context.Context, name string) (*types.OAuthProvider, error) {
+	providers, err := m.store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
+		Enabled: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list providers: %w", err)
+	}
+
+	log.Info().
+		Str("requested_provider", name).
+		Int("available_providers", len(providers)).
+		Msg("Looking for provider by name")
+
+	// First try exact match
+	for _, provider := range providers {
+		if provider.Name == name {
+			log.Info().
+				Str("requested_provider", name).
+				Str("found_provider", provider.Name).
+				Str("provider_id", provider.ID).
+				Msg("Found provider with exact name match")
+			return provider, nil
 		}
 	}
 
-	return missingScopes
+	// Then try case-insensitive match
+	for _, provider := range providers {
+		if strings.EqualFold(provider.Name, name) {
+			log.Info().
+				Str("requested_provider", name).
+				Str("found_provider", provider.Name).
+				Str("provider_id", provider.ID).
+				Msg("Found provider with case-insensitive name match")
+			return provider, nil
+		}
+	}
+
+	// Log all available provider names for debugging
+	var availableNames []string
+	for _, provider := range providers {
+		availableNames = append(availableNames, provider.Name)
+	}
+
+	log.Warn().
+		Str("requested_provider", name).
+		Strs("available_providers", availableNames).
+		Msg("No provider found with matching name")
+
+	return nil, fmt.Errorf("no provider found with name %s", name)
 }

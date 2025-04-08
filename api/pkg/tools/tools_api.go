@@ -90,10 +90,67 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		req.URL.RawQuery = q.Encode()
 	}
 
+	// Add standard headers
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Helix-Tool-Id", tool.ID)
 	req.Header.Set("X-Helix-Action-Id", action)
 
-	// TODO: Add body
+	// Add custom headers from the tool configuration
+	if tool.Config.API.Headers != nil {
+		for k, v := range tool.Config.API.Headers {
+			req.Header.Set(k, v)
+		}
+	}
+
+	// Special logging for OAuth headers
+	if tool.Config.API.OAuthProvider != "" {
+		authHeader := req.Header.Get("Authorization")
+		if authHeader != "" {
+			prefix := authHeader
+			if len(authHeader) > 15 {
+				prefix = authHeader[:15] + "..."
+			}
+
+			log.Info().
+				Str("tool", tool.Name).
+				Str("oauth_provider", tool.Config.API.OAuthProvider).
+				Str("action", action).
+				Str("auth_header_prefix", prefix).
+				Msg("OAuth Authorization header successfully added to request")
+		} else {
+			log.Warn().
+				Str("tool", tool.Name).
+				Str("oauth_provider", tool.Config.API.OAuthProvider).
+				Str("action", action).
+				Msg("OAuth provider configured but no Authorization header found")
+		}
+	}
+
+	// Log request details for all API tools
+	log.Info().
+		Str("tool_name", tool.Name).
+		Str("action", action).
+		Str("method", method).
+		Str("path", path).
+		Str("url", req.URL.String()).
+		Interface("params", params).
+		Interface("query_params", queryParams).
+		Interface("path_params", pathParams).
+		Interface("headers", tool.Config.API.Headers).
+		Msg("API request details")
+
+	// Log authorization header if present (for debugging purposes only)
+	if authHeader := req.Header.Get("Authorization"); authHeader != "" {
+		// Log the JWT token for debugging (remove in production)
+		log.Info().
+			Str("auth_header_prefix", authHeader[:7]+"...").
+			Msg("API request has Authorization header")
+	} else {
+		log.Warn().
+			Interface("all_headers", req.Header).
+			Interface("tool_headers", tool.Config.API.Headers).
+			Msg("No Authorization header found for API request")
+	}
 
 	return req, nil
 }
@@ -464,4 +521,84 @@ func getParameterType(schema *openapi3.SchemaRef) ParameterType {
 	}
 
 	return ParameterTypeString
+}
+
+// processOAuthTokens processes OAuth tokens for a tool
+func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
+	if len(oauthTokens) == 0 {
+		log.Debug().
+			Str("tool_name", tool.Name).
+			Msg("No OAuth tokens available for tool")
+		return
+	}
+
+	log.Debug().
+		Str("tool_name", tool.Name).
+		Int("token_count", len(oauthTokens)).
+		Msg("Processing OAuth tokens for tool")
+
+	// Only process API tools with an OAuth provider configured
+	if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
+		toolProviderName := tool.Config.API.OAuthProvider
+
+		// Initialize headers map if it doesn't exist - do this early
+		if tool.Config.API.Headers == nil {
+			log.Debug().
+				Str("tool_name", tool.Name).
+				Str("provider", toolProviderName).
+				Msg("Creating new headers map for tool")
+			tool.Config.API.Headers = make(map[string]string)
+		}
+
+		log.Debug().
+			Str("tool_name", tool.Name).
+			Str("oauth_provider", toolProviderName).
+			Bool("has_headers", tool.Config.API.Headers != nil).
+			Int("headers_count", len(tool.Config.API.Headers)).
+			Msg("Checking OAuth token for tool with provider")
+
+		// Check if an Authorization header already exists
+		_, authHeaderExists := tool.Config.API.Headers["Authorization"]
+		if authHeaderExists {
+			log.Debug().
+				Str("tool_name", tool.Name).
+				Str("provider", toolProviderName).
+				Msg("Authorization header already exists, skipping OAuth token")
+			return
+		}
+
+		// Check if we have a matching OAuth token for this provider
+		if token, exists := oauthTokens[toolProviderName]; exists && token != "" {
+			log.Debug().
+				Str("tool_name", tool.Name).
+				Str("provider", toolProviderName).
+				Bool("token_exists", token != "").
+				Str("token_prefix", token[:5]+"...").
+				Msg("Found matching OAuth token for tool provider")
+
+			// Add the token as a Bearer token in the Authorization header
+			authHeader := fmt.Sprintf("Bearer %s", token)
+			tool.Config.API.Headers["Authorization"] = authHeader
+
+			log.Debug().
+				Str("tool_name", tool.Name).
+				Str("provider", toolProviderName).
+				Int("headers_count_after", len(tool.Config.API.Headers)).
+				Bool("auth_header_exists", tool.Config.API.Headers["Authorization"] != "").
+				Str("auth_header_prefix", authHeader[:12]+"...").
+				Msg("Added OAuth token to tool headers")
+		} else {
+			// Log available tokens for debugging
+			tokenKeys := make([]string, 0, len(oauthTokens))
+			for key := range oauthTokens {
+				tokenKeys = append(tokenKeys, key)
+			}
+
+			log.Warn().
+				Str("tool_name", tool.Name).
+				Str("tool_provider", toolProviderName).
+				Strs("available_tokens", tokenKeys).
+				Msg("No matching OAuth token found for tool provider")
+		}
+	}
 }

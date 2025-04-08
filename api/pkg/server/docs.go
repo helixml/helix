@@ -1815,6 +1815,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/template-apps": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List available template apps configurations.",
+                "tags": [
+                    "template_apps"
+                ],
+                "summary": "List template apps",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TemplateAppConfig"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/template-apps/{type}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get template app configuration by type.",
+                "tags": [
+                    "template_apps"
+                ],
+                "summary": "Get template app by type",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Template app type",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TemplateAppConfig"
+                        }
+                    },
+                    "404": {
+                        "description": "Template not found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -2896,13 +2958,10 @@ const docTemplate = `{
                 },
                 "oauth_provider": {
                     "description": "OAuth configuration",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OAuthProviderType"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -3932,29 +3991,6 @@ const docTemplate = `{
             ],
             "x-enum-varnames": [
                 "MessageContentTypeText"
-            ]
-        },
-        "types.OAuthProviderType": {
-            "type": "string",
-            "enum": [
-                "",
-                "atlassian",
-                "google",
-                "microsoft",
-                "github",
-                "slack",
-                "linkedin",
-                "custom"
-            ],
-            "x-enum-varnames": [
-                "OAuthProviderTypeUnknown",
-                "OAuthProviderTypeAtlassian",
-                "OAuthProviderTypeGoogle",
-                "OAuthProviderTypeMicrosoft",
-                "OAuthProviderTypeGitHub",
-                "OAuthProviderTypeSlack",
-                "OAuthProviderTypeLinkedIn",
-                "OAuthProviderTypeCustom"
             ]
         },
         "types.OpenAIMessage": {
@@ -5070,6 +5106,49 @@ const docTemplate = `{
                 }
             }
         },
+        "types.TemplateAppConfig": {
+            "type": "object",
+            "properties": {
+                "api_url": {
+                    "description": "Base API URL for the provider",
+                    "type": "string"
+                },
+                "assistants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantConfig"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.TemplateAppType"
+                }
+            }
+        },
+        "types.TemplateAppType": {
+            "type": "string",
+            "enum": [
+                "github",
+                "jira",
+                "slack",
+                "google"
+            ],
+            "x-enum-varnames": [
+                "TemplateAppTypeGitHub",
+                "TemplateAppTypeJira",
+                "TemplateAppTypeSlack",
+                "TemplateAppTypeGoogle"
+            ]
+        },
         "types.TestStep": {
             "type": "object",
             "properties": {
@@ -5173,11 +5252,7 @@ const docTemplate = `{
                 },
                 "oauth_provider": {
                     "description": "OAuth configuration",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OAuthProviderType"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "oauth_scopes": {
                     "description": "Required OAuth scopes for this API",

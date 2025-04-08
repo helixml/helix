@@ -32,6 +32,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
@@ -388,6 +389,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.listAppAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.createAppAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/access-grants/{grant_id}", apiServer.deleteAppAccessGrant).Methods(http.MethodDelete)
+
+	// Template app routes
+	authRouter.HandleFunc("/template-apps", system.DefaultWrapper(apiServer.listTemplateApps)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/template-apps/{type}", system.DefaultWrapper(apiServer.getTemplateApp)).Methods(http.MethodGet)
+
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods(http.MethodGet)
@@ -725,4 +731,36 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	}
 
 	return nil
+}
+
+// listTemplateApps godoc
+// @Summary List template apps
+// @Description List available template apps configurations.
+// @Tags    template_apps
+// @Success 200 {array} types.TemplateAppConfig
+// @Router /api/v1/template-apps [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listTemplateApps(_ http.ResponseWriter, _ *http.Request) ([]*types.TemplateAppConfig, error) {
+	return types.GetAppTemplates(), nil
+}
+
+// getTemplateApp godoc
+// @Summary Get template app by type
+// @Description Get template app configuration by type.
+// @Tags    template_apps
+// @Param type path string true "Template app type"
+// @Success 200 {object} types.TemplateAppConfig
+// @Failure 404 {object} system.HTTPError "Template not found"
+// @Router /api/v1/template-apps/{type} [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getTemplateApp(_ http.ResponseWriter, r *http.Request) (*types.TemplateAppConfig, error) {
+	vars := mux.Vars(r)
+	templateType := types.TemplateAppType(vars["type"])
+
+	template := types.GetTemplateByType(templateType)
+	if template == nil {
+		return nil, system.NewHTTPError404("template not found")
+	}
+
+	return template, nil
 }

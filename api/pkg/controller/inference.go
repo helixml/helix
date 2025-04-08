@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -31,12 +32,12 @@ import (
 )
 
 type ChatCompletionOptions struct {
-	AppID        string
-	AssistantID  string
-	RAGSourceID  string
-	Provider     string
-	QueryParams  map[string]string
-	OAuthEnvVars []string // OAuth environment variables
+	AppID       string
+	AssistantID string
+	RAGSourceID string
+	Provider    string
+	QueryParams map[string]string
+	OAuthTokens map[string]string // OAuth tokens mapped by provider name
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -51,6 +52,17 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
+	}
+
+	client, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	// Evaluate and add OAuth tokens
+	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -88,17 +100,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	client, err := c.getClient(ctx, user.ID, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	// Evaluate and add OAuth tokens
-	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
 	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
@@ -113,14 +114,36 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
 	req.Stream = true
 
+	if opts == nil {
+		opts = &ChatCompletionOptions{}
+	}
+
+	log.Info().
+		Str("owner_id", user.ID).
+		Str("app_id", opts.AppID).
+		Int("oauth_token_count", len(opts.OAuthTokens)).
+		Bool("has_oauth_manager", c.Options.OAuthManager != nil).
+		Msg("TRACE: ChatCompletionStream called with app ID")
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
-		log.Info().Msg("no assistant found")
 		return nil, nil, err
 	}
+	log.Info().Msgf("ZZZ assistant: %+v", assistant)
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
+	}
+
+	client, err := c.getClient(ctx, user.ID, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	// Evaluate and add OAuth tokens
+	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -161,17 +184,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
-	}
-
-	client, err := c.getClient(ctx, user.ID, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get client: %v", err)
-	}
-
-	// Evaluate and add OAuth tokens
-	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
 	stream, err := client.CreateChatCompletionStream(ctx, req)
@@ -240,6 +252,14 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	options = append(options, tools.WithClient(apieClient))
 
+	// Pass OAuth tokens to the tools system
+	if len(opts.OAuthTokens) > 0 {
+		log.Info().
+			Int("token_count", len(opts.OAuthTokens)).
+			Msg("Passing OAuth tokens to tools system for blocking call")
+		options = append(options, tools.WithOAuthTokens(opts.OAuthTokens))
+	}
+
 	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API, options...)
 	if err != nil {
 		if emitErr := c.emitStepInfo(ctx, &types.StepInfo{
@@ -306,6 +326,14 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	options = append(options, tools.WithClient(apieClient))
 
+	// Pass OAuth tokens to the tools system
+	if len(opts.OAuthTokens) > 0 {
+		log.Info().
+			Int("token_count", len(opts.OAuthTokens)).
+			Msg("Passing OAuth tokens to tools system for streaming call")
+		options = append(options, tools.WithOAuthTokens(opts.OAuthTokens))
+	}
+
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.API, options...)
 	if err != nil {
 		log.Warn().
@@ -337,11 +365,23 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 }
 
 func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*types.Tool, *tools.IsActionableResponse, bool, error) {
+	log.Info().
+		Str("user_id", user.ID).
+		Str("app_id", opts.AppID).
+		Bool("has_oauth_tokens", len(opts.OAuthTokens) > 0).
+		Msg("Starting selectAndConfigureTool")
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
 		return nil, nil, false, err
 	}
+
+	log.Info().
+		Str("assistant_id", assistant.ID).
+		Str("assistant_name", assistant.Name).
+		Int("tool_count", len(assistant.Tools)).
+		Msg("Loaded assistant for tool selection")
 
 	if len(assistant.Tools) == 0 {
 		log.Info().
@@ -364,14 +404,44 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	// If assistant has configured a model, use it
 	if assistant != nil && assistant.Model != "" {
 		options = append(options, tools.WithModel(assistant.Model))
+		log.Info().
+			Str("assistant_id", assistant.ID).
+			Str("assistant_model", assistant.Model).
+			Msg("Using assistant-specific model for tools")
 	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("provider", opts.Provider).
+		Msg("Getting API client for tool execution")
 
 	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
 	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("provider", opts.Provider).
+			Msg("Failed to get client for tool execution")
 		return nil, nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
 
 	options = append(options, tools.WithClient(apieClient))
+
+	// Check if we have OAuth tokens in options
+	if len(opts.OAuthTokens) > 0 {
+		tokenKeys := make([]string, 0, len(opts.OAuthTokens))
+		for key := range opts.OAuthTokens {
+			tokenKeys = append(tokenKeys, key)
+		}
+		log.Info().
+			Int("token_count", len(opts.OAuthTokens)).
+			Strs("token_keys", tokenKeys).
+			Msg("OAuth tokens available for tool execution")
+	} else {
+		log.Warn().
+			Str("app_id", opts.AppID).
+			Msg("No OAuth tokens available in options")
+	}
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
@@ -386,6 +456,33 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		Message: "Checking if we should use tools",
 	}); err != nil {
 		log.Debug().Err(err).Msg("failed to emit step info")
+	}
+
+	log.Info().
+		Str("session_id", vals.SessionID).
+		Str("interaction_id", vals.InteractionID).
+		Int("tool_count", len(assistant.Tools)).
+		Int("history_message_count", len(history)).
+		Msg("Checking if message is actionable")
+
+	// Log each tool being considered
+	for i, tool := range assistant.Tools {
+		if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+			log.Info().
+				Int("tool_index", i).
+				Str("tool_name", tool.Name).
+				Str("tool_type", string(tool.ToolType)).
+				Str("oauth_provider", tool.Config.API.OAuthProvider).
+				Bool("has_headers", tool.Config.API.Headers != nil).
+				Int("action_count", len(tool.Config.API.Actions)).
+				Msg("API tool available for action")
+		} else {
+			log.Info().
+				Int("tool_index", i).
+				Str("tool_name", tool.Name).
+				Str("tool_type", string(tool.ToolType)).
+				Msg("Non-API tool available for action")
+		}
 	}
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
@@ -403,12 +500,81 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 			log.Debug().Err(err).Msg("failed to emit step info")
 		}
 
+		log.Info().
+			Str("session_id", vals.SessionID).
+			Str("interaction_id", vals.InteractionID).
+			Msg("Message is not actionable, skipping tool execution")
+
 		return nil, nil, false, nil
 	}
 
+	// Log the IsActionable result
+	log.Info().
+		Str("session_id", vals.SessionID).
+		Str("chosen_tool_name", isActionable.API).
+		Str("api", isActionable.API).
+		Bool("actionable", isActionable.Actionable()).
+		Msg("Message is actionable")
+
 	selectedTool, ok := tools.GetToolFromAction(assistant.Tools, isActionable.API)
 	if !ok {
+		log.Error().
+			Str("chosen_tool", isActionable.API).
+			Str("api", isActionable.API).
+			Msg("Tool not found for action")
 		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.API)
+	}
+
+	// Check if the tool has the necessary OAuth provider
+	if selectedTool.ToolType == types.ToolTypeAPI && selectedTool.Config.API != nil {
+		log.Info().
+			Str("tool_name", selectedTool.Name).
+			Str("oauth_provider", selectedTool.Config.API.OAuthProvider).
+			Bool("has_oauth_provider", selectedTool.Config.API.OAuthProvider != "").
+			Bool("has_headers", selectedTool.Config.API.Headers != nil).
+			Msg("Selected API tool OAuth configuration")
+
+		// Add detailed debug logging
+		log.Info().
+			Str("tool_id", selectedTool.ID).
+			Str("tool_name", selectedTool.Name).
+			Str("oauth_provider", selectedTool.Config.API.OAuthProvider).
+			Bool("has_oauth_provider", selectedTool.Config.API.OAuthProvider != "").
+			Str("oauth_provider_type", fmt.Sprintf("%T", selectedTool.Config.API.OAuthProvider)).
+			Interface("available_tokens", opts.OAuthTokens).
+			Msg("DEBUG: Tool OAuth provider checking")
+
+		// Check if there's a matching OAuth token
+		if selectedTool.Config.API.OAuthProvider != "" && len(opts.OAuthTokens) > 0 {
+			if token, exists := opts.OAuthTokens[selectedTool.Config.API.OAuthProvider]; exists {
+				log.Info().
+					Str("provider", selectedTool.Config.API.OAuthProvider).
+					Bool("token_found", token != "").
+					Msg("OAuth token found for selected tool")
+			} else {
+				// Convert map keys to a slice for logging
+				tokenKeys := make([]string, 0, len(opts.OAuthTokens))
+				for k := range opts.OAuthTokens {
+					tokenKeys = append(tokenKeys, k)
+				}
+
+				log.Warn().
+					Str("provider", selectedTool.Config.API.OAuthProvider).
+					Strs("available_providers", tokenKeys).
+					Msg("No matching OAuth token found for selected tool")
+
+				// Try a case-insensitive match
+				for tokenKey, tokenValue := range opts.OAuthTokens {
+					if strings.EqualFold(tokenKey, selectedTool.Config.API.OAuthProvider) {
+						log.Info().
+							Str("provider", selectedTool.Config.API.OAuthProvider).
+							Str("token_key", tokenKey).
+							Bool("has_token", tokenValue != "").
+							Msg("Found OAuth token with case-insensitive match")
+					}
+				}
+			}
+		}
 	}
 
 	// If assistant has configured a model, give the hint to the tool that it should use that model too
@@ -431,6 +597,14 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		for k, v := range opts.QueryParams {
 			selectedTool.Config.API.Query[k] = v
 		}
+	}
+
+	if err := c.emitStepInfo(ctx, &types.StepInfo{
+		Name:    selectedTool.Name,
+		Type:    types.StepInfoTypeToolUse,
+		Message: fmt.Sprintf("Using %s for action %s", selectedTool.Name, isActionable.API),
+	}); err != nil {
+		log.Debug().Err(err).Msg("failed to emit step info")
 	}
 
 	return selectedTool, isActionable, true, nil
@@ -1217,104 +1391,214 @@ func createUniqueRagResultKey(result *types.SessionRAGResult) string {
 	return key
 }
 
-func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) ([]string, error) {
-	// Initialize empty slice for environment variables
-	var envVars []string
+func (c *Controller) getAppOAuthTokens(ctx context.Context, userID string, app *types.App) (map[string]string, error) {
+
+	// Initialize empty map for OAuth tokens
+	oauthTokens := make(map[string]string)
+
+	log.Info().
+		Str("user_id", userID).
+		Str("app_id", app.ID).
+		Bool("oauth_manager_available", c.Options.OAuthManager != nil).
+		Msg("Retrieving OAuth tokens for app in getAppOAuthTokens")
 
 	// Only proceed if we have an OAuth manager
 	if c.Options.OAuthManager == nil {
-		log.Debug().Msg("No OAuth manager available")
-		return nil, nil
+		log.Warn().Msg("No OAuth manager available")
+		return oauthTokens, nil
 	}
 
-	// If app is nil, return empty slice
+	// If app is nil, return empty map
 	if app == nil {
-		return nil, nil
+		log.Warn().Msg("App is nil in getAppOAuthTokens")
+		return oauthTokens, nil
 	}
 
 	// Keep track of providers we've seen to avoid duplicates
-	seenProviders := make(map[types.OAuthProviderType]bool)
+	seenProviders := make(map[string]bool)
 
 	// First, check the tools defined in assistants
-	for _, assistant := range app.Config.Helix.Assistants {
-		for _, tool := range assistant.Tools {
-			if tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				providerType := tool.Config.API.OAuthProvider
-				requiredScopes := tool.Config.API.OAuthScopes
+	assistantCount := len(app.Config.Helix.Assistants)
+	log.Info().
+		Str("app_id", app.ID).
+		Int("assistant_count", assistantCount).
+		Msg("Checking assistants for OAuth tools")
+
+	for aIdx, assistant := range app.Config.Helix.Assistants {
+		// Check APIs array instead of Tools array
+		apiCount := len(assistant.APIs)
+		log.Info().
+			Str("app_id", app.ID).
+			Str("assistant_name", assistant.Name).
+			Int("assistant_index", aIdx).
+			Int("api_count", apiCount).
+			Msg("Checking assistant APIs for OAuth providers")
+
+		for tIdx, api := range assistant.APIs {
+			if api.OAuthProvider != "" {
+				log.Info().
+					Str("app_id", app.ID).
+					Str("api_name", api.Name).
+					Int("api_index", tIdx).
+					Str("oauth_provider", api.OAuthProvider).
+					Strs("oauth_scopes", api.OAuthScopes).
+					Bool("has_oauth_provider", api.OAuthProvider != "").
+					Msg("Checking API for OAuth provider")
+
+				providerName := api.OAuthProvider
+				requiredScopes := api.OAuthScopes
 
 				// Skip if we've already processed this provider
-				if seenProviders[providerType] {
+				if seenProviders[providerName] {
+					log.Info().
+						Str("provider_name", providerName).
+						Msg("Skipping already processed provider")
 					continue
 				}
-				seenProviders[providerType] = true
+				seenProviders[providerName] = true
 
-				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerType, requiredScopes)
+				log.Info().
+					Str("provider_name", providerName).
+					Strs("required_scopes", requiredScopes).
+					Msg("Attempting to get OAuth token for API")
+
+				token, err := c.Options.OAuthManager.GetTokenForTool(ctx, userID, providerName, requiredScopes)
 				if err == nil && token != "" {
-					envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(string(providerType)))
-					envVars = append(envVars, fmt.Sprintf("%s=%s", envName, token))
-					log.Debug().Str("provider", string(providerType)).Msg("Added OAuth token to app environment")
+					// Add the token directly to the map using the original provider name
+					oauthTokens[providerName] = token
+					log.Info().
+						Str("provider", providerName).
+						Str("token_prefix", token[:10]+"...").
+						Msg("Successfully retrieved OAuth token for provider")
 				} else {
 					var scopeErr *oauth.ScopeError
 					if errors.As(err, &scopeErr) {
 						log.Warn().
 							Str("app_id", app.ID).
 							Str("user_id", userID).
-							Str("provider", string(providerType)).
+							Str("provider", providerName).
 							Strs("missing_scopes", scopeErr.Missing).
-							Msg("Missing required OAuth scopes for tool")
+							Strs("required_scopes", requiredScopes).
+							Strs("available_scopes", scopeErr.Has).
+							Msg("Missing required OAuth scopes for API")
 					} else {
-						log.Debug().Err(err).Str("provider", string(providerType)).Msg("Failed to get OAuth token for tool")
+						log.Warn().
+							Err(err).
+							Str("provider", providerName).
+							Str("error_type", fmt.Sprintf("%T", err)).
+							Msg("Failed to get OAuth token for API")
 					}
 				}
 			}
 		}
 	}
 
-	return envVars, nil
+	// Log tokens that were found
+	tokenKeys := make([]string, 0, len(oauthTokens))
+	for key := range oauthTokens {
+		tokenKeys = append(tokenKeys, key)
+	}
+
+	log.Info().
+		Str("app_id", app.ID).
+		Int("token_count", len(oauthTokens)).
+		Strs("token_keys", tokenKeys).
+		Msg("Completed OAuth token retrieval in getAppOAuthTokens")
+
+	return oauthTokens, nil
 }
 
 func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Client, opts *ChatCompletionOptions, user *types.User) error {
+	log.Info().
+		Str("user_id", user.ID).
+		Str("app_id", opts.AppID).
+		Int("existing_oauth_token_count", len(opts.OAuthTokens)).
+		Bool("oauth_manager_available", c.Options.OAuthManager != nil).
+		Msg("Starting evalAndAddOAuthTokens")
+
 	// If we already have OAuth tokens, use them
-	if len(opts.OAuthEnvVars) > 0 {
+	if len(opts.OAuthTokens) > 0 {
+		log.Info().
+			Int("token_count", len(opts.OAuthTokens)).
+			Msg("Using pre-existing OAuth tokens, skipping retrieval")
 		return nil
 	}
 
 	// If we have an app ID, try to get OAuth tokens
 	if opts.AppID != "" && c.Options.OAuthManager != nil {
+		log.Debug().
+			Str("app_id", opts.AppID).
+			Str("user_id", user.ID).
+			Msg("Retrieving app for OAuth tokens")
+
 		app, err := c.Options.Store.GetApp(ctx, opts.AppID)
 		if err != nil {
-			log.Debug().Err(err).Str("app_id", opts.AppID).Msg("Failed to get app for OAuth tokens")
+			log.Warn().
+				Err(err).
+				Str("app_id", opts.AppID).
+				Msg("Failed to get app for OAuth tokens")
 			return nil // Continue without OAuth tokens
 		}
 
-		// Get OAuth tokens as environment variables
-		oauthEnvVars, err := c.getAppOAuthTokens(ctx, user.ID, app)
+		log.Info().
+			Str("app_id", app.ID).
+			Str("app_name", app.Config.Helix.Name).
+			Int("assistant_count", len(app.Config.Helix.Assistants)).
+			Msg("Successfully retrieved app for OAuth tokens")
+
+		// Get OAuth tokens directly as a map
+		log.Debug().
+			Str("app_id", app.ID).
+			Str("user_id", user.ID).
+			Msg("Calling getAppOAuthTokens to retrieve tokens")
+
+		oauthTokens, err := c.getAppOAuthTokens(ctx, user.ID, app)
 		if err != nil {
-			log.Debug().Err(err).Str("app_id", opts.AppID).Msg("Failed to get OAuth tokens for app")
+			log.Warn().
+				Err(err).
+				Str("app_id", opts.AppID).
+				Msg("Failed to get OAuth tokens for app")
 			return nil // Continue without OAuth tokens
 		}
+
+		log.Info().
+			Str("app_id", app.ID).
+			Int("oauth_token_count", len(oauthTokens)).
+			Interface("token_keys", maps.Keys(oauthTokens)).
+			Msg("Retrieved OAuth tokens from getAppOAuthTokens")
 
 		// Add OAuth tokens to the options
-		opts.OAuthEnvVars = oauthEnvVars
+		opts.OAuthTokens = oauthTokens
 
-		// If we have tokens, add them to the client as well
-		if len(oauthEnvVars) > 0 {
-			for _, envVar := range oauthEnvVars {
-				parts := strings.SplitN(envVar, "=", 2)
-				if len(parts) == 2 {
-					envKey, envValue := parts[0], parts[1]
-					// Only process OAUTH_TOKEN_ variables
-					if strings.HasPrefix(envKey, "OAUTH_TOKEN_") {
-						// Extract provider type from env var name (e.g., OAUTH_TOKEN_GITHUB -> github)
-						providerType := strings.ToLower(strings.TrimPrefix(envKey, "OAUTH_TOKEN_"))
-						log.Debug().Str("provider", providerType).Msg("Added OAuth token to API client HTTP headers")
-						// Add OAuth token to client (if supported)
-						if retryableClient, ok := client.(*oai.RetryableClient); ok {
-							retryableClient.AddOAuthToken(providerType, envValue)
-						}
-					}
-				}
+		// Log retrieved tokens
+		if len(oauthTokens) > 0 {
+			log.Info().
+				Int("token_count", len(oauthTokens)).
+				Interface("token_keys", maps.Keys(oauthTokens)).
+				Msg("Successfully retrieved OAuth tokens for tools")
+		} else {
+			log.Warn().
+				Str("app_id", app.ID).
+				Str("user_id", user.ID).
+				Msg("No OAuth tokens found for app")
+		}
+	} else {
+		if opts.AppID == "" {
+			// Check if app ID is in the context
+			if appID, ok := oai.GetContextAppID(ctx); ok && appID != "" {
+				log.Info().
+					Str("app_id_from_context", appID).
+					Msg("Found app ID in context, using it for OAuth token retrieval")
+
+				// Set the app ID in the options and recursively call this function again
+				opts.AppID = appID
+				return c.evalAndAddOAuthTokens(ctx, client, opts, user)
 			}
+
+			log.Info().Msg("No app ID specified in options or context, skipping OAuth token retrieval")
+		}
+		if c.Options.OAuthManager == nil {
+			log.Warn().Msg("OAuth manager is not available")
 		}
 	}
 
