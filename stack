@@ -167,6 +167,11 @@ function test-integration() {
  cd integration-test/api && go test -v ./...
 }
 
+# Examples:
+# Run all tests:       ./stack test
+# Run specific tests:  ./stack test ./api/pkg/oauth_test
+# Run a single test:   ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
+
 function test() {
   # Ingest env variables from .env file
   set -a
@@ -206,10 +211,18 @@ function test() {
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
-  # go test -v ./...
   # To debug test hangs, try this:
   # Run tests one at a time and show which test is running
-  go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+
+  # If a test path is provided, run tests from that path,
+  # otherwise run all tests
+  if [[ $# -gt 0 ]]; then
+    echo "Running tests from path: $1"
+    go test -v -p 1 "$1" 2>&1 | sed -u 's/^/[TEST] /'
+  else
+    echo "Running all tests"
+    go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+  fi
 }
 
 eval "$@"
