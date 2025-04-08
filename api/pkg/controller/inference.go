@@ -119,6 +119,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		log.Info().Msg("no assistant found")
 		return nil, nil, err
 	}
+	log.Info().Msgf("ZZZ assistant: %+v", assistant)
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
