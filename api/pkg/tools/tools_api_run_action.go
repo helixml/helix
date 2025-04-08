@@ -352,6 +352,9 @@ func (c *ChainStrategy) runAPIActionStream(ctx context.Context, client oai.Clien
 func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
 	// Log the tool's OAuth configuration
 	if tool != nil && tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
+		// Try to get app ID from context for debugging
+		appID, ok := oai.GetContextAppID(ctx)
+
 		log.Info().
 			Str("session_id", sessionID).
 			Str("interaction_id", interactionID).
@@ -362,6 +365,8 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 			Strs("oauth_scopes", tool.Config.API.OAuthScopes).
 			Bool("has_headers", tool.Config.API.Headers != nil).
 			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
+			Bool("has_app_id_in_context", ok).
+			Str("app_id_from_context", appID).
 			Int("header_count", func() int {
 				if tool.Config.API.Headers != nil {
 					return len(tool.Config.API.Headers)
