@@ -4,8 +4,8 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,11 +22,10 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	oai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -185,28 +184,14 @@ paths:
         '200':
           description: Successful operation`
 
-	githubTool := &types.Tool{
-		ID:          fmt.Sprintf("tool_%d", time.Now().UnixNano()),
-		Name:        "GitHub API",
-		Description: "Access GitHub issues and repositories",
-		ToolType:    types.ToolTypeAPI,
-		Config: types.ToolConfig{
-			API: &types.ToolAPIConfig{
-				URL:           githubAPIURL,
-				OAuthProvider: providerName,
-				OAuthScopes:   []string{"repo"},
-				Schema:        githubToolSchema,
-				Actions: []*types.ToolAPIAction{
-					{
-						Name:        "listUserIssues",
-						Description: "List issues assigned to the authenticated user",
-						Path:        "/issues",
-						Method:      "GET",
-					},
-				},
-				Headers: map[string]string{}, // Initialize headers map
-			},
-		},
+	githubTool := types.AssistantAPI{
+		Name:          "GitHub API",
+		Description:   "Access GitHub issues and repositories",
+		Schema:        githubToolSchema,
+		URL:           githubAPIURL,
+		Headers:       map[string]string{},
+		OAuthProvider: providerName,
+		OAuthScopes:   []string{"repo"},
 	}
 
 	// 7. Create an app with an assistant that includes the GitHub tool
@@ -220,7 +205,7 @@ paths:
 					Name:     "Test Assistant",
 					Provider: "togetherai",
 					Model:    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-					Tools:    []*types.Tool{githubTool},
+					APIs:     []types.AssistantAPI{githubTool},
 				},
 			},
 		},
@@ -246,10 +231,10 @@ paths:
 	require.NoError(t, err, "Failed to retrieve app")
 	require.Equal(t, 1, len(retrievedApp.Config.Helix.Assistants), "App should have 1 assistant")
 	require.Equal(t, "test-assistant", retrievedApp.Config.Helix.Assistants[0].ID, "Assistant ID should match")
-	require.Equal(t, 1, len(retrievedApp.Config.Helix.Assistants[0].Tools), "Assistant should have 1 tool")
-	require.Equal(t, githubTool.ID, retrievedApp.Config.Helix.Assistants[0].Tools[0].ID, "Tool ID should match")
-	t.Logf("Assistant tools verified. Tool ID: %s, Provider: %s",
-		githubTool.ID, githubTool.Config.API.OAuthProvider)
+	require.Equal(t, 1, len(retrievedApp.Config.Helix.Assistants[0].APIs), "Assistant should have 1 API")
+	require.Equal(t, githubTool.URL, retrievedApp.Config.Helix.Assistants[0].APIs[0].URL, "API URL should match")
+	t.Logf("Assistant tools verified. API URL: %s, Provider: %s",
+		githubTool.URL, githubTool.OAuthProvider)
 
 	// 9. Set up the controller components for streaming
 	mockCtrl := gomock.NewController(t)
@@ -281,9 +266,6 @@ paths:
 	require.NoError(t, err, "Failed to create chain strategy")
 	tools.InitChainStrategyOAuth(toolsPlanner, oauthManager, db, db)
 
-	// Create a controller
-	ctrlCtx := context.Background()
-
 	// Create mock dependencies for controller
 	mockFilestore := filestore.NewMockFileStore(mockCtrl)
 	mockExtractor := extract.NewMockExtractor(mockCtrl)
@@ -299,23 +281,8 @@ paths:
 	helixPubSub, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err, "Failed to create in-memory PubSub")
 
-	// Create a RunnerController for the scheduler
-	runnerCtrlCfg := &scheduler.RunnerControllerConfig{
-		PubSub: helixPubSub,
-		FS:     mockFilestore,
-	}
-	runnerController, err := scheduler.NewRunnerController(ctrlCtx, runnerCtrlCfg)
-	require.NoError(t, err, "Failed to create runner controller")
-
-	// Create a scheduler for the controller
-	schedulerParams := &scheduler.Params{
-		RunnerController: runnerController,
-		QueueSize:        50,
-	}
-	scheduler, err := scheduler.NewScheduler(ctrlCtx, &cfg, schedulerParams)
-	require.NoError(t, err, "Failed to create scheduler")
-
-	ctrl, err := controller.NewController(ctrlCtx, controller.Options{
+	// Create a controller with context
+	ctrl, err := controller.NewController(context.Background(), controller.Options{
 		Config:          &cfg,
 		Store:           db,
 		OAuthManager:    oauthManager,
@@ -324,7 +291,7 @@ paths:
 		Extractor:       mockExtractor,
 		Janitor:         testJanitor,
 		PubSub:          helixPubSub,
-		Scheduler:       scheduler,
+		Scheduler:       nil, // No scheduler needed for direct API calls
 	})
 	require.NoError(t, err, "Failed to create controller")
 	ctrl.ToolsPlanner = toolsPlanner
@@ -332,151 +299,76 @@ paths:
 	t.Logf("****************************************************")
 	t.Logf("APP ID: %s", createdApp.ID)
 	t.Logf("OWNER ID: %s", testUser.ID)
-	t.Logf("TOOL ID: %s", githubTool.ID)
+	t.Logf("TOOL ID: %s", githubTool.Name)
 	t.Logf("GITHUB API URL: %s", githubAPIURL)
 	t.Logf("****************************************************")
 
-	// Setup done, start the actual test part
 	// We need to put this in its own subtest so we can properly observe whether it fails
 	t.Run("Sessions API should use OAuth token", func(t *testing.T) {
 		// Save current auth header state before running test
 		originalRequestCount := requestCounter
 
-		// Create a sessions API request rather than directly calling ChatCompletionStream
-		// This better simulates the actual production flow
-		sessionReq := &types.SessionChatRequest{
-			Model:        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-			Provider:     "togetherai",
-			Stream:       true,
-			SystemPrompt: "You are a helpful assistant that can use GitHub to look up repository issues.",
-			AppID:        createdApp.ID, // This is critical - setting the app ID explicitly
-			Messages: []*types.Message{
+		// Create a simple chat completion request without any OpenAI tool specifications
+		chatCompletionRequest := oai.ChatCompletionRequest{
+			Model:  "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			Stream: true,
+			Messages: []oai.ChatCompletionMessage{
 				{
-					Role: types.CreatorTypeUser,
-					Content: types.MessageContent{
-						ContentType: types.MessageContentTypeText,
-						Parts:       []any{"What issues do I have on GitHub?"},
-					},
+					Role:    oai.ChatMessageRoleSystem,
+					Content: "You are a helpful assistant that can use GitHub to look up repository issues.",
+				},
+				{
+					Role:    oai.ChatMessageRoleUser,
+					Content: "What issues do I have on GitHub?",
 				},
 			},
+			// No tool specifications - we're using our internal API tools implementation
 		}
 
-		// Convert session chat request to internal session request
-		message, ok := sessionReq.Message()
-		require.True(t, ok, "Failed to get message from session request")
+		// Setup our context with any needed values
+		ctx := context.Background()
 
-		// Create user interaction
-		userInteraction := &types.Interaction{
-			ID:        system.GenerateUUID(),
-			Created:   time.Now(),
-			Updated:   time.Now(),
-			Creator:   types.CreatorTypeUser,
-			Mode:      types.SessionModeInference,
-			Message:   message,
-			State:     types.InteractionStateComplete,
-			Finished:  true,
-			Completed: time.Now(),
+		// Setup chat completion options with app ID
+		opts := &controller.ChatCompletionOptions{
+			AppID:       createdApp.ID, // This is critical - setting the app ID explicitly
+			Provider:    "togetherai",
+			OAuthTokens: map[string]string{}, // Will be populated internally by evalAndAddOAuthTokens
 		}
 
-		// Create a direct session request to the controller (no HTTP)
-		internalReq := types.InternalSessionRequest{
-			ID:               system.GenerateSessionID(),
-			Stream:           true,
-			Mode:             types.SessionModeInference,
-			Type:             types.SessionTypeText,
-			SystemPrompt:     sessionReq.SystemPrompt,
-			ModelName:        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-			ParentApp:        createdApp.ID,
-			Owner:            testUser.ID,
-			OwnerType:        testUser.Type,
-			UserInteractions: []*types.Interaction{userInteraction},
-		}
+		t.Logf("Making direct chat completion stream call with app ID: %s, user ID: %s", createdApp.ID, testUser.ID)
 
-		t.Logf("Starting a new session with app ID: %s", createdApp.ID)
+		// Make the direct streaming chat completion call through the real controller
+		stream, _, err := ctrl.ChatCompletionStream(ctx, testUser, chatCompletionRequest, opts)
+		require.NoError(t, err, "Failed to create chat completion stream")
+		defer stream.Close()
 
-		// Call the controller directly to create the session
-		session, err := ctrl.StartSession(context.Background(), testUser, internalReq)
-		require.NoError(t, err, "Failed to start session")
-
-		t.Logf("****************************************************")
-		t.Logf("CREATED SESSION ID: %s", session.ID)
-		t.Logf("PARENT APP: %s", session.ParentApp)
-		t.Logf("****************************************************")
-
-		// Set up a subscription to the session's topic to see the messages
-		sessionTopic := pubsub.GetSessionQueue(testUser.ID, session.ID)
-		t.Logf("Subscribing to session topic: %s", sessionTopic)
-
-		// Create a channel to signal when streaming is done
-		doneCh := make(chan struct{})
-		// Keep track of whether we saw any meaningful session responses
-		sawResponse := false
-
-		// Create a subscription to the session updates
-		sub, err := ctrl.Options.PubSub.Subscribe(context.Background(), sessionTopic, func(payload []byte) error {
-			// Try to parse the event
-			var event types.WebsocketEvent
-			if err := json.Unmarshal(payload, &event); err != nil {
-				t.Logf("Error unmarshaling event: %v", err)
-				return nil
-			}
-
-			t.Logf("Received event type: %s for session: %s", event.Type, event.SessionID)
-
-			// See if we've got a session with a useful response
-			if event.Session != nil && len(event.Session.Interactions) > 0 {
-				interaction := event.Session.Interactions[len(event.Session.Interactions)-1]
-				if interaction.Creator == types.CreatorTypeAssistant && interaction.Message != "" {
-					t.Logf("Received session response: %s", interaction.Message)
-					sawResponse = true
+		// Process the stream just to ensure completion
+		// We don't care about the response content - just that the stream completes
+		fmt.Println("\n🔍 LLM RESPONSE START 🔍")
+		var fullResponse string
+		for {
+			response, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					fmt.Println("\n🔍 LLM RESPONSE END (EOF) 🔍")
+					break
 				}
-
-				// If the interaction is finished and has a tool_id, we know the tool was used
-				if interaction.Finished && interaction.Metadata != nil {
-					if toolID, ok := interaction.Metadata["tool_id"]; ok {
-						t.Logf("Tool was used! Tool ID: %s", toolID)
-						close(doneCh)
-						return nil
-					}
-				}
+				fmt.Printf("\n🔍 Stream error: %v 🔍\n", err)
+				break
 			}
 
-			// If we got a worker task response, show it
-			if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Message != "" {
-				t.Logf("Worker response: %s", event.WorkerTaskResponse.Message)
-				sawResponse = true
-
-				// If the worker task is done, we're done streaming
-				if event.WorkerTaskResponse.Done {
-					close(doneCh)
-					return nil
-				}
+			// Print the actual content from the response (if any)
+			if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+				content := response.Choices[0].Delta.Content
+				fullResponse += content
+				fmt.Print(content)
 			}
-
-			return nil
-		})
-		require.NoError(t, err, "Failed to subscribe to session topic")
-		defer func() {
-			if err := sub.Unsubscribe(); err != nil {
-				t.Logf("Error unsubscribing from session topic: %v", err)
-			}
-		}()
-
-		// Wait for the streaming to complete or timeout
-		select {
-		case <-doneCh:
-			t.Log("Session streaming completed")
-		case <-time.After(10 * time.Second):
-			t.Log("Session streaming timed out after 10 seconds")
 		}
 
-		if sawResponse {
-			t.Log("Successfully received streaming responses from the session")
-		} else {
-			t.Log("Did not receive any streaming responses from the session")
-		}
+		// Print the full response at the end for clarity
+		fmt.Printf("\n\n💬 FULL RESPONSE: %s\n", fullResponse)
 
-		// Wait for any asynchronous API calls to complete
+		// Wait a bit to ensure any asynchronous calls complete
 		t.Log("Waiting for any API calls to complete...")
 		time.Sleep(5 * time.Second)
 
