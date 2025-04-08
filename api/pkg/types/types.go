@@ -987,6 +987,41 @@ type AssistantConfig struct {
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
 	LoraID      string `json:"lora_id,omitempty" yaml:"lora_id,omitempty"`
 
+	// ContextLimit - the number of messages to include in the context for the AI assistant.
+	// When set to 1, the AI assistant will only see and remember the most recent message.
+	ContextLimit int `json:"context_limit,omitempty" yaml:"context_limit,omitempty"`
+
+	// Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+	// 0.01 - precise
+	// 1 - neutral
+	// 2 - creative
+	Temperature float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+
+	// How much to penalize new tokens based on whether they appear in the text so far.
+	// Increases the model's likelihood to talk about new topics
+	// 0 - balanced
+	// 2 - open minded
+	PresencePenalty float32 `json:"presence_penalty,omitempty"`
+
+	// How much to penalize new tokens based on their frequency in the text so far.
+	// Increases the model's likelihood to talk about new topics
+	// 0 - balanced
+	// 2 - less repetitive
+	FrequencyPenalty float32 `json:"frequency_penalty,omitempty"`
+
+	// An alternative to sampling with temperature, called nucleus sampling,
+	// where the model considers the results of the tokens with top_p probability mass.
+	// So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+	// 0 - balanced
+	// 2 - more creative
+	TopP float32 `json:"top_p,omitempty"`
+
+	// The maximum number of tokens to generate before stopping.
+	MaxTokens int `json:"max_tokens,omitempty"`
+
+	// Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high".
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+
 	Knowledge []*AssistantKnowledge `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 
 	IsActionableTemplate      string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
