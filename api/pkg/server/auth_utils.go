@@ -106,7 +106,12 @@ func getRequestUser(req *http.Request) *types.User {
 			TokenType: types.TokenTypeSocket,
 		}
 	}
-	user := req.Context().Value(userKey).(types.User)
+	userIntf := req.Context().Value(userKey)
+	if userIntf == nil {
+		return nil
+	}
+	user := userIntf.(types.User)
+
 	return &user
 }
 
