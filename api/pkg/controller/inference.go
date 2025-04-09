@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,8 @@ import (
 	"maps"
 	"path/filepath"
 	"strings"
+	"text/template"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -1108,12 +1111,42 @@ func buildTextChatCompletionContent(lastMessage string, ragResults []*prompts.Ra
 	return extended, nil
 }
 
+type systemPromptValues struct {
+	LocalDate string // Current date such as 2024-01-01
+	LocalTime string // Current time such as 12:00:00
+}
+
+func renderPrompt(prompt string, values systemPromptValues) (string, error) {
+	tmpl, err := template.New("prompt").Parse(prompt)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse prompt: %w", err)
+	}
+
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, values); err != nil {
+		return "", fmt.Errorf("failed to execute prompt: %w", err)
+	}
+
+	return rendered.String(), nil
+}
+
 // setSystemPrompt if the assistant has a system prompt, set it in the request. If there is already
 // provided system prompt, overwrite it and if there is no system prompt, set it as the first message
 func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) openai.ChatCompletionRequest {
 	if systemPrompt == "" {
 		// Nothing to do
 		return *req
+	}
+
+	// Try to render template
+	enriched, err := renderPrompt(systemPrompt, systemPromptValues{
+		LocalDate: time.Now().Format("2006-01-02"),
+		LocalTime: time.Now().Format("15:04:05"),
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to render system prompt")
+	} else {
+		systemPrompt = enriched
 	}
 
 	if len(req.Messages) == 0 {
