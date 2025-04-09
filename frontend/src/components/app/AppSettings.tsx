@@ -318,23 +318,56 @@ const AppSettings: FC<AppSettingsProps> = ({
 
       {showAdvanced && (
         <Box sx={{ mb: 3 }}>
-          <Typography variant="h6" gutterBottom>Advanced Model Settings</Typography>
-          
-          <FormControl fullWidth sx={{ mb: 3 }}>
-            <InputLabel id="context-limit-label">Context Limit</InputLabel>
-            <Select
-              labelId="context-limit-label"
-              value={contextLimit}
-              label="Context Limit"
-              onChange={(e) => handleAdvancedChangeWithDebounce('contextLimit', e.target.value as number)}
-              disabled={readOnly}
-            >
-              <MenuItem value={0}>All Previous Messages</MenuItem>
-              {Array.from({length: 100}, (_, i) => i + 1).map(num => (
-                <MenuItem key={num} value={num}>{num} Message{num > 1 ? 's' : ''}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Typography variant="h6" gutterBottom sx={{ mb: 4 }}>Advanced Model Settings</Typography>
+
+          <Box sx={{ mb: 3 }}>
+            <FormControl fullWidth sx={{ mb: 3 }}>
+              <InputLabel id="context-limit-label">Context Limit</InputLabel>
+              <Select
+                labelId="context-limit-label"
+                value={contextLimit}
+                label="Context Limit"
+                onChange={(e) => handleAdvancedChangeWithDebounce('contextLimit', e.target.value as number)}
+                disabled={readOnly}
+              >
+                <MenuItem value={0}>All Previous Messages</MenuItem>
+                {Array.from({length: 100}, (_, i) => i + 1).map(num => (
+                  <MenuItem key={num} value={num}>{num} Message{num > 1 ? 's' : ''}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="body2" color="text.secondary">
+              The number of messages to include in the context for the AI assistant. When set to 1, the AI assistant will only see and remember the most recent message.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              {/* This is a hack to get the slider to center the labels */}
+              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
+              <Box sx={{ flexGrow: 1 }}>
+                <Slider
+                  value={temperature}
+                  onChange={(_, value) => handleAdvancedChangeWithDebounce('temperature', value as number)}
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  marks={[
+                    { value: 0, label: 'Precise' },
+                    { value: 1, label: 'Neutral' },
+                    { value: 2, label: 'Creative' },
+                  ]}
+                  disabled={readOnly}
+                />
+              </Box>
+              {/* This is a hack to get the slider to center the labels */}
+              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
+            </Typography>
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Frequency Penalty ({frequencyPenalty.toFixed(2)})</Typography>
@@ -386,35 +419,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 disabled={readOnly}
               />
             </Tooltip>
-          </Box>          
-
-          <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              {/* This is a hack to get the slider to center the labels */}
-              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
-              <Box sx={{ flexGrow: 1 }}>
-                <Slider
-                  value={temperature}
-                  onChange={(_, value) => handleAdvancedChangeWithDebounce('temperature', value as number)}
-                  min={0}
-                  max={2}
-                  step={0.01}
-                  marks={[
-                    { value: 0, label: 'Precise' },
-                    { value: 1, label: 'Neutral' },
-                    { value: 2, label: 'Creative' },
-                  ]}
-                  disabled={readOnly}
-                />
-              </Box>
-              {/* This is a hack to get the slider to center the labels */}
-              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary">
-              Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
-            </Typography>
-          </Box>
+          </Box>                    
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Top P (0-1)</Typography>
