@@ -311,18 +311,22 @@ const AppSettings: FC<AppSettingsProps> = ({
                 disabled={readOnly}
               />
             }
-            label="Advanced"
+            label="Advanced Model Settings"
           />
         </Stack>
       </Box>
 
       {showAdvanced && (
         <Box sx={{ mb: 3 }}>
-          <Typography variant="h6" gutterBottom sx={{ mb: 4 }}>Advanced Model Settings</Typography>
+          {/* <Typography variant="h6" gutterBottom sx={{ mb: 4 }}>Advanced Model Settings</Typography> */}
 
           <Box sx={{ mb: 3 }}>
-            <FormControl fullWidth sx={{ mb: 3 }}>
-              <InputLabel id="context-limit-label">Context Limit</InputLabel>
+          <Typography gutterBottom>Context Limit</Typography>
+            <Typography variant="body2" color="text.secondary">
+              The number of messages to include in the context for the AI assistant. When set to 1, the AI assistant will only see and remember the most recent message.
+            </Typography>
+            <FormControl fullWidth sx={{ mt: 1 }}>
+              {/* <InputLabel id="context-limit-label">Context Limit</InputLabel> */}
               <Select
                 labelId="context-limit-label"
                 value={contextLimit}
@@ -335,14 +339,14 @@ const AppSettings: FC<AppSettingsProps> = ({
                   <MenuItem key={num} value={num}>{num} Message{num > 1 ? 's' : ''}</MenuItem>
                 ))}
               </Select>
-            </FormControl>
-            <Typography variant="body2" color="text.secondary">
-              The number of messages to include in the context for the AI assistant. When set to 1, the AI assistant will only see and remember the most recent message.
-            </Typography>
+            </FormControl>           
           </Box>
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
+            </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
               {/* This is a hack to get the slider to center the labels */}
               <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
@@ -364,9 +368,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               {/* This is a hack to get the slider to center the labels */}
               <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
-            <Typography variant="body2" color="text.secondary">
-              Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
-            </Typography>
+            
           </Box>
 
           <Box sx={{ mb: 3 }}>
