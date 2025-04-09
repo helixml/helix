@@ -51,7 +51,7 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		params.CacheDir = &defaultCacheDir
 	}
 
-	defaultStartTimeout := 30 * time.Second
+	defaultStartTimeout := 24 * time.Hour
 	if params.StartTimeout == nil {
 		params.StartTimeout = &defaultStartTimeout
 	}
