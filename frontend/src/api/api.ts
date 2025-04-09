@@ -37,6 +37,7 @@ export interface GithubComHelixmlHelixApiPkgTypesUsage {
 }
 
 export interface GithubComSashabaranovGoOpenaiChatCompletionChoice {
+  content_filter_results?: GithubComSashabaranovGoOpenaiContentFilterResults;
   /**
    * FinishReason
    * stop: API returned complete message,
@@ -90,7 +91,7 @@ export interface GithubComSashabaranovGoOpenaiChatCompletionRequest {
    */
   logprobs?: boolean;
   /**
-   * MaxCompletionsTokens An upper bound for the number of tokens that can be generated for a completion,
+   * MaxCompletionTokens An upper bound for the number of tokens that can be generated for a completion,
    * including visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning
    */
   max_completion_tokens?: number;
@@ -102,14 +103,23 @@ export interface GithubComSashabaranovGoOpenaiChatCompletionRequest {
    */
   max_tokens?: number;
   messages?: GithubComSashabaranovGoOpenaiChatCompletionMessage[];
+  /** Metadata to store with the completion. */
+  metadata?: Record<string, string>;
   model?: string;
   n?: number;
   /** Disable the default behavior of parallel tool calls by setting it: false. */
   parallel_tool_calls?: any;
   presence_penalty?: number;
+  /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
+  reasoning_effort?: string;
   response_format?: GithubComSashabaranovGoOpenaiChatCompletionResponseFormat;
   seed?: number;
   stop?: string[];
+  /**
+   * Store can be set to true to store the output of this completion request for use in distillations and evals.
+   * https://platform.openai.com/docs/api-reference/chat/create#chat-create-store
+   */
+  store?: boolean;
   stream?: boolean;
   /** Options for streaming response. Only set this when you set stream: true. */
   stream_options?: GithubComSashabaranovGoOpenaiStreamOptions;
@@ -133,6 +143,7 @@ export interface GithubComSashabaranovGoOpenaiChatCompletionResponse {
   id?: string;
   model?: string;
   object?: string;
+  prompt_filter_results?: OpenaiPromptFilterResult[];
   system_fingerprint?: string;
   usage?: GithubComSashabaranovGoOpenaiUsage;
 }
@@ -164,6 +175,15 @@ export enum GithubComSashabaranovGoOpenaiChatMessagePartType {
   ChatMessagePartTypeImageURL = "image_url",
 }
 
+export interface GithubComSashabaranovGoOpenaiContentFilterResults {
+  hate?: GithubComSashabaranovGoOpenaiHate;
+  jailbreak?: OpenaiJailBreak;
+  profanity?: OpenaiProfanity;
+  self_harm?: GithubComSashabaranovGoOpenaiSelfHarm;
+  sexual?: GithubComSashabaranovGoOpenaiSexual;
+  violence?: GithubComSashabaranovGoOpenaiViolence;
+}
+
 export enum GithubComSashabaranovGoOpenaiFinishReason {
   FinishReasonStop = "stop",
   FinishReasonLength = "length",
@@ -193,6 +213,11 @@ export interface GithubComSashabaranovGoOpenaiFunctionDefinition {
   strict?: boolean;
 }
 
+export interface GithubComSashabaranovGoOpenaiHate {
+  filtered?: boolean;
+  severity?: string;
+}
+
 export enum GithubComSashabaranovGoOpenaiImageURLDetail {
   ImageURLDetailHigh = "high",
   ImageURLDetailLow = "low",
@@ -214,6 +239,16 @@ export interface GithubComSashabaranovGoOpenaiLogProb {
 export interface GithubComSashabaranovGoOpenaiLogProbs {
   /** Content is a list of message content tokens with log probability information. */
   content?: GithubComSashabaranovGoOpenaiLogProb[];
+}
+
+export interface GithubComSashabaranovGoOpenaiSelfHarm {
+  filtered?: boolean;
+  severity?: string;
+}
+
+export interface GithubComSashabaranovGoOpenaiSexual {
+  filtered?: boolean;
+  severity?: string;
 }
 
 export interface GithubComSashabaranovGoOpenaiStreamOptions {
@@ -253,7 +288,13 @@ export interface GithubComSashabaranovGoOpenaiUsage {
   completion_tokens?: number;
   completion_tokens_details?: OpenaiCompletionTokensDetails;
   prompt_tokens?: number;
+  prompt_tokens_details?: OpenaiPromptTokensDetails;
   total_tokens?: number;
+}
+
+export interface GithubComSashabaranovGoOpenaiViolence {
+  filtered?: boolean;
+  severity?: string;
 }
 
 export interface GormDeletedAt {
@@ -270,6 +311,7 @@ export interface OpenaiChatCompletionResponseFormatJSONSchema {
 }
 
 export interface OpenaiCompletionTokensDetails {
+  audio_tokens?: number;
   reasoning_tokens?: number;
 }
 
@@ -323,6 +365,26 @@ export interface OpenaiEmbeddingResponse {
   model?: OpenaiEmbeddingModel;
   object?: string;
   usage?: GithubComSashabaranovGoOpenaiUsage;
+}
+
+export interface OpenaiJailBreak {
+  detected?: boolean;
+  filtered?: boolean;
+}
+
+export interface OpenaiProfanity {
+  detected?: boolean;
+  filtered?: boolean;
+}
+
+export interface OpenaiPromptFilterResult {
+  content_filter_results?: GithubComSashabaranovGoOpenaiContentFilterResults;
+  index?: number;
+}
+
+export interface OpenaiPromptTokensDetails {
+  audio_tokens?: number;
+  cached_tokens?: number;
 }
 
 export interface ServerLicenseKeyRequest {
@@ -453,7 +515,19 @@ export interface TypesAssistantAPI {
 export interface TypesAssistantConfig {
   apis?: TypesAssistantAPI[];
   avatar?: string;
+  /**
+   * ContextLimit - the number of messages to include in the context for the AI assistant.
+   * When set to 1, the AI assistant will only see and remember the most recent message.
+   */
+  context_limit?: number;
   description?: string;
+  /**
+   * How much to penalize new tokens based on their frequency in the text so far.
+   * Increases the model's likelihood to talk about new topics
+   * 0 - balanced
+   * 2 - less repetitive
+   */
+  frequency_penalty?: number;
   gptscripts?: TypesAssistantGPTScript[];
   id?: string;
   image?: string;
@@ -462,16 +536,42 @@ export interface TypesAssistantConfig {
   is_actionable_template?: string;
   knowledge?: TypesAssistantKnowledge[];
   lora_id?: string;
+  /** The maximum number of tokens to generate before stopping. */
+  max_tokens?: number;
   model?: string;
   name?: string;
+  /**
+   * How much to penalize new tokens based on whether they appear in the text so far.
+   * Increases the model's likelihood to talk about new topics
+   * 0 - balanced
+   * 2 - open minded
+   */
+  presence_penalty?: number;
   provider?: string;
   rag_source_id?: string;
+  /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
+  reasoning_effort?: string;
   system_prompt?: string;
+  /**
+   * Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+   * 0.01 - precise
+   * 1 - neutral
+   * 2 - creative
+   */
+  temperature?: number;
   tests?: {
     name?: string;
     steps?: TypesTestStep[];
   }[];
   tools?: GithubComHelixmlHelixApiPkgTypesTool[];
+  /**
+   * An alternative to sampling with temperature, called nucleus sampling,
+   * where the model considers the results of the tokens with top_p probability mass.
+   * So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+   * 0 - balanced
+   * 2 - more creative
+   */
+  top_p?: number;
   type?: TypesSessionType;
   zapier?: TypesAssistantZapier[];
 }
