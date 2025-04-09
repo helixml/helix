@@ -31,7 +31,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
     if (assistant) {
-      flatState.systemPrompt = assistant.system_prompt
+      flatState.system_prompt = assistant.system_prompt
       flatState.provider = assistant.provider
       flatState.model = assistant.model
       flatState.context_limit = assistant.context_limit

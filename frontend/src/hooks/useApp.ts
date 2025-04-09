@@ -301,8 +301,8 @@ export const useApp = (appId: string) => {
       so we ensure we have at least one assistant before updating
     */
 
-    if (updates.systemPrompt !== undefined) {
-      assistants[0].system_prompt = updates.systemPrompt
+    if (updates.system_prompt !== undefined) {
+      assistants[0].system_prompt = updates.system_prompt
     }
 
     if (updates.provider !== undefined) {
@@ -388,7 +388,6 @@ export const useApp = (appId: string) => {
     
     // Safety check - don't save until we've loaded models and providers
     // unless explicitly forced
-    console.log('xxx providers loading', isLoadingProviders)
     if (isLoadingProviders && !opts.forceSave) {
       console.warn('Attempted to save app before models/providers fully loaded. Save operation blocked for safety.')
       return
