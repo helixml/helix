@@ -36,6 +36,9 @@ services:
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE-env}
       - EVAL_USER_ID=${EVAL_USER_ID:-}
       - FILESTORE_LOCALFS_PATH=/filestore
+      - RAG_DEFAULT_PROVIDER=${RAG_DEFAULT_PROVIDER:-typesense}
+      # name of the helix llm provider to use for embeddings socket
+      - RAG_PGVECTOR_PROVIDER=${RAG_PGVECTOR_PROVIDER:-helix}
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
       - RAG_HAYSTACK_ENABLED=${RAG_HAYSTACK_ENABLED:-false}
