@@ -6,6 +6,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -103,11 +104,26 @@ func (d *DiffusersRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
-type OllamaRuntime struct{}
+type OllamaRuntime struct {
+	version       string
+	cacheDir      string
+	port          int
+	startTimeout  time.Duration
+	contextLength int64
+	model         string
+	args          []string
+	ollamaClient  interface{} // Using interface{} instead of *api.Client to avoid import issues
+	cmd           interface{} // Using interface{} instead of *exec.Cmd to avoid import issues
+	cancel        context.CancelFunc
+}
 
 type OllamaRuntimeParams struct {
 	CacheDir      *string
-	ContextLength *int64 // Optional: Context length to use for the model
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for ollama to start, if nil, will use default
+	ContextLength *int64         // Optional: Context length to use for the model
+	Model         *string        // Optional: Model to use
+	Args          []string       // Optional: Additional arguments to pass to Ollama
 }
 
 var _ Runtime = &OllamaRuntime{}
@@ -148,11 +164,25 @@ func (a *OllamaRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
-type VLLMRuntime struct{}
+type VLLMRuntime struct {
+	version       string
+	cacheDir      string
+	port          int
+	startTimeout  time.Duration
+	contextLength int64
+	model         string
+	args          []string
+	cmd           interface{} // Using interface{} instead of *exec.Cmd to avoid import issues
+	cancel        context.CancelFunc
+}
 
 type VLLMRuntimeParams struct {
 	CacheDir      *string
-	ContextLength *int64
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for vLLM to start, if nil, will use default
+	ContextLength *int64         // Optional: Context length to use for the model
+	Model         *string        // Optional: Model to use
+	Args          []string       // Optional: Additional arguments to pass to vLLM
 }
 
 var _ Runtime = &VLLMRuntime{}
