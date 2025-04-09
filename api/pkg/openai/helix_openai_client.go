@@ -63,6 +63,24 @@ func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 		})
 	}
 
+	// Add VLLM models
+	vllmModels, err := model.GetDefaultVLLMModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get VLLM models: %w", err)
+	}
+	for _, m := range vllmModels {
+		helixModels = append(helixModels, types.OpenAIModel{
+			ID:            m.ModelName().String(),
+			Object:        "model",
+			OwnedBy:       "helix",
+			Name:          m.GetHumanReadableName(),
+			Description:   m.GetDescription(),
+			Hide:          m.GetHidden(),
+			Type:          "chat",
+			ContextLength: int(m.GetContextLength()),
+		})
+	}
+
 	return helixModels, nil
 }
 

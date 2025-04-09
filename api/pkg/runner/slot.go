@@ -209,6 +209,23 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 	if err != nil {
 		return
 	}
+
+	// For VLLM runtime, skip model verification since it starts with the specified model
+	if s.IntendedRuntime == types.RuntimeVLLM {
+		log.Info().
+			Str("model", s.Model).
+			Msg("skipping model verification for VLLM runtime")
+		s.Active = true
+		// Warm up the model
+		err = s.runningRuntime.Warm(ctx, s.Model)
+		if err != nil {
+			return
+		}
+		s.Active = false
+		s.Ready = true
+		return
+	}
+
 	// Check that the model is available in this runtime
 	models, err := openAIClient.ListModels(ctx)
 	if err != nil {
