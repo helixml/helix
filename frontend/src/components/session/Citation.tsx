@@ -67,7 +67,7 @@ const Citation: React.FC<CitationProps> = ({
     // Function to handle clicking on a validation icon
     const handleValidationClick = (excerpt: Excerpt) => {
         if (!excerpt.validationStatus) return;
-        
+
         setSelectedExcerpt(excerpt);
         setComparisonModalOpen(true);
     };
@@ -75,7 +75,7 @@ const Citation: React.FC<CitationProps> = ({
     // Helper function to create a unique key for a RAG result (similar to backend logic)
     const createUniqueRagKey = useCallback((ragResult: any): string => {
         let key = `${ragResult.document_id}-${ragResult.content.substring(0, 50).replace(/\s+/g, '-')}`;
-        
+
         // Add chunk identification if available in metadata
         if (ragResult.metadata) {
             if (ragResult.metadata.chunk_id) {
@@ -84,7 +84,7 @@ const Citation: React.FC<CitationProps> = ({
                 key += `-offset-${ragResult.metadata.offset}`;
             }
         }
-        
+
         return key;
     }, []);
 
@@ -102,18 +102,18 @@ const Citation: React.FC<CitationProps> = ({
     const findBestMatchingChunk = useCallback((excerpt: Excerpt, results: any[]): any | null => {
         // Filter by document ID first
         const matchingResults = results.filter(r => r.document_id === excerpt.docId);
-        
+
         if (matchingResults.length === 0) {
             return null;
         }
-        
+
         if (matchingResults.length === 1) {
             return matchingResults[0];
         }
-        
+
         // For multiple chunks, find the best match based on content similarity
         const excerptText = normalizeText(excerpt.snippet);
-        
+
         // First try exact match
         for (const result of matchingResults) {
             const resultText = normalizeText(result.content);
@@ -121,33 +121,33 @@ const Citation: React.FC<CitationProps> = ({
                 return result; // Found an exact match
             }
         }
-        
+
         // If no exact match, find the chunk with highest similarity
         let bestMatch = matchingResults[0];
         let bestSimilarity = 0;
-        
+
         for (const result of matchingResults) {
             const resultText = normalizeText(result.content);
-            
+
             // Simple similarity check - more sophisticated methods could be used
             let similarity = 0;
-            
+
             // Count word matches
             const excerptWords = excerptText.split(/\s+/).filter(w => w.length > 3);
             const resultWords = resultText.split(/\s+/).filter(w => w.length > 3);
-            
-            const matchingWords = excerptWords.filter(word => 
+
+            const matchingWords = excerptWords.filter(word =>
                 resultWords.some(rWord => rWord.includes(word) || word.includes(rWord))
             );
-            
+
             similarity = excerptWords.length > 0 ? matchingWords.length / excerptWords.length : 0;
-            
+
             if (similarity > bestSimilarity) {
                 bestSimilarity = similarity;
                 bestMatch = result;
             }
         }
-        
+
         return bestMatch;
     }, [normalizeText]);
 
@@ -405,7 +405,7 @@ const Citation: React.FC<CitationProps> = ({
                             >
                                 {'\u201D'}
                             </Box>
-                            
+
                             {/* Validation status indicator */}
                             {excerpt.validationStatus && (
                                 <Tooltip title={excerpt.validationMessage || ''} placement="top">
@@ -427,33 +427,33 @@ const Citation: React.FC<CitationProps> = ({
                                         }}
                                     >
                                         {excerpt.validationStatus === 'exact' && (
-                                            <CheckCircle 
-                                                fontSize="small" 
-                                                sx={{ 
+                                            <CheckCircle
+                                                fontSize="small"
+                                                sx={{
                                                     color: '#4caf50',
                                                     fontSize: '0.9rem',
                                                     cursor: 'pointer'
-                                                }} 
+                                                }}
                                             />
                                         )}
                                         {excerpt.validationStatus === 'fuzzy' && (
-                                            <Warning 
-                                                fontSize="small" 
-                                                sx={{ 
+                                            <Warning
+                                                fontSize="small"
+                                                sx={{
                                                     color: '#ff9800',
                                                     fontSize: '0.9rem',
                                                     cursor: 'pointer'
-                                                }} 
+                                                }}
                                             />
                                         )}
                                         {excerpt.validationStatus === 'failed' && (
-                                            <Cancel 
-                                                fontSize="small" 
-                                                sx={{ 
+                                            <Cancel
+                                                fontSize="small"
+                                                sx={{
                                                     color: '#f44336',
                                                     fontSize: '0.9rem',
                                                     cursor: 'pointer'
-                                                }} 
+                                                }}
                                             />
                                         )}
                                     </Box>
@@ -541,7 +541,7 @@ const Citation: React.FC<CitationProps> = ({
                                     >
                                         {excerpt.filename}
                                     </Box>
-                                    
+
                                     {/* Only show filter button if onFilterDocument is provided */}
                                     {onFilterDocument && (
                                         <FilterAlt
