@@ -368,18 +368,29 @@ const AppSettings: FC<AppSettingsProps> = ({
           </FormControl>
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Temperature (0-2)</Typography>
-            <Tooltip title="Controls randomness in the output. Lower values (0.2) make it more focused and precise, while higher values (2) make it more creative.">
-              <Slider
-                value={temperature}
-                onChange={(_, value) => handleAdvancedChange('temperature', value as number)}
-                min={0}
-                max={2}
-                step={0.1}
-                marks
-                disabled={readOnly}
-              />
-            </Tooltip>
+            <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <Typography variant="caption" sx={{ mr: 2 }}>Precise</Typography>
+              <Box sx={{ flexGrow: 1 }}>
+                <Slider
+                  value={temperature}
+                  onChange={(_, value) => handleAdvancedChange('temperature', value as number)}
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  marks={[
+                    { value: 0, label: '' },
+                    { value: 1, label: 'Neutral' },
+                    { value: 2, label: '' },
+                  ]}
+                  disabled={readOnly}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ ml: 2 }}>Creative</Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
+            </Typography>
           </Box>
 
           <Box sx={{ mb: 3 }}>
