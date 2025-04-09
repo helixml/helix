@@ -167,13 +167,18 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 const date = new Date(value);
                 return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
               },
-              tickNumber: 7,
+              // tickNumber: 7,
               labelStyle: {
                 angle: 0,
                 textAnchor: 'middle'
               }
             }]}
-            series={chartData.series}
+            series={chartData.series.map(series => ({
+              ...series,
+              showMarkers: false,
+              area: true,
+              lineStyle: { marker: { display: 'none' } }
+            }))}
             height={300}
             slotProps={{
               legend: {
