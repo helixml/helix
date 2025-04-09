@@ -52,6 +52,11 @@ RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     cp -r $TEMP_DIR/lib/ollama /usr/lib/ && \
     rm -rf $TEMP_DIR
 
+# Install vLLM
+RUN cd /workspace/axolotl && \
+    . venv/bin/activate && \
+    pip3 install vllm==0.8.3
+
 RUN mkdir -p /workspace/helix
 
 WORKDIR /workspace/helix
