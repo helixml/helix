@@ -805,7 +805,7 @@ export interface IAppFlatState {
   global?: boolean
   secrets?: Record<string, string>
   allowedDomains?: string[]
-  systemPrompt?: string
+  system_prompt?: string
   provider?: string
   model?: string
   context_limit?: number

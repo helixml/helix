@@ -10,10 +10,8 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import Slider from '@mui/material/Slider'
 import FormControl from '@mui/material/FormControl'
-import InputLabel from '@mui/material/InputLabel'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
-import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 
 import {
@@ -46,10 +44,13 @@ const useDebounce = (callback: Function, delay: number) => {
   }, [callback, delay])
 }
 
+const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {local_date}, local time is {local_time}.`
+
 // Define default values
 const DEFAULT_VALUES = {
+  system_prompt: DEFAULT_SYSTEM_PROMPT,
   context_limit: 0,
-  temperature: 1,
+  temperature: 0.1,
   frequency_penalty: 0,
   presence_penalty: 0,
   top_p: 1,
@@ -86,7 +87,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Local state for form values
   const [name, setName] = useState(app.name || '')
   const [description, setDescription] = useState(app.description || '')
-  const [systemPrompt, setSystemPrompt] = useState(app.systemPrompt || '')
+  const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
   const [avatar, setAvatar] = useState(app.avatar || '')
   const [image, setImage] = useState(app.image || '')
   const [global, setGlobal] = useState(app.global || false)
@@ -99,7 +100,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [maxTokens, setMaxTokens] = useState(app.max_tokens || 2000)
   const [presencePenalty, setPresencePenalty] = useState(app.presence_penalty || 0)
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'medium')
-  const [temperature, setTemperature] = useState(app.temperature || 0.1)
+  const [temperature, setTemperature] = useState(app.temperature || DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p || 1)
   
   // Track if component has been initialized
@@ -116,19 +117,19 @@ const AppSettings: FC<AppSettingsProps> = ({
     if (!isInitialized.current) {
       setName(useAppName)
       setDescription(app.description || '')
-      setSystemPrompt(app.systemPrompt || '')
+      setSystemPrompt(app.system_prompt || DEFAULT_SYSTEM_PROMPT)
       setAvatar(app.avatar || '')
       setImage(app.image || '')
       setGlobal(app.global || false)
       setModel(app.model || '')
       setProvider(app.provider || '')
-      setContextLimit(app.context_limit || 0)
-      setFrequencyPenalty(app.frequency_penalty || 0)
-      setMaxTokens(app.max_tokens || 1000)
-      setPresencePenalty(app.presence_penalty || 0)
-      setReasoningEffort(app.reasoning_effort || 'medium')
-      setTemperature(app.temperature || 1)
-      setTopP(app.top_p || 1)
+      setContextLimit(app.context_limit || DEFAULT_VALUES.context_limit)
+      setFrequencyPenalty(app.frequency_penalty || DEFAULT_VALUES.frequency_penalty)
+      setMaxTokens(app.max_tokens || DEFAULT_VALUES.max_tokens)
+      setPresencePenalty(app.presence_penalty || DEFAULT_VALUES.presence_penalty)
+      setReasoningEffort(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
+      setTemperature(app.temperature || DEFAULT_VALUES.temperature)
+      setTopP(app.top_p || DEFAULT_VALUES.top_p)
       
       // Mark as initialized
       isInitialized.current = true
@@ -136,12 +137,12 @@ const AppSettings: FC<AppSettingsProps> = ({
   }, [app]) // Still depend on app, but we'll only use it for initialization
 
   // Handle blur event - gather all current state values and call onUpdate
-  const handleBlur = (field: 'name' | 'description' | 'systemPrompt' | 'avatar' | 'image' | 'max_tokens') => {
+  const handleBlur = (field: 'name' | 'description' | 'system_prompt' | 'avatar' | 'image' | 'max_tokens') => {
     // Get current value based on field name
     const currentValue = {
       name,
       description,
-      systemPrompt,
+      system_prompt,
       avatar,
       image,
       max_tokens: maxTokens
@@ -157,7 +158,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         ...app, // Keep any properties we're not explicitly managing
         name,
         description,
-        systemPrompt,
+        system_prompt,
         avatar,
         image,
         global,
@@ -204,6 +205,9 @@ const AppSettings: FC<AppSettingsProps> = ({
       case 'topP':
         setTopP(numericValue as number)
         break
+      case 'system_prompt':
+        setSystemPrompt(value as string)
+        break
     }
   }
 
@@ -212,8 +216,7 @@ const AppSettings: FC<AppSettingsProps> = ({
     const updatedApp: IAppFlatState = {
       ...app,
       name,
-      description,
-      systemPrompt,
+      description,      
       avatar,
       image,
       global,
@@ -226,6 +229,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: field === 'reasoningEffort' ? value as string : reasoningEffort,
       temperature: field === 'temperature' ? value as number : temperature,
       top_p: field === 'topP' ? value as number : topP,
+      system_prompt: field === 'system_prompt' ? value as string : system_prompt,
     }
     
     onUpdate(updatedApp)
@@ -248,7 +252,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       ...app,
       name,
       description,
-      systemPrompt,
+      system_prompt,
       avatar,
       image,
       global: field === 'global' ? value : global,
@@ -275,7 +279,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       ...app,
       name,
       description,
-      systemPrompt,
+      system_prompt,
       avatar,
       image,
       global,
@@ -347,6 +351,10 @@ const AppSettings: FC<AppSettingsProps> = ({
         setReasoningEffort(value as string)
         handleAdvancedChangeWithDebounce('reasoningEffort', value as string)
         break
+      case 'system_prompt':
+        setSystemPrompt(value as string)
+        handleAdvancedChangeWithDebounce('system_prompt', value as string)
+        break
     }
   }
 
@@ -378,6 +386,29 @@ const AppSettings: FC<AppSettingsProps> = ({
         label="Description"
         helperText="Enter a short description of what this app does"
       />
+
+      <Box sx={{ mb: 3 }}>
+        <Stack direction="row" alignItems="center">
+          <Typography gutterBottom>System Instructions</Typography>
+          <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
+        </Stack>
+        <Typography variant="body2" color="text.secondary">
+          
+        </Typography>
+        <TextField
+          sx={{ mb: 3, mt: 1 }}
+          id="app-instructions"
+          name="app-instructions"
+          value={system_prompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+          onBlur={() => handleBlur('system_prompt')}
+          disabled={readOnly}
+          fullWidth
+          multiline
+          rows={4}
+          helperText="What does this app do? How does it behave? What should it avoid doing?"
+        />           
+      </Box>
 
       <Box sx={{ mb: 3 }}>
         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
@@ -583,22 +614,8 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
-      )}
-         
-      <TextField
-        sx={{ mb: 3 }}
-        id="app-instructions"
-        name="app-instructions"
-        value={systemPrompt}
-        onChange={(e) => setSystemPrompt(e.target.value)}
-        onBlur={() => handleBlur('systemPrompt')}
-        disabled={readOnly}
-        fullWidth
-        multiline
-        rows={4}
-        label="Instructions"
-        helperText="What does this app do? How does it behave? What should it avoid doing?"
-      />
+      )}     
+               
       <TextField
         sx={{ mb: 3 }}
         id="app-avatar"
