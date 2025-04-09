@@ -866,7 +866,7 @@ fi
 
 # Check if api-1 container is running
 if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
-    API_HOST="http://api:80"
+    API_HOST="http://api:8080"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
