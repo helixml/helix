@@ -409,7 +409,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 onChange={(_, value) => handleAdvancedChangeWithDebounce('presencePenalty', value as number)}
                 min={0}
                 max={2}
-                step={0.1}
+                step={0.01}
                 marks={[
                   { value: 0, label: 'Balanced' },
                   { value: 2, label: 'Open-Minded' },
@@ -420,6 +420,31 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
           </Box> 
+
+          <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>Top P ({topP.toFixed(2)})</Typography>
+            <Typography variant="body2" color="text.secondary"> 
+              Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
+              <Box sx={{ flexGrow: 1 }}>
+                <Slider
+                value={topP}
+                onChange={(_, value) => handleAdvancedChangeWithDebounce('topP', value as number)}
+                min={0}
+                max={1}
+                step={0.01}
+                marks={[
+                  { value: 0, label: 'Precise' },
+                  { value: 1, label: 'Creative' },
+                ]}
+                disabled={readOnly}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
+            </Box>
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Max Tokens</Typography>
@@ -436,24 +461,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               fullWidth
               disabled={readOnly}
             />
-          </Box>
-
-                             
-
-          <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Top P (0-1)</Typography>
-            <Tooltip title="Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.">
-              <Slider
-                value={topP}
-                onChange={(_, value) => handleAdvancedChangeWithDebounce('topP', value as number)}
-                min={0}
-                max={1}
-                step={0.1}
-                marks
-                disabled={readOnly}
-              />
-            </Tooltip>
-          </Box>
+          </Box>          
 
           <FormControl fullWidth sx={{ mb: 3 }}>
             <InputLabel id="reasoning-effort-label">Reasoning Effort (for thinking models)</InputLabel>
