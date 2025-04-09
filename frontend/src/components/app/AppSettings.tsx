@@ -463,23 +463,24 @@ const AppSettings: FC<AppSettingsProps> = ({
             />
           </Box>          
 
-          <FormControl fullWidth sx={{ mb: 3 }}>
-            <InputLabel id="reasoning-effort-label">Reasoning Effort (for thinking models)</InputLabel>
-            <Select
-              labelId="reasoning-effort-label"
-              value={reasoningEffort}
-              label="Reasoning Effort"
-              onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
-              disabled={readOnly}
+          <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>Reasoning Effort</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Controls the effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
+            </Typography>
+            <FormControl fullWidth sx={{ mt: 1 }}>              
+              <Select              
+                value={reasoningEffort}
+                onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
+                disabled={readOnly}
             >
               <MenuItem value="low">Low</MenuItem>
               <MenuItem value="medium">Medium</MenuItem>
               <MenuItem value="high">High</MenuItem>
-            </Select>
-          </FormControl>
-          <Typography variant="body2" color="text.secondary">
-            Constrains effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
-          </Typography>
+              </Select>
+            </FormControl>
+          </Box>
+
         
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
