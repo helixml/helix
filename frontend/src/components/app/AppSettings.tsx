@@ -44,7 +44,7 @@ const useDebounce = (callback: Function, delay: number) => {
   }, [callback, delay])
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {local_date}, local time is {local_time}.`
+const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
 
 // Define default values.
 // If you are updating these, also update 
