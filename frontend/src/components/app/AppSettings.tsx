@@ -46,7 +46,9 @@ const useDebounce = (callback: Function, delay: number) => {
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {local_date}, local time is {local_time}.`
 
-// Define default values
+// Define default values.
+// If you are updating these, also update 
+// 'func setAppDefaults(apps ...*types.App)' in api/pkg/store/store_apps.go
 const DEFAULT_VALUES = {
   system_prompt: DEFAULT_SYSTEM_PROMPT,
   context_limit: 0,
@@ -123,13 +125,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       setGlobal(app.global || false)
       setModel(app.model || '')
       setProvider(app.provider || '')
-      setContextLimit(app.context_limit || DEFAULT_VALUES.context_limit)
-      setFrequencyPenalty(app.frequency_penalty || DEFAULT_VALUES.frequency_penalty)
-      setMaxTokens(app.max_tokens || DEFAULT_VALUES.max_tokens)
-      setPresencePenalty(app.presence_penalty || DEFAULT_VALUES.presence_penalty)
+      setContextLimit(app.context_limit || 0)
+      setFrequencyPenalty(app.frequency_penalty || 0)
+      setMaxTokens(app.max_tokens || 0)
+      setPresencePenalty(app.presence_penalty || 0)
       setReasoningEffort(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
-      setTemperature(app.temperature || DEFAULT_VALUES.temperature)
-      setTopP(app.top_p || DEFAULT_VALUES.top_p)
+      setTemperature(app.temperature || 0)
+      setTopP(app.top_p || 0)
       
       // Mark as initialized
       isInitialized.current = true
@@ -360,34 +362,66 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   return (
     <Box sx={{ mt: 2 }}>
-      <TextField
-        sx={{ mb: 3 }}
-        id="app-name"
-        name="app-name"
-        error={showErrors && !name}
-        value={name}
-        disabled={readOnly}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => handleBlur('name')}
-        fullWidth
-        label="Name"
-        helperText="Name your app"
-      />
-      <TextField
-        sx={{ mb: 3 }}
-        id="app-description"
-        name="app-description"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onBlur={() => handleBlur('description')}
-        disabled={readOnly}
-        fullWidth
-        rows={2}
-        label="Description"
-        helperText="Enter a short description of what this app does"
-      />
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
+          Appearance
+        </Typography>
+        <TextField
+          sx={{ mb: 2 }}
+          id="app-name"
+          name="app-name"
+          error={showErrors && !name}
+          value={name}
+          disabled={readOnly}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => handleBlur('name')}
+          fullWidth
+          label="Name"
+          helperText="Name your app"
+        />
+        <TextField
+          sx={{ mb: 2 }}
+          id="app-description"
+          name="app-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onBlur={() => handleBlur('description')}
+          disabled={readOnly}
+          fullWidth
+          rows={2}
+          label="Description"
+          helperText="Enter a short description of what this app does, e.g. 'Tax filing assistant'"
+        />
+        <TextField
+          sx={{ mb: 2 }}
+          id="app-avatar"
+          name="app-avatar"
+          value={avatar}
+          onChange={(e) => setAvatar(e.target.value)}
+          onBlur={() => handleBlur('avatar')}
+          disabled={readOnly}
+          fullWidth
+          label="Avatar"
+          helperText="URL for the app's avatar image"
+        />
+        <TextField
+          sx={{ mb: 2 }}
+          id="app-image"
+          name="app-image"
+          value={image}
+          onChange={(e) => setImage(e.target.value)}
+          onBlur={() => handleBlur('image')}
+          disabled={readOnly}
+          fullWidth
+          label="Background Image"
+          helperText="URL for the app's main image"
+        />
+      </Box>
 
       <Box sx={{ mb: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
+          App Configuration
+        </Typography>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -616,30 +650,6 @@ const AppSettings: FC<AppSettingsProps> = ({
         </Box>
       )}     
                
-      <TextField
-        sx={{ mb: 3 }}
-        id="app-avatar"
-        name="app-avatar"
-        value={avatar}
-        onChange={(e) => setAvatar(e.target.value)}
-        onBlur={() => handleBlur('avatar')}
-        disabled={readOnly}
-        fullWidth
-        label="Avatar"
-        helperText="URL for the app's avatar image"
-      />
-      <TextField
-        sx={{ mb: 3 }}
-        id="app-image"
-        name="app-image"
-        value={image}
-        onChange={(e) => setImage(e.target.value)}
-        onBlur={() => handleBlur('image')}
-        disabled={readOnly}
-        fullWidth
-        label="Image"
-        helperText="URL for the app's main image"
-      />
       {isAdmin && (
         <Tooltip title="Make this app available to all users">
           <FormGroup>
