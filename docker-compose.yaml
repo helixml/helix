@@ -73,7 +73,7 @@ services:
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}
   keycloak:
     image: quay.io/keycloak/keycloak:23.0
     restart: always
@@ -135,7 +135,7 @@ services:
     image: registry.helixml.tech/helix/haystack:latest
     restart: always
     environment:
-      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@pgvector:5432/postgres
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-}
       - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
