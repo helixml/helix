@@ -435,7 +435,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "Qwen/Qwen2.5-VL-3B-Instruct",
 			Name:          "Qwen 2.5 VL 3B",
-			Memory:        GB * 8,
+			Memory:        GB * 24,
 			ContextLength: 32768,
 			Description:   "Smaller multi-modal vision-language model, from Alibaba",
 			Args: []string{
@@ -449,7 +449,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "Qwen/Qwen2.5-VL-7B-Instruct",
 			Name:          "Qwen 2.5 VL 7B",
-			Memory:        GB * 15,
+			Memory:        GB * 32,
 			ContextLength: 32768,
 			Description:   "Multi-modal vision-language model, from Alibaba",
 			Args: []string{
@@ -463,7 +463,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
 			Name:          "DSE Qwen2 2B",
-			Memory:        GB * 5,
+			Memory:        GB * 8,
 			ContextLength: 8192,
 			Description:   "Small embedding model for RAG, from MrLight",
 			Args: []string{
