@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Button, Container, Tooltip } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import { FilterAlt, CheckCircle, Warning, Cancel } from '@mui/icons-material';
+import { FilterAlt, CheckCircle, Warning, Cancel, FileOpen } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles'
 import CitationComparisonModal from './CitationComparisonModal';
 import { ISessionRAGResult } from '../../types';
@@ -62,6 +62,25 @@ const Citation: React.FC<CitationProps> = ({
     // If there are no excerpts, return nothing
     if (!excerpts || excerpts.length === 0) {
         return null;
+    }
+
+    const isImage = (filename: string) => {
+        return /\.(jpe?g)$/i.test(filename);
+    }
+
+    const originalFilenameForExcerpt = (excerpt: Excerpt) => {
+        const ragResult = ragResults.find(r => r.document_id === excerpt.docId);
+        return ragResult?.metadata?.original_filename;
+    }
+
+    const originalSourceFromExcerpt = (excerpt: Excerpt) => {
+        const ragResult = ragResults.find(r => r.document_id === excerpt.docId);
+        return ragResult?.metadata?.original_source;
+    }
+
+    const originalIDFromExcerpt = (excerpt: Excerpt) => {
+        const ragResult = ragResults.find(r => r.document_id === excerpt.docId);
+        return ragResult?.metadata?.document_id;
     }
 
     // Function to handle clicking on a validation icon
@@ -368,43 +387,79 @@ const Citation: React.FC<CitationProps> = ({
                             </Box>
                         )}
                         <Box component="span">
-                            <Box
-                                component="span"
-                                className="start-quote"
-                                sx={{
-                                    color: 'rgba(88, 166, 255, 1.0)',
-                                    fontFamily: 'Georgia, serif',
-                                    fontSize: '1.5em',
-                                    fontWeight: 'bold',
-                                    lineHeight: 0,
-                                    position: 'relative',
-                                    marginRight: '0.15em',
-                                    top: '0.1em',
-                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
-                                }}
-                            >
-                                {'\u201C'}
-                            </Box>
+                            {isImage(excerpt.filename) ? (
+                                null
+                            ) :
+                                <Box
+                                    component="span"
+                                    className="start-quote"
+                                    sx={{
+                                        color: 'rgba(88, 166, 255, 1.0)',
+                                        fontFamily: 'Georgia, serif',
+                                        fontSize: '1.5em',
+                                        fontWeight: 'bold',
+                                        lineHeight: 0,
+                                        position: 'relative',
+                                        marginRight: '0.15em',
+                                        top: '0.1em',
+                                        display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
+                                    }}
+                                >
+                                    {'\u201C'}
+                                </Box>
+                            }
 
                             <span dangerouslySetInnerHTML={{ __html: excerpt.snippet }}></span>
 
-                            <Box
-                                component="span"
-                                className="end-quote"
-                                sx={{
-                                    color: 'rgba(88, 166, 255, 1.0)',
-                                    fontFamily: 'Georgia, serif',
-                                    fontSize: '1.5em',
-                                    fontWeight: 'bold',
-                                    lineHeight: 0,
-                                    position: 'relative',
-                                    marginLeft: '0.15em',
-                                    top: '0.1em',
-                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
-                                }}
-                            >
-                                {'\u201D'}
-                            </Box>
+                            {isImage(excerpt.filename) ? (
+                                null
+                            ) :
+                                <Box
+                                    component="span"
+                                    className="end-quote"
+                                    sx={{
+                                        color: 'rgba(88, 166, 255, 1.0)',
+                                        fontFamily: 'Georgia, serif',
+                                        fontSize: '1.5em',
+                                        fontWeight: 'bold',
+                                        lineHeight: 0,
+                                        position: 'relative',
+                                        marginLeft: '0.15em',
+                                        top: '0.1em',
+                                        display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
+                                    }}
+                                >
+                                    {'\u201D'}
+                                </Box>
+                            }
+                            {/* Only show filter button if onFilterDocument is provided */}
+                            {onFilterDocument && (
+                                <FilterAlt
+                                    sx={{
+                                        fontSize: '1em',
+                                        cursor: 'pointer',
+                                        color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                        textDecoration: 'none',
+                                        fontWeight: 500,
+                                        opacity: 0.85,
+                                        transition: 'all 0.2s ease',
+                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                        '&:hover': {
+                                            opacity: 1,
+                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                            textDecoration: 'underline',
+                                        }
+                                    }}
+                                    titleAccess="Add this document to filter over on the next search"
+                                    onClick={() => {
+                                        if (isImage(excerpt.filename)) {
+                                            const originalID = originalIDFromExcerpt(excerpt)
+                                            return onFilterDocument?.(originalID || '')
+                                        }
+                                        return onFilterDocument?.(excerpt.docId)
+                                    }
+                                    } />
+                            )}
 
                             {/* Validation status indicator */}
                             {excerpt.validationStatus && (
@@ -510,111 +565,131 @@ const Citation: React.FC<CitationProps> = ({
                                 Searching documents...
                             </Box>
                         ) : (
-                            <div>
-                                <Container
+                            <Container
+                                sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    gap: '0.4em',
+                                    minWidth: 0,
+                                }}
+                            >
+                                <Box
+                                    component="a"
+                                    href={excerpt.fileUrl}
+                                    target="_blank"
                                     sx={{
-                                        display: 'flex',
+                                        color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                        textDecoration: 'none',
+                                        fontWeight: 500,
+                                        opacity: 0.85,
+                                        transition: 'all 0.2s ease',
+                                        padding: '3px 8px',
+                                        borderRadius: '4px',
+                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                        display: 'inline-flex',
+                                        flexDirection: isImage(excerpt.filename) ? 'column' : 'row',
                                         alignItems: 'center',
-                                        justifyContent: 'flex-end',
-                                        gap: '0.4em',
-                                        minWidth: 0,
+                                        gap: isImage(excerpt.filename) ? '4px' : '5px',
+                                        maxWidth: '100%',
+                                        '&:hover': {
+                                            opacity: 1,
+                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                            textDecoration: isImage(excerpt.filename) ? 'none' : 'underline',
+                                            '& > span': {
+                                                textDecoration: isImage(excerpt.filename) ? 'underline' : 'none',
+                                            }
+                                        }
                                     }}
                                 >
-                                    <Box
-                                        component="a"
-                                        href={excerpt.fileUrl}
-                                        target="_blank"
-                                        sx={{
-                                            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
-                                            textDecoration: 'none',
-                                            fontWeight: 500,
-                                            opacity: 0.85,
-                                            transition: 'all 0.2s ease',
-                                            padding: '3px 8px',
-                                            borderRadius: '4px',
-                                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                                            display: 'inline-flex',
-                                            flexDirection: /\.(jpe?g)$/i.test(excerpt.filename) ? 'column' : 'row',
-                                            alignItems: 'center',
-                                            gap: /\.(jpe?g)$/i.test(excerpt.filename) ? '4px' : '5px',
-                                            maxWidth: '100%',
-                                            '&:hover': {
-                                                opacity: 1,
-                                                backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                                textDecoration: /\.(jpe?g)$/i.test(excerpt.filename) ? 'none' : 'underline',
-                                                '& > span': {
-                                                    textDecoration: /\.(jpe?g)$/i.test(excerpt.filename) ? 'underline' : 'none',
-                                                }
-                                            }
-                                        }}
-                                    >
-                                        {/\.(jpe?g)$/i.test(excerpt.filename) && (
-                                            <img
-                                                src={excerpt.fileUrl}
-                                                alt={`${excerpt.filename} preview`}
-                                                style={{
-                                                    maxWidth: '200px',
-                                                    maxHeight: '200px',
-                                                    height: 'auto',
-                                                    verticalAlign: 'middle',
-                                                    borderRadius: '3px'
-                                                }}
-                                            />
-                                        )}
-                                        <Box component="span" sx={{
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            minWidth: 0,
-                                            textAlign: /\.(jpe?g)$/i.test(excerpt.filename) ? 'center' : 'left',
-                                            width: /\.(jpe?g)$/i.test(excerpt.filename) ? '100%' : 'auto',
-                                        }}>
-                                            {excerpt.filename}
-                                        </Box>
-                                    </Box>
-
-                                    {/* Only show filter button if onFilterDocument is provided */}
-                                    {onFilterDocument && (
-                                        <FilterAlt
+                                    {isImage(excerpt.filename) && (
+                                        <img
+                                            src={excerpt.fileUrl}
+                                            alt={`${excerpt.filename} preview`}
+                                            style={{
+                                                maxWidth: '200px',
+                                                maxHeight: '200px',
+                                                height: 'auto',
+                                                verticalAlign: 'middle',
+                                                borderRadius: '3px'
+                                            }}
+                                        />
+                                    )}
+                                    {isImage(excerpt.filename) ? (
+                                        <Box
+                                            component="a"
+                                            href={originalSourceFromExcerpt(excerpt)}
+                                            target="_blank"
                                             sx={{
-                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                padding: '3px 8px',
+                                                borderRadius: '15px',
+                                                borderColor: 'rgba(88, 166, 255, 0.2)',
+                                                borderWidth: '1px',
+                                                borderStyle: 'solid',
+                                                backgroundColor: 'rgba(88, 166, 255, 0.1)',
                                                 color: theme.palette.mode === 'light' ? '#333' : '#bbb',
                                                 textDecoration: 'none',
                                                 fontWeight: 500,
                                                 opacity: 0.85,
                                                 transition: 'all 0.2s ease',
-                                                backgroundColor: 'rgba(88, 166, 255, 0.1)',
                                                 '&:hover': {
                                                     opacity: 1,
                                                     backgroundColor: 'rgba(88, 166, 255, 0.2)',
                                                     textDecoration: 'underline',
                                                 }
                                             }}
-                                            titleAccess="Add this document to filter over on the next search"
-                                            onClick={() => onFilterDocument?.(excerpt.docId)} />
-                                    )}
-                                </Container>
-                            </div>
+                                        >
+                                            <FileOpen fontSize="small" />
+                                            <Box component="span" sx={{
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                minWidth: 0,
+                                            }}>
+                                                {originalFilenameForExcerpt(excerpt)}
+                                            </Box>
+                                        </Box>
+                                    ) :
+                                        <Box component="span" sx={{
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            minWidth: 0,
+                                            textAlign: 'center',
+                                            width: 'auto',
+                                        }}>
+                                            {excerpt.filename}
+                                        </Box>
+                                    }
+
+                                </Box>
+                            </Container>
                         )}
                     </Box>
                 </Box>
-            ))}
+            ))
+            }
 
             {/* Citation Comparison Modal */}
-            {selectedExcerpt && (
-                <CitationComparisonModal
-                    open={comparisonModalOpen}
-                    onClose={() => setComparisonModalOpen(false)}
-                    citation={{
-                        docId: selectedExcerpt.docId,
-                        snippet: selectedExcerpt.snippet,
-                        validationStatus: selectedExcerpt.validationStatus || 'failed',
-                        fileUrl: selectedExcerpt.fileUrl
-                    }}
-                    ragResults={ragResults}
-                />
-            )}
-        </Box>
+            {
+                selectedExcerpt && (
+                    <CitationComparisonModal
+                        open={comparisonModalOpen}
+                        onClose={() => setComparisonModalOpen(false)}
+                        citation={{
+                            docId: selectedExcerpt.docId,
+                            snippet: selectedExcerpt.snippet,
+                            validationStatus: selectedExcerpt.validationStatus || 'failed',
+                            fileUrl: selectedExcerpt.fileUrl
+                        }}
+                        ragResults={ragResults}
+                    />
+                )
+            }
+        </Box >
     );
 };
 

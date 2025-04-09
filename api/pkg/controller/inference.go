@@ -1218,6 +1218,13 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 						// Add metadata about the original content type and the file path
 						result.Metadata["original_content_type"] = mimeType
 						result.Metadata["is_image_path"] = "true"
+						appPath, err := c.GetFilestoreAppKnowledgePath(types.OwnerContext{}, session.ParentApp, result.Source)
+						if err == nil {
+							signedURL, err := c.Options.Filestore.SignedURL(ctx, appPath)
+							if err == nil {
+								result.Metadata["original_source"] = fmt.Sprintf("%s#page=%s", signedURL, result.Metadata["page_number"])
+							}
+						}
 
 						// Update the source
 						result.Source = imagePath
