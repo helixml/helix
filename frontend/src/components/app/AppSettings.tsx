@@ -13,6 +13,8 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
+import Button from '@mui/material/Button'
+import Link from '@mui/material/Link'
 
 import {
   IAppFlatState,
@@ -43,6 +45,17 @@ const useDebounce = (callback: Function, delay: number) => {
     }, delay)
   }, [callback, delay])
 }
+
+// Define default values
+const DEFAULT_VALUES = {
+  context_limit: 0,
+  temperature: 1,
+  frequency_penalty: 0,
+  presence_penalty: 0,
+  top_p: 1,
+  max_tokens: 2000,
+  reasoning_effort: 'medium'
+} as const
 
 const AppSettings: FC<AppSettingsProps> = ({
   id,
@@ -83,7 +96,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
   const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || 0)
-  const [maxTokens, setMaxTokens] = useState(app.max_tokens || 1000)
+  const [maxTokens, setMaxTokens] = useState(app.max_tokens || 2000)
   const [presencePenalty, setPresencePenalty] = useState(app.presence_penalty || 0)
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'medium')
   const [temperature, setTemperature] = useState(app.temperature || 0.1)
@@ -280,6 +293,63 @@ const AppSettings: FC<AppSettingsProps> = ({
     onUpdate(updatedApp)
   }
 
+  // Helper function to check if a value matches its default
+  const isDefault = (field: keyof typeof DEFAULT_VALUES, value: number | string) => {
+    return DEFAULT_VALUES[field] === value
+  }
+
+  // Helper function to create reset link
+  const ResetLink = ({ field, value, onClick }: { field: keyof typeof DEFAULT_VALUES, value: number | string, onClick: () => void }) => {
+    if (isDefault(field, value)) {
+      return <Typography component="span" color="text.secondary" sx={{ ml: 1, fontSize: '0.875rem' }}>(Default)</Typography>
+    }
+    return (
+      <Link
+        component="button"
+        variant="body2"
+        onClick={onClick}
+        sx={{ ml: 1, fontSize: '0.875rem' }}
+      >
+        (Reset to default)
+      </Link>
+    )
+  }
+
+  // Reset handlers for each field
+  const handleReset = (field: keyof typeof DEFAULT_VALUES) => {
+    const value = DEFAULT_VALUES[field]
+    switch(field) {
+      case 'context_limit':
+        setContextLimit(value as number)
+        handleAdvancedChangeWithDebounce('contextLimit', value as number)
+        break
+      case 'temperature':
+        setTemperature(value as number)
+        handleAdvancedChangeWithDebounce('temperature', value as number)
+        break
+      case 'frequency_penalty':
+        setFrequencyPenalty(value as number)
+        handleAdvancedChangeWithDebounce('frequencyPenalty', value as number)
+        break
+      case 'presence_penalty':
+        setPresencePenalty(value as number)
+        handleAdvancedChangeWithDebounce('presencePenalty', value as number)
+        break
+      case 'top_p':
+        setTopP(value as number)
+        handleAdvancedChangeWithDebounce('topP', value as number)
+        break
+      case 'max_tokens':
+        setMaxTokens(value as number)
+        handleAdvancedChangeWithDebounce('maxTokens', value as number)
+        break
+      case 'reasoning_effort':
+        setReasoningEffort(value as string)
+        handleAdvancedChangeWithDebounce('reasoningEffort', value as string)
+        break
+    }
+  }
+
   return (
     <Box sx={{ mt: 2 }}>
       <TextField
@@ -335,19 +405,17 @@ const AppSettings: FC<AppSettingsProps> = ({
 
       {showAdvanced && (
         <Box sx={{ mb: 3 }}>
-          {/* <Typography variant="h6" gutterBottom sx={{ mb: 4 }}>Advanced Model Settings</Typography> */}
-
           <Box sx={{ mb: 3 }}>
-          <Typography gutterBottom>Context Limit</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Context Limit</Typography>
+              <ResetLink field="context_limit" value={contextLimit} onClick={() => handleReset('context_limit')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary">
               The number of messages to include in the context for the AI assistant. When set to 1, the AI assistant will only see and remember the most recent message.
             </Typography>
             <FormControl fullWidth sx={{ mt: 1 }}>
-              {/* <InputLabel id="context-limit-label">Context Limit</InputLabel> */}
               <Select
-                labelId="context-limit-label"
                 value={contextLimit}
-                // label="Context Limit"
                 onChange={(e) => handleAdvancedChangeWithDebounce('contextLimit', e.target.value as number)}
                 disabled={readOnly}
               >
@@ -360,12 +428,14 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box>
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
+              <ResetLink field="temperature" value={temperature} onClick={() => handleReset('temperature')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary">
               Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-              {/* This is a hack to get the slider to center the labels */}
               <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <Slider
@@ -382,14 +452,15 @@ const AppSettings: FC<AppSettingsProps> = ({
                   disabled={readOnly}
                 />
               </Box>
-              {/* This is a hack to get the slider to center the labels */}
               <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
-            
           </Box>
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Frequency Penalty ({frequencyPenalty.toFixed(2)})</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Frequency Penalty ({frequencyPenalty.toFixed(2)})</Typography>
+              <ResetLink field="frequency_penalty" value={frequencyPenalty} onClick={() => handleReset('frequency_penalty')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary">
               Controls how much the model penalizes itself for repeating the same information. Higher values reduce repetition in longer conversations.
             </Typography>
@@ -414,7 +485,10 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box>
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Presence Penalty ({presencePenalty.toFixed(2)})</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Presence Penalty ({presencePenalty.toFixed(2)})</Typography>
+              <ResetLink field="presence_penalty" value={presencePenalty} onClick={() => handleReset('presence_penalty')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary"> 
               Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.
             </Typography>
@@ -439,7 +513,10 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box> 
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Top P ({topP.toFixed(2)})</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Top P ({topP.toFixed(2)})</Typography>
+              <ResetLink field="top_p" value={topP} onClick={() => handleReset('top_p')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary"> 
               Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.
             </Typography>
@@ -464,7 +541,10 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box>
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Max Tokens</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Max Tokens</Typography>
+              <ResetLink field="max_tokens" value={maxTokens} onClick={() => handleReset('max_tokens')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary">
               The maximum number of tokens to generate before stopping.
             </Typography>
@@ -481,7 +561,10 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box>          
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Reasoning Effort</Typography>
+            <Stack direction="row" alignItems="center">
+              <Typography gutterBottom>Reasoning Effort</Typography>
+              <ResetLink field="reasoning_effort" value={reasoningEffort} onClick={() => handleReset('reasoning_effort')} />
+            </Stack>
             <Typography variant="body2" color="text.secondary">
               Controls the effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
             </Typography>
@@ -498,10 +581,8 @@ const AppSettings: FC<AppSettingsProps> = ({
             </FormControl>
           </Box>
 
-        
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
-        
       )}
          
       <TextField
