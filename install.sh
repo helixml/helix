@@ -599,6 +599,7 @@ COMPOSE_PROFILES=${HAYSTACK:+haystack}
 
 # Haystack features
 RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
+RAG_DEFAULT_PROVIDER=${HAYSTACK:+haystack}
 
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
