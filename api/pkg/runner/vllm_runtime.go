@@ -345,18 +345,34 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 
 	cmd := commander.CommandContext(ctx, vllmPath, args...)
 
-	// Build environment variables
+	// Set only the specific environment variables needed
+	// This is more secure than inheriting all parent environment variables
 	env := []string{
-		"HOME=" + os.Getenv("HOME"),
-		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
-		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
+		// System paths - often needed by Python to find libraries
+		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
+		fmt.Sprintf("HOME=%s", os.Getenv("HOME")),
+
+		// Python configuration
 		"PYTHONUNBUFFERED=1",
-		"CUDA_VISIBLE_DEVICES=0",         // Default to first GPU
-		"TRANSFORMERS_CACHE=" + cacheDir, // Where to store the models
-		"HF_HOME=" + cacheDir,
+
+		// CUDA configuration
+		"CUDA_VISIBLE_DEVICES=0", // Default to first GPU
+
+		// Cache directories
+		fmt.Sprintf("TRANSFORMERS_CACHE=%s", cacheDir),
+		fmt.Sprintf("HF_HOME=%s", cacheDir),
+
+		// Proxy settings if needed
+		fmt.Sprintf("HTTP_PROXY=%s", os.Getenv("HTTP_PROXY")),
+		fmt.Sprintf("HTTPS_PROXY=%s", os.Getenv("HTTPS_PROXY")),
+		fmt.Sprintf("NO_PROXY=%s", os.Getenv("NO_PROXY")),
+
+		// Hugging Face authentication
+		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 	}
 
 	cmd.Env = env
+
 	log.Debug().Interface("env", cmd.Env).Str("cmd", fmt.Sprintf("%s %s", vllmPath, strings.Join(args, " "))).Msg("vLLM serve command")
 
 	// Prepare stdout and stderr
