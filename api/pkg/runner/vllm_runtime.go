@@ -30,6 +30,8 @@ type VLLMRuntime struct {
 	port          int
 	startTimeout  time.Duration
 	contextLength int64
+	model         string
+	args          []string
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
 }
@@ -39,6 +41,8 @@ type VLLMRuntimeParams struct {
 	Port          *int           // If nil, will be assigned a random port
 	StartTimeout  *time.Duration // How long to wait for vLLM to start, if nil, will use default
 	ContextLength *int64         // Optional: Context length to use for the model
+	Model         *string        // Optional: Model to use
+	Args          []string       // Optional: Additional arguments to pass to vLLM
 }
 
 func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, error) {
@@ -69,12 +73,21 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		log.Debug().Int64("context_length", contextLength).Msg("Using provided context length")
 	}
 
+	// Check for model parameter
+	var model string
+	if params.Model != nil {
+		model = *params.Model
+		log.Debug().Str("model", model).Msg("Using model")
+	}
+
 	return &VLLMRuntime{
 		version:       "unknown",
 		cacheDir:      *params.CacheDir,
 		port:          *params.Port,
 		startTimeout:  *params.StartTimeout,
 		contextLength: contextLength,
+		model:         model,
+		args:          params.Args,
 	}, nil
 }
 
@@ -110,7 +123,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start vLLM cmd
-	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength)
+	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
@@ -150,6 +163,16 @@ func (v *VLLMRuntime) Stop() error {
 }
 
 func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFunc func(progress PullProgress) error) error {
+	// If no model name is provided, use the configured model
+	if modelName == "" {
+		modelName = v.model
+	}
+
+	// Validate model name
+	if modelName == "" {
+		return fmt.Errorf("model name cannot be empty")
+	}
+
 	// vLLM doesn't have an explicit pull/download API like Ollama
 	// Models are loaded on startup or when first requested
 	log.Info().Msgf("vLLM will download model %s on first use", modelName)
@@ -173,6 +196,16 @@ func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFun
 }
 
 func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
+	// If no model is provided, use the configured model
+	if model == "" {
+		model = v.model
+	}
+
+	// Validate model
+	if model == "" {
+		return fmt.Errorf("model name cannot be empty")
+	}
+
 	// Send a simple OpenAI-compatible request to warm up the model
 	url := fmt.Sprintf("%s/v1/chat/completions", v.URL())
 
@@ -257,7 +290,7 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 	}
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64) (*exec.Cmd, error) {
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string) (*exec.Cmd, error) {
 	// Find vLLM on the path
 	vllmPath, err := commander.LookPath("python")
 	if err != nil {
@@ -268,19 +301,47 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	// Prepare vLLM serve command
 	log.Debug().Msg("Preparing vLLM serve command")
 
-	// Common arguments for vLLM
-	args := []string{
-		"-m", "vllm.entrypoints.openai.api_server",
-		"--host", "127.0.0.1",
-		"--port", fmt.Sprintf("%d", port),
-		"--model", "HuggingFaceH4/zephyr-7b-beta", // Default model, can be overridden at runtime
-		"--tensor-parallel-size", "1", // Default to 1 GPU
+	// First prepare a map of custom arguments for quick checking
+	customArgsMap := make(map[string]bool)
+	for i, arg := range customArgs {
+		if i < len(customArgs)-1 && strings.HasPrefix(arg, "--") {
+			customArgsMap[arg] = true
+		}
 	}
 
-	// Add context length if specified
-	if contextLength > 0 {
+	// Build base arguments
+	args := []string{
+		"-m", "vllm.entrypoints.openai.api_server",
+	}
+
+	// Only add default arguments if they're not overridden in customArgs
+	if !customArgsMap["--host"] {
+		args = append(args, "--host", "127.0.0.1")
+	}
+
+	if !customArgsMap["--port"] {
+		args = append(args, "--port", fmt.Sprintf("%d", port))
+	}
+
+	// Only add model argument if provided and not already in custom args
+	if !customArgsMap["--model"] && model != "" {
+		args = append(args, "--model", model)
+	} else if !customArgsMap["--model"] && model == "" {
+		return nil, fmt.Errorf("model parameter is required for vLLM runtime")
+	}
+
+	if !customArgsMap["--max-model-len"] && contextLength > 0 {
 		args = append(args, "--max-model-len", fmt.Sprintf("%d", contextLength))
 	}
+
+	if !customArgsMap["--tensor-parallel-size"] {
+		args = append(args, "--tensor-parallel-size", "1") // Default to 1 GPU
+	}
+
+	// Add custom arguments
+	args = append(args, customArgs...)
+
+	log.Debug().Strs("args", args).Msg("Final vLLM command arguments")
 
 	cmd := commander.CommandContext(ctx, vllmPath, args...)
 
