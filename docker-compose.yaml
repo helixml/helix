@@ -34,13 +34,15 @@ services:
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE-env}
-      - TEXT_EXTRACTION_URL=http://llamaindex:5000/api/v1/extract
-      - RAG_INDEX_URL=http://llamaindex:5000/api/v1/rag/chunk
-      - RAG_QUERY_URL=http://llamaindex:5000/api/v1/rag/query
       - EVAL_USER_ID=${EVAL_USER_ID:-}
       - FILESTORE_LOCALFS_PATH=/filestore
+      # Socket configuration for haystack communication
+      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      - RAG_HAYSTACK_ENABLED=${RAG_HAYSTACK_ENABLED:-false}
+      - RAG_HAYSTACK_URL=http://haystack:8000
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
+      - helix-socket:/socket
     depends_on:
       - postgres
       - keycloak
@@ -61,8 +63,8 @@ services:
       - POSTGRES_DATABASES=keycloak
   # postgres 15 with pgvector installed for vector database
   pgvector:
-    profiles: [full]
-    image: ankane/pgvector
+    profiles: [haystack]
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.2.1
     restart: always
     ports:
       - 5433:5432
@@ -94,17 +96,6 @@ services:
       timeout: 5s
       retries: 30
     command: ["start", "--proxy", "edge"]
-  llamaindex:
-    profiles: [full]
-    image: registry.helixml.tech/helix/llamaindex:latest
-    # ports:
-      # - 5000:5000
-    restart: always
-    environment:
-      - POSTGRES_HOST=pgvector
-      - POSTGRES_DATABASE=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   gptscript_runner:
     image: registry.helixml.tech/helix/gptscript-runner:latest
     restart: always
@@ -139,11 +130,43 @@ services:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     ports:
       - 7317:7317
+  haystack:
+    profiles: [haystack]
+    image: registry.helixml.tech/helix/haystack:latest
+    restart: always
+    environment:
+      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-}
+      - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
+      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-Alibaba-NLP/gte-Qwen2-7B-instruct}
+      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-3584}
+      - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
+      - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-1000}
+      - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
+      # Socket configuration for api communication
+      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      # Vision RAG Settings
+      - RAG_VISION_ENABLED=${RAG_VISION_ENABLED:-false}
+      - RAG_VISION_BASE_URL=${RAG_VISION_BASE_URL:-}
+      - RAG_VISION_API_KEY=${RAG_VISION_API_KEY:-}
+      - RAG_VISION_EMBEDDINGS_MODEL=${RAG_VISION_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+      - RAG_VISION_EMBEDDINGS_DIM=${RAG_VISION_EMBEDDINGS_DIM:-1536}
+      - RAG_VISION_EMBEDDINGS_SOCKET=${RAG_VISION_EMBEDDINGS_SOCKET:-}
+      - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
+    volumes:
+      - helix-socket:/socket
+    depends_on:
+      - pgvector
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   helix-postgres-db:
   helix-pgvector-db:
   helix-filestore:
   helix-typesense-db:
+  helix-socket:
 
 networks:
   default:
