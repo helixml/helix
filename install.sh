@@ -572,12 +572,14 @@ EOF
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
         POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
+        PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
 
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
+        PGVECTOR_PASSWORD=$(generate_password)
     fi
 
     # Generate .env content
@@ -586,6 +588,7 @@ EOF
 KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
+PGVECTOR_PASSWORD=$PGVECTOR_PASSWORD
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
