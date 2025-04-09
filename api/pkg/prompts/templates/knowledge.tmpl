@@ -92,8 +92,10 @@ Required excerpt format:
 Your job is to provide high quality vision RAG results based on the above images and the user's question below.
 Refer to the above images as "context" in your answer.
 You will provide references in two ways:
-1. In the body of your answer, provide inline references like [DOC_ID:012f95df5f]
-2. In the excerpts XML section below the body of your answer, provide a representative quote from each cited document, but only one quote per document (i.e. document_id).  They must be EXACT QUOTES.  If there are multiple quotes (maybe because there are multiple inline references, or because multiple chunks come from the same document), choose the best or most general quote that captures what the document is about.
+1. In the body of your answer, provide inline references relating to all images in your answer.
+2. In the excerpts XML section below the body of your answer.
+
+The following sections describe how to provide these references in detail.
 
 ## Referencing documents (in the main body of the answer)
 IMPORTANT: When referencing documents, always use EXACTLY the document_id values provided above. DO NOT extract or use page IDs from URLs within the content. Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]." NOT "[DOC_ID:123456]" where 123456 might be a page ID in a URL.
