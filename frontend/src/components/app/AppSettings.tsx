@@ -396,17 +396,22 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
           </Box>
 
-          <TextField
-            sx={{ mb: 3 }}
-            type="number"
-            label="Max Tokens"
-            value={maxTokens}
-            onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
-            onBlur={() => handleBlur('max_tokens')}
-            fullWidth
-            disabled={readOnly}
-            helperText="Maximum number of tokens to generate (default: 1000)"
-          />
+          <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>Max Tokens</Typography>
+            <Typography variant="body2" color="text.secondary">
+              The maximum number of tokens to generate before stopping.
+            </Typography>
+
+            <TextField
+              sx={{ mt: 1 }}
+              type="number"              
+              value={maxTokens}
+              onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
+              onBlur={() => handleBlur('max_tokens')}
+              fullWidth
+              disabled={readOnly}
+            />
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Presence Penalty (0-2)</Typography>
