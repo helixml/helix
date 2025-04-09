@@ -337,18 +337,28 @@ const AppSettings: FC<AppSettingsProps> = ({
           </FormControl>
 
           <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Frequency Penalty (0-2)</Typography>
-            <Tooltip title="Increases the model's likelihood to talk about new topics. Higher values (2) make it less repetitive, while lower values (0) maintain balanced responses.">
-              <Slider
-                value={frequencyPenalty}
-                onChange={(_, value) => handleAdvancedChangeWithDebounce('frequencyPenalty', value as number)}
-                min={0}
-                max={2}
-                step={0.1}
-                marks
-                disabled={readOnly}
-              />
-            </Tooltip>
+            <Typography gutterBottom>Frequency Penalty ({frequencyPenalty.toFixed(2)})</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
+              <Box sx={{ flexGrow: 1 }}>
+                <Slider
+                  value={frequencyPenalty}
+                  onChange={(_, value) => handleAdvancedChangeWithDebounce('frequencyPenalty', value as number)}
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  marks={[
+                    { value: 0, label: 'Balanced' },
+                    { value: 2, label: 'Less Repetition' },
+                  ]}
+                  disabled={readOnly}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Controls how much the model penalizes itself for repeating the same information. Higher values reduce repetition in longer conversations.
+            </Typography>
           </Box>
 
           <TextField
