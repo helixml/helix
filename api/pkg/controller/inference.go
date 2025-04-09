@@ -80,6 +80,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
@@ -89,6 +93,30 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		}
 
 		req.Model = modelName
+	}
+
+	if assistant.Temperature != 0.0 {
+		req.Temperature = assistant.Temperature
+	}
+
+	if assistant.FrequencyPenalty != 0.0 {
+		req.FrequencyPenalty = assistant.FrequencyPenalty
+	}
+
+	if assistant.PresencePenalty != 0.0 {
+		req.PresencePenalty = assistant.PresencePenalty
+	}
+
+	if assistant.TopP != 0.0 {
+		req.TopP = assistant.TopP
+	}
+
+	if assistant.MaxTokens != 0 {
+		req.MaxTokens = assistant.MaxTokens
+	}
+
+	if assistant.ReasoningEffort != "" {
+		req.ReasoningEffort = assistant.ReasoningEffort
 	}
 
 	if assistant.RAGSourceID != "" {
@@ -129,7 +157,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	if err != nil {
 		return nil, nil, err
 	}
-	log.Info().Msgf("ZZZ assistant: %+v", assistant)
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
@@ -161,6 +188,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
@@ -172,12 +203,32 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		req.Model = modelName
 	}
 
-	if assistant.RAGSourceID != "" {
-		opts.RAGSourceID = assistant.RAGSourceID
+	if assistant.Temperature != 0.0 {
+		req.Temperature = assistant.Temperature
 	}
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
+	if assistant.FrequencyPenalty != 0.0 {
+		req.FrequencyPenalty = assistant.FrequencyPenalty
+	}
+
+	if assistant.PresencePenalty != 0.0 {
+		req.PresencePenalty = assistant.PresencePenalty
+	}
+
+	if assistant.TopP != 0.0 {
+		req.TopP = assistant.TopP
+	}
+
+	if assistant.MaxTokens != 0 {
+		req.MaxTokens = assistant.MaxTokens
+	}
+
+	if assistant.ReasoningEffort != "" {
+		req.ReasoningEffort = assistant.ReasoningEffort
+	}
+
+	if assistant.RAGSourceID != "" {
+		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
 	// Check for knowledge
