@@ -18,6 +18,7 @@ import {
   IAppFlatState,
 } from '../../types'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import Divider from '@mui/material/Divider'
 
 interface AppSettingsProps {
   id: string,
@@ -375,22 +376,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 disabled={readOnly}
               />
             </Tooltip>
-          </Box>
-
-          <FormControl fullWidth sx={{ mb: 3 }}>
-            <InputLabel id="reasoning-effort-label">Reasoning Effort</InputLabel>
-            <Select
-              labelId="reasoning-effort-label"
-              value={reasoningEffort}
-              label="Reasoning Effort"
-              onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
-              disabled={readOnly}
-            >
-              <MenuItem value="low">Low</MenuItem>
-              <MenuItem value="medium">Medium</MenuItem>
-              <MenuItem value="high">High</MenuItem>
-            </Select>
-          </FormControl>
+          </Box>          
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
@@ -434,7 +420,28 @@ const AppSettings: FC<AppSettingsProps> = ({
               />
             </Tooltip>
           </Box>
+
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <InputLabel id="reasoning-effort-label">Reasoning Effort (for thinking models)</InputLabel>
+            <Select
+              labelId="reasoning-effort-label"
+              value={reasoningEffort}
+              label="Reasoning Effort"
+              onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
+              disabled={readOnly}
+            >
+              <MenuItem value="low">Low</MenuItem>
+              <MenuItem value="medium">Medium</MenuItem>
+              <MenuItem value="high">High</MenuItem>
+            </Select>
+          </FormControl>
+          <Typography variant="body2" color="text.secondary">
+            Constrains effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
+          </Typography>
+        
+          <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
+        
       )}
          
       <TextField
