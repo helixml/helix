@@ -149,7 +149,7 @@ func (v *VLLMRuntime) Stop() error {
 	return nil
 }
 
-func (v *VLLMRuntime) PullModel(ctx context.Context, modelName string, progressFunc func(progress PullProgress) error) error {
+func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFunc func(progress PullProgress) error) error {
 	// vLLM doesn't have an explicit pull/download API like Ollama
 	// Models are loaded on startup or when first requested
 	log.Info().Msgf("vLLM will download model %s on first use", modelName)
@@ -218,7 +218,7 @@ func (v *VLLMRuntime) Version() string {
 	return v.version
 }
 
-func (v *VLLMRuntime) Status(ctx context.Context) string {
+func (v *VLLMRuntime) Status(_ context.Context) string {
 	// vLLM doesn't have a built-in status endpoint like Ollama
 	// For now, just return a simple status
 	return "running"
