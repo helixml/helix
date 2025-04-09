@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -311,7 +312,7 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 			Msg("Retrieved document with metadata")
 
 		// Get document ID and group ID from metadata
-		documentID := toString(r.Metadata["document_id"])
+		documentID := data.ContentHash([]byte(r.Content))
 		documentGroupID := toString(r.Metadata["document_group_id"])
 
 		// Convert metadata to string values for SessionRAGResult

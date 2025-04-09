@@ -517,6 +517,7 @@ const Citation: React.FC<CitationProps> = ({
                                         alignItems: 'center',
                                         justifyContent: 'flex-end',
                                         gap: '0.4em',
+                                        minWidth: 0,
                                     }}
                                 >
                                     <Box
@@ -532,14 +533,44 @@ const Citation: React.FC<CitationProps> = ({
                                             padding: '3px 8px',
                                             borderRadius: '4px',
                                             backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                            display: 'inline-flex',
+                                            flexDirection: /\.(jpe?g)$/i.test(excerpt.filename) ? 'column' : 'row',
+                                            alignItems: 'center',
+                                            gap: /\.(jpe?g)$/i.test(excerpt.filename) ? '4px' : '5px',
+                                            maxWidth: '100%',
                                             '&:hover': {
                                                 opacity: 1,
                                                 backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                                textDecoration: 'underline',
+                                                textDecoration: /\.(jpe?g)$/i.test(excerpt.filename) ? 'none' : 'underline',
+                                                '& > span': {
+                                                    textDecoration: /\.(jpe?g)$/i.test(excerpt.filename) ? 'underline' : 'none',
+                                                }
                                             }
                                         }}
                                     >
-                                        {excerpt.filename}
+                                        {/\.(jpe?g)$/i.test(excerpt.filename) && (
+                                            <img
+                                                src={excerpt.fileUrl}
+                                                alt={`${excerpt.filename} preview`}
+                                                style={{
+                                                    maxWidth: '200px',
+                                                    maxHeight: '200px',
+                                                    height: 'auto',
+                                                    verticalAlign: 'middle',
+                                                    borderRadius: '3px'
+                                                }}
+                                            />
+                                        )}
+                                        <Box component="span" sx={{
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            minWidth: 0,
+                                            textAlign: /\.(jpe?g)$/i.test(excerpt.filename) ? 'center' : 'left',
+                                            width: /\.(jpe?g)$/i.test(excerpt.filename) ? '100%' : 'auto',
+                                        }}>
+                                            {excerpt.filename}
+                                        </Box>
                                     </Box>
 
                                     {/* Only show filter button if onFilterDocument is provided */}

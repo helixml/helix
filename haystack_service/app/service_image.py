@@ -120,7 +120,7 @@ class HaystackImageService:
         return (
             MultimodalDocumentEmbedder if for_documents else MultimodalTextEmbedder
         )(
-            api_key=Secret.from_token(settings.VISION_API_KEY),
+            api_key=settings.VISION_API_KEY,
             api_base_url=settings.VISION_BASE_URL,
             model=settings.VISION_EMBEDDINGS_MODEL,
         )
