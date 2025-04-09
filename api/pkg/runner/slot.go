@@ -111,6 +111,20 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		if err != nil {
 			return
 		}
+	case types.RuntimeVLLM:
+		runtimeParams := VLLMRuntimeParams{
+			CacheDir: &s.runnerOptions.CacheDir,
+		}
+
+		// Only set ContextLength if it's non-zero
+		if s.ContextLength > 0 {
+			runtimeParams.ContextLength = &s.ContextLength
+		}
+
+		s.runningRuntime, err = NewVLLMRuntime(ctx, runtimeParams)
+		if err != nil {
+			return
+		}
 	default:
 		err = fmt.Errorf("unknown runtime: %s", s.IntendedRuntime)
 		return

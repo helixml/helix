@@ -147,3 +147,48 @@ func (o *OllamaRuntime) Warm(_ context.Context, _ string) error {
 func (a *OllamaRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
+
+type VLLMRuntime struct{}
+
+type VLLMRuntimeParams struct {
+	CacheDir      *string
+	ContextLength *int64
+}
+
+var _ Runtime = &VLLMRuntime{}
+
+func NewVLLMRuntime(_ context.Context, _ VLLMRuntimeParams) (*VLLMRuntime, error) {
+	return nil, fmt.Errorf("vLLM runtime is not supported on windows")
+}
+
+func (v *VLLMRuntime) PullModel(_ context.Context, _ string, _ func(PullProgress) error) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Runtime() types.Runtime {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Start(_ context.Context) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Stop() error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) URL() string {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Version() string {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
+}
