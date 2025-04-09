@@ -330,7 +330,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Select
                 labelId="context-limit-label"
                 value={contextLimit}
-                label="Context Limit"
+                // label="Context Limit"
                 onChange={(e) => handleAdvancedChangeWithDebounce('contextLimit', e.target.value as number)}
                 disabled={readOnly}
               >
@@ -347,7 +347,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Typography variant="body2" color="text.secondary">
               Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
               {/* This is a hack to get the slider to center the labels */}
               <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
               <Box sx={{ flexGrow: 1 }}>
@@ -373,7 +373,10 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Frequency Penalty ({frequencyPenalty.toFixed(2)})</Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Controls how much the model penalizes itself for repeating the same information. Higher values reduce repetition in longer conversations.
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
               <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <Slider
@@ -391,9 +394,6 @@ const AppSettings: FC<AppSettingsProps> = ({
               </Box>
               <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
-            <Typography variant="body2" color="text.secondary">
-              Controls how much the model penalizes itself for repeating the same information. Higher values reduce repetition in longer conversations.
-            </Typography>
           </Box>
 
           <TextField
