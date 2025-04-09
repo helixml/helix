@@ -304,13 +304,41 @@ export const useApp = (appId: string) => {
     if (updates.systemPrompt !== undefined) {
       assistants[0].system_prompt = updates.systemPrompt
     }
+
+    if (updates.provider !== undefined) {
+      assistants[0].provider = updates.provider
+    }
     
     if (updates.model !== undefined) {
       assistants[0].model = updates.model
     }
     
-    if (updates.provider !== undefined) {
-      assistants[0].provider = updates.provider
+    if (updates.context_limit !== undefined) {
+      assistants[0].context_limit = updates.context_limit
+    }
+
+    if (updates.frequency_penalty !== undefined) {
+      assistants[0].frequency_penalty = updates.frequency_penalty
+    }
+    
+    if (updates.max_tokens !== undefined) {
+      assistants[0].max_tokens = updates.max_tokens
+    }
+
+    if (updates.presence_penalty !== undefined) {
+      assistants[0].presence_penalty = updates.presence_penalty
+    }
+
+    if (updates.reasoning_effort !== undefined) {
+      assistants[0].reasoning_effort = updates.reasoning_effort
+    }
+
+    if (updates.temperature !== undefined) {
+      assistants[0].temperature = updates.temperature
+    }
+
+    if (updates.top_p !== undefined) {
+      assistants[0].top_p = updates.top_p
     }
 
     if (updates.is_actionable_history_length !== undefined) {
