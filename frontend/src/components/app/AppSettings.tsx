@@ -5,14 +5,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import FormGroup from '@mui/material/FormGroup'
 import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
-import Typography from '@mui/material/Typography'
-import Alert from '@mui/material/Alert'
-import CircularProgress from '@mui/material/CircularProgress'
-import ModelPicker from '../create/ModelPicker'
-import ProviderEndpointPicker from '../create/ProviderEndpointPicker'
-import {
-  TypesProviderEndpoint,
-} from '../../api/api'
+
 import {
   IAppFlatState,
 } from '../../types'
@@ -216,30 +209,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           displayMode="short"
         />
       </Box>
-      
-      {/* <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle1" sx={{ mb: 1 }}>Provider</Typography>
-        <ProviderEndpointPicker
-          providerEndpoint={provider}
-          onSetProviderEndpoint={(newProvider) => {
-            handlePickerChange('provider', newProvider)
-          }}
-          providerEndpoints={providerEndpoints}
-        />
-      </Box>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle1" sx={{ mb: 1 }}>Model</Typography>
-        <ModelPicker
-          type="text"
-          model={model}
-          provider={provider}
-          onSetModel={(newModel) => {
-            handlePickerChange('model', newModel)
-          }}
-          onLoadingStateChange={setIsLoadingModels}
-          onProviderModelsLoaded={onProviderModelsLoaded}
-        />
-      </Box> */}
+         
       <TextField
         sx={{ mb: 3 }}
         id="app-instructions"
