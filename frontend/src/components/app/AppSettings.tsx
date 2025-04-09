@@ -397,6 +397,31 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box>
 
           <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>Presence Penalty ({presencePenalty.toFixed(2)})</Typography>
+            <Typography variant="body2" color="text.secondary"> 
+              Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
+              <Box sx={{ flexGrow: 1 }}>
+                <Slider
+                value={presencePenalty}
+                onChange={(_, value) => handleAdvancedChangeWithDebounce('presencePenalty', value as number)}
+                min={0}
+                max={2}
+                step={0.1}
+                marks={[
+                  { value: 0, label: 'Balanced' },
+                  { value: 2, label: 'Open-Minded' },
+                ]}
+                disabled={readOnly}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
+            </Box>
+          </Box> 
+
+          <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Max Tokens</Typography>
             <Typography variant="body2" color="text.secondary">
               The maximum number of tokens to generate before stopping.
@@ -413,20 +438,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             />
           </Box>
 
-          <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>Presence Penalty (0-2)</Typography>
-            <Tooltip title="Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.">
-              <Slider
-                value={presencePenalty}
-                onChange={(_, value) => handleAdvancedChangeWithDebounce('presencePenalty', value as number)}
-                min={0}
-                max={2}
-                step={0.1}
-                marks
-                disabled={readOnly}
-              />
-            </Tooltip>
-          </Box>                    
+                             
 
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Top P (0-1)</Typography>
