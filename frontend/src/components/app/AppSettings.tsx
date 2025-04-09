@@ -52,6 +52,24 @@ const AppSettings: FC<AppSettingsProps> = ({
   showErrors = true,
   isAdmin = false,
 }) => {
+  // Get initial showAdvanced value from URL
+  const [showAdvanced, setShowAdvanced] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('showAdvanced') === 'true'
+  })
+
+  // Update URL when showAdvanced changes
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (showAdvanced) {
+      params.set('showAdvanced', 'true')
+    } else {
+      params.delete('showAdvanced')
+    }
+    // Update URL without causing a page reload
+    window.history.replaceState({}, '', `${window.location.pathname}?${params}`)
+  }, [showAdvanced])
+
   // Local state for form values
   const [name, setName] = useState(app.name || '')
   const [description, setDescription] = useState(app.description || '')
@@ -63,7 +81,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [provider, setProvider] = useState(app.provider || '')
   
   // Advanced settings state
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
   const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || 0)
   const [maxTokens, setMaxTokens] = useState(app.max_tokens || 1000)
