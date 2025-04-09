@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC, useRef } from 'react'
+import React, { useState, useEffect, FC, useRef, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -26,6 +26,21 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
+}
+
+// Add this custom hook after the imports and before the AppSettings component
+const useDebounce = (callback: Function, delay: number) => {
+  const timeoutRef = useRef<NodeJS.Timeout>()
+
+  return useCallback((...args: any[]) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
+    timeoutRef.current = setTimeout(() => {
+      callback(...args)
+    }, delay)
+  }, [callback, delay])
 }
 
 const AppSettings: FC<AppSettingsProps> = ({
@@ -131,10 +146,11 @@ const AppSettings: FC<AppSettingsProps> = ({
     }
   }
 
-  // Handle slider and select changes - these update immediately
+  // Modify the handleAdvancedChange function to separate immediate state updates from debounced API calls
   const handleAdvancedChange = (field: string, value: number | string) => {
     const numericValue = typeof value === 'string' ? parseFloat(value) : value
     
+    // Update local state immediately
     switch(field) {
       case 'contextLimit':
         setContextLimit(numericValue as number)
@@ -158,7 +174,10 @@ const AppSettings: FC<AppSettingsProps> = ({
         setTopP(numericValue as number)
         break
     }
+  }
 
+  // Create debounced version of the update function
+  const debouncedUpdate = useDebounce((field: string, value: number | string) => {
     const updatedApp: IAppFlatState = {
       ...app,
       name,
@@ -169,16 +188,22 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       model,
       provider,
-      context_limit: field === 'contextLimit' ? numericValue as number : contextLimit,
-      frequency_penalty: field === 'frequencyPenalty' ? numericValue as number : frequencyPenalty,
-      max_tokens: field === 'maxTokens' ? numericValue as number : maxTokens,
-      presence_penalty: field === 'presencePenalty' ? numericValue as number : presencePenalty,
+      context_limit: field === 'contextLimit' ? value as number : contextLimit,
+      frequency_penalty: field === 'frequencyPenalty' ? value as number : frequencyPenalty,
+      max_tokens: field === 'maxTokens' ? value as number : maxTokens,
+      presence_penalty: field === 'presencePenalty' ? value as number : presencePenalty,
       reasoning_effort: field === 'reasoningEffort' ? value as string : reasoningEffort,
-      temperature: field === 'temperature' ? numericValue as number : temperature,
-      top_p: field === 'topP' ? numericValue as number : topP,
+      temperature: field === 'temperature' ? value as number : temperature,
+      top_p: field === 'topP' ? value as number : topP,
     }
     
     onUpdate(updatedApp)
+  }, 300)
+
+  // Combine immediate state update with debounced API call
+  const handleAdvancedChangeWithDebounce = (field: string, value: number | string) => {
+    handleAdvancedChange(field, value)
+    debouncedUpdate(field, value)
   }
 
   // Handle checkbox changes - these update immediately since they're not typing events
@@ -300,7 +325,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               labelId="context-limit-label"
               value={contextLimit}
               label="Context Limit"
-              onChange={(e) => handleAdvancedChange('contextLimit', e.target.value as number)}
+              onChange={(e) => handleAdvancedChangeWithDebounce('contextLimit', e.target.value as number)}
               disabled={readOnly}
             >
               <MenuItem value={0}>All Previous Messages</MenuItem>
@@ -315,7 +340,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Tooltip title="Increases the model's likelihood to talk about new topics. Higher values (2) make it less repetitive, while lower values (0) maintain balanced responses.">
               <Slider
                 value={frequencyPenalty}
-                onChange={(_, value) => handleAdvancedChange('frequencyPenalty', value as number)}
+                onChange={(_, value) => handleAdvancedChangeWithDebounce('frequencyPenalty', value as number)}
                 min={0}
                 max={2}
                 step={0.1}
@@ -330,7 +355,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             type="number"
             label="Max Tokens"
             value={maxTokens}
-            onChange={(e) => handleAdvancedChange('maxTokens', parseInt(e.target.value))}
+            onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
             onBlur={() => handleBlur('max_tokens')}
             fullWidth
             disabled={readOnly}
@@ -342,7 +367,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Tooltip title="Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.">
               <Slider
                 value={presencePenalty}
-                onChange={(_, value) => handleAdvancedChange('presencePenalty', value as number)}
+                onChange={(_, value) => handleAdvancedChangeWithDebounce('presencePenalty', value as number)}
                 min={0}
                 max={2}
                 step={0.1}
@@ -358,7 +383,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               labelId="reasoning-effort-label"
               value={reasoningEffort}
               label="Reasoning Effort"
-              onChange={(e) => handleAdvancedChange('reasoningEffort', e.target.value)}
+              onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
               disabled={readOnly}
             >
               <MenuItem value="low">Low</MenuItem>
@@ -370,23 +395,25 @@ const AppSettings: FC<AppSettingsProps> = ({
           <Box sx={{ mb: 3 }}>
             <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <Typography variant="caption" sx={{ mr: 2 }}>Precise</Typography>
+              {/* This is a hack to get the slider to center the labels */}
+              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <Slider
                   value={temperature}
-                  onChange={(_, value) => handleAdvancedChange('temperature', value as number)}
+                  onChange={(_, value) => handleAdvancedChangeWithDebounce('temperature', value as number)}
                   min={0}
                   max={2}
                   step={0.01}
                   marks={[
-                    { value: 0, label: '' },
+                    { value: 0, label: 'Precise' },
                     { value: 1, label: 'Neutral' },
-                    { value: 2, label: '' },
+                    { value: 2, label: 'Creative' },
                   ]}
                   disabled={readOnly}
                 />
               </Box>
-              <Typography variant="caption" sx={{ ml: 2 }}>Creative</Typography>
+              {/* This is a hack to get the slider to center the labels */}
+              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
             <Typography variant="body2" color="text.secondary">
               Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
@@ -398,7 +425,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Tooltip title="Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.">
               <Slider
                 value={topP}
-                onChange={(_, value) => handleAdvancedChange('topP', value as number)}
+                onChange={(_, value) => handleAdvancedChangeWithDebounce('topP', value as number)}
                 min={0}
                 max={1}
                 step={0.1}
