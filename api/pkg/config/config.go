@@ -56,6 +56,8 @@ func LoadServerConfig() (ServerConfig, error) {
 
 type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+
+	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
 }
 
 // Providers is used to configure the various AI providers that we use
