@@ -19,6 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -336,4 +337,15 @@ func Test_setSystemPrompt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_renderPrompt(t *testing.T) {
+	prompt := "Hello, {{.LocalDate}} at {{.LocalTime}}"
+	values := systemPromptValues{
+		LocalDate: "2024-01-01",
+		LocalTime: "12:00:00",
+	}
+	rendered, err := renderPrompt(prompt, values)
+	assert.NoError(t, err)
+	assert.Equal(t, "Hello, 2024-01-01 at 12:00:00", rendered)
 }

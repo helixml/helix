@@ -89,7 +89,7 @@ require (
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/rs/zerolog v1.31.0 // indirect
-	github.com/sashabaranov/go-openai v1.31.0 // indirect
+	github.com/sashabaranov/go-openai v1.38.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
