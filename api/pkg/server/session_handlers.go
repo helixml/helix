@@ -84,6 +84,9 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 				return
 			}
 		}
+
+		// Setting default message context limit
+		messageContextLimit = s.Cfg.Inference.DefaultContextLimit
 	} else {
 		// If app ID is set, load the app
 		app, err := s.Store.GetAppWithTools(req.Context(), startReq.AppID)
