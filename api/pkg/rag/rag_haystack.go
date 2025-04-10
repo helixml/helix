@@ -9,9 +9,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -312,6 +314,12 @@ func (h *HaystackRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*t
 
 		// Get document ID and group ID from metadata
 		documentID := toString(r.Metadata["document_id"])
+
+		// If the content is an image, then recompute the document ID based upon the content
+		re := regexp.MustCompile(`^data:image/(png|jpg|jpeg|gif|webp);base64,`)
+		if re.MatchString(r.Content) {
+			documentID = data.ContentHash([]byte(r.Content))
+		}
 		documentGroupID := toString(r.Metadata["document_group_id"])
 
 		// Convert metadata to string values for SessionRAGResult

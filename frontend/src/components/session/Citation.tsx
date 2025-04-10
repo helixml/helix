@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Button, Container, Tooltip } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import { FilterAlt, CheckCircle, Warning, Cancel } from '@mui/icons-material';
+import { FilterAlt, CheckCircle, Warning, Cancel, FileOpen } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles'
 import CitationComparisonModal from './CitationComparisonModal';
 import { ISessionRAGResult } from '../../types';
@@ -64,10 +64,29 @@ const Citation: React.FC<CitationProps> = ({
         return null;
     }
 
+    const isImage = (filename: string) => {
+        return /\.(jpe?g)$/i.test(filename);
+    }
+
+    const originalFilenameForExcerpt = (excerpt: Excerpt) => {
+        const ragResult = ragResults.find(r => r.document_id === excerpt.docId);
+        return ragResult?.metadata?.original_filename;
+    }
+
+    const originalSourceFromExcerpt = (excerpt: Excerpt) => {
+        const ragResult = ragResults.find(r => r.document_id === excerpt.docId);
+        return ragResult?.metadata?.original_source;
+    }
+
+    const originalIDFromExcerpt = (excerpt: Excerpt) => {
+        const ragResult = ragResults.find(r => r.document_id === excerpt.docId);
+        return ragResult?.metadata?.document_id;
+    }
+
     // Function to handle clicking on a validation icon
     const handleValidationClick = (excerpt: Excerpt) => {
         if (!excerpt.validationStatus) return;
-        
+
         setSelectedExcerpt(excerpt);
         setComparisonModalOpen(true);
     };
@@ -75,7 +94,7 @@ const Citation: React.FC<CitationProps> = ({
     // Helper function to create a unique key for a RAG result (similar to backend logic)
     const createUniqueRagKey = useCallback((ragResult: any): string => {
         let key = `${ragResult.document_id}-${ragResult.content.substring(0, 50).replace(/\s+/g, '-')}`;
-        
+
         // Add chunk identification if available in metadata
         if (ragResult.metadata) {
             if (ragResult.metadata.chunk_id) {
@@ -84,7 +103,7 @@ const Citation: React.FC<CitationProps> = ({
                 key += `-offset-${ragResult.metadata.offset}`;
             }
         }
-        
+
         return key;
     }, []);
 
@@ -102,18 +121,18 @@ const Citation: React.FC<CitationProps> = ({
     const findBestMatchingChunk = useCallback((excerpt: Excerpt, results: any[]): any | null => {
         // Filter by document ID first
         const matchingResults = results.filter(r => r.document_id === excerpt.docId);
-        
+
         if (matchingResults.length === 0) {
             return null;
         }
-        
+
         if (matchingResults.length === 1) {
             return matchingResults[0];
         }
-        
+
         // For multiple chunks, find the best match based on content similarity
         const excerptText = normalizeText(excerpt.snippet);
-        
+
         // First try exact match
         for (const result of matchingResults) {
             const resultText = normalizeText(result.content);
@@ -121,33 +140,33 @@ const Citation: React.FC<CitationProps> = ({
                 return result; // Found an exact match
             }
         }
-        
+
         // If no exact match, find the chunk with highest similarity
         let bestMatch = matchingResults[0];
         let bestSimilarity = 0;
-        
+
         for (const result of matchingResults) {
             const resultText = normalizeText(result.content);
-            
+
             // Simple similarity check - more sophisticated methods could be used
             let similarity = 0;
-            
+
             // Count word matches
             const excerptWords = excerptText.split(/\s+/).filter(w => w.length > 3);
             const resultWords = resultText.split(/\s+/).filter(w => w.length > 3);
-            
-            const matchingWords = excerptWords.filter(word => 
+
+            const matchingWords = excerptWords.filter(word =>
                 resultWords.some(rWord => rWord.includes(word) || word.includes(rWord))
             );
-            
+
             similarity = excerptWords.length > 0 ? matchingWords.length / excerptWords.length : 0;
-            
+
             if (similarity > bestSimilarity) {
                 bestSimilarity = similarity;
                 bestMatch = result;
             }
         }
-        
+
         return bestMatch;
     }, [normalizeText]);
 
@@ -368,44 +387,80 @@ const Citation: React.FC<CitationProps> = ({
                             </Box>
                         )}
                         <Box component="span">
-                            <Box
-                                component="span"
-                                className="start-quote"
-                                sx={{
-                                    color: 'rgba(88, 166, 255, 1.0)',
-                                    fontFamily: 'Georgia, serif',
-                                    fontSize: '1.5em',
-                                    fontWeight: 'bold',
-                                    lineHeight: 0,
-                                    position: 'relative',
-                                    marginRight: '0.15em',
-                                    top: '0.1em',
-                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
-                                }}
-                            >
-                                {'\u201C'}
-                            </Box>
+                            {isImage(excerpt.filename) ? (
+                                null
+                            ) :
+                                <Box
+                                    component="span"
+                                    className="start-quote"
+                                    sx={{
+                                        color: 'rgba(88, 166, 255, 1.0)',
+                                        fontFamily: 'Georgia, serif',
+                                        fontSize: '1.5em',
+                                        fontWeight: 'bold',
+                                        lineHeight: 0,
+                                        position: 'relative',
+                                        marginRight: '0.15em',
+                                        top: '0.1em',
+                                        display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
+                                    }}
+                                >
+                                    {'\u201C'}
+                                </Box>
+                            }
 
                             <span dangerouslySetInnerHTML={{ __html: excerpt.snippet }}></span>
 
-                            <Box
-                                component="span"
-                                className="end-quote"
-                                sx={{
-                                    color: 'rgba(88, 166, 255, 1.0)',
-                                    fontFamily: 'Georgia, serif',
-                                    fontSize: '1.5em',
-                                    fontWeight: 'bold',
-                                    lineHeight: 0,
-                                    position: 'relative',
-                                    marginLeft: '0.15em',
-                                    top: '0.1em',
-                                    display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
-                                }}
-                            >
-                                {'\u201D'}
-                            </Box>
-                            
+                            {isImage(excerpt.filename) ? (
+                                null
+                            ) :
+                                <Box
+                                    component="span"
+                                    className="end-quote"
+                                    sx={{
+                                        color: 'rgba(88, 166, 255, 1.0)',
+                                        fontFamily: 'Georgia, serif',
+                                        fontSize: '1.5em',
+                                        fontWeight: 'bold',
+                                        lineHeight: 0,
+                                        position: 'relative',
+                                        marginLeft: '0.15em',
+                                        top: '0.1em',
+                                        display: excerpt.validationStatus && excerpt.validationStatus !== 'exact' ? 'none' : 'inline'
+                                    }}
+                                >
+                                    {'\u201D'}
+                                </Box>
+                            }
+                            {/* Only show filter button if onFilterDocument is provided */}
+                            {onFilterDocument && (
+                                <FilterAlt
+                                    sx={{
+                                        fontSize: '1em',
+                                        cursor: 'pointer',
+                                        color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                        textDecoration: 'none',
+                                        fontWeight: 500,
+                                        opacity: 0.85,
+                                        transition: 'all 0.2s ease',
+                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                        '&:hover': {
+                                            opacity: 1,
+                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                            textDecoration: 'underline',
+                                        }
+                                    }}
+                                    titleAccess="Add this document to filter over on the next search"
+                                    onClick={() => {
+                                        if (isImage(excerpt.filename)) {
+                                            const originalID = originalIDFromExcerpt(excerpt)
+                                            return onFilterDocument?.(originalID || '')
+                                        }
+                                        return onFilterDocument?.(excerpt.docId)
+                                    }
+                                    } />
+                            )}
+
                             {/* Validation status indicator */}
                             {excerpt.validationStatus && (
                                 <Tooltip title={excerpt.validationMessage || ''} placement="top">
@@ -427,33 +482,33 @@ const Citation: React.FC<CitationProps> = ({
                                         }}
                                     >
                                         {excerpt.validationStatus === 'exact' && (
-                                            <CheckCircle 
-                                                fontSize="small" 
-                                                sx={{ 
+                                            <CheckCircle
+                                                fontSize="small"
+                                                sx={{
                                                     color: '#4caf50',
                                                     fontSize: '0.9rem',
                                                     cursor: 'pointer'
-                                                }} 
+                                                }}
                                             />
                                         )}
                                         {excerpt.validationStatus === 'fuzzy' && (
-                                            <Warning 
-                                                fontSize="small" 
-                                                sx={{ 
+                                            <Warning
+                                                fontSize="small"
+                                                sx={{
                                                     color: '#ff9800',
                                                     fontSize: '0.9rem',
                                                     cursor: 'pointer'
-                                                }} 
+                                                }}
                                             />
                                         )}
                                         {excerpt.validationStatus === 'failed' && (
-                                            <Cancel 
-                                                fontSize="small" 
-                                                sx={{ 
+                                            <Cancel
+                                                fontSize="small"
+                                                sx={{
                                                     color: '#f44336',
                                                     fontSize: '0.9rem',
                                                     cursor: 'pointer'
-                                                }} 
+                                                }}
                                             />
                                         )}
                                     </Box>
@@ -510,80 +565,131 @@ const Citation: React.FC<CitationProps> = ({
                                 Searching documents...
                             </Box>
                         ) : (
-                            <div>
-                                <Container
+                            <Container
+                                sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    gap: '0.4em',
+                                    minWidth: 0,
+                                }}
+                            >
+                                <Box
+                                    component="a"
+                                    href={excerpt.fileUrl}
+                                    target="_blank"
                                     sx={{
-                                        display: 'flex',
+                                        color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                        textDecoration: 'none',
+                                        fontWeight: 500,
+                                        opacity: 0.85,
+                                        transition: 'all 0.2s ease',
+                                        padding: '3px 8px',
+                                        borderRadius: '4px',
+                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                        display: 'inline-flex',
+                                        flexDirection: isImage(excerpt.filename) ? 'column' : 'row',
                                         alignItems: 'center',
-                                        justifyContent: 'flex-end',
-                                        gap: '0.4em',
+                                        gap: isImage(excerpt.filename) ? '4px' : '5px',
+                                        maxWidth: '100%',
+                                        '&:hover': {
+                                            opacity: 1,
+                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                            textDecoration: isImage(excerpt.filename) ? 'none' : 'underline',
+                                            '& > span': {
+                                                textDecoration: isImage(excerpt.filename) ? 'underline' : 'none',
+                                            }
+                                        }
                                     }}
                                 >
-                                    <Box
-                                        component="a"
-                                        href={excerpt.fileUrl}
-                                        target="_blank"
-                                        sx={{
-                                            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
-                                            textDecoration: 'none',
-                                            fontWeight: 500,
-                                            opacity: 0.85,
-                                            transition: 'all 0.2s ease',
-                                            padding: '3px 8px',
-                                            borderRadius: '4px',
-                                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                                            '&:hover': {
-                                                opacity: 1,
-                                                backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                                textDecoration: 'underline',
-                                            }
-                                        }}
-                                    >
-                                        {excerpt.filename}
-                                    </Box>
-                                    
-                                    {/* Only show filter button if onFilterDocument is provided */}
-                                    {onFilterDocument && (
-                                        <FilterAlt
+                                    {isImage(excerpt.filename) && (
+                                        <img
+                                            src={excerpt.fileUrl}
+                                            alt={`${excerpt.filename} preview`}
+                                            style={{
+                                                maxWidth: '200px',
+                                                maxHeight: '200px',
+                                                height: 'auto',
+                                                verticalAlign: 'middle',
+                                                borderRadius: '3px'
+                                            }}
+                                        />
+                                    )}
+                                    {isImage(excerpt.filename) ? (
+                                        <Box
+                                            component="a"
+                                            href={originalSourceFromExcerpt(excerpt)}
+                                            target="_blank"
                                             sx={{
-                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                padding: '3px 8px',
+                                                borderRadius: '15px',
+                                                borderColor: 'rgba(88, 166, 255, 0.2)',
+                                                borderWidth: '1px',
+                                                borderStyle: 'solid',
+                                                backgroundColor: 'rgba(88, 166, 255, 0.1)',
                                                 color: theme.palette.mode === 'light' ? '#333' : '#bbb',
                                                 textDecoration: 'none',
                                                 fontWeight: 500,
                                                 opacity: 0.85,
                                                 transition: 'all 0.2s ease',
-                                                backgroundColor: 'rgba(88, 166, 255, 0.1)',
                                                 '&:hover': {
                                                     opacity: 1,
                                                     backgroundColor: 'rgba(88, 166, 255, 0.2)',
                                                     textDecoration: 'underline',
                                                 }
                                             }}
-                                            titleAccess="Add this document to filter over on the next search"
-                                            onClick={() => onFilterDocument?.(excerpt.docId)} />
-                                    )}
-                                </Container>
-                            </div>
+                                        >
+                                            <FileOpen fontSize="small" />
+                                            <Box component="span" sx={{
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                minWidth: 0,
+                                            }}>
+                                                {originalFilenameForExcerpt(excerpt)}
+                                            </Box>
+                                        </Box>
+                                    ) :
+                                        <Box component="span" sx={{
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            minWidth: 0,
+                                            textAlign: 'center',
+                                            width: 'auto',
+                                        }}>
+                                            {excerpt.filename}
+                                        </Box>
+                                    }
+
+                                </Box>
+                            </Container>
                         )}
                     </Box>
                 </Box>
-            ))}
+            ))
+            }
 
             {/* Citation Comparison Modal */}
-            {selectedExcerpt && (
-                <CitationComparisonModal
-                    open={comparisonModalOpen}
-                    onClose={() => setComparisonModalOpen(false)}
-                    citation={{
-                        docId: selectedExcerpt.docId,
-                        snippet: selectedExcerpt.snippet,
-                        validationStatus: selectedExcerpt.validationStatus || 'failed',
-                        fileUrl: selectedExcerpt.fileUrl
-                    }}
-                    ragResults={ragResults}
-                />
-            )}
-        </Box>
+            {
+                selectedExcerpt && (
+                    <CitationComparisonModal
+                        open={comparisonModalOpen}
+                        onClose={() => setComparisonModalOpen(false)}
+                        citation={{
+                            docId: selectedExcerpt.docId,
+                            snippet: selectedExcerpt.snippet,
+                            validationStatus: selectedExcerpt.validationStatus || 'failed',
+                            fileUrl: selectedExcerpt.fileUrl
+                        }}
+                        ragResults={ragResults}
+                    />
+                )
+            }
+        </Box >
     );
 };
 
