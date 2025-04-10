@@ -360,6 +360,8 @@ type WebServer struct {
 
 	// Path to UNIX socket for serving embeddings without auth
 	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+
+	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 }
 
 // AdminSrcType is an enum specifyin the type of Admin ID source.
