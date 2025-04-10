@@ -71,6 +71,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.AssistantID = assistantID
 	}
 
+	// messageContextLimit - how many messages to keep in the context,
+	// configured by the app
+	var messageContextLimit int
+
 	if startReq.AppID == "" {
 		// If organization ID is set, check if user is a member of the organization
 		if startReq.OrganizationID != "" {
@@ -113,6 +117,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			// Update the model if the assistant has one
 			if assistant.Model != "" {
 				startReq.Model = assistant.Model
+			}
+
+			if assistant.ContextLimit > 0 {
+				messageContextLimit = assistant.ContextLimit
 			}
 		}
 	}
@@ -325,7 +333,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	)
 
 	// Convert interactions (except the last one) to messages
-	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
+	messagesToInclude := limitInteractions(session.Interactions, messageContextLimit)
+
+	for _, interaction := range messagesToInclude {
 		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
 			Role:    string(interaction.Creator),
 			Content: interaction.Message,
@@ -344,6 +354,19 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if err != nil {
 		log.Err(err).Msg("error handling blocking session")
 	}
+}
+
+// limitInteractions returns the interactions except the last one, limited by the limit.
+// If limit is 3 but there are 10 interactions, last one will be excluded and only the next 3 before it
+// will be returned.
+func limitInteractions(interactions []*types.Interaction, limit int) []*types.Interaction {
+	if limit > 0 && len(interactions) > limit+1 {
+		// Add all interactions except the last one, limited by messageContextLimit
+		// +1 because we're not counting the last interaction which is the pending response
+		startIdx := len(interactions) - limit - 1
+		return interactions[startIdx : len(interactions)-1]
+	}
+	return interactions[:len(interactions)-1]
 }
 
 func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
