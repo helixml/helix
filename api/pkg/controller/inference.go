@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,6 +12,8 @@ import (
 	"maps"
 	"path/filepath"
 	"strings"
+	"text/template"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -80,6 +84,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
@@ -89,6 +97,30 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		}
 
 		req.Model = modelName
+	}
+
+	if assistant.Temperature != 0.0 {
+		req.Temperature = assistant.Temperature
+	}
+
+	if assistant.FrequencyPenalty != 0.0 {
+		req.FrequencyPenalty = assistant.FrequencyPenalty
+	}
+
+	if assistant.PresencePenalty != 0.0 {
+		req.PresencePenalty = assistant.PresencePenalty
+	}
+
+	if assistant.TopP != 0.0 {
+		req.TopP = assistant.TopP
+	}
+
+	if assistant.MaxTokens != 0 {
+		req.MaxTokens = assistant.MaxTokens
+	}
+
+	if assistant.ReasoningEffort != "" {
+		req.ReasoningEffort = assistant.ReasoningEffort
 	}
 
 	if assistant.RAGSourceID != "" {
@@ -129,7 +161,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	if err != nil {
 		return nil, nil, err
 	}
-	log.Info().Msgf("ZZZ assistant: %+v", assistant)
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
@@ -161,6 +192,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	if assistant.Model != "" {
 		req.Model = assistant.Model
 
@@ -172,12 +207,32 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		req.Model = modelName
 	}
 
-	if assistant.RAGSourceID != "" {
-		opts.RAGSourceID = assistant.RAGSourceID
+	if assistant.Temperature != 0.0 {
+		req.Temperature = assistant.Temperature
 	}
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
+	if assistant.FrequencyPenalty != 0.0 {
+		req.FrequencyPenalty = assistant.FrequencyPenalty
+	}
+
+	if assistant.PresencePenalty != 0.0 {
+		req.PresencePenalty = assistant.PresencePenalty
+	}
+
+	if assistant.TopP != 0.0 {
+		req.TopP = assistant.TopP
+	}
+
+	if assistant.MaxTokens != 0 {
+		req.MaxTokens = assistant.MaxTokens
+	}
+
+	if assistant.ReasoningEffort != "" {
+		req.ReasoningEffort = assistant.ReasoningEffort
+	}
+
+	if assistant.RAGSourceID != "" {
+		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
 	// Check for knowledge
@@ -986,37 +1041,44 @@ func knowledgeHasImage(result *prompts.BackgroundKnowledge) bool {
 // See canon: https://platform.openai.com/docs/guides/images?api-mode=chat&lang=python#provide-multiple-image-inputs
 func buildVisionChatCompletionMessage(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (openai.ChatCompletionMessage, error) {
 	imageParts := make([]openai.ChatMessagePart, 0, len(req.Messages))
-	textOnlyKnowledgeResults := make([]*prompts.BackgroundKnowledge, 0, len(knowledgeResults))
 	for _, result := range knowledgeResults {
 		if knowledgeHasImage(result) {
+			imageParts = append(imageParts, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeText,
+				Text: "### START OF CONTENT FOR DOCUMENT " + rag.BuildDocumentID(result.DocumentID) + " ###",
+			})
 			imageParts = append(imageParts, openai.ChatMessagePart{
 				Type: openai.ChatMessagePartTypeImageURL,
 				ImageURL: &openai.ChatMessageImageURL{
 					URL: result.Content,
 				},
 			})
-		} else {
-			// Can't pass knowledge results with images to the text completion prompt
-			textOnlyKnowledgeResults = append(textOnlyKnowledgeResults, result)
+			imageParts = append(imageParts, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeText,
+				Text: "### END OF CONTENT FOR DOCUMENT " + rag.BuildDocumentID(result.DocumentID) + " ###",
+			})
 		}
 	}
 
 	lastMessage := getLastMessage(*req)
 
-	extended, err := buildTextChatCompletionContent(lastMessage, ragResults, k, textOnlyKnowledgeResults)
+	extended, err := buildTextChatCompletionContent(lastMessage, ragResults, k, knowledgeResults)
 	if err != nil {
 		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to build text chat completion content: %w", err)
 	}
 
+	finalParts := []openai.ChatMessagePart{}
+
+	finalParts = append(finalParts, imageParts...)
+	finalParts = append(finalParts, openai.ChatMessagePart{
+		Type: openai.ChatMessagePartTypeText,
+		Text: extended,
+	})
+
 	// Now rebuild the final message with the text at the top like in the example
 	res := openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleUser,
-		MultiContent: append([]openai.ChatMessagePart{
-			{
-				Type: openai.ChatMessagePartTypeText,
-				Text: extended,
-			},
-		}, imageParts...),
+		Role:         openai.ChatMessageRoleUser,
+		MultiContent: finalParts,
 	}
 
 	return res, nil
@@ -1039,10 +1101,18 @@ func buildTextChatCompletionMessage(req *openai.ChatCompletionRequest, ragResult
 }
 
 func buildTextChatCompletionContent(lastMessage string, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) (string, error) {
+	textOnlyKnowledgeResults := make([]*prompts.BackgroundKnowledge, 0, len(knowledgeResults))
+	for _, result := range knowledgeResults {
+		if !knowledgeHasImage(result) {
+			textOnlyKnowledgeResults = append(textOnlyKnowledgeResults, result)
+		}
+	}
+
 	promptRequest := &prompts.KnowledgePromptRequest{
 		UserPrompt:       lastMessage,
 		RAGResults:       ragResults,
-		KnowledgeResults: knowledgeResults,
+		KnowledgeResults: textOnlyKnowledgeResults,
+		IsVision:         anyKnowledgeHasImages(knowledgeResults),
 	}
 
 	if k != nil && k.RAGSettings.PromptTemplate != "" {
@@ -1057,12 +1127,42 @@ func buildTextChatCompletionContent(lastMessage string, ragResults []*prompts.Ra
 	return extended, nil
 }
 
+type systemPromptValues struct {
+	LocalDate string // Current date such as 2024-01-01
+	LocalTime string // Current time such as 12:00:00
+}
+
+func renderPrompt(prompt string, values systemPromptValues) (string, error) {
+	tmpl, err := template.New("prompt").Parse(prompt)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse prompt: %w", err)
+	}
+
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, values); err != nil {
+		return "", fmt.Errorf("failed to execute prompt: %w", err)
+	}
+
+	return rendered.String(), nil
+}
+
 // setSystemPrompt if the assistant has a system prompt, set it in the request. If there is already
 // provided system prompt, overwrite it and if there is no system prompt, set it as the first message
 func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) openai.ChatCompletionRequest {
 	if systemPrompt == "" {
 		// Nothing to do
 		return *req
+	}
+
+	// Try to render template
+	enriched, err := renderPrompt(systemPrompt, systemPromptValues{
+		LocalDate: time.Now().Format("2006-01-02"),
+		LocalTime: time.Now().Format("15:04:05"),
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to render system prompt")
+	} else {
+		systemPrompt = enriched
 	}
 
 	if len(req.Messages) == 0 {
@@ -1156,6 +1256,67 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 
 	// Add new RAG results to the map, avoiding duplicates
 	for i, result := range ragResults {
+		// ---- BEGIN IMAGE HANDLING ----
+		if strings.HasPrefix(result.Content, "data:image/") {
+			parts := strings.SplitN(result.Content, ";base64,", 2)
+			if len(parts) == 2 {
+				mimeType := strings.TrimPrefix(parts[0], "data:")
+				imageData, err := base64.StdEncoding.DecodeString(parts[1])
+				if err != nil {
+					log.Warn().Err(err).Str("session_id", session.ID).Int("result_index", i).Msg("Failed to decode base64 image data in RAG result")
+					// Keep original content if decoding fails
+				} else {
+					// Generate a unique filename
+					ext := strings.TrimPrefix(mimeType, "image/")
+					filename := result.DocumentID + "." + ext
+					// Construct filestore path
+					// Use owner ID if available, otherwise session ID for uniqueness
+					ownerID := session.Owner // Assuming session owner is sufficient context
+					if ownerID == "" {
+						log.Error().Str("session_id", session.ID).Msg("no owner ID found")
+						return fmt.Errorf("no owner ID found")
+					}
+					// Use filepath.Join and the global prefix from config
+					sessionResultsPath, err := c.GetFilestoreResultsPath(types.OwnerContext{
+						Owner:     ownerID,
+						OwnerType: types.OwnerTypeUser,
+					}, session.ID, "")
+					if err != nil {
+						log.Error().Err(err).Str("session_id", session.ID).Msg("failed to get filestore results path")
+						return err
+					}
+
+					imagePath := filepath.Join(sessionResultsPath, filename)
+
+					// Use WriteFile instead of Write
+					_, err = c.Options.Filestore.WriteFile(ctx, imagePath, bytes.NewReader(imageData))
+					if err != nil {
+						log.Error().Err(err).Str("session_id", session.ID).Str("image_path", imagePath).Msg("Failed to write RAG image to filestore")
+						// Keep original content if write fails
+					} else {
+						log.Info().Str("session_id", session.ID).Str("image_path", imagePath).Str("mime_type", mimeType).Int("size", len(imageData)).Msg("Saved RAG image to filestore")
+						if result.Metadata == nil {
+							result.Metadata = make(map[string]string)
+						}
+						// Add metadata about the original content type and the file path
+						result.Metadata["original_content_type"] = mimeType
+						result.Metadata["is_image_path"] = "true"
+						appPath, err := c.GetFilestoreAppKnowledgePath(types.OwnerContext{}, session.ParentApp, result.Source)
+						if err == nil {
+							signedURL, err := c.Options.Filestore.SignedURL(ctx, appPath)
+							if err == nil {
+								result.Metadata["original_source"] = fmt.Sprintf("%s#page=%s", signedURL, result.Metadata["page_number"])
+							}
+						}
+
+						// Update the source
+						result.Source = imagePath
+					}
+				}
+			}
+		}
+		// ---- END IMAGE HANDLING ----
+
 		key := createUniqueRagResultKey(result)
 
 		// Log detailed information about new results

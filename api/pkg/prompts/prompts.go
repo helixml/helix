@@ -73,6 +73,7 @@ type KnowledgePromptRequest struct {
 	UserPrompt       string
 	RAGResults       []*RagContent
 	KnowledgeResults []*BackgroundKnowledge
+	IsVision         bool
 	PromptTemplate   string // Override the default prompt template
 }
 
@@ -83,10 +84,12 @@ func KnowledgePrompt(req *KnowledgePromptRequest) (string, error) {
 		RagResults       []*RagContent
 		KnowledgeResults []*BackgroundKnowledge
 		Question         string
+		IsVision         bool
 	}{
 		RagResults:       req.RAGResults,
 		KnowledgeResults: req.KnowledgeResults,
 		Question:         req.UserPrompt,
+		IsVision:         req.IsVision,
 	}
 
 	promptTemplate := req.PromptTemplate

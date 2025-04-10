@@ -2,8 +2,6 @@ package knowledge
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -440,17 +439,11 @@ func (r *Reconciler) updateProgress(k *types.Knowledge, state types.KnowledgeSta
 }
 
 func getDocumentID(contents []byte) string {
-	hash := sha256.Sum256(contents)
-	hashString := hex.EncodeToString(hash[:])
-
-	return hashString[:10]
+	return data.ContentHash(contents)
 }
 
 func getDocumentGroupID(sourceURL string) string {
-	hash := sha256.Sum256([]byte(sourceURL))
-	hashString := hex.EncodeToString(hash[:])
-
-	return hashString[:10]
+	return data.ContentHash([]byte(sourceURL))
 }
 
 // indexerData contains the raw contents of a website, file, etc.

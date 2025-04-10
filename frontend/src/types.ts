@@ -1,4 +1,4 @@
-import { TypesUserAppAccessResponse } from './api/api'
+import { TypesUserAppAccessResponse, TypesAssistantConfig } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
@@ -600,6 +600,45 @@ export interface IAssistantConfig {
   image?: string;
   provider?: string;
   model?: string;
+  /**
+   * ContextLimit - the number of messages to include in the context for the AI assistant.
+   * When set to 1, the AI assistant will only see and remember the most recent message.
+   */
+  context_limit?: number;
+  /**
+   * How much to penalize new tokens based on their frequency in the text so far.
+   * Increases the model's likelihood to talk about new topics
+   * 0 - balanced
+   * 2 - less repetitive
+   */
+  frequency_penalty?: number;  
+  /** The maximum number of tokens to generate before stopping. */
+  max_tokens?: number;
+  /**
+   * How much to penalize new tokens based on whether they appear in the text so far.
+   * Increases the model's likelihood to talk about new topics
+   * 0 - balanced
+   * 2 - open minded
+   */  
+  presence_penalty?: number;
+  /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
+  reasoning_effort?: string;
+  /**
+   * Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+   * 0.01 - precise
+   * 1 - neutral
+   * 2 - creative
+   */
+  temperature?: number;
+  /**
+   * An alternative to sampling with temperature, called nucleus sampling,
+   * where the model considers the results of the tokens with top_p probability mass.
+   * So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+   * 0 - balanced
+   * 2 - more creative
+   */
+  top_p?: number;
+  
   type?: ISessionType;
   system_prompt?: string;
   rag_source_id?: string;
@@ -766,9 +805,17 @@ export interface IAppFlatState {
   global?: boolean
   secrets?: Record<string, string>
   allowedDomains?: string[]
-  systemPrompt?: string
-  model?: string
+  system_prompt?: string
   provider?: string
+  model?: string
+  context_limit?: number
+  frequency_penalty?: number
+  max_tokens?: number
+  presence_penalty?: number
+  reasoning_effort?: string
+  temperature?: number
+  top_p?: number
+  
   knowledge?: IKnowledgeSource[] // Added knowledge parameter
   is_actionable_template?: string;
   is_actionable_history_length?: number;

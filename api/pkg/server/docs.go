@@ -2090,6 +2090,9 @@ const docTemplate = `{
         "github_com_sashabaranov_go-openai.ChatCompletionChoice": {
             "type": "object",
             "properties": {
+                "content_filter_results": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ContentFilterResults"
+                },
                 "finish_reason": {
                     "description": "FinishReason\nstop: API returned complete message,\nor a message terminated by one of the stop sequences provided via the stop parameter\nlength: Incomplete model output due to max_tokens parameter or token limit\nfunction_call: The model decided to call a function\ncontent_filter: Omitted content due to a flag from our content filters\nnull: API response still in progress or incomplete",
                     "allOf": [
@@ -2175,7 +2178,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "max_completion_tokens": {
-                    "description": "MaxCompletionsTokens An upper bound for the number of tokens that can be generated for a completion,\nincluding visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning",
+                    "description": "MaxCompletionTokens An upper bound for the number of tokens that can be generated for a completion,\nincluding visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning",
                     "type": "integer"
                 },
                 "max_tokens": {
@@ -2186,6 +2189,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionMessage"
+                    }
+                },
+                "metadata": {
+                    "description": "Metadata to store with the completion.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
                     }
                 },
                 "model": {
@@ -2200,6 +2210,10 @@ const docTemplate = `{
                 "presence_penalty": {
                     "type": "number"
                 },
+                "reasoning_effort": {
+                    "description": "Controls effort on reasoning for reasoning models. It can be set to \"low\", \"medium\", or \"high\".",
+                    "type": "string"
+                },
                 "response_format": {
                     "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponseFormat"
                 },
@@ -2211,6 +2225,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "store": {
+                    "description": "Store can be set to true to store the output of this completion request for use in distillations and evals.\nhttps://platform.openai.com/docs/api-reference/chat/create#chat-create-store",
+                    "type": "boolean"
                 },
                 "stream": {
                     "type": "boolean"
@@ -2267,6 +2285,12 @@ const docTemplate = `{
                 },
                 "object": {
                     "type": "string"
+                },
+                "prompt_filter_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.PromptFilterResult"
+                    }
                 },
                 "system_fingerprint": {
                     "type": "string"
@@ -2336,6 +2360,29 @@ const docTemplate = `{
                 "ChatMessagePartTypeImageURL"
             ]
         },
+        "github_com_sashabaranov_go-openai.ContentFilterResults": {
+            "type": "object",
+            "properties": {
+                "hate": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Hate"
+                },
+                "jailbreak": {
+                    "$ref": "#/definitions/openai.JailBreak"
+                },
+                "profanity": {
+                    "$ref": "#/definitions/openai.Profanity"
+                },
+                "self_harm": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.SelfHarm"
+                },
+                "sexual": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Sexual"
+                },
+                "violence": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Violence"
+                }
+            }
+        },
         "github_com_sashabaranov_go-openai.FinishReason": {
             "type": "string",
             "enum": [
@@ -2381,6 +2428,17 @@ const docTemplate = `{
                 },
                 "strict": {
                     "type": "boolean"
+                }
+            }
+        },
+        "github_com_sashabaranov_go-openai.Hate": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
                 }
             }
         },
@@ -2431,6 +2489,28 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_sashabaranov_go-openai.LogProb"
                     }
+                }
+            }
+        },
+        "github_com_sashabaranov_go-openai.SelfHarm": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_sashabaranov_go-openai.Sexual": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
                 }
             }
         },
@@ -2510,8 +2590,22 @@ const docTemplate = `{
                 "prompt_tokens": {
                     "type": "integer"
                 },
+                "prompt_tokens_details": {
+                    "$ref": "#/definitions/openai.PromptTokensDetails"
+                },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "github_com_sashabaranov_go-openai.Violence": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
                 }
             }
         },
@@ -2545,6 +2639,9 @@ const docTemplate = `{
         "openai.CompletionTokensDetails": {
             "type": "object",
             "properties": {
+                "audio_tokens": {
+                    "type": "integer"
+                },
                 "reasoning_tokens": {
                     "type": "integer"
                 }
@@ -2659,6 +2756,50 @@ const docTemplate = `{
                 },
                 "usage": {
                     "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
+                }
+            }
+        },
+        "openai.JailBreak": {
+            "type": "object",
+            "properties": {
+                "detected": {
+                    "type": "boolean"
+                },
+                "filtered": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "openai.Profanity": {
+            "type": "object",
+            "properties": {
+                "detected": {
+                    "type": "boolean"
+                },
+                "filtered": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "openai.PromptFilterResult": {
+            "type": "object",
+            "properties": {
+                "content_filter_results": {
+                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ContentFilterResults"
+                },
+                "index": {
+                    "type": "integer"
+                }
+            }
+        },
+        "openai.PromptTokensDetails": {
+            "type": "object",
+            "properties": {
+                "audio_tokens": {
+                    "type": "integer"
+                },
+                "cached_tokens": {
+                    "type": "integer"
                 }
             }
         },
@@ -3002,8 +3143,16 @@ const docTemplate = `{
                 "avatar": {
                     "type": "string"
                 },
+                "context_limit": {
+                    "description": "ContextLimit - the number of messages to include in the context for the AI assistant.\nWhen set to 1, the AI assistant will only see and remember the most recent message.",
+                    "type": "integer"
+                },
                 "description": {
                     "type": "string"
+                },
+                "frequency_penalty": {
+                    "description": "How much to penalize new tokens based on their frequency in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - less repetitive",
+                    "type": "number"
                 },
                 "gptscripts": {
                     "type": "array",
@@ -3033,11 +3182,19 @@ const docTemplate = `{
                 "lora_id": {
                     "type": "string"
                 },
+                "max_tokens": {
+                    "description": "The maximum number of tokens to generate before stopping.",
+                    "type": "integer"
+                },
                 "model": {
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
+                },
+                "presence_penalty": {
+                    "description": "How much to penalize new tokens based on whether they appear in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - open minded",
+                    "type": "number"
                 },
                 "provider": {
                     "type": "string"
@@ -3045,8 +3202,16 @@ const docTemplate = `{
                 "rag_source_id": {
                     "type": "string"
                 },
+                "reasoning_effort": {
+                    "description": "Controls effort on reasoning for reasoning models. It can be set to \"low\", \"medium\", or \"high\".",
+                    "type": "string"
+                },
                 "system_prompt": {
                     "type": "string"
+                },
+                "temperature": {
+                    "description": "Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.\n0.01 - precise\n1 - neutral\n2 - creative",
+                    "type": "number"
                 },
                 "tests": {
                     "type": "array",
@@ -3070,6 +3235,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                     }
+                },
+                "top_p": {
+                    "description": "An alternative to sampling with temperature, called nucleus sampling,\nwhere the model considers the results of the tokens with top_p probability mass.\nSo 0.1 means only the tokens comprising the top 10% probability mass are considered.\n0 - balanced\n2 - more creative",
+                    "type": "number"
                 },
                 "type": {
                     "$ref": "#/definitions/types.SessionType"

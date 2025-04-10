@@ -1,6 +1,8 @@
 package data
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"runtime/debug"
@@ -336,4 +338,11 @@ func GetAssistant(app *types.App, assistantID string) *types.AssistantConfig {
 	}
 
 	return assistant
+}
+
+func ContentHash(b []byte) string {
+	hash := sha256.Sum256(b)
+	hashString := hex.EncodeToString(hash[:])
+
+	return hashString[:10]
 }

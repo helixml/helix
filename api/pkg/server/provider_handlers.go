@@ -222,7 +222,7 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 	if err != nil {
 		return nil, err
 	}
-	s.cache.SetWithTTL(cacheKey, string(modelsJSON), 1, 5*time.Minute)
+	s.cache.SetWithTTL(cacheKey, string(modelsJSON), 1, s.Cfg.WebServer.ModelsCacheTTL)
 
 	return models, nil
 }
