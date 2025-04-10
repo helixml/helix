@@ -192,10 +192,6 @@ const (
 	ModelOllamaNoushermes2thetallama3 string = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
 	ModelOllamaLlama370b              string = "llama3:70b"
 	ModelOllamaPhi3                   string = "phi3:instruct"
-
-	// VLLM models
-	ModelVLLMDseQwen2MRL string = "MrLight/dse-qwen2-2b-mrl-v1"
-	ModelVLLMQwen25VL    string = "Qwen/Qwen2.5-VL-7B-Instruct"
 )
 
 func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
@@ -435,7 +431,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "Qwen/Qwen2.5-VL-3B-Instruct",
 			Name:          "Qwen 2.5 VL 3B",
-			Memory:        GB * 24,
+			Memory:        GB * 23,
 			ContextLength: 32768,
 			Description:   "Smaller multi-modal vision-language model, from Alibaba",
 			Args: []string{
