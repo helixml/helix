@@ -56,6 +56,8 @@ func LoadServerConfig() (ServerConfig, error) {
 
 type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+
+	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
 }
 
 // Providers is used to configure the various AI providers that we use
@@ -360,6 +362,8 @@ type WebServer struct {
 
 	// Path to UNIX socket for serving embeddings without auth
 	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+
+	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 }
 
 // AdminSrcType is an enum specifyin the type of Admin ID source.

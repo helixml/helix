@@ -253,11 +253,45 @@ func (s *PostgresStore) DeleteApp(ctx context.Context, id string) error {
 	return nil
 }
 
+// setAppDefaults sets the default values for the app
+// If you are updating these, also update
+// AppSettings.tsx DEFAULT_VALUES for the defaults to match
 func setAppDefaults(apps ...*types.App) {
 	for idx := range apps {
 		app := apps[idx]
 		if app.Config.Helix.Assistants == nil {
 			app.Config.Helix.Assistants = []types.AssistantConfig{}
+		}
+
+		for idx := range app.Config.Helix.Assistants {
+			assistant := &app.Config.Helix.Assistants[idx]
+			if assistant.ContextLimit == 0 {
+				assistant.ContextLimit = 20 // 20 messages
+			}
+
+			if assistant.FrequencyPenalty == 0 {
+				assistant.FrequencyPenalty = 0
+			}
+
+			if assistant.MaxTokens == 0 {
+				assistant.MaxTokens = 2000
+			}
+
+			if assistant.PresencePenalty == 0 {
+				assistant.PresencePenalty = 0
+			}
+
+			if assistant.ReasoningEffort == "" {
+				assistant.ReasoningEffort = "medium"
+			}
+
+			if assistant.Temperature == 0 {
+				assistant.Temperature = 0.1
+			}
+
+			if assistant.TopP == 0 {
+				assistant.TopP = 1
+			}
 		}
 	}
 }

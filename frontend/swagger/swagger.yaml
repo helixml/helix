@@ -45,6 +45,8 @@ definitions:
     type: object
   github_com_sashabaranov_go-openai.ChatCompletionChoice:
     properties:
+      content_filter_results:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.ContentFilterResults'
       finish_reason:
         allOf:
         - $ref: '#/definitions/github_com_sashabaranov_go-openai.FinishReason'
@@ -122,7 +124,7 @@ definitions:
         type: boolean
       max_completion_tokens:
         description: |-
-          MaxCompletionsTokens An upper bound for the number of tokens that can be generated for a completion,
+          MaxCompletionTokens An upper bound for the number of tokens that can be generated for a completion,
           including visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning
         type: integer
       max_tokens:
@@ -136,6 +138,11 @@ definitions:
         items:
           $ref: '#/definitions/github_com_sashabaranov_go-openai.ChatCompletionMessage'
         type: array
+      metadata:
+        additionalProperties:
+          type: string
+        description: Metadata to store with the completion.
+        type: object
       model:
         type: string
       "n":
@@ -145,6 +152,10 @@ definitions:
           it: false.'
       presence_penalty:
         type: number
+      reasoning_effort:
+        description: Controls effort on reasoning for reasoning models. It can be
+          set to "low", "medium", or "high".
+        type: string
       response_format:
         $ref: '#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponseFormat'
       seed:
@@ -153,6 +164,11 @@ definitions:
         items:
           type: string
         type: array
+      store:
+        description: |-
+          Store can be set to true to store the output of this completion request for use in distillations and evals.
+          https://platform.openai.com/docs/api-reference/chat/create#chat-create-store
+        type: boolean
       stream:
         type: boolean
       stream_options:
@@ -193,6 +209,10 @@ definitions:
         type: string
       object:
         type: string
+      prompt_filter_results:
+        items:
+          $ref: '#/definitions/openai.PromptFilterResult'
+        type: array
       system_fingerprint:
         type: string
       usage:
@@ -239,6 +259,21 @@ definitions:
     x-enum-varnames:
     - ChatMessagePartTypeText
     - ChatMessagePartTypeImageURL
+  github_com_sashabaranov_go-openai.ContentFilterResults:
+    properties:
+      hate:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.Hate'
+      jailbreak:
+        $ref: '#/definitions/openai.JailBreak'
+      profanity:
+        $ref: '#/definitions/openai.Profanity'
+      self_harm:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.SelfHarm'
+      sexual:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.Sexual'
+      violence:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.Violence'
+    type: object
   github_com_sashabaranov_go-openai.FinishReason:
     enum:
     - stop
@@ -279,6 +314,13 @@ definitions:
       strict:
         type: boolean
     type: object
+  github_com_sashabaranov_go-openai.Hate:
+    properties:
+      filtered:
+        type: boolean
+      severity:
+        type: string
+    type: object
   github_com_sashabaranov_go-openai.ImageURLDetail:
     enum:
     - high
@@ -316,6 +358,20 @@ definitions:
         items:
           $ref: '#/definitions/github_com_sashabaranov_go-openai.LogProb'
         type: array
+    type: object
+  github_com_sashabaranov_go-openai.SelfHarm:
+    properties:
+      filtered:
+        type: boolean
+      severity:
+        type: string
+    type: object
+  github_com_sashabaranov_go-openai.Sexual:
+    properties:
+      filtered:
+        type: boolean
+      severity:
+        type: string
     type: object
   github_com_sashabaranov_go-openai.StreamOptions:
     properties:
@@ -371,8 +427,17 @@ definitions:
         $ref: '#/definitions/openai.CompletionTokensDetails'
       prompt_tokens:
         type: integer
+      prompt_tokens_details:
+        $ref: '#/definitions/openai.PromptTokensDetails'
       total_tokens:
         type: integer
+    type: object
+  github_com_sashabaranov_go-openai.Violence:
+    properties:
+      filtered:
+        type: boolean
+      severity:
+        type: string
     type: object
   gorm.DeletedAt:
     properties:
@@ -394,6 +459,8 @@ definitions:
     type: object
   openai.CompletionTokensDetails:
     properties:
+      audio_tokens:
+        type: integer
       reasoning_tokens:
         type: integer
     type: object
@@ -485,6 +552,34 @@ definitions:
         type: string
       usage:
         $ref: '#/definitions/github_com_sashabaranov_go-openai.Usage'
+    type: object
+  openai.JailBreak:
+    properties:
+      detected:
+        type: boolean
+      filtered:
+        type: boolean
+    type: object
+  openai.Profanity:
+    properties:
+      detected:
+        type: boolean
+      filtered:
+        type: boolean
+    type: object
+  openai.PromptFilterResult:
+    properties:
+      content_filter_results:
+        $ref: '#/definitions/github_com_sashabaranov_go-openai.ContentFilterResults'
+      index:
+        type: integer
+    type: object
+  openai.PromptTokensDetails:
+    properties:
+      audio_tokens:
+        type: integer
+      cached_tokens:
+        type: integer
     type: object
   server.LicenseKeyRequest:
     properties:
@@ -712,8 +807,20 @@ definitions:
         type: array
       avatar:
         type: string
+      context_limit:
+        description: |-
+          ContextLimit - the number of messages to include in the context for the AI assistant.
+          When set to 1, the AI assistant will only see and remember the most recent message.
+        type: integer
       description:
         type: string
+      frequency_penalty:
+        description: |-
+          How much to penalize new tokens based on their frequency in the text so far.
+          Increases the model's likelihood to talk about new topics
+          0 - balanced
+          2 - less repetitive
+        type: number
       gptscripts:
         items:
           $ref: '#/definitions/types.AssistantGPTScript'
@@ -733,16 +840,37 @@ definitions:
         type: array
       lora_id:
         type: string
+      max_tokens:
+        description: The maximum number of tokens to generate before stopping.
+        type: integer
       model:
         type: string
       name:
         type: string
+      presence_penalty:
+        description: |-
+          How much to penalize new tokens based on whether they appear in the text so far.
+          Increases the model's likelihood to talk about new topics
+          0 - balanced
+          2 - open minded
+        type: number
       provider:
         type: string
       rag_source_id:
         type: string
+      reasoning_effort:
+        description: Controls effort on reasoning for reasoning models. It can be
+          set to "low", "medium", or "high".
+        type: string
       system_prompt:
         type: string
+      temperature:
+        description: |-
+          Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+          0.01 - precise
+          1 - neutral
+          2 - creative
+        type: number
       tests:
         items:
           properties:
@@ -758,6 +886,14 @@ definitions:
         items:
           $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
         type: array
+      top_p:
+        description: |-
+          An alternative to sampling with temperature, called nucleus sampling,
+          where the model considers the results of the tokens with top_p probability mass.
+          So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+          0 - balanced
+          2 - more creative
+        type: number
       type:
         $ref: '#/definitions/types.SessionType'
       zapier:
