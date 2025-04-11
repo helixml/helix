@@ -183,6 +183,7 @@ services:
     depends_on:
       - api
   dev_gpu_runner:
+    restart: always
     profiles: ["dev_gpu_runner"]
     build:
       context: .
