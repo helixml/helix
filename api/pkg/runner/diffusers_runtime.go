@@ -40,7 +40,7 @@ type DiffusersRuntime struct {
 type DiffusersRuntimeParams struct {
 	CacheDir     *string        // Where to store the models
 	Port         *int           // If nil, will be assigned a random port
-	StartTimeout *time.Duration // How long to wait for ollama to start
+	StartTimeout *time.Duration // How long to wait for diffusers to start
 }
 
 func NewDiffusersRuntime(_ context.Context, params DiffusersRuntimeParams) (*DiffusersRuntime, error) {
@@ -49,7 +49,7 @@ func NewDiffusersRuntime(_ context.Context, params DiffusersRuntimeParams) (*Dif
 		params.CacheDir = &defaultCacheDir
 	}
 
-	defaultStartTimeout := 30 * time.Second
+	defaultStartTimeout := 5 * time.Minute
 	if params.StartTimeout == nil {
 		params.StartTimeout = &defaultStartTimeout
 	}
