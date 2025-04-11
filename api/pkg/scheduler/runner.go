@@ -252,7 +252,7 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 	}
 	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
 		Method: "POST",
-		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/embeddings", slot.ID),
+		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID),
 		Body:   body,
 	}, submitChatCompletionRequestTimeout) // Using the same timeout as chat completion
 	if err != nil {
