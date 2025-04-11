@@ -51,10 +51,12 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		params.CacheDir = &defaultCacheDir
 	}
 
+	log.Debug().Interface("startTimeout", params.StartTimeout).Msg("start timeout before default check")
 	defaultStartTimeout := 24 * time.Hour
 	if params.StartTimeout == nil {
 		params.StartTimeout = &defaultStartTimeout
 	}
+	log.Debug().Dur("startTimeout", *params.StartTimeout).Msg("Using start timeout")
 	if params.Port == nil {
 		port, err := freeport.GetFreePort()
 		if err != nil {
