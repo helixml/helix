@@ -20,8 +20,9 @@ type Slot struct {
 	Model           string    // The model assigned to this slot
 	ContextLength   int64     // Optional context length override for the model
 	IntendedRuntime types.Runtime
-	Active          bool // True if the slot is active
-	Ready           bool // True if the slot is ready to be used
+	RuntimeArgs     map[string]any // Runtime-specific arguments
+	Active          bool           // True if the slot is active
+	Ready           bool           // True if the slot is ready to be used
 	runnerOptions   *Options
 	runningRuntime  Runtime
 }
@@ -48,7 +49,13 @@ type CreateSlotParams struct {
 	ID            uuid.UUID
 	Runtime       types.Runtime
 	Model         string
-	ContextLength int64 // Optional context length override
+	ContextLength int64          // Optional context length override
+	RuntimeArgs   map[string]any // Runtime-specific arguments
+	// RuntimeArgs can include:
+	// - "model": string - Override the model to use
+	// - "args": []string - Additional command line arguments to pass to the runtime
+	// - "args": map[string]interface{} - Key-value pairs to be converted to command line arguments
+	//   For example: {"tensor-parallel-size": "2"} becomes ["--tensor-parallel-size", "2"]
 }
 
 func NewEmptySlot(params CreateSlotParams) *Slot {
@@ -58,6 +65,7 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		Model:           params.Model,
 		ContextLength:   params.ContextLength,
 		IntendedRuntime: params.Runtime,
+		RuntimeArgs:     params.RuntimeArgs,
 		Active:          false,
 		Ready:           false,
 		runnerOptions:   params.RunnerOptions,
@@ -93,6 +101,33 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			runtimeParams.ContextLength = &s.ContextLength
 		}
 
+		// Process runtime args for Ollama
+		modelStr := s.Model // Default model from slot
+		if s.RuntimeArgs != nil {
+			// Override model if specified in runtime args
+			if modelVal, ok := s.RuntimeArgs["model"].(string); ok && modelVal != "" {
+				modelStr = modelVal
+			}
+
+			// Handle Ollama command line arguments
+			if args, ok := s.RuntimeArgs["args"].([]string); ok && len(args) > 0 {
+				runtimeParams.Args = args
+			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
+				// If args are provided as a map, convert to array
+				args := []string{}
+				for k, v := range argsMap {
+					if !strings.HasPrefix(k, "--") {
+						k = "--" + k
+					}
+					args = append(args, k, fmt.Sprintf("%v", v))
+				}
+				runtimeParams.Args = args
+			}
+		}
+
+		// Set the model parameter
+		runtimeParams.Model = &modelStr
+
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
 			return
@@ -108,6 +143,53 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		s.runningRuntime, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
 			RunnerOptions: s.runnerOptions,
 		}) // TODO(phil): Add params
+		if err != nil {
+			return
+		}
+	case types.RuntimeVLLM:
+		runtimeParams := VLLMRuntimeParams{
+			CacheDir: &s.runnerOptions.CacheDir,
+		}
+
+		// Only set ContextLength if it's non-zero
+		if s.ContextLength > 0 {
+			runtimeParams.ContextLength = &s.ContextLength
+		}
+
+		// Process runtime args for vLLM
+		modelStr := s.Model // Default model from slot
+		if s.RuntimeArgs != nil {
+			// Override model if specified in runtime args
+			if modelVal, ok := s.RuntimeArgs["model"].(string); ok && modelVal != "" {
+				modelStr = modelVal
+			}
+
+			// Handle vLLM command line arguments
+			if args, ok := s.RuntimeArgs["args"].([]string); ok && len(args) > 0 {
+				runtimeParams.Args = args
+			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
+				// Convert map to array of args in the format ["--key1", "value1", "--key2", "value2"]
+				args := []string{}
+				for k, v := range argsMap {
+					if !strings.HasPrefix(k, "--") {
+						k = "--" + k
+					}
+					args = append(args, k, fmt.Sprintf("%v", v))
+				}
+				runtimeParams.Args = args
+			}
+		}
+
+		// Check if we have a model
+		if modelStr == "" {
+			err = fmt.Errorf("model must be specified for vLLM runtime")
+			return
+		}
+
+		// Set the model parameter
+		runtimeParams.Model = &modelStr
+
+		s.runningRuntime, err = NewVLLMRuntime(ctx, runtimeParams)
 		if err != nil {
 			return
 		}
@@ -127,6 +209,23 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 	if err != nil {
 		return
 	}
+
+	// For VLLM runtime, skip model verification since it starts with the specified model
+	if s.IntendedRuntime == types.RuntimeVLLM {
+		log.Info().
+			Str("model", s.Model).
+			Msg("skipping model verification for VLLM runtime")
+		s.Active = true
+		// Warm up the model
+		err = s.runningRuntime.Warm(ctx, s.Model)
+		if err != nil {
+			return
+		}
+		s.Active = false
+		s.Ready = true
+		return
+	}
+
 	// Check that the model is available in this runtime
 	models, err := openAIClient.ListModels(ctx)
 	if err != nil {

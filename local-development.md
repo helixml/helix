@@ -132,7 +132,7 @@ To connect to a runner via WebhookRelay:
 2. Create a new access token and make a note of it: https://my.webhookrelay.com/tokens
 3. Create a new "tunnel": https://my.webhookrelay.com/tunnels. Give it a name of `helix`, based in the `eu`, with a destination of `http://localhost:8080`. Click create. Make a note of the "Host" that looks something like: `
 https://9hxxxxxxxxx.webrelay.io`
-4. Add or edit your `docker-compose.dev.yaml` to include the following configuration. Here we're using host network mode so it can connect to the api which is exposed on 8080. You could change the destination in the previous step to point to somewhere else (like `api:80` for example).
+4. Add or edit your `docker-compose.dev.yaml` to include the following configuration. Here we're using host network mode so it can connect to the api which is exposed on 8080. You could change the destination in the previous step to point to somewhere else (like `api:8080` for example).
 
     ```yaml
     webhook_relay_localhost:

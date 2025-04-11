@@ -35,6 +35,8 @@ type OllamaRuntime struct {
 	port          int
 	startTimeout  time.Duration
 	contextLength int64
+	model         string
+	args          []string
 	ollamaClient  *api.Client
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
@@ -58,6 +60,8 @@ type OllamaRuntimeParams struct {
 	Port          *int           // If nil, will be assigned a random port
 	StartTimeout  *time.Duration // How long to wait for ollama to start, if nil, will use default
 	ContextLength *int64         // Optional: Context length to use for the model
+	Model         *string        // Optional: Model to use
+	Args          []string       // Optional: Additional arguments to pass to Ollama
 }
 
 func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
@@ -88,12 +92,21 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		log.Debug().Int64("context_length", contextLength).Msg("Using provided context length")
 	}
 
+	// Set model if provided
+	var model string
+	if params.Model != nil {
+		model = *params.Model
+		log.Debug().Str("model", model).Msg("Using model")
+	}
+
 	return &OllamaRuntime{
 		version:       "unknown",
 		cacheDir:      *params.CacheDir,
 		port:          *params.Port,
 		startTimeout:  *params.StartTimeout,
 		contextLength: contextLength,
+		model:         model,
+		args:          params.Args,
 	}, nil
 }
 
@@ -186,6 +199,11 @@ func (i *OllamaRuntime) PullModel(ctx context.Context, modelName string, pullPro
 		return fmt.Errorf("ollama client not initialized")
 	}
 
+	// If no model name is provided, use the configured model
+	if modelName == "" && i.model != "" {
+		modelName = i.model
+	}
+
 	// Validate model name
 	if modelName == "" {
 		return fmt.Errorf("model name cannot be empty")
@@ -209,6 +227,16 @@ func (i *OllamaRuntime) PullModel(ctx context.Context, modelName string, pullPro
 }
 
 func (i *OllamaRuntime) Warm(ctx context.Context, model string) error {
+	// If no model is provided, use the configured model
+	if model == "" && i.model != "" {
+		model = i.model
+	}
+
+	// Validate model
+	if model == "" {
+		return fmt.Errorf("model name cannot be empty")
+	}
+
 	err := i.ollamaClient.Chat(ctx, &api.ChatRequest{
 		Model: model,
 		Messages: []api.Message{
