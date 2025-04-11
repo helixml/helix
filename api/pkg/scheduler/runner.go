@@ -228,6 +228,43 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 	return nil
 }
 
+// SubmitEmbeddingRequest submits an embedding request to the runner
+func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	headers := map[string]string{}
+	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
+
+	embeddingRequestBytes, err := json.Marshal(req.EmbeddingRequest)
+	if err != nil {
+		return err
+	}
+	natsReq := types.RunnerNatsReplyRequest{
+		RequestID:     req.RequestID,
+		CreatedAt:     time.Now(),
+		OwnerID:       req.OwnerID,
+		SessionID:     req.SessionID,
+		InteractionID: req.InteractionID,
+		Request:       embeddingRequestBytes,
+	}
+
+	body, err := json.Marshal(natsReq)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
+		Method: "POST",
+		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/embeddings", slot.ID),
+		Body:   body,
+	}, submitChatCompletionRequestTimeout) // Using the same timeout as chat completion
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("error submitting embedding request: %s", resp.Body)
+	}
+
+	return nil
+}
+
 func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
 	lastInteraction, err := data.GetLastInteraction(session)
 	if err != nil {

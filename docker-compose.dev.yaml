@@ -62,6 +62,7 @@ services:
       - RAG_DEFAULT_PROVIDER=haystack
       # URL in the compose stack (rather than localhost in the pod which is default for k8s)
       - RAG_HAYSTACK_URL=http://haystack:8000
+      - RAG_PGVECTOR_PROVIDER=helix
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
