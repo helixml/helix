@@ -463,10 +463,11 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			ContextLength: 8192,
 			Description:   "Small embedding model for RAG, from MrLight",
 			Args: []string{
-				"--task", "embed",
+				"--task", "text-embedding",
 				"--max-model-len", "8192",
 				"--trust-remote-code",
 				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
+				"--openai-compatible-embeddings",
 			},
 			Hide: false,
 		},

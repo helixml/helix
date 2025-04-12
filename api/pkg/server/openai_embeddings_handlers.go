@@ -99,6 +99,18 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if we got an empty response
+	if len(resp.Data) == 0 {
+		errMsg := "empty embedding response from model"
+		log.Error().
+			Str("model", string(embeddingRequest.Model)).
+			Str("provider", s.Cfg.RAG.PGVector.Provider).
+			Str("error", errMsg).
+			Msg("embedding service returned empty data array")
+		http.Error(rw, errMsg, http.StatusInternalServerError)
+		return
+	}
+
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(rw).Encode(resp)

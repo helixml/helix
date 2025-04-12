@@ -1,5 +1,6 @@
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import time
 
 from openai import OpenAI
 
@@ -7,6 +8,10 @@ from haystack import component, default_from_dict, default_to_dict
 from haystack.utils import Secret, deserialize_secrets_inplace
 
 import httpx
+
+from haystack import logging
+
+logger = logging.getLogger(__name__)
 
 @component
 class UnixSocketOpenAITextEmbedder:
@@ -104,14 +109,73 @@ class UnixSocketOpenAITextEmbedder:
         # replace newlines, which can negatively affect performance.
         text_to_embed = text_to_embed.replace("\n", " ")
 
-        if self.dimensions is not None:
-            response = self.client.embeddings.create(model=self.model, dimensions=self.dimensions, input=text_to_embed)
-        else:
-            response = self.client.embeddings.create(model=self.model, input=text_to_embed)
-
-        meta = {"model": response.model, "usage": dict(response.usage)}
-
-        return {"embedding": response.data[0].embedding, "meta": meta}
+        # Log the request
+        logger.info(f"🧩 TEXT EMBEDDING REQUEST [socket={self.socket_path}, model={self.model}] input_length={len(text_to_embed)} chars")
+        
+        # Log detailed request information
+        endpoint = "/embeddings"
+        req_body_summary = {
+            "model": self.model,
+            "input_type": "string",
+            "input_length": len(text_to_embed),
+            "dimensions": self.dimensions,
+        }
+        logger.info(
+            f"🔍 EMBEDDING REQUEST DETAILS [socket={self.socket_path}] "
+            f"endpoint=POST {endpoint} "
+            f"request_body={req_body_summary}"
+        )
+        
+        # Log a sample of the text (truncated)
+        sample = text_to_embed[:100] + "..." if len(text_to_embed) > 100 else text_to_embed
+        logger.info(f"📄 EMBEDDING INPUT SAMPLE: '{sample}'")
+        
+        start_time = time.time()
+        try:
+            args = {"model": self.model, "input": text_to_embed}
+            if self.dimensions is not None:
+                args["dimensions"] = self.dimensions
+                
+            response = self.client.embeddings.create(**args)
+            
+            duration_ms = int((time.time() - start_time) * 1000)
+            
+            # Log response information
+            resp_summary = {
+                "status": "success",
+                "data_count": len(response.data) if hasattr(response, "data") else 0,
+                "model": response.model if hasattr(response, "model") else "unknown",
+            }
+            
+            if hasattr(response, "usage") and hasattr(response.usage, "prompt_tokens"):
+                resp_summary["prompt_tokens"] = response.usage.prompt_tokens
+            
+            meta = {"model": response.model, "usage": dict(response.usage)}
+            
+            # Log the response
+            logger.info(
+                f"✅ TEXT EMBEDDING RESPONSE [socket={self.socket_path}, model={self.model}] "
+                f"duration_ms={duration_ms} response={resp_summary} dimensions={len(response.data[0].embedding)}"
+            )
+            
+            return {"embedding": response.data[0].embedding, "meta": meta}
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            error_details = {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "endpoint": "/embeddings",
+                "model": self.model,
+                "input_length": len(text_to_embed),
+            }
+            logger.error(
+                f"❌ TEXT EMBEDDING ERROR [socket={self.socket_path}, model={self.model}] "
+                f"duration_ms={duration_ms} error_details={error_details}"
+            )
+            # Include exception traceback for debugging
+            import traceback
+            logger.error(f"TRACEBACK: {traceback.format_exc()}")
+            raise
 
 
 
@@ -232,40 +296,104 @@ class UnixSocketOpenAIDocumentEmbedder:
             texts_to_embed[doc.id] = text_to_embed.replace("\n", " ")
         return texts_to_embed
 
-    def _embed_batch(self, texts_to_embed: Dict[str, str], batch_size: int) -> Tuple[List[List[float]], Dict[str, Any]]:
+    def _embed_batch(self, texts_to_embed: List[str], batch_size: int) -> Tuple[List[List[float]], Dict[str, Any]]:
+        """Embed a batch of texts.
+
+        Args:
+            texts_to_embed: A list of texts to embed.
+            batch_size: The batch size.
+
+        Returns:
+            A tuple of (embeddings, meta). The first element is a list of embeddings,
+            each embedding being a list of floats. The second element is a dictionary
+            with meta information about the API response.
         """
-        Embed a list of texts in batches.
-        """
-
-        all_embeddings = []
-        meta: Dict[str, Any] = {}
-        for batch in tqdm(
-            batched(texts_to_embed.items(), batch_size), disable=not self.progress_bar, desc="Calculating embeddings"
-        ):
-            args: Dict[str, Any] = {"model": self.model, "input": [b[1] for b in batch]}
-
-            if self.dimensions is not None:
-                args["dimensions"] = self.dimensions
-
+        all_embeddings: List[List[float]] = []
+        total_prompt_tokens = 0
+        total_batches = len(texts_to_embed) // batch_size + (1 if len(texts_to_embed) % batch_size > 0 else 0)
+        logger.info(f"🔄 EMBEDDING BATCH PROCESS [socket={self.socket_path}] total_batches={total_batches} batch_size={batch_size}")
+        
+        for i in range(0, len(texts_to_embed), batch_size):
+            batch_start_time = time.time()
+            batch = texts_to_embed[i : i + batch_size]
+            batch_number = i // batch_size + 1
+            logger.info(f"⏳ EMBEDDING BATCH [{batch_number}/{total_batches}] [socket={self.socket_path}] size={len(batch)}")
+            
             try:
+                # Create embeddings using the OpenAI client directly
+                args = {"model": self.model, "input": batch}
+                if self.dimensions is not None:
+                    args["dimensions"] = self.dimensions
+                
+                # Log detailed request information
+                endpoint = "/embeddings"
+                req_body_summary = {
+                    "model": self.model,
+                    "input_type": type(batch).__name__,
+                    "input_length": len(batch),
+                    "dimensions": self.dimensions,
+                }
+                logger.info(
+                    f"🔍 EMBEDDING REQUEST DETAILS [socket={self.socket_path}] "
+                    f"endpoint=POST {endpoint} "
+                    f"request_body={req_body_summary}"
+                )
+                if len(batch) > 0:
+                    # Log a sample of the first text (truncated)
+                    sample = batch[0][:100] + "..." if len(batch[0]) > 100 else batch[0]
+                    logger.info(f"📄 EMBEDDING INPUT SAMPLE: '{sample}'")
+                
                 response = self.client.embeddings.create(**args)
-            except APIError as exc:
-                ids = ", ".join(b[0] for b in batch)
-                msg = "Failed embedding of documents {ids} caused by {exc}"
-                logger.exception(msg, ids=ids, exc=exc)
-                continue
+                batch_duration_ms = int((time.time() - batch_start_time) * 1000)
+                
+                # Log response information
+                resp_summary = {
+                    "status": "success",
+                    "data_count": len(response.data) if hasattr(response, "data") else 0,
+                    "model": response.model if hasattr(response, "model") else "unknown",
+                }
+                
+                if hasattr(response, "usage") and hasattr(response.usage, "prompt_tokens"):
+                    total_prompt_tokens += response.usage.prompt_tokens
+                    resp_summary["prompt_tokens"] = response.usage.prompt_tokens
+                    logger.info(
+                        f"✅ EMBEDDING BATCH RESPONSE [{batch_number}/{total_batches}] [socket={self.socket_path}] "
+                        f"duration_ms={batch_duration_ms} response={resp_summary}"
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️ EMBEDDING BATCH RESPONSE [{batch_number}/{total_batches}] [socket={self.socket_path}] "
+                        f"duration_ms={batch_duration_ms} missing_usage_data=True response={resp_summary}"
+                    )
+                
+                for data in response.data:
+                    all_embeddings.append(data.embedding)
+                    
+                # Log first embedding dimensions if available
+                if len(response.data) > 0:
+                    embedding_dim = len(response.data[0].embedding)
+                    logger.info(f"📊 EMBEDDING DIMENSIONS: {embedding_dim}")
+                
+            except Exception as e:
+                batch_duration_ms = int((time.time() - batch_start_time) * 1000)
+                error_details = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "endpoint": "/embeddings",
+                    "model": self.model,
+                    "batch_size": len(batch),
+                }
+                logger.error(
+                    f"❌ EMBEDDING BATCH ERROR [{batch_number}/{total_batches}] [socket={self.socket_path}] "
+                    f"duration_ms={batch_duration_ms} error_details={error_details}"
+                )
+                # Include exception traceback for debugging
+                import traceback
+                logger.error(f"TRACEBACK: {traceback.format_exc()}")
+                raise
 
-            embeddings = [el.embedding for el in response.data]
-            all_embeddings.extend(embeddings)
-
-            if "model" not in meta:
-                meta["model"] = response.model
-            if "usage" not in meta:
-                meta["usage"] = dict(response.usage)
-            else:
-                meta["usage"]["prompt_tokens"] += response.usage.prompt_tokens
-                meta["usage"]["total_tokens"] += response.usage.total_tokens
-
+        meta = {"usage": {"prompt_tokens": total_prompt_tokens}}
+        logger.info(f"✅ EMBEDDING COMPLETE [socket={self.socket_path}] total_batches={total_batches} total_tokens={total_prompt_tokens}")
         return all_embeddings, meta
 
     @component.output_types(documents=List[Document], meta=Dict[str, Any])
@@ -287,11 +415,30 @@ class UnixSocketOpenAIDocumentEmbedder:
                 "In case you want to embed a string, please use the OpenAITextEmbedder."
             )
 
-        texts_to_embed = self._prepare_texts_to_embed(documents=documents)
+        logger.info(f"🧩 DOCUMENT EMBEDDING REQUEST [socket={self.socket_path}, model={self.model}] documents={len(documents)}")
+        start_time = time.time()
+        
+        try:
+            texts_to_embed = self._prepare_texts_to_embed(documents=documents)
+            logger.info(f"🔄 DOCUMENT EMBEDDING PROCESSING [socket={self.socket_path}] prepared_texts={len(texts_to_embed)}")
 
-        embeddings, meta = self._embed_batch(texts_to_embed=texts_to_embed, batch_size=self.batch_size)
+            embeddings, meta = self._embed_batch(texts_to_embed=texts_to_embed, batch_size=self.batch_size)
+            
+            for doc, emb in zip(documents, embeddings):
+                doc.embedding = emb
 
-        for doc, emb in zip(documents, embeddings):
-            doc.embedding = emb
-
-        return {"documents": documents, "meta": meta}
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"✅ DOCUMENT EMBEDDING RESPONSE [socket={self.socket_path}, model={self.model}] "
+                f"duration_ms={duration_ms} documents={len(documents)} "
+                f"tokens={meta['usage']['prompt_tokens']} dimensions={len(embeddings[0]) if embeddings else 0}"
+            )
+            
+            return {"documents": documents, "meta": meta}
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.error(
+                f"❌ DOCUMENT EMBEDDING ERROR [socket={self.socket_path}, model={self.model}] "
+                f"duration_ms={duration_ms} documents={len(documents)} error={str(e)}"
+            )
+            raise
