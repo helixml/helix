@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -235,8 +236,84 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 
 	embeddingRequestBytes, err := json.Marshal(req.EmbeddingRequest)
 	if err != nil {
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Err(err).
+			Msg("❌ Failed to marshal embedding request to JSON")
 		return err
 	}
+
+	// Create a pretty-printed version for logging
+	var prettyRequest bytes.Buffer
+	if err := json.Indent(&prettyRequest, embeddingRequestBytes, "", "  "); err != nil {
+		// If pretty printing fails, we'll just use the compact version
+		prettyRequest.Write(embeddingRequestBytes)
+	}
+
+	// Log the embedding request details
+	var embReq openai.EmbeddingRequest
+	if err := json.Unmarshal(embeddingRequestBytes, &embReq); err == nil {
+		// Calculate input size properly based on type
+		inputSize := 0
+		inputType := "unknown"
+		var inputSample string
+
+		switch v := embReq.Input.(type) {
+		case string:
+			inputSize = len(v)
+			inputType = "string"
+			if len(v) > 100 {
+				inputSample = v[:100] + "..."
+			} else {
+				inputSample = v
+			}
+		case []string:
+			inputType = "[]string"
+			inputSize = len(v)
+			if len(v) > 0 {
+				if len(v[0]) > 100 {
+					inputSample = v[0][:100] + "..."
+				} else {
+					inputSample = v[0]
+				}
+			}
+		case [][]int:
+			inputType = "[][]int"
+			inputSize = len(v)
+		}
+
+		// Enhanced logging with detailed request info
+		log.Info().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", string(embReq.Model)).
+			Str("encoding_format", string(embReq.EncodingFormat)).
+			Str("input_type", inputType).
+			Int("input_size", inputSize).
+			Int("dimensions", embReq.Dimensions).
+			Str("request_json", prettyRequest.String()).
+			Str("endpoint", fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)).
+			Msg("🔢 Embedding request submitted to runner")
+
+		if inputSample != "" {
+			log.Info().
+				Str("component", "scheduler").
+				Str("operation", "embedding").
+				Str("request_id", req.RequestID).
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("input_sample", inputSample).
+				Msg("📄 Embedding input sample")
+		}
+	}
+
 	natsReq := types.RunnerNatsReplyRequest{
 		RequestID:     req.RequestID,
 		CreatedAt:     time.Now(),
@@ -248,19 +325,100 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 
 	body, err := json.Marshal(natsReq)
 	if err != nil {
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Err(err).
+			Msg("❌ Failed to marshal embedding NATS request")
 		return err
 	}
+
+	startTime := time.Now()
+	endpoint := fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)
+	log.Debug().
+		Str("component", "scheduler").
+		Str("operation", "embedding").
+		Str("request_id", req.RequestID).
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("endpoint", endpoint).
+		Str("method", "POST").
+		Msg("📤 Sending embedding request to runner")
+
 	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
 		Method: "POST",
-		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID),
+		URL:    endpoint,
 		Body:   body,
 	}, submitChatCompletionRequestTimeout) // Using the same timeout as chat completion
+
+	durationMs := time.Since(startTime).Milliseconds()
+
 	if err != nil {
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("endpoint", endpoint).
+			Int64("duration_ms", durationMs).
+			Err(err).
+			Msg("❌ Failed to submit embedding request to runner")
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("error submitting embedding request: %s", resp.Body)
+		// Log detailed response information on error
+		errorDetails := struct {
+			StatusCode    int    `json:"status_code"`
+			ResponseBody  string `json:"response_body"`
+			RequestID     string `json:"request_id"`
+			RunnerID      string `json:"runner_id"`
+			SlotID        string `json:"slot_id"`
+			Endpoint      string `json:"endpoint"`
+			DurationMs    int64  `json:"duration_ms"`
+			RequestMethod string `json:"request_method"`
+		}{
+			StatusCode:    resp.StatusCode,
+			ResponseBody:  string(resp.Body),
+			RequestID:     req.RequestID,
+			RunnerID:      slot.RunnerID,
+			SlotID:        slot.ID.String(),
+			Endpoint:      endpoint,
+			DurationMs:    durationMs,
+			RequestMethod: "POST",
+		}
+
+		errorDetailsBytes, _ := json.Marshal(errorDetails)
+		errMsg := fmt.Sprintf("error submitting embedding request: %s", resp.Body)
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Int64("duration_ms", durationMs).
+			Int("status_code", resp.StatusCode).
+			Str("error_message", errMsg).
+			Str("error_details", string(errorDetailsBytes)).
+			Str("endpoint", endpoint).
+			Msg("❌ Embedding request failed with non-OK status code")
+		return fmt.Errorf(errMsg)
 	}
+
+	// Log successful response
+	log.Info().
+		Str("component", "scheduler").
+		Str("operation", "embedding").
+		Str("request_id", req.RequestID).
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("endpoint", endpoint).
+		Int64("duration_ms", durationMs).
+		Int("status_code", resp.StatusCode).
+		Msg("✅ Embedding request successfully submitted to runner")
 
 	return nil
 }
