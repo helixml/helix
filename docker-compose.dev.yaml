@@ -1,5 +1,22 @@
 version: '3'
 
+# Common runner configuration (YAML anchor, not a service)
+x-runner-config: &runner-config
+  restart: always
+  build:
+    context: .
+    dockerfile: Dockerfile.runner
+    args:
+      TAG: 2024-12-07a-empty
+  entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
+  env_file:
+    - .env
+  volumes:
+    - .:/workspace/helix
+    - ~/.cache/huggingface:/root/.cache/huggingface
+    # comment these out if you don't have appropriate repos checked out
+    # - ../axolotl:/workspace/axolotl
+
 services:
   api:
     build:
@@ -186,25 +203,12 @@ services:
 
   # Base runner without GPU
   runner:
-    restart: always
+    <<: *runner-config
     profiles: ["runner"]
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
-      args:
-        TAG: 2024-12-07a-empty
-    entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
-    env_file:
-      - .env
-    volumes:
-      - .:/workspace/helix
-      - ~/.cache/huggingface:/root/.cache/huggingface
-      # comment these out if you don't have appropriate repos checked out
-      # - ../axolotl:/workspace/axolotl
 
-  # GPU-enabled runner extends the base runner
+  # GPU-enabled runner
   runner_gpu:
-    extends: runner
+    <<: *runner-config
     profiles: ["runner_gpu"]
     deploy:
       resources:
