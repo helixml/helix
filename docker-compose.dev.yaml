@@ -190,14 +190,14 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2024-12-07a-small
+        TAG: 2024-12-07a-empty
     #image: ${RUNNER_IMAGE:-registry.helixml.tech/helix/runner:latest-large}
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env
     volumes:
       - .:/workspace/helix
-      # - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.cache/huggingface:/root/.cache/huggingface
       # comment these out if you don't have appropriate repos checked out
       # - ../axolotl:/workspace/axolotl
     deploy:
@@ -205,7 +205,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: ${GPU_COUNT:-0}
               capabilities: [gpu]
   demos:
     profiles: ["demos"]
