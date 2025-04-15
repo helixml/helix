@@ -45,9 +45,15 @@ func createPage(browser *rod.Browser) *rod.Page {
 	// If any single test takes longer than 3 minutes, take a screenshot
 	ctx, cancel := context.WithTimeout(browser.GetContext(), 180*time.Second)
 
+	// A custom device screen size so that it works on laptops
+	device := devices.LaptopWithHiDPIScreen.Landscape()
+	device.Screen.Horizontal.Width = 1200
+	device.Screen.Horizontal.Height = 600
+
 	page := browser.
 		Context(ctx).
-		DefaultDevice(devices.LaptopWithHiDPIScreen.Landscape()).
+		DefaultDevice(device).
+		Trace(true).
 		MustPage(helper.GetServerURL())
 
 	go func() {
