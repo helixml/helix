@@ -326,7 +326,11 @@ func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, embeddingReq
 	if err != nil {
 		return resp, fmt.Errorf("error subscribing to runner responses: %w", err)
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if unsubErr := sub.Unsubscribe(); unsubErr != nil {
+			log.Warn().Err(unsubErr).Msg("error unsubscribing from runner responses")
+		}
+	}()
 
 	// Create a new inference request with embedding request
 	req := &types.RunnerLLMInferenceRequest{
