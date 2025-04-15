@@ -405,7 +405,7 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 			Str("error_details", string(errorDetailsBytes)).
 			Str("endpoint", endpoint).
 			Msg("❌ Embedding request failed with non-OK status code")
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	// Log successful response

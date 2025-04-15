@@ -39,7 +39,7 @@ func (l *loggerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 // Add this function above the createEmbedding function
 // CreateOpenaiClientWithHTTPClient creates an OpenAI client with a custom HTTP client
-func CreateOpenaiClientWithHTTPClient(ctx context.Context, endpoint string, httpClient *http.Client) (*openai.Client, error) {
+func CreateOpenaiClientWithHTTPClient(_ context.Context, endpoint string, httpClient *http.Client) (*openai.Client, error) {
 	config := openai.DefaultConfig("unused")
 	config.BaseURL = endpoint
 	config.HTTPClient = httpClient
