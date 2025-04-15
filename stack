@@ -8,7 +8,7 @@ export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
 
 function mock-runner() {
-   go run . runner \
+   DEVELOPMENT_CPU_ONLY=true go run . runner \
     --mock-runner \
     --server-port 8090 \
     --api-host http://localhost:8080 \
@@ -55,6 +55,8 @@ function start() {
       export RUNNER_CONTAINER="runner_gpu"
     else
       echo "No NVIDIA GPU detected, running without GPU support"
+      # To enable CPU-only development mode, use:
+      # export DEVELOPMENT_CPU_ONLY=true
       COMPOSE_PROFILES="$COMPOSE_PROFILES --profile runner"
       export RUNNER_CONTAINER="runner"
     fi
@@ -91,8 +93,15 @@ function start() {
   tmux send-keys -t 2 './stack compose logs -f haystack' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
+    # Check if NVIDIA GPU is available, if not and we need CPU-only mode
+    if ! command -v nvidia-smi &> /dev/null || ! nvidia-smi &> /dev/null; then
+      export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
+    else
+      export DEV_CPU_ONLY_CMD=""
+    fi
+    
     tmux send-keys -t 3 "./stack compose --profile ${RUNNER_CONTAINER} -f docker-compose.dev.yaml exec ${RUNNER_CONTAINER} bash" C-m
-    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner' C-m
+    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner" C-m
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then

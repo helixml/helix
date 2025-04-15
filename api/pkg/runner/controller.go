@@ -74,6 +74,12 @@ type Options struct {
 	// how many seconds to delay the mock runner
 	MockRunnerDelay int
 
+	// When set to true, allows running without a GPU for development purposes
+	// Will use system memory or a high default value (24GB) for scheduling
+	// Should not be used in production as CPU inference will be very slow
+	// Env: DEVELOPMENT_CPU_ONLY
+	DevelopmentCPUOnly bool
+
 	// development settings
 	// never run more than this number of model instances
 	MaxModelInstances int

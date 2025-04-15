@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -20,16 +21,27 @@ type GPUManager struct {
 	gpuMemory     uint64
 	freeMemory    uint64
 	runnerOptions *Options
+	devCpuOnly    bool // Flag to indicate that we are in development CPU only mode
 }
 
 func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g := &GPUManager{
 		runnerOptions: runnerOptions,
+		// Check both environment variable and Options struct for DEVELOPMENT_CPU_ONLY
+		devCpuOnly: strings.ToLower(getEnvOrDefault("DEVELOPMENT_CPU_ONLY", "false", runnerOptions)) == "true" || runnerOptions.DevelopmentCPUOnly,
 	}
 
 	// These are slow, but run on startup so it's probably fine
 	g.hasGPU = g.detectGPU()
 	g.gpuMemory = g.fetchTotalMemory()
+
+	// In dev CPU mode, log the configuration
+	if g.devCpuOnly {
+		log.Info().
+			Bool("development_cpu_only", true).
+			Uint64("simulated_gpu_memory", g.gpuMemory).
+			Msg("Running in development CPU-only mode")
+	}
 
 	// Start a background goroutine to refresh the free memory. We need to do this because it takes
 	// about 8 seconds to query nvidia-smi, so on hot paths that's just too long.
@@ -48,6 +60,11 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 }
 
 func (g *GPUManager) detectGPU() bool {
+	// If in development CPU-only mode, pretend we have a GPU
+	if g.devCpuOnly {
+		return true
+	}
+
 	switch runtime.GOOS {
 	case "linux":
 		// Check for nvidia-smi
@@ -68,12 +85,17 @@ func (g *GPUManager) GetFreeMemory() uint64 {
 }
 
 func (g *GPUManager) fetchFreeMemory() uint64 {
-	if !g.hasGPU {
+	if !g.hasGPU && !g.devCpuOnly {
 		return 0
 	}
 
 	// Default to the user set max memory value
 	freeMemory := g.runnerOptions.MemoryBytes
+
+	// In development CPU-only mode, just use the total memory as free memory
+	if g.devCpuOnly {
+		return g.gpuMemory
+	}
 
 	switch runtime.GOOS {
 	case "linux":
@@ -131,7 +153,7 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 
 	// If the user has manually set the total memory, then use that
 	// But make sure it is less than the actual total memory
-	if g.runnerOptions.MemoryBytes > 0 && g.runnerOptions.MemoryBytes < totalMemory {
+	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.devCpuOnly) {
 		totalMemory = g.runnerOptions.MemoryBytes
 	}
 
@@ -139,8 +161,57 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 }
 
 func (g *GPUManager) getActualTotalMemory() uint64 {
-	if !g.hasGPU {
+	if !g.hasGPU && !g.devCpuOnly {
 		return 0
+	}
+
+	// In development CPU-only mode, use either system memory or a high default value
+	if g.devCpuOnly {
+		// Try to get system memory
+		var systemMemory uint64
+
+		switch runtime.GOOS {
+		case "linux":
+			// Try to read from /proc/meminfo
+			cmd := exec.Command("grep", "MemTotal", "/proc/meminfo")
+			connectCmdStdErrToLogger(cmd)
+			output, err := cmd.Output()
+			if err == nil {
+				// Example output: MemTotal:       16333764 kB
+				fields := strings.Fields(string(output))
+				if len(fields) >= 2 {
+					if mem, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+						systemMemory = mem * 1024 // Convert kB to bytes
+					}
+				}
+			}
+		case "darwin":
+			// Use the same approach we use for Mac Silicon
+			cmd := exec.Command("sysctl", "hw.memsize")
+			connectCmdStdErrToLogger(cmd)
+			output, err := cmd.Output()
+			if err == nil {
+				// Example output: hw.memsize: 17179869184
+				parts := strings.Split(string(output), ":")
+				if len(parts) == 2 {
+					if total, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64); err == nil {
+						systemMemory = total
+					}
+				}
+			}
+		case "windows":
+			// On Windows we don't have a straightforward command,
+			// so just use the default high value below
+		}
+
+		// If we couldn't get the system memory or it's unusually low, use a high default value
+		// This will ensure we can schedule jobs in development mode
+		if systemMemory < 8*1024*1024*1024 { // less than 8GB
+			// Use a default 24GB (like a decent GPU) for development
+			systemMemory = 24 * 1024 * 1024 * 1024
+		}
+
+		return systemMemory
 	}
 
 	switch runtime.GOOS {
@@ -270,4 +341,18 @@ func connectCmdStdErrToLogger(cmd *exec.Cmd) {
 			log.Error().Msg(scanner.Text())
 		}
 	}()
+}
+
+// Helper function to get an environment variable with a default value
+// Also checks the Options struct for the value
+func getEnvOrDefault(key, defaultValue string, options *Options) string {
+	value := os.Getenv(key)
+	if value == "" {
+		// For specific keys, check the Options struct
+		if key == "DEVELOPMENT_CPU_ONLY" && options != nil && options.DevelopmentCPUOnly {
+			return "true"
+		}
+		return defaultValue
+	}
+	return value
 }

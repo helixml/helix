@@ -118,7 +118,10 @@ To connect your localhost to a remote runner via an SSH tunnel, follow these ste
     SERVER_PORT=9080 # By default, the runner runs on 8080, so use another port.
     API_HOST=http://localhost:8080 # You've just forwarded this port back to your local machine
     API_TOKEN=oh-hallo-insecure-token # This should match the control plane
+    DEVELOPMENT_CPU_ONLY=true # Optional: to run without a GPU for development
     ```
+
+    The `DEVELOPMENT_CPU_ONLY` flag allows the runner to operate without an actual GPU. This is useful for development purposes when you don't have access to a GPU. In this mode, the runner will use either the system memory or a default high value (24GB) as simulated GPU memory for scheduling. Note that in production, you should never set this to true as CPU inference will be extremely slow.
 
 4. On the remote start the runner: `docker compose -f docker-compose.runner.yaml up -d`
 
