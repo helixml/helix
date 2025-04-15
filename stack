@@ -48,8 +48,6 @@ function start() {
   local COMPOSE_PROFILES=""
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    COMPOSE_FLAGS="--build"
-    
     # Check if NVIDIA GPU is available using just nvidia-smi
     if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
       echo "NVIDIA GPU detected, enabling GPU support"
