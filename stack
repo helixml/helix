@@ -49,15 +49,16 @@ function start() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     COMPOSE_FLAGS="--build"
-    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile dev_gpu_runner"
     
-    # Check if NVIDIA GPU is available
+    # Check if NVIDIA GPU is available using just nvidia-smi
     if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
       echo "NVIDIA GPU detected, enabling GPU support"
-      export GPU_COUNT=1
+      COMPOSE_PROFILES="$COMPOSE_PROFILES --profile runner_gpu"
+      export RUNNER_CONTAINER="runner_gpu"
     else
       echo "No NVIDIA GPU detected, running without GPU support"
-      export GPU_COUNT=0
+      COMPOSE_PROFILES="$COMPOSE_PROFILES --profile runner"
+      export RUNNER_CONTAINER="runner"
     fi
   fi
 
@@ -92,7 +93,7 @@ function start() {
   tmux send-keys -t 2 './stack compose logs -f haystack' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 './stack compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
+    tmux send-keys -t 3 "./stack compose --profile ${RUNNER_CONTAINER} -f docker-compose.dev.yaml exec ${RUNNER_CONTAINER} bash" C-m
     tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner' C-m
   fi
 
@@ -106,7 +107,19 @@ function start() {
 
 function stop() {
   echo "Removing docker containers"
-  ./stack compose --profile dev_gpu_runner --profile demos down
+  
+  # First check if the GPU runner profiles should be included
+  local PROFILES="--profile demos"
+  
+  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    # If GPU is available, include both profiles in case either was previously started
+    PROFILES="$PROFILES --profile runner --profile runner_gpu"
+  else
+    # If no GPU, just include the basic runner profile
+    PROFILES="$PROFILES --profile runner"
+  fi
+  
+  ./stack compose $PROFILES down
   echo "Stopping tmux session $TMUX_SESSION..."
   tmux kill-session -t $TMUX_SESSION ||true
 }

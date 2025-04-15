@@ -183,15 +183,16 @@ services:
       - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
     depends_on:
       - api
-  dev_gpu_runner:
+
+  # Base runner without GPU
+  runner:
     restart: always
-    profiles: ["dev_gpu_runner"]
+    profiles: ["runner"]
     build:
       context: .
       dockerfile: Dockerfile.runner
       args:
         TAG: 2024-12-07a-empty
-    #image: ${RUNNER_IMAGE:-registry.helixml.tech/helix/runner:latest-large}
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     env_file:
       - .env
@@ -200,13 +201,19 @@ services:
       - ~/.cache/huggingface:/root/.cache/huggingface
       # comment these out if you don't have appropriate repos checked out
       # - ../axolotl:/workspace/axolotl
+
+  # GPU-enabled runner extends the base runner
+  runner_gpu:
+    extends: runner
+    profiles: ["runner_gpu"]
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: ${GPU_COUNT:-0}
+              count: 1
               capabilities: [gpu]
+
   demos:
     profiles: ["demos"]
     build:
