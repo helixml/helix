@@ -205,11 +205,15 @@ services:
   runner:
     <<: *runner-config
     profiles: ["runner"]
+    environment:
+      - DEVELOPMENT_CPU_ONLY=true
 
   # GPU-enabled runner
   runner_gpu:
     <<: *runner-config
     profiles: ["runner_gpu"]
+    environment:
+      - DEVELOPMENT_CPU_ONLY=false
     deploy:
       resources:
         reservations:

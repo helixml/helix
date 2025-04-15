@@ -31,6 +31,71 @@ func TestGPUManager(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "development cpu-only mode",
+			setup: func() func() {
+				// Set development CPU-only mode via env var
+				oldEnvValue := os.Getenv("DEVELOPMENT_CPU_ONLY")
+				os.Setenv("DEVELOPMENT_CPU_ONLY", "true")
+				return func() {
+					// Reset environment variable
+					os.Setenv("DEVELOPMENT_CPU_ONLY", oldEnvValue)
+				}
+			},
+			validate: func(t *testing.T, g *GPUManager) {
+				// In development CPU-only mode, hasGPU should be true even if no GPU available
+				if !g.hasGPU {
+					t.Error("Development CPU-only mode should pretend to have a GPU")
+				}
+
+				// Total memory should be non-zero
+				total := g.GetTotalMemory()
+				if total == 0 {
+					t.Error("Total memory should not be 0 in development CPU-only mode")
+				}
+
+				// Free memory should be equal to total memory
+				free := g.GetFreeMemory()
+				if free != total {
+					t.Errorf("In development CPU-only mode, free memory (%d) should equal total memory (%d)", free, total)
+				}
+			},
+		},
+		{
+			name: "development cpu-only via options",
+			setup: func() func() {
+				return func() {}
+			},
+			validate: func(t *testing.T, g *GPUManager) {
+				// Create a new GPU manager with DevelopmentCPUOnly=true
+				options := &Options{
+					DevelopmentCPUOnly: true,
+				}
+				devCpuOnlyManager := NewGPUManager(context.Background(), options)
+
+				// Verify it's in development mode
+				if !devCpuOnlyManager.devCpuOnly {
+					t.Error("GPUManager should be in development CPU-only mode when option is set")
+				}
+
+				// In development CPU-only mode, hasGPU should be true even if no GPU available
+				if !devCpuOnlyManager.hasGPU {
+					t.Error("Development CPU-only mode should pretend to have a GPU")
+				}
+
+				// Total memory should be non-zero
+				total := devCpuOnlyManager.GetTotalMemory()
+				if total == 0 {
+					t.Error("Total memory should not be 0 in development CPU-only mode")
+				}
+
+				// Free memory should be equal to total memory
+				free := devCpuOnlyManager.GetFreeMemory()
+				if free != total {
+					t.Errorf("In development CPU-only mode, free memory (%d) should equal total memory (%d)", free, total)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
