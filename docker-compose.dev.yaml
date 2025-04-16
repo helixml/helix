@@ -17,6 +17,7 @@ x-runner-config: &runner-config
     # Go caches for faster development
     - go-pkg-mod:/go/pkg/mod
     - go-build-cache:/root/.cache/go-build
+    - go-sdk-cache:/root/.cache/go
     # comment these out if you don't have appropriate repos checked out
     # - ../axolotl:/workspace/axolotl
 
@@ -299,6 +300,7 @@ volumes:
   helix-socket:
   go-pkg-mod:      # Go module cache
   go-build-cache:  # Go build cache
+  go-sdk-cache:    # Go toolchain/SDK cache
 
 networks:
   default:

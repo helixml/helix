@@ -8,7 +8,7 @@ export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
 
 function mock-runner() {
-   DEVELOPMENT_CPU_ONLY=true go run . runner \
+   go run . runner \
     --mock-runner \
     --server-port 8090 \
     --api-host http://localhost:8080 \
@@ -55,8 +55,6 @@ function start() {
       export RUNNER_CONTAINER="runner_gpu"
     else
       echo "No NVIDIA GPU detected, running without GPU support"
-      # To enable CPU-only development mode, use:
-      # export DEVELOPMENT_CPU_ONLY=true
       COMPOSE_PROFILES="$COMPOSE_PROFILES --profile runner"
       export RUNNER_CONTAINER="runner"
     fi
