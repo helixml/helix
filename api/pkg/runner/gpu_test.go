@@ -65,32 +65,32 @@ func TestGPUManager(t *testing.T) {
 			setup: func() func() {
 				return func() {}
 			},
-			validate: func(t *testing.T, g *GPUManager) {
+			validate: func(t *testing.T, _ *GPUManager) {
 				// Create a new GPU manager with DevelopmentCPUOnly=true
 				options := &Options{
 					DevelopmentCPUOnly: true,
 				}
-				devCpuOnlyManager := NewGPUManager(context.Background(), options)
+				devCPUOnlyManager := NewGPUManager(context.Background(), options)
 
 				// Verify it's in development mode
-				if !devCpuOnlyManager.devCpuOnly {
+				if !devCPUOnlyManager.devCPUOnly {
 					t.Error("GPUManager should be in development CPU-only mode when option is set")
 				}
 
 				// In development CPU-only mode, hasGPU should be true even if no GPU available
-				if !devCpuOnlyManager.hasGPU {
+				if !devCPUOnlyManager.hasGPU {
 					t.Error("Development CPU-only mode should pretend to have a GPU")
 				}
 
 				// Total memory should be non-zero
-				total := devCpuOnlyManager.GetTotalMemory()
+				total := devCPUOnlyManager.GetTotalMemory()
 				if total == 0 {
 					t.Error("Total memory should not be 0 in development CPU-only mode")
 				}
 
 				// Use a retry loop with backoff instead of a fixed sleep
 				// Check if free memory equals total memory with retries
-				verifyFreeMemory(t, devCpuOnlyManager, total)
+				verifyFreeMemory(t, devCPUOnlyManager, total)
 			},
 		},
 	}
