@@ -21,14 +21,14 @@ type GPUManager struct {
 	gpuMemory     uint64
 	freeMemory    uint64
 	runnerOptions *Options
-	devCpuOnly    bool // Flag to indicate that we are in development CPU only mode
+	devCPUOnly    bool // Flag to indicate that we are in development CPU only mode
 }
 
 func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g := &GPUManager{
 		runnerOptions: runnerOptions,
 		// Check both environment variable and Options struct for DEVELOPMENT_CPU_ONLY
-		devCpuOnly: strings.ToLower(getEnvOrDefault("DEVELOPMENT_CPU_ONLY", "false", runnerOptions)) == "true" || runnerOptions.DevelopmentCPUOnly,
+		devCPUOnly: strings.ToLower(getEnvOrDefault("DEVELOPMENT_CPU_ONLY", "false", runnerOptions)) == "true" || runnerOptions.DevelopmentCPUOnly,
 	}
 
 	// These are slow, but run on startup so it's probably fine
@@ -36,7 +36,7 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g.gpuMemory = g.fetchTotalMemory()
 
 	// In dev CPU mode, log the configuration
-	if g.devCpuOnly {
+	if g.devCPUOnly {
 		log.Info().
 			Bool("development_cpu_only", true).
 			Uint64("simulated_gpu_memory", g.gpuMemory).
@@ -61,7 +61,7 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 
 func (g *GPUManager) detectGPU() bool {
 	// If in development CPU-only mode, pretend we have a GPU
-	if g.devCpuOnly {
+	if g.devCPUOnly {
 		return true
 	}
 
@@ -85,12 +85,12 @@ func (g *GPUManager) GetFreeMemory() uint64 {
 }
 
 func (g *GPUManager) fetchFreeMemory() uint64 {
-	if !g.hasGPU && !g.devCpuOnly {
+	if !g.hasGPU && !g.devCPUOnly {
 		return 0
 	}
 
 	// In development CPU-only mode, just use the total memory as free memory
-	if g.devCpuOnly {
+	if g.devCPUOnly {
 		return g.gpuMemory
 	}
 
@@ -153,7 +153,7 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 
 	// If the user has manually set the total memory, then use that
 	// But make sure it is less than the actual total memory
-	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.devCpuOnly) {
+	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.devCPUOnly) {
 		totalMemory = g.runnerOptions.MemoryBytes
 	}
 
@@ -161,12 +161,12 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 }
 
 func (g *GPUManager) getActualTotalMemory() uint64 {
-	if !g.hasGPU && !g.devCpuOnly {
+	if !g.hasGPU && !g.devCPUOnly {
 		return 0
 	}
 
 	// In development CPU-only mode, use system memory
-	if g.devCpuOnly {
+	if g.devCPUOnly {
 		// Get system memory based on platform
 		var systemMemory uint64
 
