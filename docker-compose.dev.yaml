@@ -11,6 +11,11 @@ x-runner-config: &runner-config
   entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
   env_file:
     - .env
+  environment:
+    # Explicitly set Go cache paths for clarity
+    - GOMODCACHE=/go/pkg/mod
+    - GOCACHE=/root/.cache/go-build
+    - GO_WORK=/workspace/helix
   volumes:
     - .:/workspace/helix
     - ~/.cache/huggingface:/root/.cache/huggingface
@@ -211,11 +216,33 @@ services:
     profiles: ["runner"]
     environment:
       - DEVELOPMENT_CPU_ONLY=true
+    # Pre-download the Go toolchain and dependencies
+    command: >
+      bash -c "
+        # Pre-download Go toolchain and modules
+        export GOFLAGS=-mod=readonly
+        cd /workspace/helix &&
+        go version &&
+        go mod download &&
+        echo 'Go dependencies pre-downloaded' &&
+        tail -f /dev/null
+      "
 
   # GPU-enabled runner
   runner_gpu:
     <<: *runner-config
     profiles: ["runner_gpu"]
+    # Pre-download the Go toolchain and dependencies
+    command: >
+      bash -c "
+        # Pre-download Go toolchain and modules
+        export GOFLAGS=-mod=readonly
+        cd /workspace/helix &&
+        go version &&
+        go mod download &&
+        echo 'Go dependencies pre-downloaded' &&
+        tail -f /dev/null
+      "
     deploy:
       resources:
         reservations:
