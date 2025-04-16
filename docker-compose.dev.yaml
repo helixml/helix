@@ -212,8 +212,6 @@ services:
   runner_gpu:
     <<: *runner-config
     profiles: ["runner_gpu"]
-    environment:
-      - DEVELOPMENT_CPU_ONLY=false
     deploy:
       resources:
         reservations:

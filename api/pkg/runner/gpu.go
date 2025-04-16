@@ -89,13 +89,13 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 		return 0
 	}
 
-	// Default to the user set max memory value
-	freeMemory := g.runnerOptions.MemoryBytes
-
 	// In development CPU-only mode, just use the total memory as free memory
 	if g.devCpuOnly {
 		return g.gpuMemory
 	}
+
+	// Default to the user set max memory value
+	freeMemory := g.runnerOptions.MemoryBytes
 
 	switch runtime.GOOS {
 	case "linux":
@@ -165,14 +165,14 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 		return 0
 	}
 
-	// In development CPU-only mode, use either system memory or a high default value
+	// In development CPU-only mode, use system memory
 	if g.devCpuOnly {
-		// Try to get system memory
+		// Get system memory based on platform
 		var systemMemory uint64
 
 		switch runtime.GOOS {
 		case "linux":
-			// Try to read from /proc/meminfo
+			// Read from /proc/meminfo
 			cmd := exec.Command("grep", "MemTotal", "/proc/meminfo")
 			connectCmdStdErrToLogger(cmd)
 			output, err := cmd.Output()
@@ -182,9 +182,18 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 				if len(fields) >= 2 {
 					if mem, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
 						systemMemory = mem * 1024 // Convert kB to bytes
+						log.Info().
+							Str("platform", "linux").
+							Uint64("system_memory_bytes", systemMemory).
+							Msg("Using actual system memory for development CPU-only mode")
+						return systemMemory
 					}
 				}
 			}
+			// If we couldn't read system memory, log an error and return a reasonable default
+			log.Error().Msg("Failed to read system memory from /proc/meminfo, using 16GB default")
+			return 16 * 1024 * 1024 * 1024 // 16GB default as fallback
+
 		case "darwin":
 			// Use the same approach we use for Mac Silicon
 			cmd := exec.Command("sysctl", "hw.memsize")
@@ -196,22 +205,26 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 				if len(parts) == 2 {
 					if total, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64); err == nil {
 						systemMemory = total
+						log.Info().
+							Str("platform", "darwin").
+							Uint64("system_memory_bytes", systemMemory).
+							Msg("Using actual system memory for development CPU-only mode")
+						return systemMemory
 					}
 				}
 			}
+			log.Error().Msg("Failed to read system memory on macOS, using 16GB default")
+			return 16 * 1024 * 1024 * 1024 // 16GB default as fallback
+
 		case "windows":
-			// On Windows we don't have a straightforward command,
-			// so just use the default high value below
+			// Use a simple default for Windows - we don't develop on Windows
+			log.Info().Msg("Windows platform detected, using 16GB default for development CPU-only mode")
+			return 16 * 1024 * 1024 * 1024 // 16GB default
 		}
 
-		// If we couldn't get the system memory or it's unusually low, use a high default value
-		// This will ensure we can schedule jobs in development mode
-		if systemMemory < 8*1024*1024*1024 { // less than 8GB
-			// Use a default 24GB (like a decent GPU) for development
-			systemMemory = 24 * 1024 * 1024 * 1024
-		}
-
-		return systemMemory
+		// Fallback if we couldn't determine the system memory
+		log.Warn().Msg("Could not determine system memory, using 16GB default for development CPU-only mode")
+		return 16 * 1024 * 1024 * 1024 // 16GB default
 	}
 
 	switch runtime.GOOS {
