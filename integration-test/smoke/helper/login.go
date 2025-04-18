@@ -81,7 +81,7 @@ func verifyLogin(t *testing.T, page *rod.Page) error {
 func RegisterNewUser(t *testing.T, page *rod.Page) {
 	ClickLoginButton(t, page)
 	LogStep(t, "Looking for register button")
-	page.MustElement("//a[contains(text(), 'Register')]").MustWaitVisible().MustClick()
+	page.MustElementX("//a[contains(text(), 'Register')]").MustWaitVisible().MustClick()
 
 	LogStep(t, "Filling in username and password")
 	page.MustElementX("//input[@id='firstName']").MustWaitVisible().MustInput("test")
