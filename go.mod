@@ -2,6 +2,8 @@ module github.com/helixml/helix
 
 go 1.23.4
 
+toolchain go1.23.8
+
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
 replace github.com/gptscript-ai/gptscript => github.com/helixml/gptscript v0.0.0-20241204095353-9c7fd8d5cf45

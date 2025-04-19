@@ -1400,6 +1400,10 @@ type RunnerLLMInferenceRequest struct {
 	InteractionID string
 
 	Request *openai.ChatCompletionRequest
+
+	// Added fields for embeddings
+	Embeddings       bool                    `json:"embeddings,omitempty"`
+	EmbeddingRequest openai.EmbeddingRequest `json:"embedding_request,omitempty"`
 }
 
 type RunnerLLMInferenceResponse struct {

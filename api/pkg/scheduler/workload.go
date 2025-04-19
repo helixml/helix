@@ -94,6 +94,18 @@ func (w *Workload) Mode() types.SessionMode {
 func (w *Workload) Runtime() types.Runtime {
 	switch w.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
+		// Check if this is a VLLM model first before defaulting to Ollama
+		vllmModels, err := model.GetDefaultVLLMModels()
+		if err == nil {
+			for _, vllmModel := range vllmModels {
+				if vllmModel.ID == w.llmInferenceRequest.Request.Model {
+					log.Info().
+						Str("model", w.llmInferenceRequest.Request.Model).
+						Msg("using VLLM runtime for inference request")
+					return types.RuntimeVLLM
+				}
+			}
+		}
 		return types.RuntimeOllama
 	case WorkloadTypeSession:
 		switch w.Mode() {
@@ -103,6 +115,20 @@ func (w *Workload) Runtime() types.Runtime {
 				if w.session.LoraDir != "" {
 					return types.RuntimeAxolotl
 				}
+
+				// Check if this is a VLLM model first before defaulting to Ollama
+				vllmModels, err := model.GetDefaultVLLMModels()
+				if err == nil {
+					for _, vllmModel := range vllmModels {
+						if vllmModel.ID == w.session.ModelName {
+							log.Info().
+								Str("model", w.session.ModelName).
+								Msg("using VLLM runtime for text session")
+							return types.RuntimeVLLM
+						}
+					}
+				}
+
 				return types.RuntimeOllama
 			case types.SessionTypeImage:
 				return types.RuntimeDiffusers

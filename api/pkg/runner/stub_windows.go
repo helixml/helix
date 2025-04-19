@@ -6,6 +6,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -103,11 +104,26 @@ func (d *DiffusersRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
-type OllamaRuntime struct{}
+type OllamaRuntime struct {
+	version       string
+	cacheDir      string
+	port          int
+	startTimeout  time.Duration
+	contextLength int64
+	model         string
+	args          []string
+	ollamaClient  interface{} // Using interface{} instead of *api.Client to avoid import issues
+	cmd           interface{} // Using interface{} instead of *exec.Cmd to avoid import issues
+	cancel        context.CancelFunc
+}
 
 type OllamaRuntimeParams struct {
 	CacheDir      *string
-	ContextLength *int64 // Optional: Context length to use for the model
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for ollama to start, if nil, will use default
+	ContextLength *int64         // Optional: Context length to use for the model
+	Model         *string        // Optional: Model to use
+	Args          []string       // Optional: Additional arguments to pass to Ollama
 }
 
 var _ Runtime = &OllamaRuntime{}
@@ -145,5 +161,64 @@ func (o *OllamaRuntime) Warm(_ context.Context, _ string) error {
 }
 
 func (a *OllamaRuntime) Status(_ context.Context) string {
+	panic("unimplemented")
+}
+
+type VLLMRuntime struct {
+	version       string
+	cacheDir      string
+	port          int
+	startTimeout  time.Duration
+	contextLength int64
+	model         string
+	args          []string
+	cmd           interface{} // Using interface{} instead of *exec.Cmd to avoid import issues
+	cancel        context.CancelFunc
+}
+
+type VLLMRuntimeParams struct {
+	CacheDir      *string
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for vLLM to start, if nil, will use default
+	ContextLength *int64         // Optional: Context length to use for the model
+	Model         *string        // Optional: Model to use
+	Args          []string       // Optional: Additional arguments to pass to vLLM
+}
+
+var _ Runtime = &VLLMRuntime{}
+
+func NewVLLMRuntime(_ context.Context, _ VLLMRuntimeParams) (*VLLMRuntime, error) {
+	return nil, fmt.Errorf("vLLM runtime is not supported on windows")
+}
+
+func (v *VLLMRuntime) PullModel(_ context.Context, _ string, _ func(PullProgress) error) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Runtime() types.Runtime {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Start(_ context.Context) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Stop() error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) URL() string {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Version() string {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 type HelixServer interface {
@@ -41,11 +40,6 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 
 func (c *InternalHelixServer) APIKey() string {
 	return ""
-}
-
-func (c *InternalHelixServer) CreateEmbeddings(_ context.Context, _ openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
-	// TODO: implement once we support pass through
-	return openai.EmbeddingResponse{}, fmt.Errorf("not implemented")
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {

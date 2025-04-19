@@ -108,7 +108,20 @@ func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
 		switch w.WorkloadType {
 		case WorkloadTypeLLMInferenceRequest:
 			req := w.LLMInferenceRequest()
-			summary = req.Request.Messages[len(req.Request.Messages)-1].Content
+			if req.Request != nil && len(req.Request.Messages) > 0 {
+				summary = req.Request.Messages[len(req.Request.Messages)-1].Content
+			} else if req.Embeddings && req.EmbeddingRequest.Input != nil {
+				switch input := req.EmbeddingRequest.Input.(type) {
+				case string:
+					summary = input
+				case []string:
+					if len(input) > 0 {
+						summary = input[0]
+					}
+				default:
+					summary = "Embedding request"
+				}
+			}
 		case WorkloadTypeSession:
 			s := w.Session()
 			interaction, _ := data.GetLastUserInteraction(s.Interactions)
@@ -674,11 +687,21 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 		// Submit the work to the slot
 		switch req.WorkloadType {
 		case WorkloadTypeLLMInferenceRequest:
-			withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
-			err := s.controller.SubmitChatCompletionRequest(slot, req.LLMInferenceRequest())
-			if err != nil {
-				s.onSchedulingErr(req, err)
-				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
+			llmReq := req.LLMInferenceRequest()
+			if llmReq.Embeddings {
+				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting embedding request")
+				err := s.controller.SubmitEmbeddingRequest(slot, llmReq)
+				if err != nil {
+					s.onSchedulingErr(req, err)
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting embedding request")
+				}
+			} else {
+				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
+				err := s.controller.SubmitChatCompletionRequest(slot, llmReq)
+				if err != nil {
+					s.onSchedulingErr(req, err)
+					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
+				}
 			}
 		case WorkloadTypeSession:
 			switch req.Session().Mode {
