@@ -208,6 +208,11 @@ func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
 		return fmt.Errorf("model name cannot be empty")
 	}
 
+	log.Info().
+		Str("model", model).
+		Str("url", v.URL()).
+		Msg("Warming up vLLM model")
+
 	// Send a simple OpenAI-compatible request to warm up the model
 	url := fmt.Sprintf("%s/v1/chat/completions", v.URL())
 
@@ -223,24 +228,72 @@ func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(requestBody))
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("model", model).
+			Str("url", url).
+			Msg("Error creating warm-up request")
 		return fmt.Errorf("error creating warm-up request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
+	// Set a timeout for the request (30 seconds should be plenty for a simple warm-up)
+	warmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req = req.WithContext(warmCtx)
+
 	// Send the request
 	client := &http.Client{}
+	startTime := time.Now()
+
+	log.Debug().
+		Str("model", model).
+		Str("url", url).
+		Msg("Sending warm-up request to vLLM")
+
 	resp, err := client.Do(req)
 	if err != nil {
+		// Check if it's a context timeout
+		if warmCtx.Err() != nil {
+			log.Error().
+				Err(err).
+				Dur("elapsed", time.Since(startTime)).
+				Str("model", model).
+				Str("url", url).
+				Msg("Timeout during vLLM warm-up request")
+			return fmt.Errorf("timeout during warm-up request: %w", err)
+		}
+
+		log.Error().
+			Err(err).
+			Dur("elapsed", time.Since(startTime)).
+			Str("model", model).
+			Str("url", url).
+			Msg("Error sending warm-up request")
 		return fmt.Errorf("error sending warm-up request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check if the request was successful
+	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Error().
+			Int("status", resp.StatusCode).
+			Str("response", string(bodyBytes)).
+			Dur("elapsed", time.Since(startTime)).
+			Str("model", model).
+			Str("url", url).
+			Msg("Error warming up model")
 		return fmt.Errorf("error warming up model, status: %d, response: %s", resp.StatusCode, string(bodyBytes))
 	}
+
+	log.Info().
+		Int("status", resp.StatusCode).
+		Str("response", string(bodyBytes)).
+		Dur("elapsed", time.Since(startTime)).
+		Str("model", model).
+		Msg("Successfully warmed up vLLM model")
 
 	return nil
 }
@@ -266,27 +319,79 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	startTime := time.Now()
+	lastLogTime := startTime
+	attemptCount := 0
+
+	log.Info().
+		Dur("timeout", startTimeout).
+		Str("model", v.model).
+		Str("url", v.URL()).
+		Msg("Starting vLLM ready check with timeout")
+
 	for {
 		select {
 		case <-startCtx.Done():
+			elapsed := time.Since(startTime)
+			log.Error().
+				Dur("elapsed", elapsed).
+				Str("model", v.model).
+				Str("error", startCtx.Err().Error()).
+				Msg("vLLM ready check timed out or context canceled")
 			return startCtx.Err()
 		case <-ticker.C:
+			attemptCount++
+			elapsed := time.Since(startTime)
+
+			// Log status every 5 seconds
+			if time.Since(lastLogTime) > 5*time.Second {
+				timeLeft := startTimeout - elapsed
+				log.Debug().
+					Dur("elapsed", elapsed).
+					Dur("time_left", timeLeft).
+					Int("attempt", attemptCount).
+					Str("model", v.model).
+					Msg("Waiting for vLLM to be ready")
+				lastLogTime = time.Now()
+			}
+
 			// Try to connect to the vLLM server's health endpoint
 			url := fmt.Sprintf("%s/v1/models", v.URL())
 			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 			if err != nil {
+				if time.Since(lastLogTime) > 5*time.Second {
+					log.Debug().Err(err).Str("url", url).Msg("Error creating request to check vLLM readiness")
+				}
 				continue
 			}
 
 			client := &http.Client{Timeout: 1 * time.Second}
 			resp, err := client.Do(req)
 			if err != nil {
+				if time.Since(lastLogTime) > 5*time.Second {
+					log.Debug().Err(err).Str("url", url).Msg("Error connecting to vLLM server")
+				}
 				continue
 			}
+
+			bodyBytes, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 
 			if resp.StatusCode < 400 {
+				log.Info().
+					Dur("elapsed", elapsed).
+					Int("status", resp.StatusCode).
+					Str("model", v.model).
+					Str("response", string(bodyBytes)).
+					Msg("vLLM server is ready")
 				return nil
+			} else {
+				if time.Since(lastLogTime) > 5*time.Second {
+					log.Debug().
+						Int("status", resp.StatusCode).
+						Str("response", string(bodyBytes)).
+						Msg("vLLM server returned error status")
+				}
 			}
 		}
 	}
@@ -357,12 +462,6 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 			// Set tensor parallel size to 1 for CPU
 			if !customArgsMap["--tensor-parallel-size"] {
 				args = append(args, "--tensor-parallel-size", "1")
-			}
-
-			// Force dtype to float32 for CPU mode to ensure compatibility
-			if !customArgsMap["--dtype"] {
-				log.Debug().Msg("Setting dtype=float32 for CPU compatibility")
-				args = append(args, "--dtype", "float32")
 			}
 		} else if !customArgsMap["--tensor-parallel-size"] {
 			args = append(args, "--tensor-parallel-size", "1") // Default to 1 GPU
@@ -447,9 +546,58 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	}
 
 	go func() {
-		if err := cmd.Wait(); err != nil {
-			errMsg := string(stderrBuf.Bytes())
-			log.Error().Err(err).Str("stderr", errMsg).Int("exit_code", cmd.ProcessState.ExitCode()).Msg("vLLM exited with error")
+		for {
+			if err := cmd.Wait(); err != nil {
+				errMsg := string(stderrBuf.Bytes())
+				log.Error().Err(err).Str("stderr", errMsg).Int("exit_code", cmd.ProcessState.ExitCode()).Msg("vLLM exited with error")
+
+				// Don't restart if context is canceled
+				if ctx.Err() != nil {
+					log.Info().Msg("Not restarting vLLM because context is canceled")
+					return
+				}
+
+				// Restart the process
+				log.Info().Str("model", model).Int("port", port).Msg("Restarting vLLM process after unexpected exit")
+				newCmd := commander.CommandContext(ctx, vllmPath, args...)
+
+				// Set the same environment variables
+				newCmd.Env = env
+				newCmd.Stdout = os.Stdout
+
+				// Set up stderr handling
+				newStderrBuf := system.NewLimitedBuffer(1024 * 10)
+				newStderrWriters := []io.Writer{os.Stderr, newStderrBuf}
+				newStderrPipe, err := newCmd.StderrPipe()
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to create stderr pipe for restarted vLLM")
+					return
+				}
+
+				go func() {
+					_, err := io.Copy(io.MultiWriter(newStderrWriters...), newStderrPipe)
+					if err != nil {
+						log.Error().Msgf("Error copying stderr for restarted vLLM: %v", err)
+					}
+				}()
+
+				// Start the new process
+				log.Info().Msg("Starting restarted vLLM process")
+				if err := newCmd.Start(); err != nil {
+					log.Error().Err(err).Msg("Failed to start restarted vLLM process")
+					return
+				}
+
+				// Update command for next iteration
+				cmd = newCmd
+				stderrBuf = newStderrBuf
+
+				// Continue the loop to wait on the new process
+				continue
+			}
+
+			// If process exited cleanly (no error), don't restart
+			log.Info().Msg("vLLM process exited cleanly")
 			return
 		}
 	}()

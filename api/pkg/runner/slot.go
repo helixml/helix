@@ -76,16 +76,39 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 // If there is an error at any point during creation, we call Stop to kill the runtime. Otherwise it
 // can just sit there taking up GPU and doing nothing.
 func (s *Slot) Create(ctx context.Context) (err error) {
+	log.Info().
+		Str("model", s.Model).
+		Interface("runtime", s.IntendedRuntime).
+		Str("slot_id", s.ID.String()).
+		Msg("Starting to create slot")
+
 	// Need to be very careful to shutdown the runtime if there is an error!
 	// Safest to do this in a defer so that it always checks.
 	defer func() {
 		if err != nil {
 			if s.runningRuntime != nil {
-				log.Warn().Str("model", s.Model).Interface("runtime", s.IntendedRuntime).Msg("error creating slot, stopping runtime")
+				log.Warn().
+					Str("model", s.Model).
+					Interface("runtime", s.IntendedRuntime).
+					Str("slot_id", s.ID.String()).
+					Err(err).
+					Msg("error creating slot, stopping runtime")
 				stopErr := s.runningRuntime.Stop()
 				if stopErr != nil {
-					log.Error().Err(stopErr).Str("model", s.Model).Interface("runtime", s.IntendedRuntime).Msg("error stopping runtime, possible memory leak")
+					log.Error().
+						Err(stopErr).
+						Str("model", s.Model).
+						Str("slot_id", s.ID.String()).
+						Interface("runtime", s.IntendedRuntime).
+						Msg("error stopping runtime, possible memory leak")
 				}
+			} else {
+				log.Warn().
+					Str("model", s.Model).
+					Interface("runtime", s.IntendedRuntime).
+					Str("slot_id", s.ID.String()).
+					Err(err).
+					Msg("error creating slot, but no runtime to stop")
 			}
 		}
 	}()
@@ -166,6 +189,10 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 
 			// Handle vLLM command line arguments
 			if args, ok := s.RuntimeArgs["args"].([]string); ok && len(args) > 0 {
+				log.Debug().
+					Strs("args", args).
+					Str("model", modelStr).
+					Msg("Using string array arguments for vLLM")
 				runtimeParams.Args = args
 			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
 				// Convert map to array of args in the format ["--key1", "value1", "--key2", "value2"]
@@ -176,6 +203,11 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 					}
 					args = append(args, k, fmt.Sprintf("%v", v))
 				}
+				log.Debug().
+					Interface("args_map", argsMap).
+					Strs("converted_args", args).
+					Str("model", modelStr).
+					Msg("Using map arguments for vLLM")
 				runtimeParams.Args = args
 			}
 		}
@@ -189,8 +221,18 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		// Set the model parameter
 		runtimeParams.Model = &modelStr
 
+		log.Debug().
+			Str("model", modelStr).
+			Interface("runtime_params", runtimeParams).
+			Msg("Creating vLLM runtime")
+
 		s.runningRuntime, err = NewVLLMRuntime(ctx, runtimeParams)
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("model", modelStr).
+				Interface("runtime_params", runtimeParams).
+				Msg("Failed to create vLLM runtime")
 			return
 		}
 	default:
@@ -199,14 +241,32 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 	}
 
 	// Start the runtime
+	log.Debug().
+		Str("model", s.Model).
+		Interface("runtime", s.IntendedRuntime).
+		Str("slot_id", s.ID.String()).
+		Msg("Starting runtime for slot")
+
 	err = s.runningRuntime.Start(ctx)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("model", s.Model).
+			Interface("runtime", s.IntendedRuntime).
+			Str("slot_id", s.ID.String()).
+			Msg("Failed to start runtime for slot")
 		return
 	}
 
 	// Create OpenAI Client
 	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", s.runningRuntime.URL()))
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("model", s.Model).
+			Interface("runtime", s.IntendedRuntime).
+			Str("slot_id", s.ID.String()).
+			Msg("Failed to create OpenAI client for slot")
 		return
 	}
 
@@ -214,15 +274,29 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 	if s.IntendedRuntime == types.RuntimeVLLM {
 		log.Info().
 			Str("model", s.Model).
+			Str("slot_id", s.ID.String()).
 			Msg("skipping model verification for VLLM runtime")
 		s.Active = true
 		// Warm up the model
+		log.Debug().
+			Str("model", s.Model).
+			Str("slot_id", s.ID.String()).
+			Msg("Warming up vLLM model")
 		err = s.runningRuntime.Warm(ctx, s.Model)
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("model", s.Model).
+				Str("slot_id", s.ID.String()).
+				Msg("Failed to warm up vLLM model")
 			return
 		}
 		s.Active = false
 		s.Ready = true
+		log.Info().
+			Str("model", s.Model).
+			Str("slot_id", s.ID.String()).
+			Msg("vLLM model is ready")
 		return
 	}
 

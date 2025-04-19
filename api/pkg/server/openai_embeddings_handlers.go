@@ -78,24 +78,61 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 			// Client already gone
 			return
 		}
-		log.Error().
+
+		// Better logging with more specific error information
+		errLogger := log.Error().
 			Err(err).
 			Str("model", string(embeddingRequest.Model)).
-			Str("provider", s.Cfg.RAG.PGVector.Provider).
-			Msg("error creating embeddings")
+			Str("provider", s.Cfg.RAG.PGVector.Provider)
+
+		var statusCode int
+		var errorMessage string
+
 		if apiErr, ok := err.(*openai.APIError); ok {
-			errLog := log.Error().
+			statusCode = apiErr.HTTPStatusCode
+			errorMessage = apiErr.Message
+
+			// Add detailed API error information
+			errLogger = errLogger.
 				Int("status_code", apiErr.HTTPStatusCode).
 				Str("type", apiErr.Type)
+
 			if apiErr.Code != nil {
-				errLog.Interface("code", apiErr.Code)
+				errLogger = errLogger.Interface("code", apiErr.Code)
 			}
 			if apiErr.Param != nil {
-				errLog.Str("param", *apiErr.Param)
+				errLogger = errLogger.Str("param", *apiErr.Param)
 			}
-			errLog.Msg("vllm api error details")
+
+			// Special handling for common error cases
+			if apiErr.HTTPStatusCode == 400 && strings.Contains(strings.ToLower(apiErr.Message), "model not found") {
+				errorMessage = "The requested embedding model is not found. It may not be loaded or available in this installation."
+				errLogger.Msg("Embedding model not found")
+			} else if apiErr.HTTPStatusCode == 404 {
+				errorMessage = "The requested embedding model is not available. Check if the model is properly configured."
+				errLogger.Msg("Embedding model not available")
+			} else if apiErr.HTTPStatusCode == 500 {
+				errorMessage = "The embedding service encountered a server error. The model may have failed to load."
+				errLogger.Msg("Embedding server error")
+			} else {
+				errLogger.Msg("vllm api error details")
+			}
+		} else {
+			// Generic error handling
+			statusCode = http.StatusInternalServerError
+			errorMessage = err.Error()
+
+			if strings.Contains(strings.ToLower(err.Error()), "no such file") ||
+				strings.Contains(strings.ToLower(err.Error()), "not found") {
+				errorMessage = "The requested embedding model is not found or not properly configured."
+				errLogger.Msg("Embedding model file not found")
+			} else {
+				errLogger.Msg("error creating embeddings")
+			}
 		}
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+
+		// Provide a more specific error response to the client
+		http.Error(rw, errorMessage, statusCode)
 		return
 	}
 
