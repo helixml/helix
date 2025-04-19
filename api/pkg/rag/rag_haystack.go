@@ -180,7 +180,27 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		}
 
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
+			errMsg := string(body)
+			logger.Error().
+				Str("document_id", chunk.DocumentID).
+				Int("status_code", resp.StatusCode).
+				Str("error_message", errMsg).
+				Msg("Error response from Haystack service")
+
+			// Check for specific error types
+			if strings.Contains(errMsg, "unhashable type: 'slice'") {
+				embeddingErr := fmt.Errorf("embedding model error: %s", errMsg)
+
+				logger.Error().
+					Err(embeddingErr).
+					Str("document_id", chunk.DocumentID).
+					Str("raw_error", errMsg).
+					Msg("Embedding model error detected")
+
+				return embeddingErr
+			}
+
+			return fmt.Errorf("error response from server: %s (%s)", resp.Status, errMsg)
 		}
 
 		logger.Debug().

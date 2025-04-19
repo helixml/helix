@@ -27,8 +27,19 @@ const (
 type TimeoutFunc func(runnerID string, lastActivityTime time.Time) bool
 
 func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
-	return func(_ string, lastActivityTime time.Time) bool {
-		return lastActivityTime.Add(ttl).Before(time.Now())
+	return func(runnerID string, lastActivityTime time.Time) bool {
+		elapsed := time.Since(lastActivityTime)
+		isTimedOut := elapsed > ttl
+		if isTimedOut {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Dur("elapsed", elapsed).
+				Dur("ttl", ttl).
+				Time("last_activity", lastActivityTime).
+				Bool("timed_out", isTimedOut).
+				Msg("Timeout function evaluation")
+		}
+		return isTimedOut
 	}
 }
 
@@ -58,7 +69,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	}
 	modelTTL := serverConfig.Providers.Helix.ModelTTL
 	if modelTTL == 0 {
-		modelTTL = 10 * time.Second
+		modelTTL = 300 * time.Second
 	}
 	slotTTL := serverConfig.Providers.Helix.SlotTTL
 	if slotTTL == 0 {
@@ -69,7 +80,20 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		queueSize = params.QueueSize
 	}
 
-	log.Info().Dur("model_stale_time", modelTTL).Dur("slot_timeout", slotTTL).Msg("slot timeouts")
+	log.Info().
+		Dur("model_stale_time", modelTTL).
+		Dur("slot_timeout", slotTTL).
+		Msg("slot timeouts configured")
+
+	modelStaleFunc := NewTimeoutFunc(modelTTL)
+	slotTimeoutFunc := NewTimeoutFunc(slotTTL)
+
+	log.Info().
+		Interface("runner_controller", params.RunnerController).
+		Int("queue_size", params.QueueSize).
+		Bool("has_scheduling_err_handler", params.OnSchedulingErr != nil).
+		Bool("has_response_handler", params.OnResponseHandler != nil).
+		Msg("Creating scheduler with parameters")
 
 	s := &Scheduler{
 		ctx:             ctx,
@@ -77,8 +101,8 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		queue:           NewWorkQueue(queueSize),
 		onSchedulingErr: params.OnSchedulingErr,
 		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
-		modelStaleFunc:  NewTimeoutFunc(modelTTL),
-		slotTimeoutFunc: NewTimeoutFunc(slotTTL),
+		modelStaleFunc:  modelStaleFunc,
+		slotTimeoutFunc: slotTimeoutFunc,
 	}
 
 	// Start the queue processor
@@ -214,26 +238,54 @@ func (s *Scheduler) reconcileActivityOnce() {
 	if s.slots == nil {
 		return
 	}
+	activeCount := 0
+	checkedCount := 0
+	releasedCount := 0
+
 	// Check the status of all remaining slots to see if they have finished their work
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		checkedCount++
 		if slot == nil {
 			withSlotContext(&log.Logger, slot).Debug().Msg("slot is nil, releasing")
 			slot.Release()
+			releasedCount++
 			return true
 		}
 		if slot.IsActive() {
+			activeCount++
 			// Get the live slot from the runner, don't use the cached copy
 			remoteSlot, err := s.controller.fetchSlot(slot.RunnerID, slotID)
 			if err != nil {
-				withSlotContext(&log.Logger, slot).Error().Err(err).Msg("failed to get slot, assuming it's finished")
+				withSlotContext(&log.Logger, slot).Error().
+					Err(err).
+					Msg("failed to get slot during activity reconciliation, assuming it's finished")
 				slot.Release()
+				releasedCount++
 			} else if !remoteSlot.Active {
-				withSlotContext(&log.Logger, slot).Debug().Msg("slot is not active, releasing")
+				withSlotContext(&log.Logger, slot).Debug().
+					Bool("remote_active", remoteSlot.Active).
+					Bool("remote_ready", remoteSlot.Ready).
+					Msg("slot is not active according to remote, releasing")
 				slot.Release()
+				releasedCount++
+			} else {
+				withSlotContext(&log.Logger, slot).Debug().
+					Bool("remote_active", remoteSlot.Active).
+					Bool("remote_ready", remoteSlot.Ready).
+					Msg("slot is still active according to remote")
 			}
 		}
 		return true
 	})
+
+	// Only log when there's actual activity to report (skip empty reconciliations)
+	if activeCount > 0 || releasedCount > 0 {
+		log.Debug().
+			Int("checked", checkedCount).
+			Int("active", activeCount).
+			Int("released", releasedCount).
+			Msg("Slot activity reconciliation completed")
+	}
 }
 
 // reconcileRunners runs in a goroutine to reconcile runners.
@@ -286,10 +338,19 @@ func (s *Scheduler) deleteRunnerSlots(runnerID string) {
 func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
+	log.Debug().Strs("runner_ids", runnerIDs).Msg("Starting slot reconciliation")
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
-	log.Trace().Interface("required_slots", requiredSlots).Msg("required slots")
+	log.Debug().Interface("required_slots", requiredSlots).Msg("Required slots for current workload")
+
+	// Track slot stats
+	existingSlotCount := 0
+	slotsToCreate := 0
+	duplicateSlotCount := 0
+	orphanedSlotCount := 0
+	mismatchedRunnerCount := 0
+
 	// For each requirement, ensure we have enough slots for that work right now
 	for _, req := range requiredSlots {
 		// Check if we have enough slots for this work right now
@@ -306,9 +367,19 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			return true
 		})
 
+		existingSlotCount += existingCount
+
 		// If we need more slots, start creating them
 		slotsNeeded := req.Count - existingCount
 		if slotsNeeded > 0 {
+			slotsToCreate += slotsNeeded
+			log.Info().
+				Str("model", req.Model.String()).
+				Str("runtime", string(req.Runtime)).
+				Int("existing", existingCount).
+				Int("required", req.Count).
+				Int("to_create", slotsNeeded).
+				Msg("Creating new slots for requirement")
 			s.ensureSlots(req, slotsNeeded)
 		}
 	}
@@ -326,6 +397,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		for _, slot := range actualSlots.Slots {
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
+				duplicateSlotCount++
 				log.Warn().
 					Str("slot_id", slot.ID.String()).
 					Str("existing_runner", existingRunnerID).
@@ -344,9 +416,14 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Clean up scheduler slots that don't exist on any runner
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
 		if runnerID, exists := allActualSlots[slotID]; !exists {
+			orphanedSlotCount++
 			log.Info().
 				Str("runner_id", slot.RunnerID).
 				Str("slot_id", slotID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Str("runtime", string(slot.InitialWork().Runtime())).
+				Bool("is_active", slot.IsActive()).
+				Bool("is_running", slot.IsRunning()).
 				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
 
 			err := s.createNewSlot(ctx, slot)
@@ -370,6 +447,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			}
 		} else if runnerID != slot.RunnerID {
 			// The slot exists but on a different runner than we thought
+			mismatchedRunnerCount++
 			log.Warn().
 				Str("scheduler_runner", slot.RunnerID).
 				Str("actual_runner", runnerID).
@@ -381,18 +459,44 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	})
 
 	// Clean up runner slots that don't exist in scheduler
+	unusedSlotCount := 0
 	for slotID, runnerID := range allActualSlots {
 		if _, exists := s.slots.Load(slotID); !exists {
-			log.Warn().
-				Str("runner_id", runnerID).
-				Str("slot_id", slotID.String()).
-				Msg("found slot on runner that doesn't exist in scheduler, deleting...")
-			err := s.controller.DeleteSlot(runnerID, slotID)
+			unusedSlotCount++
+			// Look up the actual slot to get details for logging
+			slotDetails, err := s.controller.fetchSlot(runnerID, slotID)
+			if err == nil {
+				log.Warn().
+					Str("runner_id", runnerID).
+					Str("slot_id", slotID.String()).
+					Str("model", slotDetails.Model).
+					Str("runtime", string(slotDetails.Runtime)).
+					Bool("is_active", slotDetails.Active).
+					Bool("is_ready", slotDetails.Ready).
+					Msg("found slot on runner that doesn't exist in scheduler, deleting...")
+			} else {
+				log.Warn().
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("slot_id", slotID.String()).
+					Msg("found slot on runner that doesn't exist in scheduler but couldn't fetch details, deleting...")
+			}
+
+			err = s.controller.DeleteSlot(runnerID, slotID)
 			if err != nil {
 				log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slotID.String()).Msg("failed to delete slot")
 			}
 		}
 	}
+
+	log.Debug().
+		Int("existing_slots", existingSlotCount).
+		Int("slots_to_create", slotsToCreate).
+		Int("duplicate_slots", duplicateSlotCount).
+		Int("orphaned_slots", orphanedSlotCount).
+		Int("mismatched_runner_slots", mismatchedRunnerCount).
+		Int("unused_slots", unusedSlotCount).
+		Msg("Completed slot reconciliation")
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
@@ -771,24 +875,71 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 
 	// Wait for the slot to be ready
 	slotReady := make(chan bool)
+
+	// Add timeout variables for logging
+	startTime := time.Now()
+	readyTimeout := 120 * time.Minute
+	lastLogTime := startTime
+	attemptCount := 0
+
+	withSlotContext(&log.Logger, slot).Info().
+		Dur("timeout", readyTimeout).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Msg("Starting wait for slot to be ready with timeout")
+
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				withSlotContext(&log.Logger, slot).Warn().
+					Dur("elapsed", time.Since(startTime)).
+					Msg("Context canceled while waiting for slot to be ready")
 				return
 			case <-time.After(500 * time.Millisecond):
+				attemptCount++
+				elapsed := time.Since(startTime)
+
+				// Log status every 10 seconds
+				if time.Since(lastLogTime) > 10*time.Second {
+					timeLeft := readyTimeout - elapsed
+					withSlotContext(&log.Logger, slot).Debug().
+						Dur("elapsed", elapsed).
+						Dur("time_left", timeLeft).
+						Int("attempt", attemptCount).
+						Msg("Waiting for slot to be ready")
+					lastLogTime = time.Now()
+				}
+
 				if s, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
 					if s.Ready {
+						withSlotContext(&log.Logger, slot).Info().
+							Dur("elapsed", elapsed).
+							Int("attempts", attemptCount).
+							Msg("Slot is now ready")
 						slotReady <- true
 					}
+				} else if time.Since(lastLogTime) > 10*time.Second {
+					// Only log errors every 10 seconds to avoid flooding
+					withSlotContext(&log.Logger, slot).Debug().
+						Err(err).
+						Dur("elapsed", elapsed).
+						Msg("Error checking if slot is ready")
 				}
 			}
 		}
 	}()
+
 	select {
 	case <-slotReady:
-	case <-time.After(120 * time.Second):
-		return fmt.Errorf("slot not ready after 120 seconds")
+		withSlotContext(&log.Logger, slot).Info().
+			Dur("elapsed", time.Since(startTime)).
+			Msg("Slot is ready")
+	case <-time.After(readyTimeout):
+		withSlotContext(&log.Logger, slot).Error().
+			Dur("elapsed", time.Since(startTime)).
+			Int("attempts", attemptCount).
+			Msg("Timeout waiting for slot to be ready")
+		return fmt.Errorf("slot not ready after 120 minutes")
 	}
 
 	// Mark the slot as running

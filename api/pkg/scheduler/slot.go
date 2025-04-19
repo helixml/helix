@@ -38,10 +38,17 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 func (s *Slot) IsStale() bool {
 	// If work is not running yet, check for error timeout (it might never have started)
 	if !s.IsRunning() {
-		if s.isErrorFunc(s.RunnerID, s.LastActivityTime) {
+		elapsed := time.Since(s.LastActivityTime)
+		isError := s.isErrorFunc(s.RunnerID, s.LastActivityTime)
+		if isError {
 			// Don't release the slot while holding the read lock
 			// Instead, just return true and let the caller handle the release
-			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out during creation")
+			log.Warn().
+				Str("runner_id", s.RunnerID).
+				Str("slot_id", s.ID.String()).
+				Dur("elapsed_since_activity", elapsed).
+				Str("model", s.initialWork.ModelName().String()).
+				Msg("slot has timed out during creation (not running)")
 			return true
 		}
 		return false
@@ -49,17 +56,34 @@ func (s *Slot) IsStale() bool {
 
 	// If work is active, check for error timeout
 	if s.isActive {
-		if s.isErrorFunc(s.RunnerID, s.LastActivityTime) {
+		elapsed := time.Since(s.LastActivityTime)
+		isError := s.isErrorFunc(s.RunnerID, s.LastActivityTime)
+		if isError {
 			// Don't release the slot while holding the read lock
 			// Instead, just return true and let the caller handle the release
-			log.Warn().Str("runner_id", s.RunnerID).Str("slot_id", s.ID.String()).Msg("slot has timed out due to an unknown error")
+			log.Warn().
+				Str("runner_id", s.RunnerID).
+				Str("slot_id", s.ID.String()).
+				Dur("elapsed_since_activity", elapsed).
+				Str("model", s.initialWork.ModelName().String()).
+				Msg("slot has timed out due to an unknown error (active slot)")
 			return true
 		}
 		return false
 	}
 
 	// Now check if the slot is stale
-	return s.isStaleFunc(s.RunnerID, s.LastActivityTime)
+	elapsed := time.Since(s.LastActivityTime)
+	isStale := s.isStaleFunc(s.RunnerID, s.LastActivityTime)
+	if isStale {
+		log.Debug().
+			Str("runner_id", s.RunnerID).
+			Str("slot_id", s.ID.String()).
+			Dur("elapsed_since_activity", elapsed).
+			Str("model", s.initialWork.ModelName().String()).
+			Msg("slot is considered stale (inactive too long)")
+	}
+	return isStale
 }
 
 // True if this slot is currently active with work

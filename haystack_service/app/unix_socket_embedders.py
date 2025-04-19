@@ -210,6 +210,7 @@ class UnixSocketOpenAIDocumentEmbedder:
         embedding_separator: str = "\n",
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        verify_connection: bool = True,
     ):
         self.model = model
         self.dimensions = dimensions
@@ -235,6 +236,48 @@ class UnixSocketOpenAIDocumentEmbedder:
             http_client=http_client,
             base_url="http://localhost/v1", # needed to stop it using TLS
         )
+        
+        # Verify the socket connection if requested
+        if verify_connection:
+            self._verify_socket_connection()
+
+    def _verify_socket_connection(self):
+        """
+        Verify that the socket connection is working by sending a small test request.
+        This helps identify socket connectivity issues early.
+        """
+        logger.info(f"Verifying socket connection to {self.socket_path}...")
+        
+        try:
+            # Send a request to the models endpoint, which should be lightweight
+            # and doesn't actually require a model to be loaded
+            response = self.client.models.list()
+            if hasattr(response, "data") and len(response.data) > 0:
+                available_models = [model.id for model in response.data]
+                logger.info(f"Socket connection verified. Available models: {available_models}")
+                
+                # Check if our model is available
+                if self.model not in available_models:
+                    logger.warning(
+                        f"⚠️ Requested model '{self.model}' not found in available models. "
+                        f"This may cause errors when creating embeddings."
+                    )
+            else:
+                logger.warning("Socket connection verified but no models were returned.")
+                
+        except httpx.ConnectError as e:
+            logger.error(f"❌ Socket connection failed: {str(e)}")
+            logger.error(
+                f"The socket path '{self.socket_path}' may not exist or the service isn't running. "
+                f"Embedding requests will fail until this is fixed."
+            )
+            # Don't raise an exception here - we'll let the actual embedding requests fail
+            # so the component still initializes
+            
+        except Exception as e:
+            logger.error(f"❌ Error verifying socket connection: {str(e)}")
+            import traceback
+            logger.error(f"TRACEBACK: {traceback.format_exc()}")
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
         """
@@ -293,7 +336,12 @@ class UnixSocketOpenAIDocumentEmbedder:
 
             # copied from OpenAI embedding_utils (https://github.com/openai/openai-python/blob/main/openai/embeddings_utils.py)
             # replace newlines, which can negatively affect performance.
-            texts_to_embed[doc.id] = text_to_embed.replace("\n", " ")
+            text_to_embed = text_to_embed.replace("\n", " ")
+            
+            # Ensure document ID is a string - this prevents unhashable type errors
+            # if doc.id is not a string but a slice or other unhashable type
+            doc_id = str(doc.id) if doc.id is not None else f"doc_{id(doc)}"
+            texts_to_embed[doc_id] = text_to_embed
         return texts_to_embed
 
     def _embed_batch(self, texts_to_embed: List[str], batch_size: int) -> Tuple[List[List[float]], Dict[str, Any]]:
@@ -366,14 +414,66 @@ class UnixSocketOpenAIDocumentEmbedder:
                         f"duration_ms={batch_duration_ms} missing_usage_data=True response={resp_summary}"
                     )
                 
+                # Process each embedding response
                 for data in response.data:
-                    all_embeddings.append(data.embedding)
+                    try:
+                        # Get the embedding data
+                        emb = data.embedding
+                        
+                        # Check embedding type and convert to list as needed
+                        if emb is None:
+                            # Handle None case
+                            all_embeddings.append(None)
+                        elif isinstance(emb, list):
+                            # Ensure it's a proper list of float values
+                            all_embeddings.append([float(val) for val in emb])
+                        else:
+                            # For any other type (numpy arrays, slices, etc.), convert explicitly
+                            # This will handle cases where the embedding is returned as a special type
+                            embedding_list = list(map(float, emb))
+                            all_embeddings.append(embedding_list)
+                            logger.debug(f"Converted embedding of type {type(emb).__name__} to list: {type(embedding_list)}")
+                    except Exception as conversion_error:
+                        logger.error(f"Error converting embedding: {conversion_error}")
+                        # Include the object type in the log
+                        logger.error(f"Embedding object type: {type(data.embedding).__name__}")
+                        # Fallback to None for this embedding
+                        all_embeddings.append(None)
                     
                 # Log first embedding dimensions if available
-                if len(response.data) > 0:
-                    embedding_dim = len(response.data[0].embedding)
-                    logger.info(f"📊 EMBEDDING DIMENSIONS: {embedding_dim}")
+                if len(response.data) > 0 and response.data[0].embedding is not None:
+                    try:
+                        embedding_dim = len(response.data[0].embedding)
+                        logger.info(f"📊 EMBEDDING DIMENSIONS: {embedding_dim}")
+                    except Exception as dim_error:
+                        logger.warning(f"Could not determine embedding dimensions: {dim_error}")
                 
+            except httpx.HTTPStatusError as e:
+                batch_duration_ms = int((time.time() - batch_start_time) * 1000)
+                # Check for specific status codes that indicate model not available
+                if e.response.status_code == 404:
+                    error_message = "Model not found: The embedding model is not available or loaded. Check vLLM configuration."
+                elif e.response.status_code == 503:
+                    error_message = "Service unavailable: vLLM may be overloaded or unable to start the embedding model."
+                else:
+                    error_message = f"HTTP error {e.response.status_code}: {e.response.text}"
+                
+                logger.error(
+                    f"🚨 EMBEDDING MODEL ERROR [socket={self.socket_path}, model={self.model}] "
+                    f"duration_ms={batch_duration_ms} error={error_message}"
+                )
+                # This is a serious error that indicates the model isn't available
+                raise ValueError(f"Embedding model not available: {error_message}") from e
+            
+            except httpx.ConnectError as e:
+                batch_duration_ms = int((time.time() - batch_start_time) * 1000)
+                error_message = f"Connection error: Could not connect to vLLM socket at {self.socket_path}"
+                logger.error(
+                    f"🚨 EMBEDDING SOCKET ERROR [socket={self.socket_path}] "
+                    f"duration_ms={batch_duration_ms} error={error_message}"
+                )
+                raise ConnectionError(f"Embedding socket connection failed: {str(e)}") from e
+            
             except Exception as e:
                 batch_duration_ms = int((time.time() - batch_start_time) * 1000)
                 error_details = {
@@ -419,19 +519,55 @@ class UnixSocketOpenAIDocumentEmbedder:
         start_time = time.time()
         
         try:
+            # First ensure all documents have valid IDs
+            for i, doc in enumerate(documents):
+                if doc.id is None or not isinstance(doc.id, str):
+                    doc.id = f"doc_{i}_{id(doc)}"
+                    logger.debug(f"Assigned generated ID to document: {doc.id}")
+            
+            # Now prepare texts to embed
             texts_to_embed = self._prepare_texts_to_embed(documents=documents)
             logger.info(f"🔄 DOCUMENT EMBEDDING PROCESSING [socket={self.socket_path}] prepared_texts={len(texts_to_embed)}")
 
-            embeddings, meta = self._embed_batch(texts_to_embed=texts_to_embed, batch_size=self.batch_size)
+            # Convert dict values to a list for batch processing
+            doc_ids = list(texts_to_embed.keys())
+            texts_list = [texts_to_embed[doc_id] for doc_id in doc_ids]
             
-            for doc, emb in zip(documents, embeddings):
-                doc.embedding = emb
+            logger.debug(f"Document IDs: {doc_ids[:5]}{'...' if len(doc_ids) > 5 else ''}")
+            
+            # Get embeddings from the API
+            embeddings, meta = self._embed_batch(texts_to_embed=texts_list, batch_size=self.batch_size)
+            
+            # Validate embeddings before assigning
+            if len(embeddings) != len(documents):
+                logger.warning(
+                    f"Mismatch between number of embeddings ({len(embeddings)}) and documents ({len(documents)}). "
+                    f"Some documents may not receive embeddings."
+                )
+            
+            # Create a mapping from document ID to index position in the documents list
+            doc_index_map = {doc.id: i for i, doc in enumerate(documents)}
+            
+            # Assign embeddings back to documents
+            for i, doc_id in enumerate(doc_ids):
+                if i < len(embeddings):
+                    # Find the document in our list that matches this ID
+                    if doc_id in doc_index_map:
+                        doc_idx = doc_index_map[doc_id]
+                        # Convert embedding to a list if it's not already one
+                        embedding = embeddings[i]
+                        if embedding is not None:
+                            documents[doc_idx].embedding = list(embedding)
+                        logger.debug(f"Assigned embedding to document {doc_id} at index {doc_idx}")
+                    else:
+                        logger.warning(f"Document ID {doc_id} not found in document list")
 
             duration_ms = int((time.time() - start_time) * 1000)
+            embedding_dim = len(embeddings[0]) if embeddings and len(embeddings) > 0 else 0
             logger.info(
                 f"✅ DOCUMENT EMBEDDING RESPONSE [socket={self.socket_path}, model={self.model}] "
                 f"duration_ms={duration_ms} documents={len(documents)} "
-                f"tokens={meta['usage']['prompt_tokens']} dimensions={len(embeddings[0]) if embeddings else 0}"
+                f"tokens={meta['usage']['prompt_tokens']} dimensions={embedding_dim}"
             )
             
             return {"documents": documents, "meta": meta}
@@ -441,4 +577,7 @@ class UnixSocketOpenAIDocumentEmbedder:
                 f"❌ DOCUMENT EMBEDDING ERROR [socket={self.socket_path}, model={self.model}] "
                 f"duration_ms={duration_ms} documents={len(documents)} error={str(e)}"
             )
+            # Include traceback for better debugging
+            import traceback
+            logger.error(f"TRACEBACK: {traceback.format_exc()}")
             raise
