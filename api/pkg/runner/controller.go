@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
@@ -171,15 +173,59 @@ func (r *Runner) Run(ctx context.Context) {
 	log.Info().Str("runner_id", r.Options.ID).Msg("Starting NATS controller")
 	go func() {
 		serverURL := fmt.Sprintf("http://%s:%d", r.Options.WebServer.Host, r.Options.WebServer.Port)
-		_, err := NewNatsController(ctx, &NatsControllerConfig{
-			PS:        r.pubsub,
-			ServerURL: serverURL,
-			RunnerID:  r.Options.ID,
-		})
-		if err != nil {
-			panic(err)
+
+		// Add retry logic for connecting to NATS
+		maxRetries := 10
+		backoff := 2 * time.Second
+		var err error
+
+		for i := 0; i < maxRetries; i++ {
+			log.Info().
+				Str("runner_id", r.Options.ID).
+				Int("attempt", i+1).
+				Int("max_retries", maxRetries).
+				Msg("Attempting to connect to control plane")
+
+			_, err = NewNatsController(ctx, &NatsControllerConfig{
+				PS:        r.pubsub,
+				ServerURL: serverURL,
+				RunnerID:  r.Options.ID,
+			})
+
+			if err == nil {
+				log.Info().
+					Str("runner_id", r.Options.ID).
+					Msg("Successfully connected to control plane")
+				break
+			}
+
+			log.Warn().
+				Err(err).
+				Str("runner_id", r.Options.ID).
+				Int("attempt", i+1).
+				Int("max_retries", maxRetries).
+				Dur("retry_after", backoff).
+				Msg("Failed to connect to control plane, retrying...")
+
+			select {
+			case <-ctx.Done():
+				log.Warn().Msg("Context cancelled while retrying connection")
+				return
+			case <-time.After(backoff):
+				// Exponential backoff with a maximum of 30 seconds
+				backoff = time.Duration(math.Min(float64(backoff)*1.5, 30*float64(time.Second)))
+			}
 		}
+
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", r.Options.ID).
+				Int("max_retries", maxRetries).
+				Msg("Failed to connect to control plane after multiple attempts")
+			panic(fmt.Sprintf("Failed to connect to control plane after %d attempts: %v", maxRetries, err))
+		}
+
 		<-ctx.Done()
 	}()
-
 }

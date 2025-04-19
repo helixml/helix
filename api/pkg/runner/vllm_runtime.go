@@ -336,8 +336,37 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		args = append(args, "--max-model-len", fmt.Sprintf("%d", contextLength))
 	}
 
-	if !customArgsMap["--tensor-parallel-size"] {
-		args = append(args, "--tensor-parallel-size", "1") // Default to 1 GPU
+	// If not in custom args, add device flag for CPU-only mode
+	if !customArgsMap["--device"] {
+		if os.Getenv("DEVELOPMENT_CPU_ONLY") == "true" || os.Getenv("VLLM_DEVICE") == "cpu" {
+			log.Debug().Msg("Adding --device=cpu command line flag for CPU-only mode")
+			args = append(args, "--device", "cpu")
+
+			// Also need to disable async output processing which isn't supported on CPU
+			if !customArgsMap["--disable-async-output-proc"] {
+				log.Debug().Msg("Adding --disable-async-output-proc for CPU compatibility")
+				args = append(args, "--disable-async-output-proc")
+			}
+
+			// Set explicit worker class for CPU mode
+			if !customArgsMap["--worker-cls"] {
+				log.Debug().Msg("Setting explicit worker class for CPU mode")
+				args = append(args, "--worker-cls", "vllm.worker.cpu_worker.CPUWorker")
+			}
+
+			// Set tensor parallel size to 1 for CPU
+			if !customArgsMap["--tensor-parallel-size"] {
+				args = append(args, "--tensor-parallel-size", "1")
+			}
+
+			// Force dtype to float32 for CPU mode to ensure compatibility
+			if !customArgsMap["--dtype"] {
+				log.Debug().Msg("Setting dtype=float32 for CPU compatibility")
+				args = append(args, "--dtype", "float32")
+			}
+		} else if !customArgsMap["--tensor-parallel-size"] {
+			args = append(args, "--tensor-parallel-size", "1") // Default to 1 GPU
+		}
 	}
 
 	// Add custom arguments
@@ -371,6 +400,23 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 
 		// Hugging Face authentication
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
+	}
+
+	// Check for CPU-only mode
+	if os.Getenv("DEVELOPMENT_CPU_ONLY") == "true" {
+		log.Debug().Msg("CPU-only mode detected via DEVELOPMENT_CPU_ONLY, setting VLLM_DEVICE=cpu")
+		env = append(env, "VLLM_DEVICE=cpu")
+		env = append(env, "VLLM_LOGGING_LEVEL=DEBUG")
+	} else {
+		// Pass through existing vLLM config if set
+		if vllmDevice := os.Getenv("VLLM_DEVICE"); vllmDevice != "" {
+			log.Debug().Str("VLLM_DEVICE", vllmDevice).Msg("Using VLLM_DEVICE from environment")
+			env = append(env, fmt.Sprintf("VLLM_DEVICE=%s", vllmDevice))
+		}
+		if vllmLoggingLevel := os.Getenv("VLLM_LOGGING_LEVEL"); vllmLoggingLevel != "" {
+			log.Debug().Str("VLLM_LOGGING_LEVEL", vllmLoggingLevel).Msg("Using VLLM_LOGGING_LEVEL from environment")
+			env = append(env, fmt.Sprintf("VLLM_LOGGING_LEVEL=%s", vllmLoggingLevel))
+		}
 	}
 
 	cmd.Env = env
