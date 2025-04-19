@@ -2,6 +2,10 @@
 
 ARG TAG=latest-small
 ARG UV_VERSION="0.5.4"
+# Add arg for CPU/GPU mode
+ARG DEVELOPMENT_CPU_ONLY=""
+# Set vLLM version consistently
+ARG VLLM_VERSION="0.8.4"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
@@ -18,14 +22,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ### BUILD
 
-FROM golang:1.23 AS go-build-env
+FROM golang:1.23.4 AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
 COPY go.mod .
 COPY go.sum .
 
-RUN go mod download
+# Create and set permissions on Go cache directories
+RUN mkdir -p /go/pkg/mod /root/.cache/go-build && \
+    chmod -R 777 /go/pkg/mod /root/.cache/go-build && \
+    go mod download
 
 # COPY the source code as the last step
 COPY . .
@@ -43,6 +50,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
 
 FROM registry.helixml.tech/helix/runner-base:${TAG}
 
+# Pass the CPU flag through to this stage
+ARG DEVELOPMENT_CPU_ONLY=""
+# Pass the vLLM version 
+ARG VLLM_VERSION
+
+# Install Go 1.23.4
+RUN curl -L https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o /tmp/go1.23.4.tar.gz && \
+    rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go1.23.4.tar.gz && \
+    rm /tmp/go1.23.4.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 # Install ollama
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.6.5/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
@@ -52,10 +70,29 @@ RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     cp -r $TEMP_DIR/lib/ollama /usr/lib/ && \
     rm -rf $TEMP_DIR
 
-# Install vLLM
+# Install system dependencies for CPU builds if needed
+RUN if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
+        echo "Installing development libraries for CPU build" && \
+        apt-get update && apt-get install -y --no-install-recommends \
+        libnuma-dev \
+        build-essential \
+        cmake \
+        ninja-build \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Install vLLM - with separate methods for CPU and GPU
 RUN cd /workspace/axolotl && \
     . venv/bin/activate && \
-    pip3 install vllm==0.8.3
+    if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
+        echo "Installing vLLM with CPU support from GitHub release (version ${VLLM_VERSION})" && \
+        VLLM_TARGET_DEVICE=cpu \
+        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
+        pip3 install "vllm @ git+https://github.com/vllm-project/vllm.git@v${VLLM_VERSION}"; \
+    else \
+        echo "Installing vLLM with GPU support (version ${VLLM_VERSION})" && \
+        pip3 install vllm==${VLLM_VERSION}; \
+    fi
 
 RUN mkdir -p /workspace/helix
 

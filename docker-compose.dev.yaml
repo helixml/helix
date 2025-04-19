@@ -3,19 +3,16 @@ version: '3'
 # Common runner configuration (YAML anchor, not a service)
 x-runner-config: &runner-config
   restart: always
-  build:
-    context: .
-    dockerfile: Dockerfile.runner
-    args:
-      TAG: 2024-12-07a-empty
-  entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
+  # Just keep container alive - Go 1.23.4 is already installed in the image
+  entrypoint: bash -c "cd /workspace/helix && go version && GOTOOLCHAIN=local go mod download && tail -f /dev/null"
   env_file:
     - .env
   environment:
     # Explicitly set Go cache paths for clarity
     - GOMODCACHE=/go/pkg/mod
     - GOCACHE=/root/.cache/go-build
-    - GO_WORK=/workspace/helix
+    # Prevent automatic toolchain downloads
+    - GOTOOLCHAIN=local
   volumes:
     - .:/workspace/helix
     - ~/.cache/huggingface:/root/.cache/huggingface
@@ -210,39 +207,38 @@ services:
     depends_on:
       - api
 
-  # Base runner without GPU
+  # Base runner without GPU, fakes GPU by using CPU memory
   runner:
     <<: *runner-config
     profiles: ["runner"]
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      args:
+        TAG: 2024-12-07a-empty
+        # Builds vllm in CPU-only mode per https://github.com/vllm-project/vllm/discussions/8090
+        DEVELOPMENT_CPU_ONLY: "true"
     environment:
+      # Passes cpu-only flags to vllm
       - DEVELOPMENT_CPU_ONLY=true
-    # Pre-download the Go toolchain and dependencies
-    command: >
-      bash -c "
-        # Pre-download Go toolchain and modules
-        export GOFLAGS=-mod=readonly
-        cd /workspace/helix &&
-        go version &&
-        go mod download &&
-        echo 'Go dependencies pre-downloaded' &&
-        tail -f /dev/null
-      "
+      # Prevent toolchain downloads
+      - GOTOOLCHAIN=local
+      # Force vLLM to use CPU
+      - VLLM_DEVICE=cpu
+      - VLLM_LOGGING_LEVEL=DEBUG
 
   # GPU-enabled runner
   runner_gpu:
     <<: *runner-config
     profiles: ["runner_gpu"]
-    # Pre-download the Go toolchain and dependencies
-    command: >
-      bash -c "
-        # Pre-download Go toolchain and modules
-        export GOFLAGS=-mod=readonly
-        cd /workspace/helix &&
-        go version &&
-        go mod download &&
-        echo 'Go dependencies pre-downloaded' &&
-        tail -f /dev/null
-      "
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      args:
+        TAG: 2024-12-07a-empty
+    environment:
+      # Prevent toolchain downloads
+      - GOTOOLCHAIN=local 
     deploy:
       resources:
         reservations:

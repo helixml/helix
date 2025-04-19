@@ -7,6 +7,23 @@ export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
 
+# Helper function to check for NVIDIA GPU and set appropriate variables
+function setup_runner_profile() {
+  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "NVIDIA GPU detected, using GPU support"
+    export RUNNER_CONTAINER="runner_gpu"
+    export RUNNER_PROFILE="--profile runner_gpu"
+    export DEV_CPU_ONLY_CMD=""
+    export VLLM_ENV_VARS=""
+  else
+    echo "No NVIDIA GPU detected, running without GPU support"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  fi
+}
+
 function mock-runner() {
    go run . runner \
     --mock-runner \
@@ -18,12 +35,26 @@ function mock-runner() {
     --label gpu=4090 "$@"
 }
 
-function compose() {
-  docker compose -f docker-compose.dev.yaml "$@"
-}
 
 function build() {
-  compose build
+  # First detect GPU and set variables
+  setup_runner_profile
+  
+  if [[ -n "$WITH_RUNNER" ]]; then
+    echo "Building runner: $RUNNER_CONTAINER"
+    docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" build
+    return
+  fi
+  
+  if [[ -n "$WITH_DEMOS" ]]; then
+    echo "Building demos"
+    docker compose -f docker-compose.dev.yaml --profile demos build
+    return
+  fi
+  
+  # No profiles specified, just build everything
+  echo "Building all services"
+  docker compose -f docker-compose.dev.yaml build
 }
 
 function static-compile() {
@@ -44,27 +75,29 @@ function start() {
 
   echo "Starting docker compose"
 
-  local COMPOSE_FLAGS=""
-  local COMPOSE_PROFILES=""
-
+  # Setup runner profiles first
+  setup_runner_profile
+  
+  # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
-    # Check if NVIDIA GPU is available using just nvidia-smi
-    if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-      echo "NVIDIA GPU detected, enabling GPU support"
-      COMPOSE_PROFILES="$COMPOSE_PROFILES --profile runner_gpu"
-      export RUNNER_CONTAINER="runner_gpu"
+    if [[ -n "$WITH_DEMOS" ]]; then
+      # Both runner and demos
+      echo "Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
+      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos up -d
     else
-      echo "No NVIDIA GPU detected, running without GPU support"
-      COMPOSE_PROFILES="$COMPOSE_PROFILES --profile runner"
-      export RUNNER_CONTAINER="runner"
+      # Just runner
+      echo "Starting services with runner ($RUNNER_CONTAINER) profile"
+      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" up -d
     fi
+  elif [[ -n "$WITH_DEMOS" ]]; then
+    # Just demos
+    echo "Starting services with demos profile"
+    docker compose -f docker-compose.dev.yaml --profile demos up -d
+  else
+    # No special profiles
+    echo "Starting base services"
+    docker compose -f docker-compose.dev.yaml up -d
   fi
-
-  if [[ -n "$WITH_DEMOS" ]]; then
-    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile demos"
-  fi
-
-  eval "docker compose -f docker-compose.dev.yaml $COMPOSE_PROFILES up $COMPOSE_FLAGS -d"
 
   sleep 2
 
@@ -86,24 +119,17 @@ function start() {
   tmux select-pane -t 0
   tmux split-window -v -d
 
-  tmux send-keys -t 0 './stack compose logs -f frontend' C-m
-  tmux send-keys -t 1 './stack compose logs -f api' C-m
-  tmux send-keys -t 2 './stack compose logs -f haystack' C-m
+  tmux send-keys -t 0 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
+  tmux send-keys -t 1 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
+  tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    # Check if NVIDIA GPU is available, if not and we need CPU-only mode
-    if ! command -v nvidia-smi &> /dev/null || ! nvidia-smi &> /dev/null; then
-      export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
-    else
-      export DEV_CPU_ONLY_CMD=""
-    fi
-    
-    tmux send-keys -t 3 "./stack compose --profile ${RUNNER_CONTAINER} -f docker-compose.dev.yaml exec ${RUNNER_CONTAINER} bash" C-m
-    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner" C-m
+    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml --profile \"$RUNNER_CONTAINER\" exec $RUNNER_CONTAINER bash" C-m
+    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} LOG_LEVEL=debug GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build GOTOOLCHAIN=auto ${VLLM_ENV_VARS} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner" C-m
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
-    tmux send-keys -t 4 'docker compose --profile demos -f docker-compose.dev.yaml exec demos bash' C-m
+    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
     tmux send-keys -t 4 'go run .' C-m
   fi
 
@@ -113,18 +139,30 @@ function start() {
 function stop() {
   echo "Removing docker containers"
   
-  # First check if the GPU runner profiles should be included
-  local PROFILES="--profile demos"
+  # Setup runner profiles first
+  setup_runner_profile
   
-  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-    # If GPU is available, include both profiles in case either was previously started
-    PROFILES="$PROFILES --profile runner --profile runner_gpu"
+  # Stop containers based on enabled profiles
+  if [[ -n "$WITH_RUNNER" ]]; then
+    if [[ -n "$WITH_DEMOS" ]]; then
+      # Both runner and demos
+      echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
+      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down
+    else
+      # Just runner
+      echo "Stopping services with runner ($RUNNER_CONTAINER) profile"
+      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down
+    fi
+  elif [[ -n "$WITH_DEMOS" ]]; then
+    # Just demos
+    echo "Stopping services with demos profile"
+    docker compose -f docker-compose.dev.yaml --profile demos down
   else
-    # If no GPU, just include the basic runner profile
-    PROFILES="$PROFILES --profile runner"
+    # Include all profiles when no environment variables are set
+    echo "Stopping all services (all profiles)"
+    docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down
   fi
   
-  ./stack compose $PROFILES down
   echo "Stopping tmux session $TMUX_SESSION..."
   tmux kill-session -t $TMUX_SESSION ||true
 }
@@ -143,9 +181,9 @@ function db() {
   local containername="${1-postgres}"
   shift
   if [[ "$subcommand" == "cli" ]]; then
-    ./stack compose exec $containername psql --user postgres "$@"
+    docker compose -f docker-compose.dev.yaml exec $containername psql --user postgres "$@"
   elif [[ "$subcommand" == "pipe" ]]; then
-    ./stack compose exec -T $containername psql --user postgres "$@"
+    docker compose -f docker-compose.dev.yaml exec -T $containername psql --user postgres "$@"
   fi
 }
 
