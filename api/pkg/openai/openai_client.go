@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -71,6 +72,10 @@ func (c *RetryableClient) APIKey() string {
 }
 
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
+	if err := c.validateModel(request.Model); err != nil {
+		return openai.ChatCompletionResponse{}, err
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -93,7 +98,21 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 }
 
 func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	if err := c.validateModel(request.Model); err != nil {
+		return nil, err
+	}
+
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
+}
+
+func (c *RetryableClient) validateModel(model string) error {
+	if len(c.models) > 0 {
+		if !slices.Contains(c.models, model) {
+			return fmt.Errorf("model %s is not in the list of allowed models", model)
+		}
+	}
+
+	return nil
 }
 
 // TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
