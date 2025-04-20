@@ -62,7 +62,7 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
     promptTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.prompt_tokens || 0), 0),
     completionTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.completion_tokens || 0), 0),
     totalTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.total_tokens || 0), 0)
-  }));
+  })).sort((a, b) => b.totalTokens - a.totalTokens);
 
   // Get the first user's metrics dates for X axis (assuming all users have same dates)
   const firstUserMetrics = usageData[0]?.metrics || [];
