@@ -27,8 +27,11 @@ export const RunnerSummary: FC<{
   // Calculate memory values - we get total_memory and free_memory from the API
   const actual_memory = runner.total_memory - runner.free_memory
   
-  // Get allocated memory from the API if available, otherwise fall back to actual memory
-  const allocated_memory = runner.allocated_memory || actual_memory
+  // Get allocated memory from the API if available, never fall back to actual memory
+  // If there are no slots (model instances) or no explicit allocated_memory, set to 0
+  const allocated_memory = (!runner.slots || runner.slots.length === 0 || !runner.allocated_memory) 
+    ? 0 
+    : runner.allocated_memory
   
   // Calculate percentage for better visualization
   const actualPercent = Math.round((actual_memory / runner.total_memory) * 100)

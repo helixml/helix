@@ -709,6 +709,9 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Add models endpoint to allow checking available models
 	router.HandleFunc("/v1/models", apiServer.listModelsForSocket).Methods(http.MethodGet, http.MethodOptions)
 
+	// Add chat completions endpoint for Haystack LLM access
+	router.HandleFunc("/v1/chat/completions", apiServer.createChatCompletion).Methods(http.MethodPost, http.MethodOptions)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Handler:      router,

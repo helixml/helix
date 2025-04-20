@@ -245,39 +245,70 @@ class UnixSocketOpenAIDocumentEmbedder:
         """
         Verify that the socket connection is working by sending a small test request.
         This helps identify socket connectivity issues early.
+        
+        Will retry for up to 5 minutes with exponential backoff before giving up.
         """
         logger.info(f"Verifying socket connection to {self.socket_path}...")
         
-        try:
-            # Send a request to the models endpoint, which should be lightweight
-            # and doesn't actually require a model to be loaded
-            response = self.client.models.list()
-            if hasattr(response, "data") and len(response.data) > 0:
-                available_models = [model.id for model in response.data]
-                logger.info(f"Socket connection verified. Available models: {available_models}")
+        start_time = time.time()
+        max_wait_time = 5 * 60  # 5 minutes in seconds
+        attempt = 0
+        retry_delay = 1  # Start with 1 second delay
+        
+        while time.time() - start_time < max_wait_time:
+            attempt += 1
+            try:
+                # Send a request to the models endpoint, which should be lightweight
+                # and doesn't actually require a model to be loaded
+                logger.info(f"Socket connection attempt {attempt} (elapsed: {int(time.time() - start_time)}s)")
+                response = self.client.models.list()
                 
-                # Check if our model is available
-                if self.model not in available_models:
-                    logger.warning(
-                        f"⚠️ Requested model '{self.model}' not found in available models. "
-                        f"This may cause errors when creating embeddings."
+                if hasattr(response, "data") and len(response.data) > 0:
+                    available_models = [model.id for model in response.data]
+                    logger.info(f"Socket connection verified after {int(time.time() - start_time)}s. Available models: {available_models}")
+                    
+                    # Check if our model is available
+                    if self.model not in available_models:
+                        logger.warning(
+                            f"⚠️ Requested model '{self.model}' not found in available models. "
+                            f"This may cause errors when creating embeddings."
+                        )
+                    return True  # Connection successful
+                else:
+                    logger.warning("Socket connection verified but no models were returned.")
+                    return True  # Connection successful but empty response
+                    
+            except httpx.ConnectError as e:
+                elapsed = int(time.time() - start_time)
+                remaining = max_wait_time - elapsed
+                
+                if remaining <= 0:
+                    logger.error(f"❌ Socket connection failed after {elapsed}s: {str(e)}")
+                    logger.error(
+                        f"The socket path '{self.socket_path}' may not exist or the service isn't running. "
+                        f"Embedding requests will fail until this is fixed."
                     )
-            else:
-                logger.warning("Socket connection verified but no models were returned.")
+                    break
+                    
+                logger.warning(
+                    f"⏳ Socket not ready ({elapsed}s elapsed). Will retry in {retry_delay}s. "
+                    f"Waiting up to {remaining}s more."
+                )
+                time.sleep(retry_delay)
+                # Exponential backoff with a max of 20 seconds between retries
+                retry_delay = min(retry_delay * 1.5, 20)
                 
-        except httpx.ConnectError as e:
-            logger.error(f"❌ Socket connection failed: {str(e)}")
-            logger.error(
-                f"The socket path '{self.socket_path}' may not exist or the service isn't running. "
-                f"Embedding requests will fail until this is fixed."
-            )
-            # Don't raise an exception here - we'll let the actual embedding requests fail
-            # so the component still initializes
-            
-        except Exception as e:
-            logger.error(f"❌ Error verifying socket connection: {str(e)}")
-            import traceback
-            logger.error(f"TRACEBACK: {traceback.format_exc()}")
+            except Exception as e:
+                logger.error(f"❌ Error verifying socket connection: {str(e)}")
+                import traceback
+                logger.error(f"TRACEBACK: {traceback.format_exc()}")
+                break
+        
+        logger.warning(
+            f"Socket verification timed out after {int(time.time() - start_time)}s. "
+            f"Continuing without verification. Embedding requests may fail."
+        )
+        return False  # Connection could not be verified
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
         """
