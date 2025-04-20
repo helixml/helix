@@ -72,6 +72,15 @@ interface ModelWithProvider extends TypesOpenAIModel {
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
   return models.filter((model) => {
+    // First, check if the provider has a specific list of allowed models
+    const providerAllowedModels = model.provider?.models;
+    if (providerAllowedModels && providerAllowedModels.length > 0) {
+      // If the provider has a specific list, the current model must be in it
+      if (!model.id || !providerAllowedModels.includes(model.id)) {
+        return false; // Exclude if model.id is not in the provider's allowed list
+      }
+    }
+
     // If provider is togetherai or openai or helix, check model type
     if (model.type && model.type !== "") {
       if (model.provider?.name === "togetherai" || model.provider?.name === "openai" || model.provider?.name === "helix") {
@@ -82,6 +91,7 @@ function fuzzySearch(query: string, models: ModelWithProvider[], modelType: stri
     }
 
     // Otherwise it can be a custom vllm/ollama which don't have model types at all
+    // Finally, filter by search query against model ID or provider name
     return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider?.name?.toLowerCase().includes(query.toLowerCase());
   });
 }
