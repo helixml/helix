@@ -15,12 +15,12 @@ class Settings:
     CHUNK_UNIT: str = os.getenv("RAG_HAYSTACK_CHUNK_UNIT", "word")
 
     # Embedding model settings
-    EMBEDDING_DIM: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_DIM", "3584"))
+    EMBEDDING_DIM: int = int(os.getenv("RAG_HAYSTACK_EMBEDDINGS_DIM", "1536"))
     EMBEDDINGS_MAX_TOKENS: int = int(
         os.getenv("RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS", "32768")
     )
     EMBEDDINGS_MODEL: str = os.getenv(
-        "RAG_HAYSTACK_EMBEDDINGS_MODEL", "Alibaba-NLP/gte-Qwen2-7B-instruct"
+        "RAG_HAYSTACK_EMBEDDINGS_MODEL", "MrLight/dse-qwen2-2b-mrl-v1"
     )
     EMBEDDINGS_SOCKET: Optional[str] = os.getenv("HELIX_EMBEDDINGS_SOCKET", None)
     VLLM_BASE_URL: str = os.getenv(

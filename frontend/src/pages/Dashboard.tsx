@@ -176,12 +176,24 @@ const Dashboard: FC = () => {
             justifyContent: 'space-between',
           }}
         >
+          <Box sx={{ flex: 1 }}></Box>
           {account.serverConfig.version && (
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.7)',
+                position: 'absolute',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                textAlign: 'center',
+              }}
+            >
               Helix Control Plane version: {account.serverConfig.version}
             </Typography>
           )}
-          <SessionBadgeKey />
+          <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+            <SessionBadgeKey />
+          </Box>
         </Box>
       )}
     >

@@ -15,7 +15,8 @@ import Grid from '@mui/material/Grid'
 import {
   IModelInstanceState,
   ISessionSummary,
-  ISlot
+  ISlot,
+  SESSION_MODE_INFERENCE
 } from '../../types'
 
 import {
@@ -48,6 +49,26 @@ export const ModelInstanceSummary: FC<{
     }
     return '#e5e5e5'
   }, [slot.ready, slot.active])
+
+  // Get runtime specific color for the bullet
+  const runtimeColor = useMemo(() => {
+    // Convert runtime to lowercase to handle any case inconsistencies
+    const runtime = slot.runtime.toLowerCase();
+    
+    // Match color based on runtime
+    if (runtime.includes('vllm')) {
+      return '#72C99A'; // Green for VLLM
+    } else if (runtime.includes('ollama')) {
+      return '#F4D35E'; // Yellow for Ollama
+    } else if (runtime.includes('axolotl')) {
+      return '#FF6B6B'; // Red for Axolotl
+    } else if (runtime.includes('diffusers')) {
+      return '#D183C9'; // Purple for Diffusers
+    }
+    
+    // Default fallback color if runtime doesn't match
+    return statusColor;
+  }, [slot.runtime, statusColor]);
 
   // Enhanced gradient border based on status
   const borderGradient = useMemo(() => {
@@ -95,9 +116,9 @@ export const ModelInstanceSummary: FC<{
                   width: 8, 
                   height: 8, 
                   borderRadius: '50%', 
-                  backgroundColor: statusColor,
+                  backgroundColor: runtimeColor,
                   mr: 1.5,
-                  boxShadow: theme => slot.active ? `0 0 6px ${statusColor}` : 'none',
+                  boxShadow: theme => slot.active ? `0 0 6px ${runtimeColor}` : 'none',
                 }} 
               />
               { slot.runtime }: { slot.model }
