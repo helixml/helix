@@ -160,10 +160,6 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		}
 	}
 
-	if len(c.models) > 0 {
-		models = filterSpecifiedModels(models, c.models)
-	}
-
 	// Remove audio, tts models
 	models = filterUnsupportedModels(models)
 
@@ -254,6 +250,11 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 			}
 		}
 		models = filteredModels
+	}
+
+	// Set the enabled field to true if the model is in the list of allowed models
+	for i := range models {
+		models[i].Enabled = modelEnabled(models[i], c.models)
 	}
 
 	return models, nil
