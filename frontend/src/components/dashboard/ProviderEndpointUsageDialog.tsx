@@ -112,6 +112,11 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
                   }]}
                   series={chartData.series}
                   height={300}
+                  slotProps={{
+                    legend: {
+                      hidden: true
+                    }
+                  }}
                 />
               ) : (
                 <Typography variant="body1" textAlign="center">No usage data available</Typography>
