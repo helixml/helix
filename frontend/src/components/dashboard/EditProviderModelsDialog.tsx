@@ -61,8 +61,6 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
       // Ensure the API call signature is correct (ID first, then payload)
       await updateProviderEndpoint({
           base_url: endpoint.base_url,          
-          api_key: endpoint.api_key,
-          api_key_file: endpoint.api_key_file,
           endpoint_type: endpoint.endpoint_type as TypesProviderEndpointType,
           models: selectedModels,
       });
