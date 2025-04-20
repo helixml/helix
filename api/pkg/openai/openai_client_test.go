@@ -64,6 +64,27 @@ func TestValidateMode_Stream_Denied(t *testing.T) {
 	assert.Contains(t, err.Error(), "model gpt-4.1-mini is not in the list of allowed models")
 }
 
+func TestValidateModel_Success(t *testing.T) {
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := json.NewEncoder(w).Encode(&openai.ChatCompletionResponse{
+			Model: "test-model",
+		}); err != nil {
+			t.Logf("failed encoding request: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	client := New("test", ts.URL, "test-model")
+
+	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
+		Model: "test-model",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "test-model", resp.Model)
+}
+
 func TestDoNotRetryOnAuthFailures(t *testing.T) {
 	client := New("test", "https://api.together.xyz/v1")
 
