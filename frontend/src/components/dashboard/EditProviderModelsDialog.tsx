@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -40,46 +40,46 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
     } else {
       setSelectedModels([]);
     }
-    setError(null); // Reset error when dialog opens or endpoint changes
+    setError(null);
+    setIsLoading(false);
   }, [endpoint]);
 
-  const handleToggleModel = (modelName: string) => {
-    setSelectedModels((prevSelected) =>
-      prevSelected.includes(modelName)
-        ? prevSelected.filter((m) => m !== modelName)
-        : [...prevSelected, modelName]
-    );
-  };
-
-  const handleSaveChanges = async () => {
+  const saveModels = useCallback(async (modelsToSave: string[]) => {
     if (!endpoint) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      // Ensure the API call signature is correct (ID first, then payload)
       await updateProviderEndpoint({
-          base_url: endpoint.base_url,          
-          endpoint_type: endpoint.endpoint_type as TypesProviderEndpointType,
-          models: selectedModels,
+        base_url: endpoint.base_url,
+        endpoint_type: endpoint.endpoint_type as TypesProviderEndpointType,
+        models: modelsToSave,
       });
       refreshData();
-      onClose();
     } catch (err: any) {
       console.error("Failed to update provider endpoint models:", err);
       setError(err.message || "An error occurred while saving changes.");
+      setSelectedModels(endpoint?.models || []);
     } finally {
       setIsLoading(false);
     }
+  }, [endpoint, updateProviderEndpoint, refreshData]);
+
+  const handleToggleModel = (modelName: string) => {
+    const newSelectedModels = selectedModels.includes(modelName)
+      ? selectedModels.filter((m) => m !== modelName)
+      : [...selectedModels, modelName];
+    
+    setSelectedModels(newSelectedModels);
+    saveModels(newSelectedModels);
   };
 
   if (!endpoint) return null;
 
-  // Check if available_models exists and is an array, then cast to expected type via unknown
   const availableModels: Array<{ id: string; [key: string]: any }> = 
     Array.isArray(endpoint.available_models) 
-      ? (endpoint.available_models as unknown as Array<{ id: string; [key: string]: any }>) // Cast via unknown
+      ? (endpoint.available_models as unknown as Array<{ id: string; [key: string]: any }>)
       : [];
 
   return (
@@ -111,12 +111,6 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
           </List>
         )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={isLoading}>Cancel</Button>
-        <Button onClick={handleSaveChanges} variant="contained" disabled={isLoading || availableModels.length === 0}>
-          {isLoading ? <CircularProgress size={24} /> : 'Save Changes'}
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 };
