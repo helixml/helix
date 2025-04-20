@@ -38,7 +38,9 @@ type Client interface {
 	APIKey() string
 }
 
-func New(apiKey string, baseURL string) *RetryableClient {
+// New creates a new OpenAI client with the given API key and base URL.
+// If models are provided, models will be filtered to only include the provided models.
+func New(apiKey string, baseURL string, models ...string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 	config.HTTPClient = &openAIClientInterceptor{}
@@ -50,6 +52,7 @@ func New(apiKey string, baseURL string) *RetryableClient {
 		httpClient: http.DefaultClient,
 		baseURL:    baseURL,
 		apiKey:     apiKey,
+		models:     models,
 	}
 }
 
@@ -59,6 +62,7 @@ type RetryableClient struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
+	models     []string
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -135,6 +139,10 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
 		}
+	}
+
+	if len(c.models) > 0 {
+		models = filterSpecifiedModels(models, c.models)
 	}
 
 	// Remove audio, tts models
