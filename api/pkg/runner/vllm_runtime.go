@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -155,7 +156,22 @@ func (v *VLLMRuntime) Stop() error {
 	if v.cmd == nil {
 		return nil
 	}
-	log.Info().Int("pid", v.cmd.Process.Pid).Msg("Stopping vLLM runtime")
+
+	// Add detailed debug info with stack trace to help debug shutdown causes
+	stackTrace := make([]byte, 4096)
+	stackSize := runtime.Stack(stackTrace, true)
+	contextInfo := "none"
+	if v.cmd.ProcessState != nil {
+		contextInfo = fmt.Sprintf("exit_code=%d, exited=%t", v.cmd.ProcessState.ExitCode(), v.cmd.ProcessState.Exited())
+	}
+
+	log.Info().
+		Int("pid", v.cmd.Process.Pid).
+		Str("model", v.model).
+		Str("stack_trace", string(stackTrace[:stackSize])).
+		Str("context_info", contextInfo).
+		Msg("Stopping vLLM runtime")
+
 	if err := killProcessTree(v.cmd.Process.Pid); err != nil {
 		log.Error().Msgf("error stopping vLLM model process: %s", err.Error())
 		return err
@@ -333,10 +349,21 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 		select {
 		case <-startCtx.Done():
 			elapsed := time.Since(startTime)
+			// Enhanced error logging with stack trace
+			stackTrace := make([]byte, 4096)
+			stackSize := runtime.Stack(stackTrace, true)
+
+			parentCtxErr := "none"
+			if ctx.Err() != nil {
+				parentCtxErr = ctx.Err().Error()
+			}
+
 			log.Error().
 				Dur("elapsed", elapsed).
 				Str("model", v.model).
 				Str("error", startCtx.Err().Error()).
+				Str("parent_context_error", parentCtxErr).
+				Str("stack_trace", string(stackTrace[:stackSize])).
 				Msg("vLLM ready check timed out or context canceled")
 			return startCtx.Err()
 		case <-ticker.C:
@@ -553,7 +580,15 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 
 				// Don't restart if context is canceled
 				if ctx.Err() != nil {
-					log.Info().Msg("Not restarting vLLM because context is canceled")
+					// Enhanced logging to capture why the context was canceled
+					contextErr := ctx.Err()
+					stackTrace := make([]byte, 4096)
+					stackSize := runtime.Stack(stackTrace, true)
+					log.Info().
+						Err(contextErr).
+						Str("model", model).
+						Str("stack_trace", string(stackTrace[:stackSize])).
+						Msg("Not restarting vLLM because context was canceled")
 					return
 				}
 

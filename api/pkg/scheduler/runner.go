@@ -525,7 +525,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Method: "POST",
 		URL:    "/api/v1/slots",
 		Body:   body,
-	}, 1*time.Minute)
+	}, 30*time.Minute) // Increased from 1 minute to allow enough time for model downloads
 	if err != nil {
 		return err
 	}
