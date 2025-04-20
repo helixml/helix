@@ -15,6 +15,7 @@ import {
   TableRow,
   Paper,
   CircularProgress,
+  TableSortLabel,
 } from '@mui/material';
 import { LineChart } from '@mui/x-charts';
 import { IProviderEndpoint } from '../../types';
@@ -34,6 +35,8 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
 }) => {
   const [loading, setLoading] = useState(true);
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
+  const [orderBy, setOrderBy] = useState<'username' | 'email' | 'promptTokens' | 'completionTokens' | 'totalTokens'>('totalTokens');
+  const [order, setOrder] = useState<'asc' | 'desc'>('desc');
   const api = useApi();
 
   useEffect(() => {
@@ -62,7 +65,7 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
     promptTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.prompt_tokens || 0), 0),
     completionTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.completion_tokens || 0), 0),
     totalTokens: (userData.metrics || []).reduce((sum, metric) => sum + (metric.total_tokens || 0), 0)
-  }));
+  })).sort((a, b) => b.totalTokens - a.totalTokens);
 
   // Get the first user's metrics dates for X axis (assuming all users have same dates)
   const firstUserMetrics = usageData[0]?.metrics || [];
@@ -76,6 +79,31 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
       label: userData.user?.username || 'Unknown User',
     }))
   };
+
+  const handleSort = (property: typeof orderBy) => {
+    const isAsc = orderBy === property && order === 'asc';
+    setOrder(isAsc ? 'desc' : 'asc');
+    setOrderBy(property);
+  };
+
+  const sortedUserTotals = [...userTotals].sort((a, b) => {
+    const multiplier = order === 'asc' ? 1 : -1;
+    
+    switch (orderBy) {
+      case 'username':
+        return multiplier * ((a.user?.username || '').localeCompare(b.user?.username || ''));
+      case 'email':
+        return multiplier * ((a.user?.email || '').localeCompare(b.user?.email || ''));
+      case 'promptTokens':
+        return multiplier * (a.promptTokens - b.promptTokens);
+      case 'completionTokens':
+        return multiplier * (a.completionTokens - b.completionTokens);
+      case 'totalTokens':
+        return multiplier * (a.totalTokens - b.totalTokens);
+      default:
+        return 0;
+    }
+  });
 
   return (
     <Dialog
@@ -112,6 +140,11 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
                   }]}
                   series={chartData.series}
                   height={300}
+                  slotProps={{
+                    legend: {
+                      hidden: true
+                    }
+                  }}
                 />
               ) : (
                 <Typography variant="body1" textAlign="center">No usage data available</Typography>
@@ -122,15 +155,55 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>User</TableCell>
-                    <TableCell>Email</TableCell>
-                    <TableCell align="right">Prompt Tokens</TableCell>
-                    <TableCell align="right">Completion Tokens</TableCell>
-                    <TableCell align="right">Total Tokens</TableCell>
+                    <TableCell>
+                      <TableSortLabel
+                        active={orderBy === 'username'}
+                        direction={orderBy === 'username' ? order : 'asc'}
+                        onClick={() => handleSort('username')}
+                      >
+                        User
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell>
+                      <TableSortLabel
+                        active={orderBy === 'email'}
+                        direction={orderBy === 'email' ? order : 'asc'}
+                        onClick={() => handleSort('email')}
+                      >
+                        Email
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell align="right">
+                      <TableSortLabel
+                        active={orderBy === 'promptTokens'}
+                        direction={orderBy === 'promptTokens' ? order : 'asc'}
+                        onClick={() => handleSort('promptTokens')}
+                      >
+                        Prompt Tokens
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell align="right">
+                      <TableSortLabel
+                        active={orderBy === 'completionTokens'}
+                        direction={orderBy === 'completionTokens' ? order : 'asc'}
+                        onClick={() => handleSort('completionTokens')}
+                      >
+                        Completion Tokens
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell align="right">
+                      <TableSortLabel
+                        active={orderBy === 'totalTokens'}
+                        direction={orderBy === 'totalTokens' ? order : 'asc'}
+                        onClick={() => handleSort('totalTokens')}
+                      >
+                        Total Tokens
+                      </TableSortLabel>
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {userTotals.map(({ user, promptTokens, completionTokens, totalTokens }) => (
+                  {sortedUserTotals.map(({ user, promptTokens, completionTokens, totalTokens }) => (
                     <TableRow key={user?.id || 'unknown'}>
                       <TableCell>{user?.username || 'Unknown User'}</TableCell>
                       <TableCell>{user?.email || 'N/A'}</TableCell>

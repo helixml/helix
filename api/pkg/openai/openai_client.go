@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -38,7 +39,9 @@ type Client interface {
 	APIKey() string
 }
 
-func New(apiKey string, baseURL string) *RetryableClient {
+// New creates a new OpenAI client with the given API key and base URL.
+// If models are provided, models will be filtered to only include the provided models.
+func New(apiKey string, baseURL string, models ...string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 	config.HTTPClient = &openAIClientInterceptor{}
@@ -50,6 +53,7 @@ func New(apiKey string, baseURL string) *RetryableClient {
 		httpClient: http.DefaultClient,
 		baseURL:    baseURL,
 		apiKey:     apiKey,
+		models:     models,
 	}
 }
 
@@ -59,6 +63,7 @@ type RetryableClient struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
+	models     []string
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -67,6 +72,10 @@ func (c *RetryableClient) APIKey() string {
 }
 
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
+	if err := c.validateModel(request.Model); err != nil {
+		return openai.ChatCompletionResponse{}, err
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -89,7 +98,21 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 }
 
 func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	if err := c.validateModel(request.Model); err != nil {
+		return nil, err
+	}
+
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
+}
+
+func (c *RetryableClient) validateModel(model string) error {
+	if len(c.models) > 0 {
+		if !slices.Contains(c.models, model) {
+			return fmt.Errorf("model %s is not in the list of allowed models", model)
+		}
+	}
+
+	return nil
 }
 
 // TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
@@ -227,6 +250,11 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 			}
 		}
 		models = filteredModels
+	}
+
+	// Set the enabled field to true if the model is in the list of allowed models
+	for i := range models {
+		models[i].Enabled = modelEnabled(models[i], c.models)
 	}
 
 	return models, nil

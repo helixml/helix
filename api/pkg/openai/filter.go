@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -36,4 +37,13 @@ func filterUnsupportedModels(models []types.OpenAIModel) []types.OpenAIModel {
 	}
 
 	return filteredModels
+}
+
+// filterSpecifiedModels filters the models to only include the specified models.
+func modelEnabled(model types.OpenAIModel, specifiedModels []string) bool {
+	if len(specifiedModels) == 0 {
+		return true
+	}
+
+	return slices.Contains(specifiedModels, model.ID)
 }

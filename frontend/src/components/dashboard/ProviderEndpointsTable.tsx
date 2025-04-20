@@ -25,6 +25,7 @@ import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
 import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
+import EditProviderModelsDialog from './EditProviderModelsDialog';
 import { useApi } from '../../hooks/useApi';
 import { useListProviders } from '../../services/providersService';
 
@@ -38,6 +39,7 @@ const ProviderEndpointsTable: FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
+  const [editModelsDialogOpen, setEditModelsDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});  
@@ -83,6 +85,10 @@ const ProviderEndpointsTable: FC = () => {
     setEditDialogOpen(true);
   };
 
+  const handleEditModelsClick = () => {
+    setEditModelsDialogOpen(true);
+  };
+
   const handleDeleteDialogClose = () => {
     setDeleteDialogOpen(false);
     setSelectedEndpoint(null);
@@ -91,6 +97,12 @@ const ProviderEndpointsTable: FC = () => {
 
   const handleEditDialogClose = () => {
     setEditDialogOpen(false);
+    setSelectedEndpoint(null);
+    handleMenuClose();
+  };
+
+  const handleEditModelsDialogClose = () => {
+    setEditModelsDialogOpen(false);
     setSelectedEndpoint(null);
     handleMenuClose();
   };
@@ -267,7 +279,8 @@ const ProviderEndpointsTable: FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleEditClick}>Edit</MenuItem>
+        <MenuItem onClick={handleEditClick}>Edit Details</MenuItem>
+        <MenuItem onClick={handleEditModelsClick}>Edit Models</MenuItem>
         <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
       </Menu>
       <DeleteProviderEndpointDialog
@@ -286,6 +299,12 @@ const ProviderEndpointsTable: FC = () => {
         open={usageDialogOpen}
         endpoint={selectedEndpoint}
         onClose={() => setUsageDialogOpen(false)}
+      />
+      <EditProviderModelsDialog
+        open={editModelsDialogOpen}
+        endpoint={selectedEndpoint}
+        onClose={handleEditModelsDialogClose}
+        refreshData={loadData}
       />
     </Paper>
   );

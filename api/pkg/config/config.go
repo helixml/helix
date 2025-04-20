@@ -74,6 +74,7 @@ type OpenAI struct {
 	APIKey                string        `envconfig:"OPENAI_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"OPENAI_MODELS"` // If set, only these models will be used
 }
 
 type VLLM struct {
@@ -81,6 +82,7 @@ type VLLM struct {
 	APIKey                string        `envconfig:"VLLM_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"VLLM_API_KEY_FILE"` // i.e. /run/secrets/vllm-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"VLLM_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"VLLM_MODELS"` // If set, only these models will be used
 }
 
 type TogetherAI struct {
@@ -88,6 +90,7 @@ type TogetherAI struct {
 	APIKey                string        `envconfig:"TOGETHER_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"TOGETHER_MODELS"` // If set, only these models will be used
 }
 
 type Helix struct {

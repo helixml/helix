@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -365,23 +366,23 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// Preserve ID and ownership information
 	existingEndpoint.Description = updatedEndpoint.Description
 	existingEndpoint.Models = updatedEndpoint.Models
-	existingEndpoint.BaseURL = updatedEndpoint.BaseURL
+	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
 	if updatedEndpoint.APIKey != nil {
-		existingEndpoint.APIKey = *updatedEndpoint.APIKey
+		existingEndpoint.APIKey = strings.TrimSpace(*updatedEndpoint.APIKey)
 	}
 
 	if updatedEndpoint.APIKeyFromFile != nil {
-		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
+		existingEndpoint.APIKeyFromFile = strings.TrimSpace(*updatedEndpoint.APIKeyFromFile)
 	}
 
 	switch {
 	case updatedEndpoint.APIKey != nil:
 		// If from key, clear the API key file
-		existingEndpoint.APIKey = *updatedEndpoint.APIKey
+		existingEndpoint.APIKey = strings.TrimSpace(*updatedEndpoint.APIKey)
 		existingEndpoint.APIKeyFromFile = ""
 	case updatedEndpoint.APIKeyFromFile != nil:
 		// If from file, clear the API key
-		existingEndpoint.APIKeyFromFile = *updatedEndpoint.APIKeyFromFile
+		existingEndpoint.APIKeyFromFile = strings.TrimSpace(*updatedEndpoint.APIKeyFromFile)
 		existingEndpoint.APIKey = ""
 	}
 
