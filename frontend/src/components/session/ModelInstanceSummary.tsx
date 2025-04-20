@@ -9,6 +9,8 @@ import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
+import Paper from '@mui/material/Paper'
+import Grid from '@mui/material/Grid'
 
 import {
   IModelInstanceState,
@@ -47,31 +49,96 @@ export const ModelInstanceSummary: FC<{
     return '#e5e5e5'
   }, [slot.ready, slot.active])
 
+  // Enhanced gradient border based on status
+  const borderGradient = useMemo(() => {
+    if (slot.active) {
+      return 'linear-gradient(90deg, #F4D35E 0%, rgba(244, 211, 94, 0.7) 100%)'
+    }
+    if (!slot.ready) {
+      return 'linear-gradient(90deg, #E28000 0%, rgba(226, 128, 0, 0.7) 100%)'
+    }
+    return 'linear-gradient(90deg, #e5e5e5 0%, rgba(229, 229, 229, 0.7) 100%)'
+  }, [slot.ready, slot.active])
+
   return (
-    <Box
+    <Paper
+      elevation={0}
       sx={{
-        width: '100%',
-        p: 1,
-        border: `1px solid ${statusColor}`,
-        mt: 1,
-        mb: 1,
+        width: 'calc(100% - 24px)',
+        mx: 1.5,
+        my: 1.5,
+        backgroundColor: 'rgba(30, 30, 32, 0.4)',
+        position: 'relative',
+        overflow: 'hidden',
+        borderRadius: '3px',
+        border: '1px solid',
+        borderColor: theme => slot.active ? statusColor : 'rgba(255, 255, 255, 0.05)',
+        boxShadow: theme => slot.active ? `0 0 10px rgba(244, 211, 94, 0.15)` : 'none',
       }}
     >
-      <Row>
-      <Cell>
-          <Typography variant="h6" sx={{mr: 2}}>{ slot.runtime }: { slot.model }</Typography>
-        </Cell>
-        <Cell flexGrow={1} />
-        <Cell>
-          <Typography variant="caption" gutterBottom>{ slot.id }</Typography>
-        </Cell>
-      </Row>
-      <Row>
-        <Cell>
-          <Typography variant="caption" gutterBottom>{ slot.status }</Typography>
-        </Cell>
-      </Row>
-    </Box>
+      <Box sx={{ p: 2.5, pl: 3 }}>
+        <Grid container spacing={1}>
+          <Grid item xs>
+            <Typography 
+              variant="subtitle1" 
+              sx={{ 
+                fontWeight: 600,
+                color: 'rgba(255, 255, 255, 0.9)',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              <Box 
+                component="span" 
+                sx={{ 
+                  display: 'inline-block',
+                  width: 8, 
+                  height: 8, 
+                  borderRadius: '50%', 
+                  backgroundColor: statusColor,
+                  mr: 1.5,
+                  boxShadow: theme => slot.active ? `0 0 6px ${statusColor}` : 'none',
+                }} 
+              />
+              { slot.runtime }: { slot.model }
+            </Typography>
+          </Grid>
+          <Grid item>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontFamily: 'monospace',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                px: 1,
+                py: 0.5,
+                borderRadius: '2px'
+              }}
+            >
+              { slot.id }
+            </Typography>
+          </Grid>
+        </Grid>
+        
+        <Typography 
+          variant="caption" 
+          sx={{ 
+            display: 'inline-block', 
+            mt: 1.5,
+            color: slot.active ? statusColor : 'rgba(255, 255, 255, 0.6)',
+            fontWeight: slot.active ? 500 : 400,
+            px: 1.5,
+            py: 0.7,
+            borderRadius: '3px',
+            border: '1px solid',
+            borderColor: slot.active ? `${statusColor}40` : 'transparent',
+            backgroundColor: slot.active ? `${statusColor}10` : 'transparent'
+          }}
+        >
+          { slot.status }
+        </Typography>
+      </Box>
+    </Paper>
   )
 }
 
