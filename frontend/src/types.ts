@@ -994,6 +994,7 @@ export interface IProviderEndpoint {
   name: string
   description: string
   models?: string[]
+  available_models?: string[] 
   endpoint_type: IProviderEndpointType
   owner: string
   owner_type: IOwnerType
