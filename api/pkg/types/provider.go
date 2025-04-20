@@ -86,6 +86,7 @@ type OpenAIModel struct {
 	Hide          bool               `json:"hide,omitempty"`
 	Type          string             `json:"type,omitempty"`
 	ContextLength int                `json:"context_length,omitempty"`
+	Enabled       bool               `json:"enabled,omitempty"`
 }
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API

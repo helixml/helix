@@ -71,7 +71,7 @@ interface ModelWithProvider extends TypesOpenAIModel {
 }
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
-  return models.filter((model) => {
+  return models.filter((model) => {    
     // If provider is togetherai or openai or helix, check model type
     if (model.type && model.type !== "") {
       if (model.provider?.name === "togetherai" || model.provider?.name === "openai" || model.provider?.name === "helix") {
@@ -82,6 +82,7 @@ function fuzzySearch(query: string, models: ModelWithProvider[], modelType: stri
     }
 
     // Otherwise it can be a custom vllm/ollama which don't have model types at all
+    // Finally, filter by search query against model ID or provider name
     return model.id?.toLowerCase().includes(query.toLowerCase()) || model.provider?.name?.toLowerCase().includes(query.toLowerCase());
   });
 }
@@ -334,24 +335,29 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             )}
             {!isLoading && filteredModels.map((model) => {
               const formattedContextLength = formatContextLength(model.context_length);
-              return (
+              const isDisabled = !model.enabled; // Check if the model is disabled
+
+              const listItem = (
                 <ListItem
                   key={`${model.provider.name}-${model.id}`}
                   button
-                  onClick={() => model.id && handleSelectModel(model.provider?.name || '', model.id)}
+                  onClick={() => !isDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
                   selected={model.id === selectedModelId}
+                  disabled={isDisabled}
                   sx={{
                     '&:hover': {
-                      backgroundColor: 'action.hover',
+                      backgroundColor: isDisabled ? 'transparent' : 'action.hover',
                     },
                     borderRadius: 1,
                     mb: 0.5,
-                    ...(model.id === selectedModelId && {
+                    ...(model.id === selectedModelId && !isDisabled && {
                       backgroundColor: 'action.selected',
                     }),
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
+                    opacity: isDisabled ? 0.5 : 1,
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
@@ -364,21 +370,22 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       primaryTypographyProps={{
                         variant: 'body1',
                         sx: {
-                          fontWeight: model.id === selectedModelId ? 500 : 400,
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                          fontWeight: model.id === selectedModelId && !isDisabled ? 500 : 400,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          color: isDisabled ? 'text.disabled' : 'text.primary',
                         }
                       }}
                       secondaryTypographyProps={{
                         variant: 'body2',
-                        sx: { color: 'text.secondary' }
+                        sx: { color: isDisabled ? 'text.disabled' : 'text.secondary' }
                       }}
                       sx={{ mr: 1 }}
                     />
                   </Box>
                   {formattedContextLength && (
                     <Tooltip title="Context Length">
-                      <Chip 
-                        icon={<MemoryIcon sx={{ color: 'success.main' }} />} 
+                      <Chip
+                        icon={<MemoryIcon sx={{ color: 'success.main' }} />}
                         label={formattedContextLength}
                         size="small"
                         variant="outlined"
@@ -399,6 +406,16 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     </Tooltip>
                   )}
                 </ListItem>
+              );
+
+              // Wrap disabled items in a tooltip
+              return isDisabled ? (
+                <Tooltip title="This model is not enabled for you" placement="top" key={`${model.provider.name}-${model.id}-tooltip`}>
+                  {/* The Tooltip needs a child that can accept a ref, a simple div works here if ListItem causes issues */} 
+                  <div>{listItem}</div>
+                </Tooltip>
+              ) : (
+                listItem
               );
             })}
             {!isLoading && filteredModels.length === 0 && searchQuery && (

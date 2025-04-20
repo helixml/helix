@@ -1009,6 +1009,7 @@ export interface TypesOpenAIModel {
   context_length?: number;
   created?: number;
   description?: string;
+  enabled?: boolean;
   hide?: boolean;
   id?: string;
   name?: string;

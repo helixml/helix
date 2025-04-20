@@ -4198,6 +4198,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "enabled": {
+                    "type": "boolean"
+                },
                 "hide": {
                     "type": "boolean"
                 },
