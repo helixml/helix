@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -115,15 +116,77 @@ func (apiServer *HelixRunnerAPIServer) healthz(w http.ResponseWriter, _ *http.Re
 }
 
 func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Request) {
+	// Calculate allocated memory by summing the memory requirements of all slots
+	var allocatedMemory uint64 = 0
+
+	// Log runner options to see what filter model name is being used
+	log.Debug().
+		Str("runner_id", apiServer.runnerOptions.ID).
+		Str("filter_model_name", apiServer.runnerOptions.FilterModelName).
+		Msg("XXX Runner filter model information")
+
+	// Count slots for debugging
+	slotCount := 0
+	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
+		slotCount++
+		log.Debug().
+			Str("slot_id", id.String()).
+			Str("model", slot.Model).
+			Bool("ready", slot.Ready).
+			Bool("active", slot.Active).
+			Msg("XXX Processing slot for memory calculation")
+
+		// We need to get the memory requirements for each slot
+		// If we have a model for this slot, we can calculate memory requirements
+		if slot.Model != "" {
+			// Assume inference mode for slots (default mode)
+			mode := types.SessionModeInference
+
+			// Try to get the model
+			modelObj, err := model.GetModel(slot.Model)
+			if err == nil && modelObj != nil {
+				// Add the memory requirements to our running total
+				allocatedMemory += modelObj.GetMemoryRequirements(mode)
+				log.Debug().
+					Str("slot_id", id.String()).
+					Str("model", slot.Model).
+					Uint64("memory", modelObj.GetMemoryRequirements(mode)).
+					Msg("XXX Found memory requirements for model")
+			} else {
+				log.Warn().
+					Str("slot_id", id.String()).
+					Str("model", slot.Model).
+					Err(err).
+					Msg("XXX Could not get memory requirements for model")
+			}
+		} else {
+			log.Debug().
+				Str("slot_id", id.String()).
+				Msg("XXX Slot has no model assigned")
+		}
+		return true
+	})
+
 	status := &types.RunnerStatus{
-		ID:          apiServer.runnerOptions.ID,
-		Created:     startTime,
-		Updated:     time.Now(),
-		Version:     data.GetHelixVersion(),
-		TotalMemory: apiServer.gpuManager.GetTotalMemory(),
-		FreeMemory:  apiServer.gpuManager.GetFreeMemory(),
-		Labels:      apiServer.runnerOptions.Labels,
+		ID:              apiServer.runnerOptions.ID,
+		Created:         startTime,
+		Updated:         time.Now(),
+		Version:         data.GetHelixVersion(),
+		TotalMemory:     apiServer.gpuManager.GetTotalMemory(),
+		FreeMemory:      apiServer.gpuManager.GetFreeMemory(),
+		AllocatedMemory: allocatedMemory,
+		Labels:          apiServer.runnerOptions.Labels,
 	}
+
+	// Add debug logging to see memory values
+	log.Debug().
+		Str("runner_id", apiServer.runnerOptions.ID).
+		Uint64("total_memory", status.TotalMemory).
+		Uint64("free_memory", status.FreeMemory).
+		Uint64("allocated_memory", status.AllocatedMemory).
+		Int("slot_count", slotCount).
+		Msg("XXX Runner status memory values")
+
 	err := json.NewEncoder(w).Encode(status)
 	if err != nil {
 		log.Error().Err(err).Msg("error encoding status response")

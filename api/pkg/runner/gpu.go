@@ -89,8 +89,30 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 		return 0
 	}
 
-	// In development CPU-only mode, just use the total memory as free memory
+	// In development CPU-only mode, get actual free system memory
 	if g.devCPUOnly {
+		// For Linux in dev CPU mode, get actual free system memory from /proc/meminfo
+		if runtime.GOOS == "linux" {
+			cmd := exec.Command("grep", "MemAvailable", "/proc/meminfo")
+			connectCmdStdErrToLogger(cmd)
+			output, err := cmd.Output()
+			if err == nil {
+				// Example output: MemAvailable:    8765432 kB
+				fields := strings.Fields(string(output))
+				if len(fields) >= 2 {
+					if mem, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+						freeMemory := mem * 1024 // Convert kB to bytes
+						log.Trace().
+							Str("platform", "linux").
+							Uint64("free_memory_bytes", freeMemory).
+							Msg("Using actual free system memory in development CPU-only mode")
+						return freeMemory
+					}
+				}
+			}
+			// If we couldn't get free memory, log a warning and fall back to gpuMemory
+			log.Warn().Msg("Failed to read free system memory from /proc/meminfo, falling back to total memory")
+		}
 		return g.gpuMemory
 	}
 
