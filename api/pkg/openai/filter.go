@@ -40,13 +40,10 @@ func filterUnsupportedModels(models []types.OpenAIModel) []types.OpenAIModel {
 }
 
 // filterSpecifiedModels filters the models to only include the specified models.
-func filterSpecifiedModels(models []types.OpenAIModel, specifiedModels []string) []types.OpenAIModel {
-	filteredModels := make([]types.OpenAIModel, 0)
-	for _, model := range models {
-		if slices.Contains(specifiedModels, model.ID) {
-			filteredModels = append(filteredModels, model)
-		}
+func modelEnabled(model types.OpenAIModel, specifiedModels []string) bool {
+	if len(specifiedModels) == 0 {
+		return true
 	}
 
-	return filteredModels
+	return slices.Contains(specifiedModels, model.ID)
 }
