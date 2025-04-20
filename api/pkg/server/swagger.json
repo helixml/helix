@@ -4194,6 +4194,9 @@
                 "description": {
                     "type": "string"
                 },
+                "enabled": {
+                    "type": "boolean"
+                },
                 "hide": {
                     "type": "boolean"
                 },

@@ -1577,6 +1577,8 @@ definitions:
         type: integer
       description:
         type: string
+      enabled:
+        type: boolean
       hide:
         type: boolean
       id:
