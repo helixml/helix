@@ -337,13 +337,13 @@ func NewNatsClient(u string, token string) (*Nats, error) {
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(time.Second * 2),
 		nats.ReconnectJitter(time.Second, time.Second*5),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			log.Warn().Err(err).Msg("disconnected from NATS server")
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
 			log.Info().Str("url", nc.ConnectedUrl()).Msg("reconnected to NATS server")
 		}),
-		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
+		nats.ErrorHandler(func(_ *nats.Conn, sub *nats.Subscription, err error) {
 			log.Error().Err(err).Str("subject", sub.Subject).Msg("NATS error")
 		}),
 		nats.ProxyPath(parsedURL.Path),

@@ -788,11 +788,11 @@ func (apiServer *HelixAPIServer) listModelsForSocket(rw http.ResponseWriter, r *
 	}
 
 	// Log the available models
-	var modelIds []string
+	var modelIDs []string
 	for _, model := range modelsList {
-		modelIds = append(modelIds, model.ID)
+		modelIDs = append(modelIDs, model.ID)
 	}
-	log.Info().Strs("models", modelIds).Msg("available models for socket server")
+	log.Info().Strs("models", modelIDs).Msg("available models for socket server")
 
 	// Write response
 	rw.Header().Set("Content-Type", "application/json")
