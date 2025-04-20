@@ -65,7 +65,8 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 
 		openaiClient := openai.New(
 			cfg.Providers.OpenAI.APIKey,
-			cfg.Providers.OpenAI.BaseURL)
+			cfg.Providers.OpenAI.BaseURL,
+			cfg.Providers.OpenAI.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, logStores...)
 
@@ -79,7 +80,8 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 
 		togetherAiClient := openai.New(
 			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL)
+			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Providers.TogetherAI.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, logStores...)
 
@@ -94,7 +96,8 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 
 		vllmClient := openai.New(
 			cfg.Providers.VLLM.APIKey,
-			cfg.Providers.VLLM.BaseURL)
+			cfg.Providers.VLLM.BaseURL,
+			cfg.Providers.VLLM.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, logStores...)
 
@@ -320,7 +323,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		apiKey = strings.TrimSpace(string(bts))
 	}
 
-	openaiClient := openai.New(apiKey, endpoint.BaseURL)
+	openaiClient := openai.New(apiKey, endpoint.BaseURL, endpoint.Models...)
 
 	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.ID), openaiClient, m.logStores...)
 
