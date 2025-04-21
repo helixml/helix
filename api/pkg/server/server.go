@@ -238,9 +238,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
-		WriteTimeout:      time.Minute * 15,
-		ReadTimeout:       time.Minute * 15,
-		ReadHeaderTimeout: time.Minute * 15,
+		WriteTimeout:      time.Minute * 30,
+		ReadTimeout:       time.Minute * 30,
+		ReadHeaderTimeout: time.Minute * 30,
 		IdleTimeout:       time.Minute * 60,
 		Handler:           apiServer.router,
 	}
@@ -571,8 +571,8 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   300 * time.Second, // Increased from 30 to 300 seconds
+			KeepAlive: 300 * time.Second, // Increased from 30 to 300 seconds
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
@@ -715,8 +715,8 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Create HTTP server
 	srv := &http.Server{
 		Handler:      router,
-		ReadTimeout:  time.Minute * 15,
-		WriteTimeout: time.Minute * 15,
+		ReadTimeout:  time.Minute * 30, // Increased from 15 to 30 minutes
+		WriteTimeout: time.Minute * 30, // Increased from 15 to 30 minutes
 	}
 
 	log.Info().Str("socket", socketPath).Msg("starting embeddings socket server")

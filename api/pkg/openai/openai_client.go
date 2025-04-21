@@ -41,13 +41,22 @@ type Client interface {
 func New(apiKey string, baseURL string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
-	config.HTTPClient = &openAIClientInterceptor{}
+
+	// Create a custom HTTP client with increased timeout
+	httpClient := &http.Client{
+		Timeout: 5 * time.Minute, // 5 minute timeout for embedding requests
+	}
+
+	// Use our interceptor with the custom timeout
+	config.HTTPClient = &openAIClientInterceptor{
+		Client: *httpClient,
+	}
 
 	client := openai.NewClientWithConfig(config)
 
 	return &RetryableClient{
 		apiClient:  client,
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 	}

@@ -366,8 +366,29 @@ func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, embeddingReq
 			return resp, respError
 		}
 
+		// Check if the response is a text error message rather than JSON
+		if len(respData) > 0 && (respData[0] == 'V' || respData[0] == 'E') {
+			// This is likely a plain text error message, not valid JSON
+			errMsg := string(respData)
+			log.Error().
+				Str("component", "openai").
+				Str("operation", "embedding").
+				Str("request_id", requestID).
+				Str("raw_response", errMsg).
+				Msg("❌ Non-JSON error response received from embedding endpoint")
+			return resp, fmt.Errorf("error from embedding endpoint: %s", errMsg)
+		}
+
 		// Parse the embedding response
 		if err := json.Unmarshal(respData, &resp); err != nil {
+			// Log the raw response data to help debug invalid JSON errors
+			log.Error().
+				Str("component", "openai").
+				Str("operation", "embedding").
+				Str("request_id", requestID).
+				Str("error_message", err.Error()).
+				Str("raw_response", string(respData)).
+				Msg("❌ Error unmarshalling embedding response")
 			return resp, fmt.Errorf("error unmarshalling embedding response: %w", err)
 		}
 

@@ -83,6 +83,13 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		log.Debug().Str("model", model).Msg("Using model")
 	}
 
+	// Log args received
+	log.Debug().
+		Str("model", model).
+		Int64("context_length", contextLength).
+		Strs("args", params.Args).
+		Msg("🐟 NewVLLMRuntime received args")
+
 	return &VLLMRuntime{
 		version:       "unknown",
 		cacheDir:      *params.CacheDir,
@@ -95,7 +102,11 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 }
 
 func (v *VLLMRuntime) Start(ctx context.Context) error {
-	log.Debug().Msg("Starting vLLM runtime")
+	log.Debug().
+		Str("model", v.model).
+		Int64("context_length", v.contextLength).
+		Strs("args", v.args).
+		Msg("🐟 Starting vLLM runtime with args")
 
 	// Make sure the port is not already in use
 	if isPortInUse(v.port) {
@@ -138,7 +149,11 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error waiting for vLLM to start: %s", err.Error())
 	}
-	log.Info().Msg("vLLM has started")
+	log.Info().
+		Str("model", v.model).
+		Strs("args", v.args).
+		Int("pid", v.cmd.Process.Pid).
+		Msg("🐟 vLLM has started successfully")
 
 	// Set the version (if available)
 	v.version = "vLLM"
@@ -433,7 +448,11 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	log.Debug().Str("python_path", vllmPath).Msg("Found python")
 
 	// Prepare vLLM serve command
-	log.Debug().Msg("Preparing vLLM serve command")
+	log.Debug().
+		Str("model", model).
+		Int64("context_length", contextLength).
+		Strs("custom_args", customArgs).
+		Msg("🐟 Preparing vLLM serve command with custom args")
 
 	// First prepare a map of custom arguments for quick checking
 	customArgsMap := make(map[string]bool)
@@ -498,7 +517,10 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	// Add custom arguments
 	args = append(args, customArgs...)
 
-	log.Debug().Strs("args", args).Msg("Final vLLM command arguments")
+	log.Debug().
+		Strs("args", args).
+		Strs("custom_args", customArgs).
+		Msg("🐟 Final vLLM command arguments")
 
 	cmd := commander.CommandContext(ctx, vllmPath, args...)
 

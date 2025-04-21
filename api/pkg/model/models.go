@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func GetModel(modelName string) (Model, error) {
@@ -466,7 +467,6 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--task", "embed",
 				"--max-model-len", "8192",
 				"--trust-remote-code",
-				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
 			},
 			Hide: false,
 		},
@@ -482,10 +482,17 @@ func GetVLLMArgsForModel(modelName string) ([]string, error) {
 
 	for _, model := range vllmModels {
 		if model.ID == modelName {
+			log.Debug().
+				Str("model", modelName).
+				Strs("args", model.Args).
+				Msg("🐟 Found VLLM args for model")
 			return model.Args, nil
 		}
 	}
 
 	// If model not found, return an empty args list
+	log.Debug().
+		Str("model", modelName).
+		Msg("🐟 No VLLM args found for model")
 	return []string{}, nil
 }
