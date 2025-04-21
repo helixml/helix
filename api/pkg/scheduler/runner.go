@@ -403,6 +403,7 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 			Int("status_code", resp.StatusCode).
 			Str("error_message", errMsg).
 			Str("error_details", string(errorDetailsBytes)).
+			Str("response_body", string(resp.Body)).
 			Str("endpoint", endpoint).
 			Msg("❌ Embedding request failed with non-OK status code")
 		return fmt.Errorf("%s", errMsg)
@@ -499,11 +500,35 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 
 	// Get the model's context length
 	var contextLength int64
+	var runtimeArgs map[string]interface{}
+
 	modelObj, err := model.GetModel(modelName)
 	if err == nil {
 		contextLength = modelObj.GetContextLength()
 		if contextLength > 0 {
 			log.Debug().Str("model", modelName).Int64("context_length", contextLength).Msg("Using context length from model")
+		}
+
+		// If this is a VLLM runtime, get the model-specific args
+		if slot.InitialWork().Runtime() == types.RuntimeVLLM {
+			// Get model-specific args for vLLM
+			modelArgs, argsErr := model.GetVLLMArgsForModel(modelName)
+			if argsErr == nil && len(modelArgs) > 0 {
+				log.Debug().
+					Str("model", modelName).
+					Strs("vllm_args", modelArgs).
+					Msg("🐟 Found model-specific vLLM args in scheduler")
+
+				// Add the args to the runtime args
+				runtimeArgs = map[string]interface{}{
+					"args": modelArgs,
+				}
+
+				log.Debug().
+					Str("model", modelName).
+					Interface("runtime_args", runtimeArgs).
+					Msg("🐟 Created runtime_args map in scheduler")
+			}
 		}
 	} else {
 		log.Warn().Str("model", modelName).Err(err).Msg("Could not get model, using default context length")
@@ -515,12 +540,29 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Runtime:       slot.InitialWork().Runtime(),
 			Model:         slot.InitialWork().ModelName().String(),
 			ContextLength: contextLength,
+			RuntimeArgs:   runtimeArgs,
 		},
 	}
+
+	// Log the full request being sent to the runner
+	log.Debug().
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Interface("runtime_args", runtimeArgs).
+		Msg("🐟 Sending CreateRunnerSlotRequest to runner with RuntimeArgs")
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
+
+	// Log the serialized JSON for debugging
+	log.Debug().
+		Str("runner_id", slot.RunnerID).
+		Str("json_body", string(body)).
+		Msg("🐟 JSON body being sent to runner")
+
 	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
 		Method: "POST",
 		URL:    "/api/v1/slots",

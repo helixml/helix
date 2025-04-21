@@ -182,6 +182,12 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		// Process runtime args for vLLM
 		modelStr := s.Model // Default model from slot
 		if s.RuntimeArgs != nil {
+			log.Debug().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Interface("runtime_args", s.RuntimeArgs).
+				Msg("🐟 Processing RuntimeArgs for VLLM in Slot.Create")
+
 			// Override model if specified in runtime args
 			if modelVal, ok := s.RuntimeArgs["model"].(string); ok && modelVal != "" {
 				modelStr = modelVal
@@ -192,7 +198,19 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				log.Debug().
 					Strs("args", args).
 					Str("model", modelStr).
-					Msg("Using string array arguments for vLLM")
+					Msg("🐟 Using string array arguments for vLLM")
+				runtimeParams.Args = args
+			} else if argsIface, ok := s.RuntimeArgs["args"].([]interface{}); ok && len(argsIface) > 0 {
+				// Convert []interface{} to []string (common after JSON deserialization)
+				args := make([]string, len(argsIface))
+				for i, v := range argsIface {
+					args[i] = fmt.Sprintf("%v", v)
+				}
+
+				log.Debug().
+					Strs("converted_args", args).
+					Str("model", modelStr).
+					Msg("🐟 Converted []interface{} to []string for vLLM args")
 				runtimeParams.Args = args
 			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
 				// Convert map to array of args in the format ["--key1", "value1", "--key2", "value2"]
@@ -207,8 +225,15 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 					Interface("args_map", argsMap).
 					Strs("converted_args", args).
 					Str("model", modelStr).
-					Msg("Using map arguments for vLLM")
+					Msg("🐟 Using map arguments for vLLM")
 				runtimeParams.Args = args
+			} else if argsVal, ok := s.RuntimeArgs["args"]; ok {
+				// Log when we can't parse the args
+				log.Warn().
+					Interface("args_value", argsVal).
+					Str("args_type", fmt.Sprintf("%T", argsVal)).
+					Str("model", modelStr).
+					Msg("🐟 Could not parse args of unexpected type")
 			}
 		}
 
@@ -224,7 +249,8 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		log.Debug().
 			Str("model", modelStr).
 			Interface("runtime_params", runtimeParams).
-			Msg("Creating vLLM runtime")
+			Strs("args", runtimeParams.Args).
+			Msg("🐟 Creating vLLM runtime with args")
 
 		s.runningRuntime, err = NewVLLMRuntime(ctx, runtimeParams)
 		if err != nil {

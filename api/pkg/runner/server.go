@@ -216,7 +216,25 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	log.Debug().Str("slot_id", slotRequest.ID.String()).Msg("creating slot")
+	// Log request details with RuntimeArgs for debugging
+	log.Debug().
+		Str("slot_id", slotRequest.ID.String()).
+		Str("model", slotRequest.Attributes.Model).
+		Str("runtime", string(slotRequest.Attributes.Runtime)).
+		Interface("runtime_args", slotRequest.Attributes.RuntimeArgs).
+		Msg("🐟 Runner received createSlot request with RuntimeArgs")
+
+	// For VLLM, check the type of args in RuntimeArgs
+	if slotRequest.Attributes.Runtime == types.RuntimeVLLM && slotRequest.Attributes.RuntimeArgs != nil {
+		if args, ok := slotRequest.Attributes.RuntimeArgs["args"]; ok {
+			log.Debug().
+				Str("slot_id", slotRequest.ID.String()).
+				Str("model", slotRequest.Attributes.Model).
+				Interface("args_value", args).
+				Str("args_type", fmt.Sprintf("%T", args)).
+				Msg("🐟 Args value and type in RuntimeArgs")
+		}
+	}
 
 	s := NewEmptySlot(CreateSlotParams{
 		RunnerOptions: apiServer.runnerOptions,
@@ -224,6 +242,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		Runtime:       slotRequest.Attributes.Runtime,
 		Model:         slotRequest.Attributes.Model,
 		ContextLength: slotRequest.Attributes.ContextLength,
+		RuntimeArgs:   slotRequest.Attributes.RuntimeArgs,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 

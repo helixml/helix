@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -223,7 +224,7 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 	logTransport.RoundTripper = &loggerRoundTripper{
 		next: logTransport.RoundTripper,
 		logResponse: func(resp *http.Response) {
-			if resp.StatusCode == http.StatusOK && resp.Body != nil {
+			if resp != nil && resp.Body != nil {
 				// Read the body
 				bodyBytes, err := io.ReadAll(resp.Body)
 				if err != nil {
@@ -236,9 +237,24 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 				} else {
 					// Store the raw body for logging
 					rawResponseBody = string(bodyBytes)
+					// Log the raw response body for debugging
+					log.Debug().
+						Str("component", "runner").
+						Str("operation", "embedding").
+						Str("slot_id", slotUUID.String()).
+						Str("status_code", fmt.Sprintf("%d", resp.StatusCode)).
+						Str("content_type", resp.Header.Get("Content-Type")).
+						Str("raw_response_body", rawResponseBody).
+						Msg("📥 Raw response captured from embedding request")
 					// Create a new body for the response
 					resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 				}
+			} else {
+				log.Warn().
+					Str("component", "runner").
+					Str("operation", "embedding").
+					Str("slot_id", slotUUID.String()).
+					Msg("Unable to log response - response or response body is nil")
 			}
 		},
 	}
@@ -284,6 +300,22 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			Str("slot_id", slotUUID.String()).
 			Str("raw_response", rawResponseBody).
 			Msg("📄 Raw embedding response received")
+
+		// Check for plain text error response (non-JSON) where the model doesn't support embeddings
+		if strings.Contains(rawResponseBody, "does not support Embeddings API") {
+			errMsg := strings.TrimSpace(rawResponseBody)
+			log.Error().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("model", string(embeddingRequest.Model)).
+				Str("vllm_endpoint", vllmEndpoint).
+				Str("error_message", errMsg).
+				Msg("❌ Model does not support embeddings API")
+
+			http.Error(rw, errMsg, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if err != nil {
@@ -294,6 +326,7 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			"model":         string(embeddingRequest.Model),
 			"duration_ms":   durationMs,
 			"vllm_endpoint": vllmEndpoint,
+			"raw_response":  rawResponseBody,
 		}
 		errorJSON, _ := json.Marshal(errorDetails)
 		log.Error().
@@ -303,6 +336,7 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			Str("model", string(embeddingRequest.Model)).
 			Int64("duration_ms", durationMs).
 			RawJSON("error_details", errorJSON).
+			Str("raw_response", rawResponseBody).
 			Msg("❌ Error generating embeddings")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
