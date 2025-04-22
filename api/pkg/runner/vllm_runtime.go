@@ -546,6 +546,10 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		fmt.Sprintf("HTTPS_PROXY=%s", os.Getenv("HTTPS_PROXY")),
 		fmt.Sprintf("NO_PROXY=%s", os.Getenv("NO_PROXY")),
 
+		// set this when on EasyJet flights or high security airgapped deployments
+		// "HF_HUB_OFFLINE=1",
+		// TODO: figure out how to do offline vLLM properly..
+
 		// Hugging Face authentication
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 	}
