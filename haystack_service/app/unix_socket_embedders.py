@@ -33,12 +33,12 @@ class UnixSocketOpenAITextEmbedder:
         self.suffix = suffix
 
         if timeout is None:
-            timeout = float(os.environ.get("OPENAI_TIMEOUT", 30.0))
+            timeout = float(os.environ.get("OPENAI_TIMEOUT", 300.0))
         if max_retries is None:
             max_retries = int(os.environ.get("OPENAI_MAX_RETRIES", 5))
 
         transport = httpx.HTTPTransport(uds=socket_path)
-        http_client = httpx.Client(transport=transport)
+        http_client = httpx.Client(transport=transport, timeout=timeout)
         self.client = OpenAI(
             api_key="unused",
             timeout=timeout,
@@ -223,12 +223,12 @@ class UnixSocketOpenAIDocumentEmbedder:
         self.embedding_separator = embedding_separator
 
         if timeout is None:
-            timeout = float(os.environ.get("OPENAI_TIMEOUT", 30.0))
+            timeout = float(os.environ.get("OPENAI_TIMEOUT", 300.0))
         if max_retries is None:
             max_retries = int(os.environ.get("OPENAI_MAX_RETRIES", 5))
 
         transport = httpx.HTTPTransport(uds=socket_path)
-        http_client = httpx.Client(transport=transport)
+        http_client = httpx.Client(transport=transport, timeout=timeout)
         self.client = OpenAI(
             api_key="unused",
             timeout=timeout,

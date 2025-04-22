@@ -262,6 +262,7 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 	// Create a custom client with the logging transport
 	httpClient := &http.Client{
 		Transport: logTransport,
+		// Timeout:   300 * time.Second,
 	}
 
 	// Create the OpenAI client with the custom HTTP client
