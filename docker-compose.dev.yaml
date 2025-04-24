@@ -308,7 +308,10 @@ services:
       - RAG_VISION_EMBEDDINGS_SOCKET=${RAG_VISION_EMBEDDINGS_SOCKET:-}
       - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
     volumes:
+      - ./haystack_service/app:/app/app
+      - ./haystack_service/main.py:/app/main.py
       - helix-socket:/socket
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
       - pgvector
     extra_hosts:
