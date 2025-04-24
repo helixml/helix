@@ -138,33 +138,6 @@ func verifyValidFreeMemory(t *testing.T, g *GPUManager) {
 	}
 }
 
-// Deprecated: Use verifyValidFreeMemory instead.
-// verifyFreeMemory checks if free memory equals expected with retries and backoff
-func verifyFreeMemory(t *testing.T, g *GPUManager, expected uint64) {
-	timeout := time.After(1 * time.Second)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			// Final check after timeout
-			free := g.GetFreeMemory()
-			if free != expected {
-				t.Errorf("Timed out waiting for free memory (%d) to equal expected memory (%d)", free, expected)
-			}
-			return
-		case <-ticker.C:
-			free := g.GetFreeMemory()
-			if free == expected {
-				return // Success
-			}
-			// Continue retry with increasing backoff
-			t.Logf("Free memory (%d) not yet equal to expected memory (%d), retrying...", free, expected)
-		}
-	}
-}
-
 func TestPlatformSpecific(t *testing.T) {
 	switch runtime.GOOS {
 	case "linux":
