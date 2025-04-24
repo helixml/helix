@@ -117,7 +117,7 @@ func (apiServer *HelixRunnerAPIServer) healthz(w http.ResponseWriter, _ *http.Re
 
 func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Request) {
 	// Calculate allocated memory by summing the memory requirements of all slots
-	var allocatedMemory uint64
+	var allocatedMemory uint64 = 0
 
 	// Log runner options to see what filter model name is being used
 	log.Debug().
