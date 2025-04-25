@@ -260,27 +260,14 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 		// Calculate input size properly based on type
 		inputSize := 0
 		inputType := "unknown"
-		var inputSample string
 
 		switch v := embReq.Input.(type) {
 		case string:
 			inputSize = len(v)
 			inputType = "string"
-			if len(v) > 100 {
-				inputSample = v[:100] + "..."
-			} else {
-				inputSample = v
-			}
 		case []string:
 			inputType = "[]string"
 			inputSize = len(v)
-			if len(v) > 0 {
-				if len(v[0]) > 100 {
-					inputSample = v[0][:100] + "..."
-				} else {
-					inputSample = v[0]
-				}
-			}
 		case [][]int:
 			inputType = "[][]int"
 			inputSize = len(v)
@@ -301,17 +288,6 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 			Str("request_json", prettyRequest.String()).
 			Str("endpoint", fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)).
 			Msg("🔢 Embedding request submitted to runner")
-
-		if inputSample != "" {
-			log.Info().
-				Str("component", "scheduler").
-				Str("operation", "embedding").
-				Str("request_id", req.RequestID).
-				Str("runner_id", slot.RunnerID).
-				Str("slot_id", slot.ID.String()).
-				Str("input_sample", inputSample).
-				Msg("📄 Embedding input sample")
-		}
 	}
 
 	natsReq := types.RunnerNatsReplyRequest{
