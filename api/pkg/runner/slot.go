@@ -124,32 +124,9 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			runtimeParams.ContextLength = &s.ContextLength
 		}
 
-		// Process runtime args for Ollama
-		modelStr := s.Model // Default model from slot
-		if s.RuntimeArgs != nil {
-			// Override model if specified in runtime args
-			if modelVal, ok := s.RuntimeArgs["model"].(string); ok && modelVal != "" {
-				modelStr = modelVal
-			}
-
-			// Handle Ollama command line arguments
-			if args, ok := s.RuntimeArgs["args"].([]string); ok && len(args) > 0 {
-				runtimeParams.Args = args
-			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
-				// If args are provided as a map, convert to array
-				args := []string{}
-				for k, v := range argsMap {
-					if !strings.HasPrefix(k, "--") {
-						k = "--" + k
-					}
-					args = append(args, k, fmt.Sprintf("%v", v))
-				}
-				runtimeParams.Args = args
-			}
-		}
-
-		// Set the model parameter
-		runtimeParams.Model = &modelStr
+		// Note, we don't pass through RuntimeArgs for Ollama because model
+		// params are defined by ollama model pulls rather than in commandline
+		// flags like vLLM
 
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
