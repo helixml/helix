@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ### BUILD
 
-FROM golang:1.23.4 AS go-build-env
+FROM golang:1.23.8 AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
@@ -54,12 +54,6 @@ FROM registry.helixml.tech/helix/runner-base:${TAG}
 ARG DEVELOPMENT_CPU_ONLY=""
 # Pass the vLLM version 
 ARG VLLM_VERSION
-
-# Install Go 1.23.4
-RUN curl -L https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o /tmp/go1.23.4.tar.gz && \
-    rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go1.23.4.tar.gz && \
-    rm /tmp/go1.23.4.tar.gz
-ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install ollama
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
