@@ -3,7 +3,6 @@ version: '3'
 # Common runner configuration (YAML anchor, not a service)
 x-runner-config: &runner-config
   restart: always
-  # Just keep container alive - Go 1.23.4 is already installed in the image
   entrypoint: bash -c "cd /workspace/helix && go version && GOTOOLCHAIN=local go mod download && tail -f /dev/null"
   env_file:
     - .env

@@ -67,7 +67,7 @@ services:
   # postgres 15 with pgvector installed for vector database
   pgvector:
     profiles: [haystack]
-    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.2.1
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
     restart: always
     ports:
       - 5433:5432
