@@ -79,8 +79,7 @@ type Options struct {
 	// When set to true, allows running without a GPU for development/CI purposes
 	// Will use system memory for scheduling
 	// Should not be used in production as CPU inference will be very slow
-	// Env: DEVELOPMENT_CPU_ONLY
-	DevelopmentCPUOnly bool
+	DevelopmentCPUOnly bool `envconfig:"DEVELOPMENT_CPU_ONLY" default:"false"`
 
 	// development settings
 	// never run more than this number of model instances
