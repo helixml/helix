@@ -72,7 +72,7 @@ func TestGPUManager(t *testing.T) {
 				devCPUOnlyManager := NewGPUManager(context.Background(), options)
 
 				// Verify it's in development mode
-				if !devCPUOnlyManager.devCPUOnly {
+				if !devCPUOnlyManager.runnerOptions.DevelopmentCPUOnly {
 					t.Error("GPUManager should be in development CPU-only mode when option is set")
 				}
 

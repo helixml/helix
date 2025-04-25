@@ -76,8 +76,8 @@ type Options struct {
 	// how many seconds to delay the mock runner
 	MockRunnerDelay int
 
-	// When set to true, allows running without a GPU for development purposes
-	// Will use system memory or a high default value (24GB) for scheduling
+	// When set to true, allows running without a GPU for development/CI purposes
+	// Will use system memory for scheduling
 	// Should not be used in production as CPU inference will be very slow
 	// Env: DEVELOPMENT_CPU_ONLY
 	DevelopmentCPUOnly bool
@@ -184,7 +184,7 @@ func (r *Runner) Run(ctx context.Context) {
 				Str("runner_id", r.Options.ID).
 				Int("attempt", i+1).
 				Int("max_retries", maxRetries).
-				Msg("Attempting to connect to control plane")
+				Msg("Attempting to connect to NATS")
 
 			_, err = NewNatsController(ctx, &NatsControllerConfig{
 				PS:        r.pubsub,
@@ -195,7 +195,7 @@ func (r *Runner) Run(ctx context.Context) {
 			if err == nil {
 				log.Info().
 					Str("runner_id", r.Options.ID).
-					Msg("Successfully connected to control plane")
+					Msg("Successfully connected to NATS")
 				break
 			}
 
@@ -205,11 +205,11 @@ func (r *Runner) Run(ctx context.Context) {
 				Int("attempt", i+1).
 				Int("max_retries", maxRetries).
 				Dur("retry_after", backoff).
-				Msg("Failed to connect to control plane, retrying...")
+				Msg("Failed to connect to NATS, retrying...")
 
 			select {
 			case <-ctx.Done():
-				log.Warn().Msg("Context cancelled while retrying connection")
+				log.Warn().Msg("Context cancelled while retrying NATS connection")
 				return
 			case <-time.After(backoff):
 				// Exponential backoff with a maximum of 30 seconds
@@ -222,8 +222,8 @@ func (r *Runner) Run(ctx context.Context) {
 				Err(err).
 				Str("runner_id", r.Options.ID).
 				Int("max_retries", maxRetries).
-				Msg("Failed to connect to control plane after multiple attempts")
-			panic(fmt.Sprintf("Failed to connect to control plane after %d attempts: %v", maxRetries, err))
+				Msg("Failed to connect to NATS after multiple attempts")
+			panic(fmt.Sprintf("Failed to connect to NATS after %d attempts: %v", maxRetries, err))
 		}
 
 		<-ctx.Done()
