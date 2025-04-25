@@ -485,7 +485,7 @@ func GetVLLMArgsForModel(modelName string) ([]string, error) {
 			log.Debug().
 				Str("model", modelName).
 				Strs("args", model.Args).
-				Msg("🐟 Found VLLM args for model")
+				Msg("Found VLLM args for model")
 			return model.Args, nil
 		}
 	}
@@ -493,6 +493,6 @@ func GetVLLMArgsForModel(modelName string) ([]string, error) {
 	// If model not found, return an empty args list
 	log.Debug().
 		Str("model", modelName).
-		Msg("🐟 No VLLM args found for model")
+		Msg("No VLLM args found for model")
 	return []string{}, nil
 }
