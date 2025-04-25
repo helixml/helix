@@ -413,7 +413,38 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		}
 	}
 
-	// Clean up scheduler slots that don't exist on any runner
+	// Delete removed slots -- important to delete first to create room for new slots
+	unusedSlotCount := 0
+	for slotID, runnerID := range allActualSlots {
+		if _, exists := s.slots.Load(slotID); !exists {
+			unusedSlotCount++
+			// Look up the actual slot to get details for logging
+			slotDetails, err := s.controller.fetchSlot(runnerID, slotID)
+			if err == nil {
+				log.Warn().
+					Str("runner_id", runnerID).
+					Str("slot_id", slotID.String()).
+					Str("model", slotDetails.Model).
+					Str("runtime", string(slotDetails.Runtime)).
+					Bool("is_active", slotDetails.Active).
+					Bool("is_ready", slotDetails.Ready).
+					Msg("found slot on runner that doesn't exist in scheduler, deleting...")
+			} else {
+				log.Warn().
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("slot_id", slotID.String()).
+					Msg("found slot on runner that doesn't exist in scheduler but couldn't fetch details, deleting...")
+			}
+
+			err = s.controller.DeleteSlot(runnerID, slotID)
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slotID.String()).Msg("failed to delete slot")
+			}
+		}
+	}
+
+	// Create new slots
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			orphanedSlotCount++
@@ -457,37 +488,6 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		}
 		return true
 	})
-
-	// Clean up runner slots that don't exist in scheduler
-	unusedSlotCount := 0
-	for slotID, runnerID := range allActualSlots {
-		if _, exists := s.slots.Load(slotID); !exists {
-			unusedSlotCount++
-			// Look up the actual slot to get details for logging
-			slotDetails, err := s.controller.fetchSlot(runnerID, slotID)
-			if err == nil {
-				log.Warn().
-					Str("runner_id", runnerID).
-					Str("slot_id", slotID.String()).
-					Str("model", slotDetails.Model).
-					Str("runtime", string(slotDetails.Runtime)).
-					Bool("is_active", slotDetails.Active).
-					Bool("is_ready", slotDetails.Ready).
-					Msg("found slot on runner that doesn't exist in scheduler, deleting...")
-			} else {
-				log.Warn().
-					Err(err).
-					Str("runner_id", runnerID).
-					Str("slot_id", slotID.String()).
-					Msg("found slot on runner that doesn't exist in scheduler but couldn't fetch details, deleting...")
-			}
-
-			err = s.controller.DeleteSlot(runnerID, slotID)
-			if err != nil {
-				log.Error().Err(err).Str("runner_id", runnerID).Str("slot_id", slotID.String()).Msg("failed to delete slot")
-			}
-		}
-	}
 
 	log.Debug().
 		Int("existing_slots", existingSlotCount).
@@ -918,12 +918,13 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 							Msg("Slot is now ready")
 						slotReady <- true
 					}
-				} else if time.Since(lastLogTime) > 10*time.Second {
-					// Only log errors every 10 seconds to avoid flooding
-					withSlotContext(&log.Logger, slot).Debug().
+				} else {
+					withSlotContext(&log.Logger, slot).Warn().
 						Err(err).
 						Dur("elapsed", elapsed).
 						Msg("Error checking if slot is ready")
+					close(slotReady)
+					return
 				}
 			}
 		}
