@@ -242,7 +242,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 	}
 }
 
-// No-op, not logging embeddings calls
+// TODO: We should actually log the embedding request and response to the llm_calls table
 func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
 	startTime := time.Now()
 

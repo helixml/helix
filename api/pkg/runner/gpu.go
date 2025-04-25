@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -21,14 +20,11 @@ type GPUManager struct {
 	gpuMemory     uint64
 	freeMemory    uint64
 	runnerOptions *Options
-	devCPUOnly    bool // Flag to indicate that we are in development CPU only mode
 }
 
 func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g := &GPUManager{
 		runnerOptions: runnerOptions,
-		// Check both environment variable and Options struct for DEVELOPMENT_CPU_ONLY
-		devCPUOnly: strings.ToLower(getEnvOrDefault("DEVELOPMENT_CPU_ONLY", "false", runnerOptions)) == "true" || runnerOptions.DevelopmentCPUOnly,
 	}
 
 	// These are slow, but run on startup so it's probably fine
@@ -36,7 +32,7 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g.gpuMemory = g.fetchTotalMemory()
 
 	// In dev CPU mode, log the configuration
-	if g.devCPUOnly {
+	if runnerOptions.DevelopmentCPUOnly {
 		log.Info().
 			Bool("development_cpu_only", true).
 			Uint64("simulated_gpu_memory", g.gpuMemory).
@@ -61,7 +57,7 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 
 func (g *GPUManager) detectGPU() bool {
 	// If in development CPU-only mode, pretend we have a GPU
-	if g.devCPUOnly {
+	if g.runnerOptions.DevelopmentCPUOnly {
 		return true
 	}
 
@@ -85,12 +81,12 @@ func (g *GPUManager) GetFreeMemory() uint64 {
 }
 
 func (g *GPUManager) fetchFreeMemory() uint64 {
-	if !g.hasGPU && !g.devCPUOnly {
+	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
 		return 0
 	}
 
 	// In development CPU-only mode, get actual free system memory
-	if g.devCPUOnly {
+	if g.runnerOptions.DevelopmentCPUOnly {
 		// For Linux in dev CPU mode, get actual free system memory from /proc/meminfo
 		if runtime.GOOS == "linux" {
 			cmd := exec.Command("grep", "MemAvailable", "/proc/meminfo")
@@ -110,8 +106,7 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 					}
 				}
 			}
-			// If we couldn't get free memory, log a warning and fall back to gpuMemory
-			log.Warn().Msg("Failed to read free system memory from /proc/meminfo, falling back to total memory")
+			log.Warn().Msg("Failed to read free system memory from /proc/meminfo, falling back to g.gpuMemory")
 		}
 		return g.gpuMemory
 	}
@@ -175,7 +170,7 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 
 	// If the user has manually set the total memory, then use that
 	// But make sure it is less than the actual total memory
-	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.devCPUOnly) {
+	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.runnerOptions.DevelopmentCPUOnly) {
 		totalMemory = g.runnerOptions.MemoryBytes
 	}
 
@@ -183,12 +178,12 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 }
 
 func (g *GPUManager) getActualTotalMemory() uint64 {
-	if !g.hasGPU && !g.devCPUOnly {
+	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
 		return 0
 	}
 
 	// In development CPU-only mode, use system memory
-	if g.devCPUOnly {
+	if g.runnerOptions.DevelopmentCPUOnly {
 		// Get system memory based on platform
 		var systemMemory uint64
 
@@ -376,18 +371,4 @@ func connectCmdStdErrToLogger(cmd *exec.Cmd) {
 			log.Error().Msg(scanner.Text())
 		}
 	}()
-}
-
-// Helper function to get an environment variable with a default value
-// Also checks the Options struct for the value
-func getEnvOrDefault(key, defaultValue string, options *Options) string {
-	value := os.Getenv(key)
-	if value == "" {
-		// For specific keys, check the Options struct
-		if key == "DEVELOPMENT_CPU_ONLY" && options != nil && options.DevelopmentCPUOnly {
-			return "true"
-		}
-		return defaultValue
-	}
-	return value
 }
