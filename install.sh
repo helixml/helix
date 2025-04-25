@@ -25,6 +25,7 @@ CLI=false
 CONTROLPLANE=false
 RUNNER=false
 LARGE=false
+HAYSTACK=false
 API_HOST=""
 RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
@@ -83,6 +84,7 @@ Options:
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
+  --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
@@ -148,6 +150,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --large)
             LARGE=true
+            shift
+            ;;
+        --haystack)
+            HAYSTACK=true
             shift
             ;;
         --api-host=*)
@@ -566,12 +572,14 @@ EOF
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
         POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
+        PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
 
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
+        PGVECTOR_PASSWORD=$(generate_password)
     fi
 
     # Generate .env content
@@ -580,10 +588,18 @@ EOF
 KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
+PGVECTOR_PASSWORD=$PGVECTOR_PASSWORD
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
 SERVER_URL=${API_HOST}
+
+# Docker Compose profiles
+COMPOSE_PROFILES=${HAYSTACK:+haystack}
+
+# Haystack features
+RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
+RAG_DEFAULT_PROVIDER=${HAYSTACK:+haystack}
 
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
@@ -851,7 +867,7 @@ fi
 
 # Check if api-1 container is running
 if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
-    API_HOST="http://api:80"
+    API_HOST="http://api:8080"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 

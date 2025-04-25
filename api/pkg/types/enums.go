@@ -208,7 +208,7 @@ const (
 	InferenceRuntimeOllama    InferenceRuntime = "ollama"
 	InferenceRuntimeCog       InferenceRuntime = "cog"
 	InferenceRuntimeDiffusers InferenceRuntime = "diffusers"
-	// TODO: vllm
+	InferenceRuntimeVLLM      InferenceRuntime = "vllm"
 )
 
 func ValidateRuntime(runtime string) InferenceRuntime {
@@ -217,6 +217,8 @@ func ValidateRuntime(runtime string) InferenceRuntime {
 		return InferenceRuntimeAxolotl
 	case string(InferenceRuntimeOllama):
 		return InferenceRuntimeOllama
+	case string(InferenceRuntimeVLLM):
+		return InferenceRuntimeVLLM
 	default:
 		return ""
 	}

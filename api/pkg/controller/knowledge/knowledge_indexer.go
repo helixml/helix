@@ -128,17 +128,26 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	start := time.Now()
 
 	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing"); err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("failed to update progress: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
 		return fmt.Errorf("failed to update progress when retrieving data: %v", err)
 	}
 
 	data, err := r.getIndexingData(ctx, k)
 	if err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("failed to get indexing data: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
 		return fmt.Errorf("failed to get indexing data, error: %w", err)
 	}
 
 	// Sanity check if we have any data
 	err = checkContents(data)
 	if err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = err.Error()
+		_, _ = r.store.UpdateKnowledge(ctx, k)
 		return err
 	}
 
@@ -176,8 +185,26 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	err = r.indexData(ctx, k, version, data, start)
 	if err != nil {
+		// Set the knowledge to error state and update the message
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("indexing failed: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
+
+		// Create a failed version for logs
+		_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+			KnowledgeID:     k.ID,
+			Version:         version,
+			Size:            getSize(data),
+			State:           types.KnowledgeStateError,
+			Message:         err.Error(),
+			CrawledSources:  k.CrawledSources,
+			EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+			Provider:        string(r.config.RAG.DefaultRagProvider),
+		})
+
 		return fmt.Errorf("indexing failed, error: %w", err)
 	}
+
 	elapsed = time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
@@ -195,6 +222,9 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("failed to update knowledge: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
 		return fmt.Errorf("failed to update knowledge, error: %w", err)
 	}
 
@@ -213,6 +243,9 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			Str("knowledge_id", k.ID).
 			Str("version", version).
 			Msg("failed to create knowledge version")
+
+		// Don't set knowledge to error state here - the knowledge is actually indexed correctly
+		// but we couldn't create a version record
 		return fmt.Errorf("failed to create knowledge version, error: %w", err)
 	}
 
@@ -224,6 +257,11 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	// Delete old versions
 	err = r.deleteOldVersions(ctx, k)
 	if err != nil {
+		// Just log this error, don't set knowledge to error state since indexing succeeded
+		log.Warn().
+			Err(err).
+			Str("knowledge_id", k.ID).
+			Msg("failed to delete old versions but indexing was successful")
 		return fmt.Errorf("failed to delete old versions, error: %w", err)
 	}
 
@@ -366,12 +404,12 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			Pipeline:        pipeline,
 		})
 		if err != nil {
-			// return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
-			log.Warn().
+			log.Error().
 				Err(err).
 				Str("knowledge_id", k.ID).
 				Str("source", d.Source).
 				Msg("failed to index data chunk")
+			return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
 		}
 	}
 
@@ -422,7 +460,13 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		// Index the chunks batch
 		err := ragClient.Index(ctx, indexChunks...)
 		if err != nil {
-			return fmt.Errorf("failed to index chunks, error: %w", err)
+			log.Error().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Int("batch_index", idx).
+				Int("batch_size", len(indexChunks)).
+				Msg("failed to index batch of chunks")
+			return fmt.Errorf("failed to index batch %d of %d: %w", idx+1, len(batches), err)
 		}
 	}
 

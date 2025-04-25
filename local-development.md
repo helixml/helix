@@ -118,7 +118,10 @@ To connect your localhost to a remote runner via an SSH tunnel, follow these ste
     SERVER_PORT=9080 # By default, the runner runs on 8080, so use another port.
     API_HOST=http://localhost:8080 # You've just forwarded this port back to your local machine
     API_TOKEN=oh-hallo-insecure-token # This should match the control plane
+    DEVELOPMENT_CPU_ONLY=true # Optional: to run without a GPU for development
     ```
+
+    The `DEVELOPMENT_CPU_ONLY` flag allows the runner to operate without an actual GPU. This is useful for development purposes when you don't have access to a GPU. In this mode, the runner will use the system memory as simulated GPU memory for scheduling. Note that in production, you should never set this to true as CPU inference will be extremely slow.
 
 4. On the remote start the runner: `docker compose -f docker-compose.runner.yaml up -d`
 
@@ -132,7 +135,7 @@ To connect to a runner via WebhookRelay:
 2. Create a new access token and make a note of it: https://my.webhookrelay.com/tokens
 3. Create a new "tunnel": https://my.webhookrelay.com/tunnels. Give it a name of `helix`, based in the `eu`, with a destination of `http://localhost:8080`. Click create. Make a note of the "Host" that looks something like: `
 https://9hxxxxxxxxx.webrelay.io`
-4. Add or edit your `docker-compose.dev.yaml` to include the following configuration. Here we're using host network mode so it can connect to the api which is exposed on 8080. You could change the destination in the previous step to point to somewhere else (like `api:80` for example).
+4. Add or edit your `docker-compose.dev.yaml` to include the following configuration. Here we're using host network mode so it can connect to the api which is exposed on 8080. You could change the destination in the previous step to point to somewhere else (like `api:8080` for example).
 
     ```yaml
     webhook_relay_localhost:

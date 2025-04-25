@@ -29,13 +29,14 @@ type StreamingResponse struct {
 }
 
 type RunnerStatus struct {
-	ID          string            `json:"id"`
-	Created     time.Time         `json:"created"`
-	Updated     time.Time         `json:"updated"`
-	Version     string            `json:"version"`
-	TotalMemory uint64            `json:"total_memory"`
-	FreeMemory  uint64            `json:"free_memory"`
-	Labels      map[string]string `json:"labels"`
+	ID              string            `json:"id"`
+	Created         time.Time         `json:"created"`
+	Updated         time.Time         `json:"updated"`
+	Version         string            `json:"version"`
+	TotalMemory     uint64            `json:"total_memory"`
+	FreeMemory      uint64            `json:"free_memory"`
+	AllocatedMemory uint64            `json:"allocated_memory"` // Memory allocated to slots/workloads
+	Labels          map[string]string `json:"labels"`
 }
 
 type Runtime string
@@ -44,12 +45,14 @@ const (
 	RuntimeOllama    Runtime = "ollama"
 	RuntimeDiffusers Runtime = "diffusers"
 	RuntimeAxolotl   Runtime = "axolotl"
+	RuntimeVLLM      Runtime = "vllm"
 )
 
 type CreateRunnerSlotAttributes struct {
-	Runtime       Runtime `json:"runtime"`
-	Model         string  `json:"model"`
-	ContextLength int64   `json:"context_length,omitempty"` // Optional: Context length to use for the model
+	Runtime       Runtime        `json:"runtime"`
+	Model         string         `json:"model"`
+	ContextLength int64          `json:"context_length,omitempty"` // Optional: Context length to use for the model
+	RuntimeArgs   map[string]any `json:"runtime_args,omitempty"`   // Optional: Runtime-specific arguments
 }
 
 type CreateRunnerSlotRequest struct {
@@ -58,14 +61,15 @@ type CreateRunnerSlotRequest struct {
 }
 
 type RunnerSlot struct {
-	ID            uuid.UUID `json:"id"`
-	Runtime       Runtime   `json:"runtime"`
-	Model         string    `json:"model"`
-	ContextLength int64     `json:"context_length,omitempty"` // Context length used for the model, if specified
-	Version       string    `json:"version"`
-	Active        bool      `json:"active"`
-	Ready         bool      `json:"ready"`
-	Status        string    `json:"status"`
+	ID            uuid.UUID      `json:"id"`
+	Runtime       Runtime        `json:"runtime"`
+	Model         string         `json:"model"`
+	ContextLength int64          `json:"context_length,omitempty"` // Context length used for the model, if specified
+	RuntimeArgs   map[string]any `json:"runtime_args,omitempty"`   // Runtime-specific arguments
+	Version       string         `json:"version"`
+	Active        bool           `json:"active"`
+	Ready         bool           `json:"ready"`
+	Status        string         `json:"status"`
 }
 
 type ListRunnerSlotsResponse struct {

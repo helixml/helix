@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
@@ -73,6 +75,11 @@ type Options struct {
 
 	// how many seconds to delay the mock runner
 	MockRunnerDelay int
+
+	// When set to true, allows running without a GPU for development/CI purposes
+	// Will use system memory for scheduling
+	// Should not be used in production as CPU inference will be very slow
+	DevelopmentCPUOnly bool `envconfig:"DEVELOPMENT_CPU_ONLY" default:"false"`
 
 	// development settings
 	// never run more than this number of model instances
@@ -165,15 +172,59 @@ func (r *Runner) Run(ctx context.Context) {
 	log.Info().Str("runner_id", r.Options.ID).Msg("Starting NATS controller")
 	go func() {
 		serverURL := fmt.Sprintf("http://%s:%d", r.Options.WebServer.Host, r.Options.WebServer.Port)
-		_, err := NewNatsController(ctx, &NatsControllerConfig{
-			PS:        r.pubsub,
-			ServerURL: serverURL,
-			RunnerID:  r.Options.ID,
-		})
-		if err != nil {
-			panic(err)
+
+		// Add retry logic for connecting to NATS
+		maxRetries := 10
+		backoff := 2 * time.Second
+		var err error
+
+		for i := 0; i < maxRetries; i++ {
+			log.Info().
+				Str("runner_id", r.Options.ID).
+				Int("attempt", i+1).
+				Int("max_retries", maxRetries).
+				Msg("Attempting to connect to NATS")
+
+			_, err = NewNatsController(ctx, &NatsControllerConfig{
+				PS:        r.pubsub,
+				ServerURL: serverURL,
+				RunnerID:  r.Options.ID,
+			})
+
+			if err == nil {
+				log.Info().
+					Str("runner_id", r.Options.ID).
+					Msg("Successfully connected to NATS")
+				break
+			}
+
+			log.Warn().
+				Err(err).
+				Str("runner_id", r.Options.ID).
+				Int("attempt", i+1).
+				Int("max_retries", maxRetries).
+				Dur("retry_after", backoff).
+				Msg("Failed to connect to NATS, retrying...")
+
+			select {
+			case <-ctx.Done():
+				log.Warn().Msg("Context cancelled while retrying NATS connection")
+				return
+			case <-time.After(backoff):
+				// Exponential backoff with a maximum of 30 seconds
+				backoff = time.Duration(math.Min(float64(backoff)*1.5, 30*float64(time.Second)))
+			}
 		}
+
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", r.Options.ID).
+				Int("max_retries", maxRetries).
+				Msg("Failed to connect to NATS after multiple attempts")
+			panic(fmt.Sprintf("Failed to connect to NATS after %d attempts: %v", maxRetries, err))
+		}
+
 		<-ctx.Done()
 	}()
-
 }

@@ -1,10 +1,13 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func GetModel(modelName string) (Model, error) {
@@ -45,14 +48,26 @@ func (m Name) String() string {
 }
 
 func (m Name) InferenceRuntime() types.InferenceRuntime {
-	// only ollama model names contain a colon.
+	// Check for VLLM models first
+	vllmModels, err := GetDefaultVLLMModels()
+	if err == nil {
+		for _, model := range vllmModels {
+			if m.String() == model.ID {
+				return types.InferenceRuntimeVLLM
+			}
+		}
+	}
+
+	// Only ollama model names contain a colon.
 	// TODO: add explicit API field for backend
 	if strings.Contains(m.String(), ":") {
 		return types.InferenceRuntimeOllama
 	}
+
 	if m.String() == ModelCogSdxl {
 		return types.InferenceRuntimeCog
 	}
+
 	diffusersModels, err := GetDefaultDiffusersModels()
 	if err != nil {
 		return types.InferenceRuntimeAxolotl
@@ -152,6 +167,13 @@ func GetModels() (map[string]Model, error) {
 		return nil, err
 	}
 	for _, model := range diffusersModels {
+		models[model.ID] = model
+	}
+	vllmModels, err := GetDefaultVLLMModels()
+	if err != nil {
+		return nil, err
+	}
+	for _, model := range vllmModels {
 		models[model.ID] = model
 	}
 	return models, nil
@@ -333,4 +355,144 @@ func GetLowestMemoryRequirement() (uint64, error) {
 		}
 	}
 	return lowestMemoryRequirement, err
+}
+
+// First, add VLLMGenericText struct with all required interface methods
+type VLLMGenericText struct {
+	ID            string
+	Name          string
+	Memory        uint64
+	ContextLength int64
+	Description   string
+	Args          []string
+	Hide          bool
+}
+
+func (o *VLLMGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
+	// For now, we don't differentiate between inference and fine-tuning
+	// since VLLM is only used for inference
+	return o.Memory
+}
+
+func (o *VLLMGenericText) GetContextLength() int64 {
+	return o.ContextLength
+}
+
+func (o *VLLMGenericText) GetType() types.SessionType {
+	return types.SessionTypeText
+}
+
+func (o *VLLMGenericText) GetID() string {
+	return o.ID
+}
+
+func (o *VLLMGenericText) ModelName() Name {
+	return NewModel(o.ID)
+}
+
+// Implementation of GetCommand - not used directly as VLLM is run via Runtime
+func (o *VLLMGenericText) GetCommand(_ context.Context, _ types.SessionFilter, _ types.RunnerProcessConfig) (*exec.Cmd, error) {
+	return nil, fmt.Errorf("not implemented: VLLM models run through vLLM runtime")
+}
+
+// Implementation of GetTextStreams - not used directly as VLLM is run via Runtime
+func (o *VLLMGenericText) GetTextStreams(_ types.SessionMode, _ WorkerEventHandler) (*TextStream, *TextStream, error) {
+	return nil, nil, fmt.Errorf("not implemented: VLLM models run through vLLM runtime")
+}
+
+// Implementation of PrepareFiles - not used directly as VLLM is run via Runtime
+func (o *VLLMGenericText) PrepareFiles(_ *types.Session, _ bool, _ SessionFileManager) (*types.Session, error) {
+	return nil, fmt.Errorf("not implemented: VLLM models run through vLLM runtime")
+}
+
+// TODO: probably noop
+func (o *VLLMGenericText) GetTask(session *types.Session, _ SessionFileManager) (*types.RunnerTask, error) {
+	task, err := getGenericTask(session)
+	if err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (o *VLLMGenericText) GetDescription() string {
+	return o.Description
+}
+
+func (o *VLLMGenericText) GetHumanReadableName() string {
+	return o.Name
+}
+
+func (o *VLLMGenericText) GetHidden() bool {
+	return o.Hide
+}
+
+// Add GetDefaultVLLMModels function
+func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
+	return []*VLLMGenericText{
+		{
+			ID:            "Qwen/Qwen2.5-VL-3B-Instruct",
+			Name:          "Qwen 2.5 VL 3B",
+			Memory:        GB * 23,
+			ContextLength: 32768,
+			Description:   "Smaller multi-modal vision-language model, from Alibaba",
+			Args: []string{
+				"--trust-remote-code",
+				"--max-model-len", "32768",
+				"--gpu-memory-utilization", "0.9",
+				"--limit-mm-per-prompt", "image=10",
+			},
+			Hide: false,
+		},
+		{
+			ID:            "Qwen/Qwen2.5-VL-7B-Instruct",
+			Name:          "Qwen 2.5 VL 7B",
+			Memory:        GB * 32,
+			ContextLength: 32768,
+			Description:   "Multi-modal vision-language model, from Alibaba",
+			Args: []string{
+				"--trust-remote-code",
+				"--max-model-len", "32768",
+				"--gpu-memory-utilization", "0.9",
+				"--limit-mm-per-prompt", "image=10",
+			},
+			Hide: false,
+		},
+		{
+			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
+			Name:          "DSE Qwen2 2B",
+			Memory:        GB * 8,
+			ContextLength: 8192,
+			Description:   "Small embedding model for RAG, from MrLight",
+			Args: []string{
+				"--task", "embed",
+				"--max-model-len", "8192",
+				"--trust-remote-code",
+			},
+			Hide: false,
+		},
+	}, nil
+}
+
+// GetVLLMArgsForModel returns the VLLM-specific arguments for a given model
+func GetVLLMArgsForModel(modelName string) ([]string, error) {
+	vllmModels, err := GetDefaultVLLMModels()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, model := range vllmModels {
+		if model.ID == modelName {
+			log.Debug().
+				Str("model", modelName).
+				Strs("args", model.Args).
+				Msg("Found VLLM args for model")
+			return model.Args, nil
+		}
+	}
+
+	// If model not found, return an empty args list
+	log.Debug().
+		Str("model", modelName).
+		Msg("No VLLM args found for model")
+	return []string{}, nil
 }

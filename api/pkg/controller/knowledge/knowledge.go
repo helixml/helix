@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,7 +120,15 @@ func (r *Reconciler) runIndexer(ctx context.Context) {
 		case <-time.After(3 * time.Second):
 			err := r.index(ctx)
 			if err != nil {
-				log.Warn().Err(err).Msg("failed to index knowledge")
+				// Check for specific error types and log them appropriately
+				if strings.Contains(err.Error(), "embedding model error") {
+					log.Error().
+						Err(err).
+						Str("error_type", "embedding_model_error").
+						Msg("Failed to index knowledge due to embedding model availability issue. Check that the requested embedding model is loaded in the vLLM service.")
+				} else {
+					log.Warn().Err(err).Msg("Failed to index knowledge")
+				}
 			}
 		}
 	}

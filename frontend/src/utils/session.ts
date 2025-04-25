@@ -26,11 +26,31 @@ import {
 const NO_DATE = '0001-01-01T00:00:00Z'
 
 const COLORS: Record<string, string> = {
-  sdxl_inference: '#D183C9',
-  sdxl_finetune: '#E3879E',
-  mistral_inference: '#F4D35E',
-  text_inference: '#F4D35E', // Same as mistral inference
-  mistral_finetune: '#EE964B',
+  // Diffusers/image models
+  diffusers_inference: '#D183C9',  // Purple for Diffusers inference
+  diffusers_finetune: '#E3879E',   // Pink for Diffusers finetune
+  
+  // Text models
+  vllm_inference: '#72C99A',       // Green for VLLM inference 
+  vllm_finetune: '#50B37D',        // Darker green for VLLM finetune
+  
+  // Ollama models
+  ollama_inference: '#F4D35E',     // Yellow for Ollama inference
+  ollama_finetune: '#EE964B',      // Orange-yellow for Ollama finetune
+  
+  // Axolotl models
+  axolotl_inference: '#FF6B6B',    // Red for Axolotl inference
+  axolotl_finetune: '#CC5151',     // Darker red for Axolotl finetune
+  
+  // Legacy model mappings (keeping for compatibility)
+  sdxl_inference: '#D183C9',       // Map to diffusers
+  sdxl_finetune: '#E3879E',        // Map to diffusers
+  mistral_inference: '#FF6B6B',    // Map to axolotl
+  mistral_finetune: '#CC5151',     // Map to axolotl
+  text_inference: '#FF6B6B',       // Map to axolotl
+  text_finetune: '#CC5151',        // Map to axolotl
+  image_inference: '#D183C9',      // Map to diffusers
+  image_finetune: '#E3879E',       // Map to diffusers
 }
 
 export const hasDate = (dt?: string): boolean => {
@@ -66,18 +86,36 @@ export const hasFinishedFinetune = (session: ISession): boolean => {
 }
 
 export const getColor = (modelName: string, mode: ISessionMode): string => {
-  // If starts with 'ollama', return inference color
-  if (getModelName(modelName).indexOf('ollama') >= 0) return COLORS['text_inference']
-
-  const key = `${getModelName(modelName)}_${mode}`
+  // Get the model type first
+  const modelType = getModelName(modelName)
+  
+  // Build the key to look up in COLORS record
+  const key = `${modelType}_${mode}`
+  
+  // Return the corresponding color
   return COLORS[key]
 }
 
 export const getModelName = (model_name: string): string => {
-  if (model_name.indexOf('stabilityai') >= 0) return 'sdxl'
-  if (model_name.indexOf('mistralai') >= 0) return 'mistral'
-  // If has ':' in the name, it's Ollama model, need to split and keep the first part
-  if (model_name.indexOf(':') >= 0) return `ollama_${model_name.split(':')[0]}`
+  // Diffusers/image models
+  if (model_name.indexOf('stabilityai') >= 0 || 
+      model_name.indexOf('diffusers') >= 0 || 
+      model_name === 'image' || 
+      model_name.indexOf('sdxl') >= 0) return 'diffusers'
+  
+  // VLLM models
+  if (model_name.indexOf('vllm') >= 0 || 
+      model_name.toLowerCase().indexOf('qwen') >= 0) return 'vllm'
+  
+  // Axolotl models
+  if (model_name.indexOf('mistral') >= 0 || 
+      model_name.indexOf('axolotl') >= 0 || 
+      model_name === 'text') return 'axolotl'
+  
+  // Ollama models - must be checked last since it's based on format
+  if (model_name.indexOf(':') >= 0 || 
+      model_name.indexOf('ollama') >= 0) return 'ollama'
+  
   return ''
 }
 

@@ -332,10 +332,20 @@ func NewNatsClient(u string, token string) (*Nats, error) {
 
 	opts := []nats.Option{
 		nats.Token(token),
-		nats.Timeout(time.Second * 2),
-		nats.RetryOnFailedConnect(false),
-		nats.MaxReconnects(-1), // Infinite reconnects
+		nats.Timeout(time.Second * 5),
+		nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(-1),
 		nats.ReconnectWait(time.Second * 2),
+		nats.ReconnectJitter(time.Second, time.Second*5),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			log.Warn().Err(err).Msg("disconnected from NATS server")
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			log.Info().Str("url", nc.ConnectedUrl()).Msg("reconnected to NATS server")
+		}),
+		nats.ErrorHandler(func(_ *nats.Conn, sub *nats.Subscription, err error) {
+			log.Error().Err(err).Str("subject", sub.Subject).Msg("NATS error")
+		}),
 		nats.ProxyPath(parsedURL.Path),
 	}
 

@@ -122,7 +122,9 @@ func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.
 
 	case types.ProviderTogetherAI:
 		if cfg.Providers.TogetherAI.APIKey == "" {
-			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
+			// Fallback to Helix if no TogetherAI key
+			log.Warn().Msg("TogetherAI API key not set, falling back to Helix for fine-tuning")
+			return helixInference, nil
 		}
 		log.Info().
 			Str("base_url", cfg.Providers.TogetherAI.BaseURL).

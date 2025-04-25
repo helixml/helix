@@ -153,7 +153,6 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-
 				models, err := s.getProviderModels(ctx, providerEndpoints[idx])
 				if err != nil {
 					log.Err(err).
