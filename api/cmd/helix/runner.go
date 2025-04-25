@@ -47,6 +47,7 @@ func NewRunnerOptions() *RunnerOptions {
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
 				Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
 			},
+			DevelopmentCPUOnly: getDefaultServeOptionBool("DEVELOPMENT_CPU_ONLY", false),
 		},
 		Janitor: config.Janitor{
 			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),
