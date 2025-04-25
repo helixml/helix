@@ -108,41 +108,6 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 		"method":          "POST",
 	}
 
-	// Add input information based on type
-	switch input := embeddingRequest.Input.(type) {
-	case string:
-		reqInfo["input_type"] = "string"
-		reqInfo["input_length"] = len(input)
-		if len(input) > 100 {
-			reqInfo["input_sample"] = input[:100] + "..."
-		} else {
-			reqInfo["input_sample"] = input
-		}
-	case []string:
-		reqInfo["input_type"] = "[]string"
-		reqInfo["input_count"] = len(input)
-		if len(input) > 0 {
-			inputLen := 0
-			for _, s := range input {
-				inputLen += len(s)
-			}
-			reqInfo["total_input_length"] = inputLen
-			if len(input[0]) > 100 {
-				reqInfo["input_sample"] = input[0][:100] + "..."
-			} else {
-				reqInfo["input_sample"] = input[0]
-			}
-		}
-	case [][]int:
-		reqInfo["input_type"] = "[][]int"
-		reqInfo["input_count"] = len(input)
-		if len(input) > 0 {
-			reqInfo["first_token_count"] = len(input[0])
-		}
-	default:
-		reqInfo["input_type"] = fmt.Sprintf("%T", embeddingRequest.Input)
-	}
-
 	reqInfoJSON, _ := json.Marshal(reqInfo)
 	log.Info().
 		Str("component", "runner").
