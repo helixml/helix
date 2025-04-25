@@ -707,7 +707,7 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)
 
 	// Add models endpoint to allow checking available models
-	router.HandleFunc("/v1/models", apiServer.listModelsForSocket).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/v1/models", apiServer.listModels).Methods(http.MethodGet, http.MethodOptions)
 
 	// Add chat completions endpoint for Haystack LLM access
 	router.HandleFunc("/v1/chat/completions", apiServer.createChatCompletion).Methods(http.MethodPost, http.MethodOptions)
@@ -739,73 +739,6 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	}
 
 	return nil
-}
-
-// listModelsForSocket handles requests to list available models for the socket server
-func (apiServer *HelixAPIServer) listModelsForSocket(rw http.ResponseWriter, r *http.Request) {
-	client, err := apiServer.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
-		Provider: apiServer.Cfg.RAG.PGVector.Provider,
-	})
-
-	if err != nil {
-		log.Error().Err(err).Msg("error getting client to list models")
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Get the list of models from the client
-	modelsList, err := client.ListModels(r.Context())
-	if err != nil {
-		log.Error().Err(err).Msg("error listing models")
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Format for JSON response
-	type Model struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int    `json:"created"`
-		OwnedBy string `json:"owned_by"`
-	}
-
-	type ModelsResponse struct {
-		Object string  `json:"object"`
-		Data   []Model `json:"data"`
-	}
-
-	// Create a response object
-	response := ModelsResponse{
-		Object: "list",
-		Data:   []Model{},
-	}
-
-	// Convert the models to the response format
-	for _, model := range modelsList {
-		response.Data = append(response.Data, Model{
-			ID:      model.ID,
-			Object:  "model",
-			Created: 0, // We don't track creation time
-			OwnedBy: "system",
-		})
-	}
-
-	// Log the available models
-	var modelIDs []string
-	for _, model := range modelsList {
-		modelIDs = append(modelIDs, model.ID)
-	}
-	log.Info().Strs("models", modelIDs).Msg("available models for socket server")
-
-	// Write response
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(rw).Encode(response)
-	if err != nil {
-		log.Error().Err(err).Msg("error encoding models list")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
-		return
-	}
 }
 
 // listTemplateApps godoc

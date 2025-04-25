@@ -32,10 +32,14 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 
 	user := getRequestUser(r)
 
-	client, err := apiServer.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
+	req := &manager.GetClientRequest{
 		Provider: provider,
-		Owner:    user.ID,
-	})
+	}
+	if user != nil {
+		req.Owner = user.ID
+	}
+
+	client, err := apiServer.providerManager.GetClient(r.Context(), req)
 	if err != nil {
 		log.Err(err).Msg("error getting client")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
