@@ -99,7 +99,7 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 
 func getRequestUser(req *http.Request) *types.User {
 	// Check if this is a socket request by looking at the underlying connection type
-	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil && req.URL.Path == "/v1/embeddings" {
+	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil {
 		return &types.User{
 			ID:        "socket",
 			Type:      types.OwnerTypeSocket,
