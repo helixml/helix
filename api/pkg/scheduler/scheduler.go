@@ -918,12 +918,13 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 							Msg("Slot is now ready")
 						slotReady <- true
 					}
-				} else if time.Since(lastLogTime) > 10*time.Second {
-					// Only log errors every 10 seconds to avoid flooding
-					withSlotContext(&log.Logger, slot).Debug().
+				} else {
+					withSlotContext(&log.Logger, slot).Warn().
 						Err(err).
 						Dur("elapsed", elapsed).
 						Msg("Error checking if slot is ready")
+					close(slotReady)
+					return
 				}
 			}
 		}
