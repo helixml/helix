@@ -88,7 +88,7 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		Str("model", model).
 		Int64("context_length", contextLength).
 		Strs("args", params.Args).
-		Msg("🐟 NewVLLMRuntime received args")
+		Msg("NewVLLMRuntime received args")
 
 	return &VLLMRuntime{
 		version:       "unknown",
@@ -106,7 +106,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		Str("model", v.model).
 		Int64("context_length", v.contextLength).
 		Strs("args", v.args).
-		Msg("🐟 Starting vLLM runtime with args")
+		Msg("Starting vLLM runtime with args")
 
 	// Make sure the port is not already in use
 	if isPortInUse(v.port) {
@@ -153,7 +153,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		Str("model", v.model).
 		Strs("args", v.args).
 		Int("pid", v.cmd.Process.Pid).
-		Msg("🐟 vLLM has started successfully")
+		Msg("vLLM has started successfully")
 
 	// Set the version (if available)
 	v.version = "vLLM"
@@ -452,7 +452,7 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		Str("model", model).
 		Int64("context_length", contextLength).
 		Strs("custom_args", customArgs).
-		Msg("🐟 Preparing vLLM serve command with custom args")
+		Msg("Preparing vLLM serve command with custom args")
 
 	// First prepare a map of custom arguments for quick checking
 	customArgsMap := make(map[string]bool)
@@ -520,7 +520,7 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	log.Debug().
 		Strs("args", args).
 		Strs("custom_args", customArgs).
-		Msg("🐟 Final vLLM command arguments")
+		Msg("Final vLLM command arguments")
 
 	cmd := commander.CommandContext(ctx, vllmPath, args...)
 

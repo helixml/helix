@@ -517,7 +517,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 				log.Debug().
 					Str("model", modelName).
 					Strs("vllm_args", modelArgs).
-					Msg("🐟 Found model-specific vLLM args in scheduler")
+					Msg("Found model-specific vLLM args in scheduler")
 
 				// Add the args to the runtime args
 				runtimeArgs = map[string]interface{}{
@@ -527,7 +527,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 				log.Debug().
 					Str("model", modelName).
 					Interface("runtime_args", runtimeArgs).
-					Msg("🐟 Created runtime_args map in scheduler")
+					Msg("Created runtime_args map in scheduler")
 			}
 		}
 	} else {
@@ -550,7 +550,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Str("slot_id", slot.ID.String()).
 		Str("model", slot.InitialWork().ModelName().String()).
 		Interface("runtime_args", runtimeArgs).
-		Msg("🐟 Sending CreateRunnerSlotRequest to runner with RuntimeArgs")
+		Msg("Sending CreateRunnerSlotRequest to runner with RuntimeArgs")
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -561,7 +561,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	log.Debug().
 		Str("runner_id", slot.RunnerID).
 		Str("json_body", string(body)).
-		Msg("🐟 JSON body being sent to runner")
+		Msg("JSON body being sent to runner")
 
 	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
 		Method: "POST",
