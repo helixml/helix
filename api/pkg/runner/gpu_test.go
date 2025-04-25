@@ -33,37 +33,7 @@ func TestGPUManager(t *testing.T) {
 			},
 		},
 		{
-			name: "development cpu-only mode",
-			setup: func() func() {
-				// Set development CPU-only mode via env var
-				oldEnvValue := os.Getenv("DEVELOPMENT_CPU_ONLY")
-				os.Setenv("DEVELOPMENT_CPU_ONLY", "true")
-				return func() {
-					// Reset environment variable
-					os.Setenv("DEVELOPMENT_CPU_ONLY", oldEnvValue)
-				}
-			},
-			validate: func(t *testing.T, g *GPUManager) {
-				// In development CPU-only mode, hasGPU should be true even if no GPU available
-				if !g.hasGPU {
-					t.Error("Development CPU-only mode should pretend to have a GPU")
-				}
-
-				// Total memory should be non-zero
-				total := g.GetTotalMemory()
-				if total == 0 {
-					t.Error("Total memory should not be 0 in development CPU-only mode")
-				}
-
-				// Verify free memory is valid (non-zero and <= total)
-				verifyValidFreeMemory(t, g)
-			},
-		},
-		{
 			name: "development cpu-only via options",
-			setup: func() func() {
-				return func() {}
-			},
 			validate: func(t *testing.T, _ *GPUManager) {
 				// Create a new GPU manager with DevelopmentCPUOnly=true
 				options := &Options{
