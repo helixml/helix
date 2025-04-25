@@ -472,6 +472,48 @@ class VectorchordDocumentStore:
     def _create_bm25_index_if_not_exists(self):
         """Create the BM25 index if it doesn't exist and update content_bm25vector column."""
         try:
+            # First, check if the content_bm25vector column exists
+            check_column_query = SQL("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = {schema_name}
+                    AND table_name = {table_name}
+                    AND column_name = 'content_bm25vector'
+                );
+            """).format(
+                schema_name=SQLLiteral(self.schema_name),
+                table_name=SQLLiteral(self.table_name),
+            )
+            
+            self.cursor.execute(check_column_query)
+            column_exists = self.cursor.fetchone()[0]
+            
+            # If the column doesn't exist, add it
+            if not column_exists:
+                logger.info(f"Column content_bm25vector does not exist in {self.schema_name}.{self.table_name}. Creating it.")
+                
+                # Ensure the search path includes bm25_catalog for bm25vector type
+                self._execute_sql(
+                    SQL('SET search_path TO "$user", public, bm25_catalog;'),
+                    error_msg="Failed to set search path for BM25 vector column creation"
+                )
+                
+                # Add the content_bm25vector column
+                add_column_query = SQL("""
+                    ALTER TABLE {schema_name}.{table_name} 
+                    ADD COLUMN content_bm25vector bm25vector;
+                """).format(
+                    schema_name=Identifier(self.schema_name),
+                    table_name=Identifier(self.table_name),
+                )
+                
+                self._execute_sql(
+                    add_column_query,
+                    error_msg=f"Failed to add content_bm25vector column to {self.schema_name}.{self.table_name}"
+                )
+                
+                logger.info(f"Column content_bm25vector added to {self.schema_name}.{self.table_name}")
+            
             # Then create the index
             index_name = (
                 SQL("{table_name}_bm25_idx")
@@ -491,6 +533,7 @@ class VectorchordDocumentStore:
                 table_name=Identifier(self.table_name),
                 index_name=Identifier(index_name),
             )
+            
             self._execute_sql(
                 query,
                 error_msg=f"Failed to create BM25 index for {self.schema_name}.{self.table_name}",

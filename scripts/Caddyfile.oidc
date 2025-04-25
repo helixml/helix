@@ -38,7 +38,7 @@
 
     # All other API traffic goes to api service
     handle /* {
-        reverse_proxy api:80
+        reverse_proxy api:8080
     }
 
     log {

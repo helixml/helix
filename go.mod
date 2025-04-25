@@ -1,6 +1,6 @@
 module github.com/helixml/helix
 
-go 1.23.4
+go 1.23.8
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 

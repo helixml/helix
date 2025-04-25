@@ -1,6 +1,6 @@
 module github.com/helixml/helix/operator
 
-go 1.23.4
+go 1.23.8
 
 require (
 	github.com/helixml/helix v0.0.0

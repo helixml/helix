@@ -728,14 +728,15 @@ type DashboardData struct {
 }
 
 type DashboardRunner struct {
-	ID          string            `json:"id"`
-	Created     time.Time         `json:"created"`
-	Updated     time.Time         `json:"updated"`
-	Version     string            `json:"version"`
-	TotalMemory uint64            `json:"total_memory"`
-	FreeMemory  uint64            `json:"free_memory"`
-	Labels      map[string]string `json:"labels"`
-	Slots       []*RunnerSlot     `json:"slots"`
+	ID              string            `json:"id"`
+	Created         time.Time         `json:"created"`
+	Updated         time.Time         `json:"updated"`
+	Version         string            `json:"version"`
+	TotalMemory     uint64            `json:"total_memory"`
+	FreeMemory      uint64            `json:"free_memory"`
+	AllocatedMemory uint64            `json:"allocated_memory"`
+	Labels          map[string]string `json:"labels"`
+	Slots           []*RunnerSlot     `json:"slots"`
 }
 
 type GlobalSchedulingDecision struct {
@@ -1400,6 +1401,10 @@ type RunnerLLMInferenceRequest struct {
 	InteractionID string
 
 	Request *openai.ChatCompletionRequest
+
+	// Added fields for embeddings
+	Embeddings       bool                    `json:"embeddings,omitempty"`
+	EmbeddingRequest openai.EmbeddingRequest `json:"embedding_request,omitempty"`
 }
 
 type RunnerLLMInferenceResponse struct {

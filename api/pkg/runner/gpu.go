@@ -31,6 +31,14 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g.hasGPU = g.detectGPU()
 	g.gpuMemory = g.fetchTotalMemory()
 
+	// In dev CPU mode, log the configuration
+	if runnerOptions.DevelopmentCPUOnly {
+		log.Info().
+			Bool("development_cpu_only", true).
+			Uint64("simulated_gpu_memory", g.gpuMemory).
+			Msg("Running in development CPU-only mode")
+	}
+
 	// Start a background goroutine to refresh the free memory. We need to do this because it takes
 	// about 8 seconds to query nvidia-smi, so on hot paths that's just too long.
 	go func() {
@@ -48,6 +56,11 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 }
 
 func (g *GPUManager) detectGPU() bool {
+	// If in development CPU-only mode, pretend we have a GPU
+	if g.runnerOptions.DevelopmentCPUOnly {
+		return true
+	}
+
 	switch runtime.GOOS {
 	case "linux":
 		// Check for nvidia-smi
@@ -68,8 +81,34 @@ func (g *GPUManager) GetFreeMemory() uint64 {
 }
 
 func (g *GPUManager) fetchFreeMemory() uint64 {
-	if !g.hasGPU {
+	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
 		return 0
+	}
+
+	// In development CPU-only mode, get actual free system memory
+	if g.runnerOptions.DevelopmentCPUOnly {
+		// For Linux in dev CPU mode, get actual free system memory from /proc/meminfo
+		if runtime.GOOS == "linux" {
+			cmd := exec.Command("grep", "MemAvailable", "/proc/meminfo")
+			connectCmdStdErrToLogger(cmd)
+			output, err := cmd.Output()
+			if err == nil {
+				// Example output: MemAvailable:    8765432 kB
+				fields := strings.Fields(string(output))
+				if len(fields) >= 2 {
+					if mem, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+						freeMemory := mem * 1024 // Convert kB to bytes
+						log.Trace().
+							Str("platform", "linux").
+							Uint64("free_memory_bytes", freeMemory).
+							Msg("Using actual free system memory in development CPU-only mode")
+						return freeMemory
+					}
+				}
+			}
+			log.Warn().Msg("Failed to read free system memory from /proc/meminfo, falling back to g.gpuMemory")
+		}
+		return g.gpuMemory
 	}
 
 	// Default to the user set max memory value
@@ -131,7 +170,7 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 
 	// If the user has manually set the total memory, then use that
 	// But make sure it is less than the actual total memory
-	if g.runnerOptions.MemoryBytes > 0 && g.runnerOptions.MemoryBytes < totalMemory {
+	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.runnerOptions.DevelopmentCPUOnly) {
 		totalMemory = g.runnerOptions.MemoryBytes
 	}
 
@@ -139,8 +178,70 @@ func (g *GPUManager) fetchTotalMemory() uint64 {
 }
 
 func (g *GPUManager) getActualTotalMemory() uint64 {
-	if !g.hasGPU {
+	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
 		return 0
+	}
+
+	// In development CPU-only mode, use system memory
+	if g.runnerOptions.DevelopmentCPUOnly {
+		// Get system memory based on platform
+		var systemMemory uint64
+
+		switch runtime.GOOS {
+		case "linux":
+			// Read from /proc/meminfo
+			cmd := exec.Command("grep", "MemTotal", "/proc/meminfo")
+			connectCmdStdErrToLogger(cmd)
+			output, err := cmd.Output()
+			if err == nil {
+				// Example output: MemTotal:       16333764 kB
+				fields := strings.Fields(string(output))
+				if len(fields) >= 2 {
+					if mem, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+						systemMemory = mem * 1024 // Convert kB to bytes
+						log.Info().
+							Str("platform", "linux").
+							Uint64("system_memory_bytes", systemMemory).
+							Msg("Using actual system memory for development CPU-only mode")
+						return systemMemory
+					}
+				}
+			}
+			// If we couldn't read system memory, log an error and return a reasonable default
+			log.Error().Msg("Failed to read system memory from /proc/meminfo, using 16GB default")
+			return 16 * 1024 * 1024 * 1024 // 16GB default as fallback
+
+		case "darwin":
+			// Use the same approach we use for Mac Silicon
+			cmd := exec.Command("sysctl", "hw.memsize")
+			connectCmdStdErrToLogger(cmd)
+			output, err := cmd.Output()
+			if err == nil {
+				// Example output: hw.memsize: 17179869184
+				parts := strings.Split(string(output), ":")
+				if len(parts) == 2 {
+					if total, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64); err == nil {
+						systemMemory = total
+						log.Info().
+							Str("platform", "darwin").
+							Uint64("system_memory_bytes", systemMemory).
+							Msg("Using actual system memory for development CPU-only mode")
+						return systemMemory
+					}
+				}
+			}
+			log.Error().Msg("Failed to read system memory on macOS, using 16GB default")
+			return 16 * 1024 * 1024 * 1024 // 16GB default as fallback
+
+		case "windows":
+			// Use a simple default for Windows - we don't develop on Windows
+			log.Info().Msg("Windows platform detected, using 16GB default for development CPU-only mode")
+			return 16 * 1024 * 1024 * 1024 // 16GB default
+		}
+
+		// Fallback if we couldn't determine the system memory
+		log.Warn().Msg("Could not determine system memory, using 16GB default for development CPU-only mode")
+		return 16 * 1024 * 1024 * 1024 // 16GB default
 	}
 
 	switch runtime.GOOS {

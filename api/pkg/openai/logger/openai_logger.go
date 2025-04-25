@@ -242,7 +242,54 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 	}
 }
 
-// No-op, not logging embeddings calls
+// TODO: We should actually log the embedding request and response to the llm_calls table
 func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error) {
-	return m.client.CreateEmbeddings(ctx, request)
+	startTime := time.Now()
+
+	// Log the request
+	log.Info().
+		Str("component", "openai_logger").
+		Str("provider", string(m.provider)).
+		Str("operation", "embedding").
+		Str("model", string(request.Model)).
+		Int("input_length", len(fmt.Sprintf("%v", request.Input))).
+		Msg("🔍 Embedding request")
+
+	// Call the actual embedding API
+	resp, err = m.client.CreateEmbeddings(ctx, request)
+
+	// Calculate duration
+	durationMs := time.Since(startTime).Milliseconds()
+
+	// Log the response
+	if err != nil {
+		log.Error().
+			Str("component", "openai_logger").
+			Str("provider", string(m.provider)).
+			Str("operation", "embedding").
+			Str("model", string(request.Model)).
+			Int64("duration_ms", durationMs).
+			Err(err).
+			Msg("❌ Embedding failed")
+	} else {
+		// Build the log entry
+		logEntry := log.Info().
+			Str("component", "openai_logger").
+			Str("provider", string(m.provider)).
+			Str("operation", "embedding").
+			Str("model", string(request.Model)).
+			Int64("duration_ms", durationMs).
+			Int("embedding_count", len(resp.Data))
+
+		// Only add dimensions if we have at least one embedding
+		if len(resp.Data) > 0 {
+			logEntry = logEntry.Int("embedding_dimensions", len(resp.Data[0].Embedding))
+		} else {
+			logEntry = logEntry.Str("error", "empty_embedding_response")
+		}
+
+		logEntry.Msg("✅ Embedding completed")
+	}
+
+	return resp, err
 }

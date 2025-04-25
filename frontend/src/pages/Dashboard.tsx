@@ -33,6 +33,7 @@ import {
 } from '../types'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
+import Chip from '@mui/material/Chip'
 
 const START_ACTIVE = true
 
@@ -172,10 +173,27 @@ const Dashboard: FC = () => {
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
           }}
         >
-          <SessionBadgeKey />
+          <Box sx={{ flex: 1 }}></Box>
+          {account.serverConfig.version && (
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.7)',
+                position: 'absolute',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                textAlign: 'center',
+              }}
+            >
+              Helix Control Plane version: {account.serverConfig.version}
+            </Typography>
+          )}
+          <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+            <SessionBadgeKey />
+          </Box>
         </Box>
       )}
     >
@@ -256,6 +274,34 @@ const Dashboard: FC = () => {
               justifyContent: 'flex-start',
             }}
           >
+            {/* Controls for entire Runners tab */}
+            <Box
+              sx={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                mb: 3,
+                px: 2,
+              }}
+            >
+              <FormGroup>
+                <FormControlLabel
+                  control={<Switch
+                    checked={active}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                      activeRef.current = event.target.checked
+                      setActive(event.target.checked)
+                    }} />}
+                  label="Live Updates?" />
+              </FormGroup>
+              
+              <JsonWindowLink data={data}>
+                view data
+              </JsonWindowLink>
+            </Box>
+
             <Box
               sx={{
                 width: '100%',
@@ -265,6 +311,7 @@ const Dashboard: FC = () => {
                 justifyContent: 'flex-start',
               }}
             >
+              {/* Queue Section */}
               <Box
                 sx={{
                   p: 3,
@@ -272,61 +319,63 @@ const Dashboard: FC = () => {
                   width: '480px',
                   minWidth: '480px',
                   overflowY: 'auto',
-                  display: { xs: 'none', md: 'block' }
+                  display: { xs: 'none', md: 'block' },
+                  borderRight: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
               >
+                {/* Queue Section Header */}
                 <Box
                   sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
+                    mb: 3,
+                    pb: 1,
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
                   }}
                 >
-                  <Box
-                    sx={{
-                      flexGrow: 0,
+                  <Typography 
+                    variant="h5"
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.95)',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
                     }}
                   >
-                    <FormGroup>
-                      <FormControlLabel
-                        control={<Switch
-                          checked={active}
-                          onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                            activeRef.current = event.target.checked
-                            setActive(event.target.checked)
-                          }} />}
-                        label="Live Updates?" />
-                    </FormGroup>
-                  </Box>
-                  <Box
-                    sx={{
-                      flexGrow: 1,
-                      textAlign: 'right',
-                    }}
-                  >
-                    <JsonWindowLink
-                      data={data}
-                    >
-                      view data
-                    </JsonWindowLink>
-                  </Box>
-
+                    Queue
+                    {data.queue.length > 0 && (
+                      <Chip
+                        size="small"
+                        label={data.queue.length}
+                        sx={{
+                          ml: 2,
+                          height: 22,
+                          minWidth: 20,
+                          backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          border: '1px solid rgba(128, 90, 213, 0.3)',
+                          '& .MuiChip-label': {
+                            px: 1,
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                          }
+                        }}
+                      />
+                    )}
+                  </Typography>
                 </Box>
-                <Divider
-                  sx={{
-                    mt: 1,
-                    mb: 1,
-                  }} />
-                {account.serverConfig.version && (
-                  <Box>
-                    <Typography variant="h6">
-                      Helix Control Plane version: {account.serverConfig.version}
+
+                {data.queue.length === 0 && (
+                  <Box sx={{ 
+                    py: 4, 
+                    textAlign: 'center',
+                    backgroundColor: 'rgba(25, 25, 28, 0.3)',
+                    borderRadius: '3px',
+                  }}>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                      No jobs in queue
                     </Typography>
                   </Box>
-                )}               
-                {data.queue.length > 0 && (
-                  <Typography variant="h6">Queued Jobs</Typography>
                 )}
+                
                 {data.queue.map((item: IQueueItem) => {
                   return (
                     <SessionSummary
@@ -349,34 +398,61 @@ const Dashboard: FC = () => {
                   )
                 })}             
               </Box>
+
+              {/* Runners Section */}
               <Box
                 sx={{
                   flexGrow: 1,
-                  p: 2,
+                  p: 3,
                   height: '100%',
                   width: '100%',
                   overflowY: 'auto',
                 }}
               >
+                {/* Runners Section Header */}
+                <Typography 
+                  variant="h5"
+                  sx={{ 
+                    mb: 4,
+                    color: 'rgba(255, 255, 255, 0.95)',
+                    fontWeight: 600,
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                    pb: 1,
+                  }}
+                >
+                  Runner State
+                </Typography>
+
                 <Grid
                   container
                   sx={{
                     width: '100%',
                     overflow: "auto",
                   }}
-                  spacing={2} padding={2}
+                  spacing={3}
                 >
+                  {data.runners?.length === 0 && (
+                    <Grid item xs={12}>
+                      <Box sx={{ 
+                        py: 4, 
+                        textAlign: 'center',
+                        backgroundColor: 'rgba(25, 25, 28, 0.3)',
+                        borderRadius: '3px',
+                      }}>
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                          No active runners
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  )}
+
                   {data.runners?.map((runner) => {
                     return (
-                      <Grid item key={runner.id}>
-                        <Paper>
-                          <Grid item>
-                            <Typography variant="h6">Runner State</Typography>
-                            <RunnerSummary
-                              runner={runner}
-                              onViewSession={onViewSession} />
-                          </Grid>
-                        </Paper>
+                      <Grid item xs={12} key={runner.id}>
+                        <RunnerSummary
+                          runner={runner}
+                          onViewSession={onViewSession} 
+                        />
                       </Grid>
                     )
                   })}

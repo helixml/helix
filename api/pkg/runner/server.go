@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -115,15 +116,77 @@ func (apiServer *HelixRunnerAPIServer) healthz(w http.ResponseWriter, _ *http.Re
 }
 
 func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Request) {
+	// Calculate allocated memory by summing the memory requirements of all slots
+	var allocatedMemory uint64
+
+	// Log runner options to see what filter model name is being used
+	log.Debug().
+		Str("runner_id", apiServer.runnerOptions.ID).
+		Str("filter_model_name", apiServer.runnerOptions.FilterModelName).
+		Msg("Runner filter model information")
+
+	// Count slots for debugging
+	slotCount := 0
+	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
+		slotCount++
+		log.Debug().
+			Str("slot_id", id.String()).
+			Str("model", slot.Model).
+			Bool("ready", slot.Ready).
+			Bool("active", slot.Active).
+			Msg("Processing slot for memory calculation")
+
+		// We need to get the memory requirements for each slot
+		// If we have a model for this slot, we can calculate memory requirements
+		if slot.Model != "" {
+			// Assume inference mode for slots (default mode)
+			mode := types.SessionModeInference
+
+			// Try to get the model
+			modelObj, err := model.GetModel(slot.Model)
+			if err == nil && modelObj != nil {
+				// Add the memory requirements to our running total
+				allocatedMemory += modelObj.GetMemoryRequirements(mode)
+				log.Debug().
+					Str("slot_id", id.String()).
+					Str("model", slot.Model).
+					Uint64("memory", modelObj.GetMemoryRequirements(mode)).
+					Msg("Found memory requirements for model")
+			} else {
+				log.Warn().
+					Str("slot_id", id.String()).
+					Str("model", slot.Model).
+					Err(err).
+					Msg("Could not get memory requirements for model")
+			}
+		} else {
+			log.Debug().
+				Str("slot_id", id.String()).
+				Msg("Slot has no model assigned")
+		}
+		return true
+	})
+
 	status := &types.RunnerStatus{
-		ID:          apiServer.runnerOptions.ID,
-		Created:     startTime,
-		Updated:     time.Now(),
-		Version:     data.GetHelixVersion(),
-		TotalMemory: apiServer.gpuManager.GetTotalMemory(),
-		FreeMemory:  apiServer.gpuManager.GetFreeMemory(),
-		Labels:      apiServer.runnerOptions.Labels,
+		ID:              apiServer.runnerOptions.ID,
+		Created:         startTime,
+		Updated:         time.Now(),
+		Version:         data.GetHelixVersion(),
+		TotalMemory:     apiServer.gpuManager.GetTotalMemory(),
+		FreeMemory:      apiServer.gpuManager.GetFreeMemory(),
+		AllocatedMemory: allocatedMemory,
+		Labels:          apiServer.runnerOptions.Labels,
 	}
+
+	// Add debug logging to see memory values
+	log.Debug().
+		Str("runner_id", apiServer.runnerOptions.ID).
+		Uint64("total_memory", status.TotalMemory).
+		Uint64("free_memory", status.FreeMemory).
+		Uint64("allocated_memory", status.AllocatedMemory).
+		Int("slot_count", slotCount).
+		Msg("Runner status memory values")
+
 	err := json.NewEncoder(w).Encode(status)
 	if err != nil {
 		log.Error().Err(err).Msg("error encoding status response")
@@ -153,7 +216,25 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		return
 	}
 
-	log.Debug().Str("slot_id", slotRequest.ID.String()).Msg("creating slot")
+	// Log request details with RuntimeArgs for debugging
+	log.Debug().
+		Str("slot_id", slotRequest.ID.String()).
+		Str("model", slotRequest.Attributes.Model).
+		Str("runtime", string(slotRequest.Attributes.Runtime)).
+		Interface("runtime_args", slotRequest.Attributes.RuntimeArgs).
+		Msg("Runner received createSlot request with RuntimeArgs")
+
+	// For VLLM, check the type of args in RuntimeArgs
+	if slotRequest.Attributes.Runtime == types.RuntimeVLLM && slotRequest.Attributes.RuntimeArgs != nil {
+		if args, ok := slotRequest.Attributes.RuntimeArgs["args"]; ok {
+			log.Debug().
+				Str("slot_id", slotRequest.ID.String()).
+				Str("model", slotRequest.Attributes.Model).
+				Interface("args_value", args).
+				Str("args_type", fmt.Sprintf("%T", args)).
+				Msg("Args value and type in RuntimeArgs")
+		}
+	}
 
 	s := NewEmptySlot(CreateSlotParams{
 		RunnerOptions: apiServer.runnerOptions,
@@ -161,6 +242,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		Runtime:       slotRequest.Attributes.Runtime,
 		Model:         slotRequest.Attributes.Model,
 		ContextLength: slotRequest.Attributes.ContextLength,
+		RuntimeArgs:   slotRequest.Attributes.RuntimeArgs,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 

@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -228,6 +229,177 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 	return nil
 }
 
+// SubmitEmbeddingRequest submits an embedding request to the runner
+func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	headers := map[string]string{}
+	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
+
+	embeddingRequestBytes, err := json.Marshal(req.EmbeddingRequest)
+	if err != nil {
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Err(err).
+			Msg("❌ Failed to marshal embedding request to JSON")
+		return err
+	}
+
+	// Create a pretty-printed version for logging
+	var prettyRequest bytes.Buffer
+	if err := json.Indent(&prettyRequest, embeddingRequestBytes, "", "  "); err != nil {
+		// If pretty printing fails, we'll just use the compact version
+		prettyRequest.Write(embeddingRequestBytes)
+	}
+
+	// Log the embedding request details
+	var embReq openai.EmbeddingRequest
+	if err := json.Unmarshal(embeddingRequestBytes, &embReq); err == nil {
+		// Calculate input size properly based on type
+		inputSize := 0
+		inputType := "unknown"
+
+		switch v := embReq.Input.(type) {
+		case string:
+			inputSize = len(v)
+			inputType = "string"
+		case []string:
+			inputType = "[]string"
+			inputSize = len(v)
+		case [][]int:
+			inputType = "[][]int"
+			inputSize = len(v)
+		}
+
+		// Enhanced logging with detailed request info
+		log.Info().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", string(embReq.Model)).
+			Str("encoding_format", string(embReq.EncodingFormat)).
+			Str("input_type", inputType).
+			Int("input_size", inputSize).
+			Int("dimensions", embReq.Dimensions).
+			Str("request_json", prettyRequest.String()).
+			Str("endpoint", fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)).
+			Msg("🔢 Embedding request submitted to runner")
+	}
+
+	natsReq := types.RunnerNatsReplyRequest{
+		RequestID:     req.RequestID,
+		CreatedAt:     time.Now(),
+		OwnerID:       req.OwnerID,
+		SessionID:     req.SessionID,
+		InteractionID: req.InteractionID,
+		Request:       embeddingRequestBytes,
+	}
+
+	body, err := json.Marshal(natsReq)
+	if err != nil {
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Err(err).
+			Msg("❌ Failed to marshal embedding NATS request")
+		return err
+	}
+
+	startTime := time.Now()
+	endpoint := fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)
+	log.Debug().
+		Str("component", "scheduler").
+		Str("operation", "embedding").
+		Str("request_id", req.RequestID).
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("endpoint", endpoint).
+		Str("method", "POST").
+		Msg("📤 Sending embedding request to runner")
+
+	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
+		Method: "POST",
+		URL:    endpoint,
+		Body:   body,
+	}, submitChatCompletionRequestTimeout) // Using the same timeout as chat completion
+
+	durationMs := time.Since(startTime).Milliseconds()
+
+	if err != nil {
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("endpoint", endpoint).
+			Int64("duration_ms", durationMs).
+			Err(err).
+			Msg("❌ Failed to submit embedding request to runner")
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		// Log detailed response information on error
+		errorDetails := struct {
+			StatusCode    int    `json:"status_code"`
+			ResponseBody  string `json:"response_body"`
+			RequestID     string `json:"request_id"`
+			RunnerID      string `json:"runner_id"`
+			SlotID        string `json:"slot_id"`
+			Endpoint      string `json:"endpoint"`
+			DurationMs    int64  `json:"duration_ms"`
+			RequestMethod string `json:"request_method"`
+		}{
+			StatusCode:    resp.StatusCode,
+			ResponseBody:  string(resp.Body),
+			RequestID:     req.RequestID,
+			RunnerID:      slot.RunnerID,
+			SlotID:        slot.ID.String(),
+			Endpoint:      endpoint,
+			DurationMs:    durationMs,
+			RequestMethod: "POST",
+		}
+
+		errorDetailsBytes, _ := json.Marshal(errorDetails)
+		errMsg := fmt.Sprintf("error submitting embedding request: %s", resp.Body)
+		log.Error().
+			Str("component", "scheduler").
+			Str("operation", "embedding").
+			Str("request_id", req.RequestID).
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Int64("duration_ms", durationMs).
+			Int("status_code", resp.StatusCode).
+			Str("error_message", errMsg).
+			Str("error_details", string(errorDetailsBytes)).
+			Str("response_body", string(resp.Body)).
+			Str("endpoint", endpoint).
+			Msg("❌ Embedding request failed with non-OK status code")
+		return fmt.Errorf("%s", errMsg)
+	}
+
+	// Log successful response
+	log.Info().
+		Str("component", "scheduler").
+		Str("operation", "embedding").
+		Str("request_id", req.RequestID).
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("endpoint", endpoint).
+		Int64("duration_ms", durationMs).
+		Int("status_code", resp.StatusCode).
+		Msg("✅ Embedding request successfully submitted to runner")
+
+	return nil
+}
+
 func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
 	lastInteraction, err := data.GetLastInteraction(session)
 	if err != nil {
@@ -304,11 +476,35 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 
 	// Get the model's context length
 	var contextLength int64
+	var runtimeArgs map[string]interface{}
+
 	modelObj, err := model.GetModel(modelName)
 	if err == nil {
 		contextLength = modelObj.GetContextLength()
 		if contextLength > 0 {
 			log.Debug().Str("model", modelName).Int64("context_length", contextLength).Msg("Using context length from model")
+		}
+
+		// If this is a VLLM runtime, get the model-specific args
+		if slot.InitialWork().Runtime() == types.RuntimeVLLM {
+			// Get model-specific args for vLLM
+			modelArgs, argsErr := model.GetVLLMArgsForModel(modelName)
+			if argsErr == nil && len(modelArgs) > 0 {
+				log.Debug().
+					Str("model", modelName).
+					Strs("vllm_args", modelArgs).
+					Msg("Found model-specific vLLM args in scheduler")
+
+				// Add the args to the runtime args
+				runtimeArgs = map[string]interface{}{
+					"args": modelArgs,
+				}
+
+				log.Debug().
+					Str("model", modelName).
+					Interface("runtime_args", runtimeArgs).
+					Msg("Created runtime_args map in scheduler")
+			}
 		}
 	} else {
 		log.Warn().Str("model", modelName).Err(err).Msg("Could not get model, using default context length")
@@ -320,17 +516,34 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Runtime:       slot.InitialWork().Runtime(),
 			Model:         slot.InitialWork().ModelName().String(),
 			ContextLength: contextLength,
+			RuntimeArgs:   runtimeArgs,
 		},
 	}
+
+	// Log the full request being sent to the runner
+	log.Debug().
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Interface("runtime_args", runtimeArgs).
+		Msg("Sending CreateRunnerSlotRequest to runner with RuntimeArgs")
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
+
+	// Log the serialized JSON for debugging
+	log.Debug().
+		Str("runner_id", slot.RunnerID).
+		Str("json_body", string(body)).
+		Msg("JSON body being sent to runner")
+
 	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
 		Method: "POST",
 		URL:    "/api/v1/slots",
 		Body:   body,
-	}, 1*time.Minute)
+	}, 30*time.Minute) // Increased from 1 minute to allow enough time for model downloads
 	if err != nil {
 		return err
 	}

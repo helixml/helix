@@ -113,14 +113,15 @@ func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, 
 			runnerSlots = []*types.RunnerSlot{}
 		}
 		runners = append(runners, &types.DashboardRunner{
-			ID:          runnerStatus.ID,
-			Created:     runnerStatus.Created,
-			Updated:     runnerStatus.Updated,
-			Version:     runnerStatus.Version,
-			TotalMemory: runnerStatus.TotalMemory,
-			FreeMemory:  runnerStatus.FreeMemory,
-			Labels:      runnerStatus.Labels,
-			Slots:       runnerSlots,
+			ID:              runnerStatus.ID,
+			Created:         runnerStatus.Created,
+			Updated:         runnerStatus.Updated,
+			Version:         runnerStatus.Version,
+			TotalMemory:     runnerStatus.TotalMemory,
+			FreeMemory:      runnerStatus.FreeMemory,
+			AllocatedMemory: runnerStatus.AllocatedMemory,
+			Labels:          runnerStatus.Labels,
+			Slots:           runnerSlots,
 		})
 	}
 	queue, err := c.scheduler.Queue()
