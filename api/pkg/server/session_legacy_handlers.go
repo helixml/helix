@@ -17,15 +17,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// startSessionHandler godoc
-// @Summary Start new text completion session
-// @Description Start new text completion session. Can be used to start or continue a session with the Helix API.
-// @Tags    chat
-
-// @Success 200 {object} types.OpenAIResponse
-// @Param request    body types.SessionChatRequest true "Request body with the message and model to start chat completion.")
-// @Router /api/v1/sessions/chat [post]
-// @Security BearerAuth
 func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user *types.User, startReq *types.SessionChatRequest, req *http.Request, rw http.ResponseWriter) {
 
 	status, err := s.Controller.GetStatus(ctx, user)

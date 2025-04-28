@@ -717,6 +717,211 @@
                 }
             }
         },
+        "/api/v1/helix-models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all available Helix models, optionally filtering by type, name, or runtime.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "List Helix models",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by model type (e.g., chat, embedding)",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by model name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by model runtime (e.g., ollama, vllm)",
+                        "name": "runtime",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Model"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new Helix model configuration. Requires admin privileges.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Create a new Helix model",
+                "parameters": [
+                    {
+                        "description": "Model configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/helix-models/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing Helix model configuration. Requires admin privileges.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Update an existing Helix model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated model configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Model not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a Helix model configuration. Requires admin privileges.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Delete a Helix model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -4156,6 +4361,56 @@
             ],
             "x-enum-varnames": [
                 "MessageContentTypeText"
+            ]
+        },
+        "types.Model": {
+            "type": "object",
+            "properties": {
+                "context_length": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "hide": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "for example 'phi3.5:3.8b-mini-instruct-q8_0'",
+                    "type": "string"
+                },
+                "memory": {
+                    "description": "in bytes, required",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ModelType"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ModelType": {
+            "type": "string",
+            "enum": [
+                "chat",
+                "image",
+                "embed"
+            ],
+            "x-enum-varnames": [
+                "ModelTypeChat",
+                "ModelTypeImage",
+                "ModelTypeEmbed"
             ]
         },
         "types.OpenAIMessage": {
