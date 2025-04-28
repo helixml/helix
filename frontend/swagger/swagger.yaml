@@ -1550,6 +1550,41 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
+  types.Model:
+    properties:
+      context_length:
+        type: integer
+      created:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      hide:
+        type: boolean
+      id:
+        description: for example 'phi3.5:3.8b-mini-instruct-q8_0'
+        type: string
+      memory:
+        description: in bytes, required
+        type: integer
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/types.ModelType'
+      updated:
+        type: string
+    type: object
+  types.ModelType:
+    enum:
+    - chat
+    - image
+    - embed
+    type: string
+    x-enum-varnames:
+    - ModelTypeChat
+    - ModelTypeImage
+    - ModelTypeEmbed
   types.OpenAIMessage:
     properties:
       content:
@@ -3085,6 +3120,137 @@ paths:
       summary: contextMenuHandler
       tags:
       - ui
+  /api/v1/helix-models:
+    get:
+      description: List all available Helix models, optionally filtering by type,
+        name, or runtime.
+      parameters:
+      - description: Filter by model type (e.g., chat, embedding)
+        in: query
+        name: type
+        type: string
+      - description: Filter by model name
+        in: query
+        name: name
+        type: string
+      - description: Filter by model runtime (e.g., ollama, vllm)
+        in: query
+        name: runtime
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Model'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List Helix models
+      tags:
+      - models
+    post:
+      description: Create a new Helix model configuration. Requires admin privileges.
+      parameters:
+      - description: Model configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Model'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Model'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a new Helix model
+      tags:
+      - models
+  /api/v1/helix-models/{id}:
+    delete:
+      description: Delete a Helix model configuration. Requires admin privileges.
+      parameters:
+      - description: Model ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a Helix model
+      tags:
+      - models
+    put:
+      description: Update an existing Helix model configuration. Requires admin privileges.
+      parameters:
+      - description: Model ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated model configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Model'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Model'
+        "400":
+          description: Invalid request body or missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "404":
+          description: Model not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update an existing Helix model
+      tags:
+      - models
   /api/v1/knowledge:
     get:
       responses:

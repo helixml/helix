@@ -994,6 +994,27 @@ export enum TypesMessageContentType {
   MessageContentTypeText = "text",
 }
 
+export interface TypesModel {
+  context_length?: number;
+  created?: string;
+  description?: string;
+  enabled?: boolean;
+  hide?: boolean;
+  /** for example 'phi3.5:3.8b-mini-instruct-q8_0' */
+  id?: string;
+  /** in bytes, required */
+  memory?: number;
+  name?: string;
+  type?: TypesModelType;
+  updated?: string;
+}
+
+export enum TypesModelType {
+  ModelTypeChat = "chat",
+  ModelTypeImage = "image",
+  ModelTypeEmbed = "embed",
+}
+
 export interface TypesOpenAIMessage {
   /** The message content */
   content?: string;
@@ -2175,6 +2196,89 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/context-menu`,
         method: "GET",
         query: query,
+        ...params,
+      }),
+
+    /**
+     * @description List all available Helix models, optionally filtering by type, name, or runtime.
+     *
+     * @tags models
+     * @name V1HelixModelsList
+     * @summary List Helix models
+     * @request GET:/api/v1/helix-models
+     * @secure
+     */
+    v1HelixModelsList: (
+      query?: {
+        /** Filter by model type (e.g., chat, embedding) */
+        type?: string;
+        /** Filter by model name */
+        name?: string;
+        /** Filter by model runtime (e.g., ollama, vllm) */
+        runtime?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesModel[], any>({
+        path: `/api/v1/helix-models`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsCreate
+     * @summary Create a new Helix model
+     * @request POST:/api/v1/helix-models
+     * @secure
+     */
+    v1HelixModelsCreate: (request: TypesModel, params: RequestParams = {}) =>
+      this.request<TypesModel, string>({
+        path: `/api/v1/helix-models`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsDelete
+     * @summary Delete a Helix model
+     * @request DELETE:/api/v1/helix-models/{id}
+     * @secure
+     */
+    v1HelixModelsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/helix-models/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsUpdate
+     * @summary Update an existing Helix model
+     * @request PUT:/api/v1/helix-models/{id}
+     * @secure
+     */
+    v1HelixModelsUpdate: (id: string, request: TypesModel, params: RequestParams = {}) =>
+      this.request<TypesModel, string>({
+        path: `/api/v1/helix-models/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
