@@ -446,6 +446,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
+	// Helix models
+	authRouter.HandleFunc("/helix-models", apiServer.listHelixModels).Methods(http.MethodGet)
+	// only admins can create, update, or delete helix models
+	adminRouter.HandleFunc("/helix-models", apiServer.createHelixModel).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/helix-models/{id}", apiServer.updateHelixModel).Methods(http.MethodPut)
+	adminRouter.HandleFunc("/helix-models/{id}", apiServer.deleteHelixModel).Methods(http.MethodDelete)
+
 	// all these routes are secured via runner tokens
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
