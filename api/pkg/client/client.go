@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -72,6 +73,12 @@ type Client interface {
 
 	// Get current user's access level for an app
 	GetAppUserAccess(ctx context.Context, appID string) (*types.UserAppAccessResponse, error)
+
+	// Helix Models
+	ListHelixModels(ctx context.Context, f *store.ListModelsQuery) ([]*types.Model, error)
+	CreateHelixModel(ctx context.Context, model *types.Model) (*types.Model, error)
+	UpdateHelixModel(ctx context.Context, id string, model *types.Model) (*types.Model, error)
+	DeleteHelixModel(ctx context.Context, id string) error
 }
 
 type SessionFilter struct {
