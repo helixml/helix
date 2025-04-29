@@ -13,9 +13,6 @@ import (
 )
 
 func (s *PostgresStore) seedModels(ctx context.Context) error {
-	if !s.cfg.SeedModels {
-		return nil
-	}
 
 	err := s.seedOllamaModels(ctx)
 	if err != nil {
@@ -73,10 +70,74 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 
 func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 	diffusersModels, _ := model.GetDefaultDiffusersModels()
+
+	for _, model := range diffusersModels {
+		// Check if model already exists
+		existingModel, err := s.GetModel(ctx, model.ID)
+		if err != nil && err != ErrNotFound {
+			return err
+		}
+
+		if existingModel != nil {
+			continue
+		}
+
+		// Create model
+		m := &types.Model{
+			ID:            model.ID,
+			Name:          model.Name,
+			Type:          types.ModelTypeImage,         // Assuming Diffusers are for images
+			Runtime:       types.ModelRuntimeTypeOllama, // Assuming Diffusers run via Ollama for now
+			Memory:        model.Memory,
+			Description:   model.Description,
+			Hide:          model.Hide,
+			Enabled:       true,
+			ContextLength: 0, // Image models don't have context length
+		}
+
+		_, err = s.CreateModel(ctx, m)
+		if err != nil {
+			return fmt.Errorf("failed to create diffusers model %s: %w", model.ID, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 	vllmModels, _ := model.GetDefaultVLLMModels()
+
+	for _, model := range vllmModels {
+		// Check if model already exists
+		existingModel, err := s.GetModel(ctx, model.ID)
+		if err != nil && err != ErrNotFound {
+			return err
+		}
+
+		if existingModel != nil {
+			continue
+		}
+
+		// Create model
+		m := &types.Model{
+			ID:            model.ID,
+			Name:          model.Name,
+			Type:          types.ModelTypeChat, // Assuming VLLM models are for chat
+			Runtime:       types.ModelRuntimeTypeVLLM,
+			ContextLength: model.ContextLength,
+			Memory:        model.Memory,
+			Description:   model.Description,
+			Hide:          model.Hide,
+			Enabled:       true,
+		}
+
+		_, err = s.CreateModel(ctx, m)
+		if err != nil {
+			return fmt.Errorf("failed to create vllm model %s: %w", model.ID, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *PostgresStore) CreateModel(ctx context.Context, model *types.Model) (*types.Model, error) {
