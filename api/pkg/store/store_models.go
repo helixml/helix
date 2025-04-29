@@ -230,7 +230,7 @@ func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*
 		query = query.Where("runtime = ?", q.Runtime)
 	}
 
-	err := query.Find(&models).Error
+	err := query.Order("created DESC").Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
