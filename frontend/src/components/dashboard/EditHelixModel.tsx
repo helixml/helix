@@ -298,23 +298,26 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                 }}
             />
 
-           <TextField
-                name="context_length"
-                label="Context Length (Optional)"
-                type="number"
-                value={formData.context_length === 0 ? '' : formData.context_length} // Show empty if 0
-                onChange={handleTextFieldChange}
-                fullWidth
-                autoComplete="off"
-                placeholder="e.g., 4096"
-                helperText="Maximum context window size (in tokens). Leave blank if unknown."
-                disabled={loading}
-                InputProps={{
-                    inputProps: { 
-                        min: 0
-                    }
-                }}
-            />
+           {/* Conditionally render Context Length field */}
+           {formData.type === TypesModelType.ModelTypeChat && (
+             <TextField
+                  name="context_length"
+                  label="Context Length"
+                  type="number"
+                  value={formData.context_length === 0 ? '' : formData.context_length} // Show empty if 0
+                  onChange={handleTextFieldChange}
+                  fullWidth
+                  autoComplete="off"
+                  placeholder="e.g., 4096"
+                  helperText="Maximum context window size (in tokens). Leave blank if unknown."
+                  disabled={loading}
+                  InputProps={{
+                      inputProps: {
+                          min: 0
+                      }
+                  }}
+              />
+           )}
             
            <Stack direction="row" spacing={2} justifyContent="start">
                 <FormControlLabel
