@@ -33,6 +33,7 @@ import {
 } from '../types'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
+import HelixModelsTable from '../components/dashboard/HelixModelsTable'
 import Chip from '@mui/material/Chip'
 
 const START_ACTIVE = true
@@ -114,6 +115,9 @@ const Dashboard: FC = () => {
       case 'runners':
         setActiveTab(3)
         break
+      case 'helix_models':
+        setActiveTab(4)
+        break
       default:
         setActiveTab(0)
     }
@@ -139,6 +143,9 @@ const Dashboard: FC = () => {
         break
       case 3:
         router.setParams({ tab: 'runners' })
+        break
+      case 4:
+        router.setParams({ tab: 'helix_models' })
         break
       default:
         router.removeParams(['tab'])
@@ -210,6 +217,7 @@ const Dashboard: FC = () => {
             <Tab label="Inference Providers" />
             <Tab label="OAuth Providers" />
             <Tab label="Runners" />
+            <Tab label="Helix Models" />
           </Tabs>
         </Box>
 
@@ -459,6 +467,18 @@ const Dashboard: FC = () => {
                 </Grid>
               </Box>
             </Box>
+          </Box>
+        )}
+
+        {activeTab === 4 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <HelixModelsTable />
           </Box>
         )}
 
