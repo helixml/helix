@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 // Use actual types from the API definition
 import { TypesModel, TypesModelType, TypesModelRuntimeType } from '../../api/api';
-// import { useCreateModel, useUpdateModel } from '../../services/helixModelService'; // Placeholder hooks
+import { useCreateHelixModel, useUpdateHelixModel } from '../../services/helixModelsService';
 
 interface EditHelixModelDialogProps {
   open: boolean;
@@ -37,10 +37,8 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
 }) => {
   const isEditing = !!model;
   // Placeholder hooks - replace with your actual implementation
-  // const { mutateAsync: createModel, isPending: isCreating } = useCreateModel();
-  // const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateModel(model?.id || '');
-  const isCreating = false; // Placeholder
-  const isUpdating = false; // Placeholder
+  const { mutateAsync: createModel, isPending: isCreating } = useCreateHelixModel();
+  const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel(model?.id || '');
   const loading = isCreating || isUpdating;
 
   const [error, setError] = useState<string>('');
@@ -162,11 +160,11 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
 
     try {
       if (isEditing && model) {
-        // await updateModel({ ...payload, id: model.id }); // Include ID for update
-        console.log("Update Payload:", { ...payload, id: model.id }); // Placeholder for API call
+        await updateModel({ ...payload, id: model.id }); // Include ID for update
+        // console.log("Update Payload:", { ...payload, id: model.id }); // Placeholder for API call
       } else {
-        // await createModel(payload);
-         console.log("Create Payload:", payload); // Placeholder for API call
+        await createModel(payload);
+         // console.log("Create Payload:", payload); // Placeholder for API call
       }
       refreshData(); // Refresh the data in the parent component
       onClose(); // Close the dialog on success
