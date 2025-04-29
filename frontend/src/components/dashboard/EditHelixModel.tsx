@@ -43,6 +43,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
 
   const [error, setError] = useState<string>('');
   const [formData, setFormData] = useState({
+    id: '',
     name: '',
     description: '',
     type: TypesModelType.ModelTypeChat as TypesModelType,
@@ -58,6 +59,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     if (open) {
       if (isEditing && model) {
         setFormData({
+          id: model.id || '',
           name: model.name || '',
           description: model.description || '',
           type: model.type || TypesModelType.ModelTypeChat,
@@ -70,6 +72,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
       } else {
         // Reset for creating a new model
         setFormData({
+          id: '',
           name: '',
           description: '',
           type: TypesModelType.ModelTypeChat,
@@ -117,6 +120,11 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
   };
 
   const validateForm = useCallback(() => {
+    // Only validate ID when creating a new model
+    if (!isEditing && !formData.id.trim()) {
+        setError('Model ID is required');
+        return false;
+    }
     if (!formData.name.trim()) {
       setError('Model Name is required');
       return false;
@@ -140,14 +148,16 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     }
 
     return true;
-  }, [formData]);
+  }, [formData, isEditing]);
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
     setError(''); // Clear previous errors
 
-    const payload = {
+    // Construct the base payload
+    const payloadBase: Partial<TypesModel> = {
+      // ID is handled differently for create vs update below
       name: formData.name.trim(),
       description: formData.description.trim() || undefined,
       type: formData.type,
@@ -160,11 +170,11 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
 
     try {
       if (isEditing && model) {
-        await updateModel({ ...payload, id: model.id }); // Include ID for update
-        // console.log("Update Payload:", { ...payload, id: model.id }); // Placeholder for API call
+        // For update, use the existing model's ID (which is not editable)
+        await updateModel({ ...payloadBase, id: model.id });
       } else {
-        await createModel(payload);
-         // console.log("Create Payload:", payload); // Placeholder for API call
+        // For create, include the user-provided ID from the form
+        await createModel({ ...payloadBase, id: formData.id.trim() });
       }
       refreshData(); // Refresh the data in the parent component
       onClose(); // Close the dialog on success
@@ -191,21 +201,36 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
               label="Model ID"
               value={model.id}
               fullWidth
-              disabled // ID is usually not editable, it's assigned by the system/provider
+              disabled // ID is not editable when editing
               sx={{ mb: 2 }} // Add margin if needed
              />
           )}
 
+          {!isEditing && (
+            <TextField
+              name="id"
+              label="Model ID"
+              value={formData.id}
+              onChange={handleTextFieldChange}
+              fullWidth
+              required
+              autoComplete="off"
+              placeholder="e.g., llama3:70b-instruct-q4_0 or custom-model-name"
+              helperText="Unique identifier for the model (may be provider-specific)."
+              disabled={loading}
+            />
+          )}
+
           <TextField
             name="name"
-            label="Model Name / ID"
+            label="Model Name"
             value={formData.name}
             onChange={handleTextFieldChange}
             fullWidth
             required
             autoComplete="off"
-            placeholder="e.g., llama3:70b-instruct-q4_0 or custom-model-name"
-            helperText="Identifier for the model (may be provider-specific for Ollama, etc.)"
+            placeholder="e.g., Llama 3 70B Instruct Q4"
+            helperText="User-friendly name shown in model selection lists."
             disabled={loading}
           />
 
