@@ -1013,6 +1013,7 @@ export interface TypesModel {
 export enum TypesModelRuntimeType {
   ModelRuntimeTypeOllama = "ollama",
   ModelRuntimeTypeVLLM = "vllm",
+  ModelRuntimeTypeDiffusers = "diffusers", // Added for diffusers support
 }
 
 export enum TypesModelType {

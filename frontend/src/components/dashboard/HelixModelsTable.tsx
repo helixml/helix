@@ -14,12 +14,48 @@ import {
   MenuItem,
   CircularProgress,
   Tooltip,
+  SvgIcon,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import { TypesModel } from '../../api/api'; // Assuming TypesModel is the correct type
+import { TypesModel, TypesModelRuntimeType } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useDeleteHelixModel } from '../../services/helixModelsService';
-// Placeholder for the delete dialog - will need to be created
-// import DeleteHelixModelDialog from './DeleteHelixModelDialog';
+
+import { OllamaIcon, VllmIcon } from '../icons/ProviderIcons';
+
+
+// Placeholder for HuggingFace Icon (for Diffusers)
+const HuggingFaceIcon: FC = () => (
+   <SvgIcon sx={{ fontSize: 18, verticalAlign: 'middle' }}>
+    {/* Placeholder path - replace with actual Hugging Face SVG path data */}
+    <path d="M12,2C6.477,2,2,6.477,2,12c0,5.523,4.477,10,10,10s10-4.477,10-10C22,6.477,17.523,2,12,2z M15.071,17.879 C14.063,18.571,12.876,19,11.5,19c-1.376,0-2.563-0.429-3.571-1.121L8,17.5l1.5-1.5L11,17.5l1-1l1.5,1.5L15.071,17.879z M17,13 c0,1.657-1.343,3-3,3h-4c-1.657,0-3-1.343-3-3V9c0-1.657,1.343-3,3-3h4c1.657,0,3,1.343,3,3V13z M15,11h-2V9h2V11z M11,11H9V9h2 V11z"/>
+  </SvgIcon>
+);
+
+// Helper function to get the icon based on runtime
+const getRuntimeIcon = (runtime: TypesModelRuntimeType | undefined) => {
+  switch (runtime) {
+    case TypesModelRuntimeType.ModelRuntimeTypeOllama:
+      return (
+        <Tooltip title="Ollama">
+          <OllamaIcon />
+        </Tooltip>
+      );
+    case TypesModelRuntimeType.ModelRuntimeTypeVLLM:
+      return (
+        <Tooltip title="VLLM">
+          <VllmIcon />
+        </Tooltip>
+      );
+    case TypesModelRuntimeType.ModelRuntimeTypeDiffusers:
+      return (
+        <Tooltip title="Diffusers (Hugging Face)">
+          <HuggingFaceIcon />
+        </Tooltip>
+      );
+    default:
+      return null; // Or a default icon
+  }
+};
 
 const HelixModelsTable: FC = () => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -107,14 +143,20 @@ const HelixModelsTable: FC = () => {
                    </Tooltip>
                 </TableCell>
                 <TableCell>
-                   <Typography variant="body2">
-                     {model.name}
-                     {model.description && (
-                       <Typography variant="caption" display="block" color="text.secondary">
-                         {model.description}
-                       </Typography>
-                     )}
-                   </Typography>
+                   {/* Wrap name and icon in a Box for layout */}
+                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                     {/* Render runtime icon */}
+                     {getRuntimeIcon(model.runtime)}
+                     {/* Model Name and Description */}
+                     <Typography variant="body2">
+                       {model.name}
+                       {model.description && (
+                         <Typography variant="caption" display="block" color="text.secondary">
+                           {model.description}
+                         </Typography>
+                       )}
+                     </Typography>
+                   </Box>
                 </TableCell>
                 <TableCell>{model.context_length || 'N/A'}</TableCell>
                 <TableCell>{model.type || 'N/A'}</TableCell>
