@@ -10,7 +10,15 @@ const (
 	ModelTypeEmbed ModelType = "embed"
 )
 
+func (t ModelType) String() string {
+	return string(t)
+}
+
 type ModelRuntimeType string
+
+func (t ModelRuntimeType) String() string {
+	return string(t)
+}
 
 const (
 	ModelRuntimeTypeOllama    ModelRuntimeType = "ollama"
