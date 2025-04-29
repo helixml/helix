@@ -4396,6 +4396,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "runtime": {
+                    "$ref": "#/definitions/types.ModelRuntimeType"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ModelType"
                 },
@@ -4403,6 +4406,17 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.ModelRuntimeType": {
+            "type": "string",
+            "enum": [
+                "ollama",
+                "vllm"
+            ],
+            "x-enum-varnames": [
+                "ModelRuntimeTypeOllama",
+                "ModelRuntimeTypeVLLM"
+            ]
         },
         "types.ModelType": {
             "type": "string",

@@ -1570,11 +1570,21 @@ definitions:
         type: integer
       name:
         type: string
+      runtime:
+        $ref: '#/definitions/types.ModelRuntimeType'
       type:
         $ref: '#/definitions/types.ModelType'
       updated:
         type: string
     type: object
+  types.ModelRuntimeType:
+    enum:
+    - ollama
+    - vllm
+    type: string
+    x-enum-varnames:
+    - ModelRuntimeTypeOllama
+    - ModelRuntimeTypeVLLM
   types.ModelType:
     enum:
     - chat

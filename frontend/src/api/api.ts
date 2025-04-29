@@ -1005,8 +1005,14 @@ export interface TypesModel {
   /** in bytes, required */
   memory?: number;
   name?: string;
+  runtime?: TypesModelRuntimeType;
   type?: TypesModelType;
   updated?: string;
+}
+
+export enum TypesModelRuntimeType {
+  ModelRuntimeTypeOllama = "ollama",
+  ModelRuntimeTypeVLLM = "vllm",
 }
 
 export enum TypesModelType {

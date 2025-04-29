@@ -4392,6 +4392,9 @@
                 "name": {
                     "type": "string"
                 },
+                "runtime": {
+                    "$ref": "#/definitions/types.ModelRuntimeType"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ModelType"
                 },
@@ -4399,6 +4402,17 @@
                     "type": "string"
                 }
             }
+        },
+        "types.ModelRuntimeType": {
+            "type": "string",
+            "enum": [
+                "ollama",
+                "vllm"
+            ],
+            "x-enum-varnames": [
+                "ModelRuntimeTypeOllama",
+                "ModelRuntimeTypeVLLM"
+            ]
         },
         "types.ModelType": {
             "type": "string",
