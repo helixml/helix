@@ -42,13 +42,14 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
   const loading = isCreating || isUpdating;
 
   const [error, setError] = useState<string>('');
+  // Store memory in GB in the form state
   const [formData, setFormData] = useState({
     id: '',
     name: '',
     description: '',
     type: TypesModelType.ModelTypeChat as TypesModelType,
     runtime: TypesModelRuntimeType.ModelRuntimeTypeOllama as TypesModelRuntimeType,
-    memory: 0, // Initialize memory, might need better default or handling
+    memory: 0, // Store memory in GB
     context_length: 0, // Initialize context length
     enabled: true,
     hide: false,
@@ -64,7 +65,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           description: model.description || '',
           type: model.type || TypesModelType.ModelTypeChat,
           runtime: model.runtime || TypesModelRuntimeType.ModelRuntimeTypeOllama,
-          memory: model.memory || 0,
+          memory: model.memory ? model.memory / (1024 * 1024 * 1024) : 0, // Convert bytes to GB
           context_length: model.context_length || 0,
           enabled: model.enabled !== undefined ? model.enabled : true, // Default to true if undefined
           hide: model.hide || false,
@@ -77,7 +78,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           description: '',
           type: TypesModelType.ModelTypeChat,
           runtime: TypesModelRuntimeType.ModelRuntimeTypeOllama,
-          memory: 0,
+          memory: 0, // Default GB
           context_length: 0,
           enabled: true,
           hide: false,
@@ -90,7 +91,16 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
   const handleTextFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     // Handle number inputs specifically
-    if (name === 'memory' || name === 'context_length') {
+    if (name === 'memory') {
+        // Parse as float for GB
+        const floatValue = value === '' ? 0 : parseFloat(value);
+        if (!isNaN(floatValue) && floatValue >= 0) {
+            setFormData((prev) => ({ ...prev, [name]: floatValue }));
+        } else if (value === '') {
+            // Allow clearing the field, treating it as 0 for state
+            setFormData((prev) => ({ ...prev, [name]: 0 }));
+        }
+    } else if (name === 'context_length') {
       const numValue = value === '' ? 0 : parseInt(value, 10);
       if (!isNaN(numValue) && numValue >= 0) {
           setFormData((prev) => ({ ...prev, [name]: numValue }));
@@ -138,7 +148,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
       return false;
     }
     if (formData.memory <= 0) {
-        setError('Memory (in bytes) is required and must be a positive number.');
+        setError('Memory (in GB) is required and must be a positive number.');
         return false;
     }
     // Context length is optional, but should be non-negative if provided
@@ -162,7 +172,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
       description: formData.description.trim() || undefined,
       type: formData.type,
       runtime: formData.runtime,
-      memory: formData.memory,
+      memory: Math.round(formData.memory * 1024 * 1024 * 1024), // Convert GB to Bytes
       context_length: formData.context_length > 0 ? formData.context_length : undefined,
       enabled: formData.enabled,
       hide: formData.hide,
@@ -281,19 +291,20 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
 
            <TextField
                 name="memory"
-                label="Memory Required (Bytes)"
-                type="number"
+                label="Memory Required (GB)"
+                type="number" // Allows decimals
                 value={formData.memory === 0 ? '' : formData.memory} // Show empty if 0
                 onChange={handleTextFieldChange}
                 fullWidth
                 required
                 autoComplete="off"
-                placeholder="e.g., 16000000000 for 16GB"
-                helperText="Estimated memory needed to run this model (in bytes)."
+                placeholder="e.g., 16 for 16GB"
+                helperText="Estimated memory needed to run this model (in GB)."
                 disabled={loading}
                 InputProps={{
-                    inputProps: { 
-                        min: 1 // Ensure positive value visually, though validation handles 0
+                    inputProps: {
+                        min: 0, // Allow 0 input, validation ensures > 0 on submit
+                        step: "any" // Allow floating point numbers
                     }
                 }}
             />
@@ -308,8 +319,9 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                   onChange={handleTextFieldChange}
                   fullWidth
                   autoComplete="off"
-                  placeholder="e.g., 4096"
-                  helperText="Maximum context window size (in tokens). Leave blank if unknown."
+                  placeholder="e.g., 128000"
+                  required
+                  helperText="Maximum context window size (in tokens)"
                   disabled={loading}
                   InputProps={{
                       inputProps: {
