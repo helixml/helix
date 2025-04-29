@@ -86,8 +86,8 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 		m := &types.Model{
 			ID:            model.ID,
 			Name:          model.Name,
-			Type:          types.ModelTypeImage,         // Assuming Diffusers are for images
-			Runtime:       types.ModelRuntimeTypeOllama, // Assuming Diffusers run via Ollama for now
+			Type:          types.ModelTypeImage,
+			Runtime:       types.ModelRuntimeTypeDiffusers,
 			Memory:        model.Memory,
 			Description:   model.Description,
 			Hide:          model.Hide,

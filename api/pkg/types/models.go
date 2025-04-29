@@ -13,8 +13,9 @@ const (
 type ModelRuntimeType string
 
 const (
-	ModelRuntimeTypeOllama ModelRuntimeType = "ollama"
-	ModelRuntimeTypeVLLM   ModelRuntimeType = "vllm"
+	ModelRuntimeTypeOllama    ModelRuntimeType = "ollama"
+	ModelRuntimeTypeDiffusers ModelRuntimeType = "diffusers" // https://pypi.org/project/diffusers/
+	ModelRuntimeTypeVLLM      ModelRuntimeType = "vllm"
 )
 
 type Model struct {
