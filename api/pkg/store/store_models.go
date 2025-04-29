@@ -22,8 +22,15 @@ func (s *PostgresStore) seedModels(ctx context.Context) error {
 		log.Err(err).Msg("failed to seed ollama models")
 	}
 
-	diffusersModels, _ := model.GetDefaultDiffusersModels()
-	vllmModels, _ := model.GetDefaultVLLMModels()
+	err = s.seedDiffusersModels(ctx)
+	if err != nil {
+		log.Err(err).Msg("failed to seed diffusers models")
+	}
+
+	err = s.seedVLLMModels(ctx)
+	if err != nil {
+		log.Err(err).Msg("failed to seed vllm models")
+	}
 
 	return nil
 }
@@ -62,6 +69,14 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
+	diffusersModels, _ := model.GetDefaultDiffusersModels()
+}
+
+func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
+	vllmModels, _ := model.GetDefaultVLLMModels()
 }
 
 func (s *PostgresStore) CreateModel(ctx context.Context, model *types.Model) (*types.Model, error) {
