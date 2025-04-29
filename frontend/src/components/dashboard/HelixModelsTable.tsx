@@ -33,19 +33,19 @@ const getRuntimeIcon = (runtime: TypesModelRuntimeType | undefined) => {
     case TypesModelRuntimeType.ModelRuntimeTypeOllama:
       return (
         <Tooltip title="Ollama">
-          <OllamaIcon />
+          <span><OllamaIcon /></span>
         </Tooltip>
       );
     case TypesModelRuntimeType.ModelRuntimeTypeVLLM:
       return (
         <Tooltip title="VLLM">
-          <VllmIcon />
+          <span><VllmIcon /></span>
         </Tooltip>
       );
     case TypesModelRuntimeType.ModelRuntimeTypeDiffusers:
       return (
         <Tooltip title="Diffusers (Hugging Face)">
-          <HuggingFaceIcon />
+          <span><HuggingFaceIcon /></span>
         </Tooltip>
       );
     default:
@@ -132,7 +132,7 @@ const HelixModelsTable: FC = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No Helix models found.</Typography>
           <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
-            Create Model
+            Add Model
           </Button>
         </Box>
         <EditHelixModel
@@ -156,7 +156,7 @@ const HelixModelsTable: FC = () => {
            sx={{ width: '40%' }}
          />
         <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
-          Create Model
+          Add Model
         </Button>
       </Box>
       <EditHelixModel
