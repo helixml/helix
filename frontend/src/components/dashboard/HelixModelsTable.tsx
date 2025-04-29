@@ -24,6 +24,7 @@ import Button from '@mui/material/Button';
 
 import { OllamaIcon, VllmIcon, HuggingFaceIcon } from '../icons/ProviderIcons';
 import EditHelixModel from './EditHelixModel';
+import DeleteHelixModelDialog from './DeleteHelixModelDialog';
 
 // Helper function to get the icon based on runtime
 const getRuntimeIcon = (runtime: TypesModelRuntimeType | undefined) => {
@@ -145,6 +146,12 @@ const HelixModelsTable: FC = () => {
         model={selectedModel}
         onClose={handleDialogClose}
         refreshData={refetch}
+      />
+      <DeleteHelixModelDialog
+        open={deleteDialogOpen}
+        model={selectedModel}
+        onClose={handleDeleteDialogClose}
+        onDeleted={handleDeleteSuccess}
       />
       <TableContainer>
         <Table stickyHeader aria-label="helix models table">
