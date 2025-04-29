@@ -320,6 +320,8 @@ type Store struct {
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+
+	SeedModels bool `envconfig:"DATABASE_SEED_MODELS" default:"true" description:"Should we seed the models?"`
 }
 
 type PGVectorStore struct {
