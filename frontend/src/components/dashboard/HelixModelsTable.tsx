@@ -19,8 +19,11 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { TypesModel, TypesModelRuntimeType } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useDeleteHelixModel } from '../../services/helixModelsService';
+import AddIcon from '@mui/icons-material/Add';
+import Button from '@mui/material/Button';
 
 import { OllamaIcon, VllmIcon, HuggingFaceIcon } from '../icons/ProviderIcons';
+import EditHelixModel from './EditHelixModel';
 
 // Helper function to get the icon based on runtime
 const getRuntimeIcon = (runtime: TypesModelRuntimeType | undefined) => {
@@ -49,6 +52,7 @@ const getRuntimeIcon = (runtime: TypesModelRuntimeType | undefined) => {
 };
 
 const HelixModelsTable: FC = () => {
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedModel, setSelectedModel] = useState<TypesModel | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -67,22 +71,38 @@ const HelixModelsTable: FC = () => {
 
   const handleMenuClose = () => {
     setAnchorEl(null);
+  };
+
+  const handleEditClick = () => {
+    if (selectedModel) {
+      setDialogOpen(true);
+      handleMenuClose();
+    }
+  };
+
+  const handleCreateClick = () => {
+    setSelectedModel(null);
+    setDialogOpen(true);
+  };
+
+  const handleDialogClose = () => {
+    setDialogOpen(false);
     setSelectedModel(null);
   };
 
   const handleDeleteClick = () => {
     setDeleteDialogOpen(true);
-    handleMenuClose(); // Close the menu when opening dialog
+    handleMenuClose();
   };
 
   const handleDeleteDialogClose = () => {
     setDeleteDialogOpen(false);
-    setSelectedModel(null); // Clear selection when dialog closes
+    setSelectedModel(null);
   };
 
   const handleDeleteSuccess = () => {
     handleDeleteDialogClose();
-    refetch(); // Refetch the list after successful deletion
+    refetch();
   };
 
   if (isLoading) {
@@ -98,10 +118,16 @@ const HelixModelsTable: FC = () => {
       <Paper sx={{ p: 2, width: '100%' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No Helix models found.</Typography>
-          {/* Optional: Add button to create models if functionality exists */}
-          {/* <Button variant="outlined" color="secondary" startIcon={<AddIcon />}>Add Model</Button> */}
+          <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
+            Create Model
+          </Button>
         </Box>
-        {/* Placeholder for create dialog */}
+        <EditHelixModel
+          open={dialogOpen}
+          model={selectedModel}
+          onClose={handleDialogClose}
+          refreshData={refetch}
+        />
       </Paper>
     );
   }
@@ -110,8 +136,16 @@ const HelixModelsTable: FC = () => {
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">Helix Models</Typography>
-        {/* Optional: Add button */}
+        <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
+          Create Model
+        </Button>
       </Box>
+      <EditHelixModel
+        open={dialogOpen}
+        model={selectedModel}
+        onClose={handleDialogClose}
+        refreshData={refetch}
+      />
       <TableContainer>
         <Table stickyHeader aria-label="helix models table">
           <TableHead>
@@ -134,11 +168,8 @@ const HelixModelsTable: FC = () => {
                    </Tooltip>
                 </TableCell>
                 <TableCell>
-                   {/* Wrap name and icon in a Box for layout */}
                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                     {/* Render runtime icon */}
                      {getRuntimeIcon(model.runtime)}
-                     {/* Model Name and Description */}
                      <Typography variant="body2">
                        {model.name}
                        {model.description && (
@@ -169,16 +200,9 @@ const HelixModelsTable: FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        {/* Add Edit option here if needed */}
+        <MenuItem onClick={handleEditClick}>Edit</MenuItem>
         <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>Delete</MenuItem>
       </Menu>
-      {/* Placeholder for Delete Confirmation Dialog */}
-      {/* <DeleteHelixModelDialog
-        open={deleteDialogOpen}
-        model={selectedModel}
-        onClose={handleDeleteDialogClose}
-        onDeleted={handleDeleteSuccess}
-      /> */}
     </Paper>
   );
 };
