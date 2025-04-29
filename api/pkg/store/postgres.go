@@ -62,6 +62,13 @@ func NewPostgresStore(
 		}
 	}
 
+	if cfg.SeedModels {
+		err = store.seedModels(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to seed models: %w", err)
+		}
+	}
+
 	return store, nil
 }
 
@@ -122,6 +129,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
 		&types.UsageMetric{},
+		&types.Model{},
 	)
 	if err != nil {
 		return err
