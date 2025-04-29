@@ -6,9 +6,63 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
+
+func (s *PostgresStore) seedModels(ctx context.Context) error {
+	if !s.cfg.SeedModels {
+		return nil
+	}
+
+	err := s.seedOllamaModels(ctx)
+	if err != nil {
+		log.Err(err).Msg("failed to seed ollama models")
+	}
+
+	diffusersModels, _ := model.GetDefaultDiffusersModels()
+	vllmModels, _ := model.GetDefaultVLLMModels()
+
+	return nil
+}
+
+func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
+	ollamaModels, _ := model.GetDefaultOllamaModels()
+
+	for _, model := range ollamaModels {
+		// Check if model already exists
+		existingModel, err := s.GetModel(ctx, model.ID)
+		if err != nil && err != ErrNotFound {
+			return err
+		}
+
+		if existingModel != nil {
+			continue
+		}
+
+		// Create model
+		m := &types.Model{
+			ID:            model.ID,
+			Name:          model.Name,
+			Type:          types.ModelTypeChat,
+			Runtime:       types.ModelRuntimeTypeOllama,
+			ContextLength: model.ContextLength,
+			Memory:        model.Memory,
+			Description:   model.Description,
+			Hide:          model.Hide,
+			Enabled:       true,
+		}
+
+		_, err = s.CreateModel(ctx, m)
+		if err != nil {
+			return fmt.Errorf("failed to create model %s: %w", model.ID, err)
+		}
+	}
+
+	return nil
+}
 
 func (s *PostgresStore) CreateModel(ctx context.Context, model *types.Model) (*types.Model, error) {
 	err := validateModel(model)
