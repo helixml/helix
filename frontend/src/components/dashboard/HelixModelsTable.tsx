@@ -15,6 +15,7 @@ import {
   CircularProgress,
   Tooltip,
   SvgIcon,
+  TextField,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { TypesModel, TypesModelRuntimeType } from '../../api/api'; // Assuming TypesModel is the correct type
@@ -57,6 +58,7 @@ const HelixModelsTable: FC = () => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedModel, setSelectedModel] = useState<TypesModel | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
@@ -106,6 +108,16 @@ const HelixModelsTable: FC = () => {
     refetch();
   };
 
+  // Filter models based on search query
+  const filteredModels = helixModels.filter((model) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      model.id?.toLowerCase().includes(query) ||
+      model.name?.toLowerCase().includes(query) ||
+      model.description?.toLowerCase().includes(query)
+    );
+  });
+
   if (isLoading) {
     return (
       <Paper sx={{ p: 2, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -136,7 +148,13 @@ const HelixModelsTable: FC = () => {
   return (
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Helix Models</Typography>
+        <TextField
+           label="Search models by ID, name, or description"           
+           size="small"
+           value={searchQuery}
+           onChange={(e) => setSearchQuery(e.target.value)}
+           sx={{ width: '40%' }}
+         />
         <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
           Create Model
         </Button>
@@ -165,7 +183,7 @@ const HelixModelsTable: FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {helixModels.map((model: TypesModel) => (
+            {filteredModels.map((model: TypesModel) => (
               <TableRow key={model.id}>
                 <TableCell>
                    <Tooltip title={model.id || 'N/A'}>
