@@ -50,6 +50,9 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		if model.Runtime != types.RuntimeOllama {
 			continue
 		}
+		if !model.Enabled {
+			continue
+		}
 		ollamaModels = append(ollamaModels, model)
 	}
 
