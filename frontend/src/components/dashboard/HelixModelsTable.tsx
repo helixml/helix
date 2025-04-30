@@ -16,10 +16,11 @@ import {
   Tooltip,
   SvgIcon,
   TextField,
+  Switch,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { TypesModel, TypesModelRuntimeType } from '../../api/api'; // Assuming TypesModel is the correct type
-import { useListHelixModels } from '../../services/helixModelsService';
+import { useListHelixModels, useUpdateHelixModel } from '../../services/helixModelsService';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
 
@@ -63,6 +64,9 @@ const HelixModelsTable: FC = () => {
   // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
 
+  // Call the hook at the top level
+  const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel();
+
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, model: TypesModel) => {
     setAnchorEl(event.currentTarget);
     setSelectedModel(model);
@@ -102,6 +106,32 @@ const HelixModelsTable: FC = () => {
   const handleDeleteSuccess = () => {
     handleDeleteDialogClose();
     refetch();
+  };
+
+  // Placeholder for the API call to update the model's enabled status
+  const handleToggleEnable = (model: TypesModel) => {
+    if (!model.id) {
+      console.error("Cannot toggle model status: model ID is missing.");
+      return;
+    }
+    const updatedModel = {
+      ...model,
+      enabled: !(model.enabled ?? false),
+    };
+    // Remove the hook call from here
+    // const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel(model.id || '');
+
+    // Call updateModel with id and data
+    updateModel({ id: model.id, helixModel: updatedModel }, {
+      onSuccess: () => {
+        refetch();
+        console.log(`Model ${model.id} enabled status updated successfully.`);
+      },
+      onError: (error) => {
+        console.error(`Failed to update model ${model.id} enabled status:`, error);
+        // TODO: Add user feedback for the error (e.g., Snackbar)
+      },
+    });
   };
 
   // Filter models based on search query
@@ -175,6 +205,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>Name</TableCell>
               <TableCell>Context Length</TableCell>
               <TableCell>Type</TableCell>
+              <TableCell>Enabled</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -203,6 +234,12 @@ const HelixModelsTable: FC = () => {
                 </TableCell>
                 <TableCell>{model.context_length || 'N/A'}</TableCell>
                 <TableCell>{model.type || 'N/A'}</TableCell>
+                <TableCell>
+                  <Switch
+                    checked={model.enabled ?? false}
+                    onChange={() => handleToggleEnable(model)}
+                  />
+                </TableCell>
                 <TableCell>
                   <IconButton
                     aria-label="more"

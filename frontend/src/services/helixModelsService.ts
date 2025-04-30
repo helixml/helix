@@ -44,14 +44,16 @@ export function useCreateHelixModel() {
   });
 }
 
-export function useUpdateHelixModel(id: string) {
+export function useUpdateHelixModel() {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient();
 
   return useMutation({
-    // Assuming v1HelixModelsUpdate exists and takes id and the model body directly
-    mutationFn: async (helixModel: Partial<TypesModel>) => { // Assuming TypesModel or a specific update type
+    // Update mutationFn signature to accept id and model
+    mutationFn: async (data: { id: string; helixModel: Partial<TypesModel> }) => {
+      const { id, helixModel } = data; // Destructure id and model
+      // Use id from the data argument here
       const result = await apiClient.v1HelixModelsUpdate(id, helixModel)
       return result.data
     },
