@@ -314,6 +314,13 @@ func (s *Scheduler) reconcileRunnersOnce() {
 
 			// Delete all slots belonging to this runner
 			s.deleteRunnerSlots(runnerID)
+			continue
+		}
+
+		// Set the models on the runner
+		err = s.controller.SetModels(runnerID)
+		if err != nil {
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to set models on runner, skipping...")
 		}
 	}
 }
