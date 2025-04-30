@@ -191,6 +191,10 @@ func (d *AxolotlRuntime) PullModel(_ context.Context, model string, progress fun
 	return nil
 }
 
+func (d *AxolotlRuntime) ListModels(ctx context.Context) ([]string, error) {
+	return []string{}, nil // TODO: implement
+}
+
 func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
 	// Extract the session ID from the model name
 	_, sessionID, _, err := parseHelixLoraModelName(model)

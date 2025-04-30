@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/inhies/go-bytesize"
+	"github.com/rs/zerolog/log"
+	"github.com/sourcegraph/conc/pool"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/inhies/go-bytesize"
-	"github.com/rs/zerolog/log"
 )
 
 type Options struct {
@@ -25,15 +27,6 @@ type Options struct {
 
 	Config *config.RunnerConfig
 
-	// these URLs will have the instance ID appended by the model instance
-	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
-	// we just pass http://localhost:8080/api/v1/worker/task
-	TaskURL string
-	// these URLs will have the instance ID appended by the model instance
-	// e.g. http://localhost:8080/api/v1/worker/session/:instanceid
-	// we just pass http://localhost:8080/api/v1/worker/session
-	InitialSessionURL string
-
 	// add this model to the global session query filter
 	// so we only run a single model
 	FilterModelName string
@@ -41,13 +34,6 @@ type Options struct {
 	// if we only want to run fine-tuning or inference
 	// set this and it will be added to the global session filter
 	FilterMode string
-
-	// do we want to allow multiple models of the same type to run on this GPU?
-	AllowMultipleCopies bool
-
-	// how long to wait between loops for the controller
-	// this will affect how often we ask for a global session
-	GetTaskDelayMilliseconds int
 
 	// how often to report our overal state to the api
 	ReportStateDelaySeconds int
@@ -83,7 +69,7 @@ type Options struct {
 
 	// development settings
 	// never run more than this number of model instances
-	MaxModelInstances int
+	// MaxModelInstances int
 
 	WebServer WebServer
 }
@@ -161,16 +147,20 @@ func NewRunner(
 }
 
 func (r *Runner) Run(ctx context.Context) {
+	pool := pool.New().WithErrors()
 	log.Info().Msgf("Starting runner server on %s:%d", r.Options.WebServer.Host, r.Options.WebServer.Port)
-	go func() {
+
+	pool.Go(func() error {
 		err := r.server.ListenAndServe(ctx, nil)
 		if err != nil {
-			panic(err)
+			return err
 		}
-	}()
+		return nil
+	})
 
 	log.Info().Str("runner_id", r.Options.ID).Msg("Starting NATS controller")
-	go func() {
+
+	pool.Go(func() error {
 		serverURL := fmt.Sprintf("http://%s:%d", r.Options.WebServer.Host, r.Options.WebServer.Port)
 
 		// Add retry logic for connecting to NATS
@@ -209,7 +199,7 @@ func (r *Runner) Run(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				log.Warn().Msg("Context cancelled while retrying NATS connection")
-				return
+				return fmt.Errorf("context cancelled while retrying NATS connection")
 			case <-time.After(backoff):
 				// Exponential backoff with a maximum of 30 seconds
 				backoff = time.Duration(math.Min(float64(backoff)*1.5, 30*float64(time.Second)))
@@ -222,9 +212,18 @@ func (r *Runner) Run(ctx context.Context) {
 				Str("runner_id", r.Options.ID).
 				Int("max_retries", maxRetries).
 				Msg("Failed to connect to NATS after multiple attempts")
-			panic(fmt.Sprintf("Failed to connect to NATS after %d attempts: %v", maxRetries, err))
+			return fmt.Errorf("failed to connect to NATS after %d attempts: %v", maxRetries, err)
 		}
 
-		<-ctx.Done()
-	}()
+		return nil
+	})
+
+	pool.Go(func() error {
+		return r.startHelixModelReconciler(ctx)
+	})
+
+	err := pool.Wait()
+	if err != nil {
+		log.Error().Err(err).Msg("error running runner")
+	}
 }

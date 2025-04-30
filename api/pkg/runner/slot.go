@@ -38,6 +38,7 @@ type Runtime interface {
 	Stop() error
 	PullModel(ctx context.Context, model string, progress func(PullProgress) error) error
 	Warm(ctx context.Context, model string) error
+	ListModels(ctx context.Context) ([]string, error)
 	Version() string
 	Status(ctx context.Context) string // To hold general status information like ollama ps output
 	Runtime() types.Runtime

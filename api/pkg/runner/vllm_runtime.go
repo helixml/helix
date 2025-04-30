@@ -228,6 +228,10 @@ func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFun
 	})
 }
 
+func (v *VLLMRuntime) ListModels(ctx context.Context) ([]string, error) {
+	return []string{}, nil // TODO: implement
+}
+
 func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
 	// If no model is provided, use the configured model
 	if model == "" {
@@ -275,7 +279,6 @@ func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
 	req = req.WithContext(warmCtx)
 
 	// Send the request
-	client := &http.Client{}
 	startTime := time.Now()
 
 	log.Debug().
@@ -283,7 +286,7 @@ func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
 		Str("url", url).
 		Msg("Sending warm-up request to vLLM")
 
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		// Check if it's a context timeout
 		if warmCtx.Err() != nil {
@@ -354,6 +357,8 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 	lastLogTime := startTime
 	attemptCount := 0
 
+	client := &http.Client{Timeout: 1 * time.Second}
+
 	log.Info().
 		Dur("timeout", startTimeout).
 		Str("model", v.model).
@@ -407,7 +412,6 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 				continue
 			}
 
-			client := &http.Client{Timeout: 1 * time.Second}
 			resp, err := client.Do(req)
 			if err != nil {
 				if time.Since(lastLogTime) > 5*time.Second {
