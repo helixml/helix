@@ -45,6 +45,7 @@ type RunnerModelStatus struct {
 	Runtime            Runtime `json:"runtime"`
 	DownloadInProgress bool    `json:"download_in_progress"`
 	DownloadPercent    int     `json:"download_percent"`
+	Error              string  `json:"error"`
 }
 
 type Runtime string
