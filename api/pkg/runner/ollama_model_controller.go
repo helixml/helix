@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/sourcegraph/conc/pool"
 
 	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
@@ -72,12 +73,53 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		return fmt.Errorf("error listing ollama models: %w", err)
 	}
 
+	var modelsToPull []*types.Model
+
 	// Compare models
 	for _, model := range ollamaModels {
 		if !slices.Contains(currentModels, model.Name) {
 			log.Info().Msgf("model to pull %s", model.ID)
+			modelsToPull = append(modelsToPull, model)
 		}
 	}
+
+	// Pull models
+	pool := pool.New().WithMaxGoroutines(r.Options.MaxPullConcurrency)
+	for _, model := range modelsToPull {
+		pool.Go(func() {
+			err = runningRuntime.PullModel(ctx, model.ID, func(progress PullProgress) error {
+				log.Info().Msgf("pulling model %s: %d/%d", model.ID, progress.Completed, progress.Total)
+
+				r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+					ModelID:            model.ID,
+					Runtime:            types.RuntimeOllama,
+					DownloadInProgress: true,
+					DownloadPercent:    int(progress.Completed * 100 / progress.Total),
+				})
+
+				return nil
+			})
+			if err != nil {
+				log.Error().Err(err).Str("model_id", model.ID).Msg("error pulling model")
+				r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+					ModelID:            model.ID,
+					Runtime:            types.RuntimeOllama,
+					DownloadInProgress: false,
+					DownloadPercent:    100,
+					Error:              err.Error(),
+				})
+				return
+			}
+
+			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+				ModelID:            model.ID,
+				Runtime:            types.RuntimeOllama,
+				DownloadInProgress: false,
+				DownloadPercent:    100,
+			})
+		})
+	}
+	pool.Wait()
 
 	return nil
 }
