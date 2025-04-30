@@ -193,7 +193,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 	}
 
 	// Add debug logging to see memory values
-	log.Debug().
+	log.Info().
 		Str("runner_id", apiServer.runnerOptions.ID).
 		Uint64("total_memory", status.TotalMemory).
 		Uint64("free_memory", status.FreeMemory).

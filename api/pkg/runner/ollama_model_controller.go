@@ -92,15 +92,17 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		if !slices.Contains(currentModels, model.Name) {
 			log.Info().Msgf("model to pull %s", model.ID)
 			modelsToPull = append(modelsToPull, model)
-		} else {
-			// Already exists, set the status to downloaded
-			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
-				ModelID:            model.ID,
-				Runtime:            types.RuntimeOllama,
-				DownloadInProgress: false,
-				DownloadPercent:    100,
-			})
 		}
+	}
+
+	for _, currentModel := range currentModels {
+		// Already exists, set the status to downloaded
+		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+			ModelID:            currentModel,
+			Runtime:            types.RuntimeOllama,
+			DownloadInProgress: false,
+			DownloadPercent:    100,
+		})
 	}
 
 	// Pull models, if any
@@ -108,6 +110,13 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 
 	for _, model := range modelsToPull {
 		pool.Go(func() {
+			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+				ModelID:            model.ID,
+				Runtime:            types.RuntimeOllama,
+				DownloadInProgress: true,
+				DownloadPercent:    0,
+			})
+
 			err = runningRuntime.PullModel(ctx, model.ID, func(progress PullProgress) error {
 				log.Info().Msgf("pulling model %s: %d/%d", model.ID, progress.Completed, progress.Total)
 
