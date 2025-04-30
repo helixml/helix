@@ -258,6 +258,60 @@ export const RunnerSummary: FC<{
             </Box>
           </Grid>
         </Grid>
+        
+        {/* Model Status Section */}
+        {runner.models && runner.models.length > 0 && (
+          <>
+            <Divider sx={{
+              my: 2,
+              borderColor: 'rgba(255, 255, 255, 0.06)',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+            }} />
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.6)', 
+                fontWeight: 500, 
+                px: 1, 
+                mb: 1,
+                display: 'block'
+              }}
+            >
+              Ollama models:
+            </Typography>
+            <Grid container spacing={1} sx={{ px: 1, py: 0.5 }}>
+              {runner.models.map(modelStatus => (
+                <Grid item key={modelStatus.model_id}>
+                  <Chip 
+                    size="small"
+                    label={
+                      modelStatus.download_in_progress 
+                        ? `${modelStatus.model_id} (Downloading: ${modelStatus.download_percent}%)` 
+                        : modelStatus.model_id
+                    }
+                    sx={{ 
+                      borderRadius: '3px',
+                      backgroundColor: modelStatus.download_in_progress 
+                        ? 'rgba(255, 165, 0, 0.15)' // Orange tint for downloading
+                        : 'rgba(0, 200, 255, 0.08)',
+                      border: '1px solid',
+                      borderColor: modelStatus.download_in_progress
+                        ? 'rgba(255, 165, 0, 0.3)' // Orange border
+                        : 'rgba(0, 200, 255, 0.2)',
+                      color: modelStatus.download_in_progress
+                        ? 'rgba(255, 165, 0, 0.9)' // Brighter orange text
+                        : 'rgba(255, 255, 255, 0.85)',
+                      '& .MuiChip-label': {
+                        fontSize: '0.7rem',
+                        px: 1.2,
+                      }
+                    }}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          </>
+        )}
       </Box>
       
       {runner.slots && runner.slots.length > 0 && (
