@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -203,6 +204,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Any("models_status", apiServer.modelStatus).
 		Msg("Runner status memory values")
 
+	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(status)
 	if err != nil {
 		log.Error().Err(err).Msg("error encoding status response")
@@ -451,6 +453,11 @@ func (apiServer *HelixRunnerAPIServer) listHelixModelsStatus() []*types.RunnerMo
 	for _, status := range apiServer.modelStatus {
 		resp = append(resp, status)
 	}
+
+	// Sort by model_id
+	sort.Slice(resp, func(i, j int) bool {
+		return resp[i].ModelID < resp[j].ModelID
+	})
 
 	return resp
 }

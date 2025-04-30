@@ -63,11 +63,6 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 
 	log.Info().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
 
-	if len(ollamaModels) == 0 {
-		log.Info().Msg("no ollama models found, skipping")
-		return nil
-	}
-
 	// Create ollama runtime
 	runtimeParams := OllamaRuntimeParams{
 		CacheDir: &r.Options.CacheDir,
