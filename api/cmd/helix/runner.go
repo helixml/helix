@@ -30,7 +30,6 @@ func NewRunnerOptions() *RunnerOptions {
 			APIToken:                     getDefaultServeOptionString("API_TOKEN", ""),
 			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING", ""),
-			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
 			ReportStateDelaySeconds:      getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
@@ -40,8 +39,6 @@ func NewRunnerOptions() *RunnerOptions {
 			MockRunnerDelay:              getDefaultServeOptionInt("MOCK_RUNNER_DELAY", 0),
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
-			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
-			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
 			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
 			WebServer: runner.WebServer{
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
@@ -111,11 +108,6 @@ func newRunnerCmd() *cobra.Command {
 		`Short notation for the amount of GPU memory available - e.g. 1GB`,
 	)
 
-	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Runner.GetTaskDelayMilliseconds, "get-task-delay-milliseconds", allOptions.Runner.GetTaskDelayMilliseconds,
-		`How many milliseconds do we wait between running the control loop (which asks for the next global session)`,
-	)
-
 	runnerCmd.PersistentFlags().StringToStringVar(
 		&allOptions.Runner.Labels, "label", allOptions.Runner.Labels,
 		`Labels to attach to this runner`,
@@ -154,16 +146,6 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.FilterMode, "filter-mode", allOptions.Runner.FilterMode,
 		`Only run jobs of this mode`,
-	)
-
-	runnerCmd.PersistentFlags().BoolVar(
-		&allOptions.Runner.AllowMultipleCopies, "allow-multiple-copies", allOptions.Runner.AllowMultipleCopies,
-		`Should we allow multiple copies of the same model to run at the same time?`,
-	)
-
-	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Runner.MaxModelInstances, "max-model-instances", allOptions.Runner.MaxModelInstances,
-		`How many instances of a model can we run at the same time?`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
@@ -271,32 +253,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// from downloading lora weights via http from the filestore)
 	model.APIHost = options.Runner.APIHost
 	model.APIToken = options.Runner.APIToken
-
-	if !options.Runner.MockRunner {
-		// Axolotl runtime warmup
-		if options.Runner.Config.Runtimes.Axolotl.Enabled {
-			for _, modelName := range options.Runner.Config.Runtimes.Axolotl.WarmupModels {
-				switch modelName {
-				case model.ModelAxolotlMistral7b:
-					log.Info().Msgf("Adding warmup session for model %s", modelName)
-				case model.ModelCogSdxl:
-					log.Info().Msgf("Adding warmup session for model %s", modelName)
-				default:
-					log.Error().Msgf("Unknown warmup model %s", modelName)
-				}
-			}
-		}
-
-		// Ollama runtime warmup
-		if options.Runner.Config.Runtimes.Ollama.Enabled && !options.Runner.Config.Runtimes.V2Engine {
-			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
-				switch modelName {
-				case model.ModelOllamaLlama38b:
-					log.Info().Msgf("Adding warmup session for model %s", modelName)
-				}
-			}
-		}
-	}
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
