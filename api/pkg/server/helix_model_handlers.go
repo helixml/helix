@@ -32,7 +32,7 @@ func (apiServer *HelixAPIServer) listHelixModels(rw http.ResponseWriter, r *http
 	}
 
 	if r.URL.Query().Get("runtime") != "" {
-		q.Runtime = types.ModelRuntimeType(r.URL.Query().Get("runtime"))
+		q.Runtime = types.Runtime(r.URL.Query().Get("runtime"))
 	}
 
 	models, err := apiServer.Store.ListModels(r.Context(), q)
