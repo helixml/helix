@@ -211,6 +211,7 @@ type ListModelsQuery struct {
 	Type    types.ModelType
 	Name    string
 	Runtime types.Runtime
+	Enabled *bool
 }
 
 func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error) {
@@ -228,6 +229,10 @@ func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*
 
 	if q.Runtime != "" {
 		query = query.Where("runtime = ?", q.Runtime)
+	}
+
+	if q.Enabled != nil {
+		query = query.Where("enabled = ?", *q.Enabled)
 	}
 
 	err := query.Order("created DESC").Find(&models).Error

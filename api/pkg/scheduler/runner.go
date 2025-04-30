@@ -604,7 +604,11 @@ func (c *RunnerController) GetHealthz(runnerID string) error {
 }
 
 func (c *RunnerController) SetModels(runnerID string) error {
-	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{})
+	enabled := true
+	// Fetch all enabled models
+	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{
+		Enabled: &enabled,
+	})
 	if err != nil {
 		return fmt.Errorf("error listing models: %w", err)
 	}
