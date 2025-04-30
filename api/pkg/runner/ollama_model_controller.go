@@ -30,6 +30,8 @@ func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
 }
 
 func (r *Runner) reconcileHelixModels(ctx context.Context) error {
+	log.Info().Msg("reconciling helix models")
+
 	err := r.reconcileOllamaHelixModels(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("error reconciling ollama models")
@@ -51,7 +53,12 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		ollamaModels = append(ollamaModels, model)
 	}
 
-	log.Info().Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
+	log.Info().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
+
+	if len(ollamaModels) == 0 {
+		log.Info().Msg("no ollama models found, skipping")
+		return nil
+	}
 
 	// Create ollama runtime
 	runtimeParams := OllamaRuntimeParams{
@@ -82,6 +89,14 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		if !slices.Contains(currentModels, model.Name) {
 			log.Info().Msgf("model to pull %s", model.ID)
 			modelsToPull = append(modelsToPull, model)
+		} else {
+			// Already exists, set the status to downloaded
+			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+				ModelID:            model.ID,
+				Runtime:            types.RuntimeOllama,
+				DownloadInProgress: false,
+				DownloadPercent:    100,
+			})
 		}
 	}
 
