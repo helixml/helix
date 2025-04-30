@@ -53,6 +53,11 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		if !model.Enabled {
 			continue
 		}
+		// If model requires more memory than we have, skip it
+		if model.Memory > r.Options.MemoryBytes {
+			continue
+		}
+
 		ollamaModels = append(ollamaModels, model)
 	}
 
