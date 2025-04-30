@@ -13,14 +13,15 @@ import (
 )
 
 func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second * 30)
 	for {
+		err := r.reconcileHelixModels(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("error reconciling helix models")
+		}
+
 		select {
-		case <-ticker.C:
-			err := r.reconcileHelixModels(ctx)
-			if err != nil {
-				log.Error().Err(err).Msg("error reconciling helix models")
-			}
+		case <-time.After(time.Second * 30):
+			continue
 		case <-ctx.Done():
 			return fmt.Errorf("context cancelled while reconciling helix models")
 		}
