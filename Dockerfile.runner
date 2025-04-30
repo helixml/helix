@@ -52,7 +52,7 @@ FROM registry.helixml.tech/helix/runner-base:${TAG}
 
 # Pass the CPU flag through to this stage
 ARG DEVELOPMENT_CPU_ONLY=""
-# Pass the vLLM version 
+# Pass the vLLM version
 ARG VLLM_VERSION
 
 # Install ollama
