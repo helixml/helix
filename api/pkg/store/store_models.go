@@ -51,7 +51,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			ID:            model.ID,
 			Name:          model.Name,
 			Type:          types.ModelTypeChat,
-			Runtime:       types.ModelRuntimeTypeOllama,
+			Runtime:       types.RuntimeOllama,
 			ContextLength: model.ContextLength,
 			Memory:        model.Memory,
 			Description:   model.Description,
@@ -87,7 +87,7 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 			ID:            model.ID,
 			Name:          model.Name,
 			Type:          types.ModelTypeImage,
-			Runtime:       types.ModelRuntimeTypeDiffusers,
+			Runtime:       types.RuntimeDiffusers,
 			Memory:        model.Memory,
 			Description:   model.Description,
 			Hide:          model.Hide,
@@ -123,7 +123,7 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			ID:            model.ID,
 			Name:          model.Name,
 			Type:          types.ModelTypeChat, // Assuming VLLM models are for chat
-			Runtime:       types.ModelRuntimeTypeVLLM,
+			Runtime:       types.RuntimeVLLM,
 			ContextLength: model.ContextLength,
 			Memory:        model.Memory,
 			Description:   model.Description,
@@ -210,7 +210,7 @@ func (s *PostgresStore) GetModel(ctx context.Context, id string) (*types.Model, 
 type ListModelsQuery struct {
 	Type    types.ModelType
 	Name    string
-	Runtime types.ModelRuntimeType
+	Runtime types.Runtime
 }
 
 func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error) {
