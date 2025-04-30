@@ -330,6 +330,14 @@ export interface IRunnerStatus {
   allocated_memory: number,
   labels: Record<string, string>,
   slots: ISlot[],
+  models: IRunnerModelStatus[],
+}
+
+export interface IRunnerModelStatus {
+  model_id: string,
+  runtime: string,
+  download_in_progress: boolean,
+  download_percent: number,
 }
 
 export interface ISessionFilterModel {
