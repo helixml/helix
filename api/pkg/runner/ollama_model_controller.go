@@ -14,14 +14,31 @@ import (
 )
 
 func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
+
+	// Create ollama runtime, we will use it to pull/list models
+	runtimeParams := OllamaRuntimeParams{
+		CacheDir: &r.Options.CacheDir,
+	}
+	runningRuntime, err := NewOllamaRuntime(ctx, runtimeParams)
+	if err != nil {
+		return fmt.Errorf("error creating ollama runtime: %w", err)
+	}
+	// Start ollama runtime
+	err = runningRuntime.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("error starting ollama runtime: %w", err)
+	}
+
+	defer runningRuntime.Stop()
+
 	for {
-		err := r.reconcileHelixModels(ctx)
+		err := r.reconcileHelixModels(ctx, runningRuntime)
 		if err != nil {
 			log.Error().Err(err).Msg("error reconciling helix models")
 		}
 
 		select {
-		case <-time.After(time.Second * 30):
+		case <-time.After(time.Second * 5):
 			continue
 		case <-ctx.Done():
 			return fmt.Errorf("context cancelled while reconciling helix models")
@@ -29,10 +46,10 @@ func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
 	}
 }
 
-func (r *Runner) reconcileHelixModels(ctx context.Context) error {
+func (r *Runner) reconcileHelixModels(ctx context.Context, ollamaRuntime Runtime) error {
 	log.Info().Msg("reconciling helix models")
 
-	err := r.reconcileOllamaHelixModels(ctx)
+	err := r.reconcileOllamaHelixModels(ctx, ollamaRuntime)
 	if err != nil {
 		log.Error().Err(err).Msg("error reconciling ollama models")
 	}
@@ -40,7 +57,7 @@ func (r *Runner) reconcileHelixModels(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
+func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime) error {
 	models := r.server.listHelixModels()
 
 	var ollamaModels []*types.Model
@@ -63,23 +80,9 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 
 	log.Info().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
 
-	// Create ollama runtime
-	runtimeParams := OllamaRuntimeParams{
-		CacheDir: &r.Options.CacheDir,
-	}
-	runningRuntime, err := NewOllamaRuntime(ctx, runtimeParams)
-	if err != nil {
-		return fmt.Errorf("error creating ollama runtime: %w", err)
-	}
-	// Start ollama runtime
-	err = runningRuntime.Start(ctx)
-	if err != nil {
-		return fmt.Errorf("error starting ollama runtime: %w", err)
-	}
-
 	// List models from ollama
 	currentModels, err := retry.DoWithData(func() ([]string, error) {
-		return runningRuntime.ListModels(ctx)
+		return runtime.ListModels(ctx)
 	}, retry.Attempts(3), retry.Delay(time.Second*5))
 	if err != nil {
 		return fmt.Errorf("error listing ollama models: %w", err)
@@ -117,7 +120,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 				DownloadPercent:    0,
 			})
 
-			err = runningRuntime.PullModel(ctx, model.ID, func(progress PullProgress) error {
+			err = runtime.PullModel(ctx, model.ID, func(progress PullProgress) error {
 				log.Info().Msgf("pulling model %s: %d/%d", model.ID, progress.Completed, progress.Total)
 
 				r.server.setHelixModelsStatus(&types.RunnerModelStatus{
