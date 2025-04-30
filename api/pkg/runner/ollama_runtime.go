@@ -226,6 +226,18 @@ func (i *OllamaRuntime) PullModel(ctx context.Context, modelName string, pullPro
 	return nil
 }
 
+func (i *OllamaRuntime) ListModels(ctx context.Context) ([]string, error) {
+	models, err := i.ollamaClient.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error listing models: %w", err)
+	}
+	var resp []string
+	for _, model := range models.Models {
+		resp = append(resp, model.Name)
+	}
+	return resp, nil
+}
+
 func (i *OllamaRuntime) Warm(ctx context.Context, model string) error {
 	// If no model is provided, use the configured model
 	if model == "" && i.model != "" {
