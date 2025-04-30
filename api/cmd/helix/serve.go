@@ -265,6 +265,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	runnerController, err := scheduler.NewRunnerController(ctx, &scheduler.RunnerControllerConfig{
 		PubSub: ps,
 		FS:     fs,
+		Store:  postgresStore,
 	})
 	if err != nil {
 		return err
