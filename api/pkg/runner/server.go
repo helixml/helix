@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,12 @@ type HelixRunnerAPIServer struct {
 	cliContext    context.Context
 	slots         *xsync.MapOf[uuid.UUID, *Slot]
 	gpuManager    *GPUManager
+
+	modelStatusMu sync.Mutex
+	modelStatus   map[string]*types.RunnerModelStatus
+
+	modelsMu sync.Mutex
+	models   []*types.Model
 }
 
 func NewHelixRunnerAPIServer(
@@ -55,6 +62,10 @@ func NewHelixRunnerAPIServer(
 		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(ctx, runnerOptions),
+		modelStatusMu: sync.Mutex{},
+		modelStatus:   make(map[string]*types.RunnerModelStatus),
+		modelsMu:      sync.Mutex{},
+		models:        []*types.Model{},
 	}, nil
 }
 
@@ -87,6 +98,8 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.Use(server.ErrorLoggingMiddleware)
 	subRouter.HandleFunc("/healthz", apiServer.healthz).Methods(http.MethodGet)
 	subRouter.HandleFunc("/status", apiServer.status).Methods(http.MethodGet)
+	subRouter.HandleFunc("/helix-models", apiServer.listHelixModelsHandler).Methods(http.MethodGet) // List current models
+	subRouter.HandleFunc("/helix-models", apiServer.setHelixModelsHandler).Methods(http.MethodPost) // Which models to pull
 	subRouter.HandleFunc("/slots", apiServer.createSlot).Methods(http.MethodPost)
 	subRouter.HandleFunc("/slots", apiServer.listSlots).Methods(http.MethodGet)
 	subRouter.HandleFunc("/slots/{slot_id}", apiServer.getSlot).Methods(http.MethodGet)
@@ -382,4 +395,67 @@ func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
 		oldValue.Active = false
 		return oldValue, false
 	})
+}
+
+// listHelixModels - returns current model status
+func (apiServer *HelixRunnerAPIServer) listHelixModelsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Info().Msg("listing helix models")
+
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(apiServer.modelStatus)
+}
+
+// setHelixModels - sets the helix models, used to sync from controller to runner currently enabled
+// Helix models
+func (apiServer *HelixRunnerAPIServer) setHelixModelsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Info().Msg("setting helix models")
+	var models []*types.Model
+	err := json.NewDecoder(r.Body).Decode(&models)
+	if err != nil {
+		log.Error().Err(err).Msg("error decoding helix models")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+
+	apiServer.models = models
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (apiServer *HelixRunnerAPIServer) listHelixModels() []*types.Model {
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+
+	return apiServer.models
+}
+
+func (apiServer *HelixRunnerAPIServer) setHelixModels(models []*types.Model) {
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+	apiServer.models = models
+}
+
+func (apiServer *HelixRunnerAPIServer) listHelixModelsStatus() []*types.RunnerModelStatus {
+	apiServer.modelStatusMu.Lock()
+	defer apiServer.modelStatusMu.Unlock()
+
+	var resp []*types.RunnerModelStatus
+	for _, status := range apiServer.modelStatus {
+		resp = append(resp, status)
+	}
+
+	return resp
+}
+
+func (apiServer *HelixRunnerAPIServer) setHelixModelsStatus(status *types.RunnerModelStatus) {
+	apiServer.modelStatusMu.Lock()
+	defer apiServer.modelStatusMu.Unlock()
+
+	apiServer.modelStatus[status.ModelID] = status
 }
