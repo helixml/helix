@@ -9,18 +9,26 @@ export WITH_DEMOS=${WITH_DEMOS:=""}
 
 # Helper function to check for NVIDIA GPU and set appropriate variables
 function setup_runner_profile() {
-  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+  export FORCE_CPU=${FORCE_CPU:=""}
+  
+  if [[ -n "$FORCE_CPU" ]] || ! (command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null); then
+    # CPU mode
+    if [[ -n "$FORCE_CPU" ]]; then
+      echo "FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
+    else
+      echo "No NVIDIA GPU detected, running without GPU support"
+    fi
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  else
+    # GPU mode
     echo "NVIDIA GPU detected, using GPU support"
     export RUNNER_CONTAINER="runner_gpu"
     export RUNNER_PROFILE="--profile runner_gpu"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
-  else
-    echo "No NVIDIA GPU detected, running without GPU support"
-    export RUNNER_CONTAINER="runner"
-    export RUNNER_PROFILE="--profile runner"
-    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
-    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   fi
 }
 
