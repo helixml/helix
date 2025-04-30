@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
@@ -36,11 +37,13 @@ type RunnerController struct {
 	fs          filestore.FileStore
 	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
 	statusCache *LockingRunnerMap[types.RunnerStatus]
+	store       store.Store
 }
 
 type RunnerControllerConfig struct {
 	PubSub pubsub.PubSub
 	FS     filestore.FileStore
+	Store  store.Store
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -48,6 +51,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		ctx:         ctx,
 		ps:          cfg.PubSub,
 		fs:          cfg.FS,
+		store:       cfg.Store,
 		runners:     []string{},
 		mu:          &sync.RWMutex{},
 		slotsCache:  NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
@@ -592,6 +596,31 @@ func (c *RunnerController) GetHealthz(runnerID string) error {
 	}, defaultRequestTimeout)
 	if err != nil {
 		return fmt.Errorf("error getting healthz: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
+}
+
+func (c *RunnerController) SetModels(runnerID string) error {
+	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{})
+	if err != nil {
+		return fmt.Errorf("error listing models: %w", err)
+	}
+
+	bts, err := json.Marshal(models)
+	if err != nil {
+		return fmt.Errorf("error marshalling models: %w", err)
+	}
+
+	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
+		Method: "POST",
+		URL:    "/api/v1/helix-models",
+		Body:   bts,
+	}, defaultRequestTimeout)
+	if err != nil {
+		return fmt.Errorf("error setting models: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("runner %s is not healthy", runnerID)
