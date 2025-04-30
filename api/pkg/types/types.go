@@ -728,15 +728,16 @@ type DashboardData struct {
 }
 
 type DashboardRunner struct {
-	ID              string            `json:"id"`
-	Created         time.Time         `json:"created"`
-	Updated         time.Time         `json:"updated"`
-	Version         string            `json:"version"`
-	TotalMemory     uint64            `json:"total_memory"`
-	FreeMemory      uint64            `json:"free_memory"`
-	AllocatedMemory uint64            `json:"allocated_memory"`
-	Labels          map[string]string `json:"labels"`
-	Slots           []*RunnerSlot     `json:"slots"`
+	ID              string               `json:"id"`
+	Created         time.Time            `json:"created"`
+	Updated         time.Time            `json:"updated"`
+	Version         string               `json:"version"`
+	TotalMemory     uint64               `json:"total_memory"`
+	FreeMemory      uint64               `json:"free_memory"`
+	AllocatedMemory uint64               `json:"allocated_memory"`
+	Labels          map[string]string    `json:"labels"`
+	Slots           []*RunnerSlot        `json:"slots"`
+	Models          []*RunnerModelStatus `json:"models"`
 }
 
 type GlobalSchedulingDecision struct {
