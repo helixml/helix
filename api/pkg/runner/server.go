@@ -199,6 +199,8 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Uint64("free_memory", status.FreeMemory).
 		Uint64("allocated_memory", status.AllocatedMemory).
 		Int("slot_count", slotCount).
+		Int("models", len(apiServer.models)).
+		Any("models_status", apiServer.modelStatus).
 		Msg("Runner status memory values")
 
 	err := json.NewEncoder(w).Encode(status)
