@@ -412,14 +412,16 @@ func (apiServer *HelixRunnerAPIServer) listHelixModelsHandler(w http.ResponseWri
 // setHelixModels - sets the helix models, used to sync from controller to runner currently enabled
 // Helix models
 func (apiServer *HelixRunnerAPIServer) setHelixModelsHandler(w http.ResponseWriter, r *http.Request) {
-	log.Info().Int("models_count", len(apiServer.models)).Msg("setting helix models")
 	var models []*types.Model
+
 	err := json.NewDecoder(r.Body).Decode(&models)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding helix models")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	log.Info().Int("models_count", len(models)).Msg("setting helix models")
 
 	apiServer.setHelixModels(models)
 

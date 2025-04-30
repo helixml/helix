@@ -100,8 +100,9 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 		}
 	}
 
-	// Pull models
+	// Pull models, if any
 	pool := pool.New().WithMaxGoroutines(r.Options.MaxPullConcurrency)
+
 	for _, model := range modelsToPull {
 		pool.Go(func() {
 			err = runningRuntime.PullModel(ctx, model.ID, func(progress PullProgress) error {
@@ -127,7 +128,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context) error {
 				})
 				return
 			}
-
+			// Model pulled successfully, set the status to downloaded
 			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 				ModelID:            model.ID,
 				Runtime:            types.RuntimeOllama,
