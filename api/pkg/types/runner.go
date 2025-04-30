@@ -29,14 +29,22 @@ type StreamingResponse struct {
 }
 
 type RunnerStatus struct {
-	ID              string            `json:"id"`
-	Created         time.Time         `json:"created"`
-	Updated         time.Time         `json:"updated"`
-	Version         string            `json:"version"`
-	TotalMemory     uint64            `json:"total_memory"`
-	FreeMemory      uint64            `json:"free_memory"`
-	AllocatedMemory uint64            `json:"allocated_memory"` // Memory allocated to slots/workloads
-	Labels          map[string]string `json:"labels"`
+	ID              string               `json:"id"`
+	Created         time.Time            `json:"created"`
+	Updated         time.Time            `json:"updated"`
+	Version         string               `json:"version"`
+	TotalMemory     uint64               `json:"total_memory"`
+	FreeMemory      uint64               `json:"free_memory"`
+	AllocatedMemory uint64               `json:"allocated_memory"` // Memory allocated to slots/workloads
+	Labels          map[string]string    `json:"labels"`
+	Models          []*RunnerModelStatus `json:"models"`
+}
+
+type RunnerModelStatus struct {
+	ModelID            string  `json:"model_id"`
+	Runtime            Runtime `json:"runtime"`
+	DownloadInProgress bool    `json:"download_in_progress"`
+	DownloadPercent    int     `json:"download_percent"`
 }
 
 type Runtime string
@@ -47,6 +55,10 @@ const (
 	RuntimeAxolotl   Runtime = "axolotl"
 	RuntimeVLLM      Runtime = "vllm"
 )
+
+func (t Runtime) String() string {
+	return string(t)
+}
 
 type CreateRunnerSlotAttributes struct {
 	Runtime       Runtime        `json:"runtime"`
