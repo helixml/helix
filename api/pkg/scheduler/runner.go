@@ -139,6 +139,12 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 	// Add the runner to the cluster if it is not already in the cluster.
 	if !slices.Contains(c.runners, id) {
 		c.runners = append(c.runners, id)
+
+		// Reconcile runner models immediately
+		err := c.SetModels(id)
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
+		}
 	}
 }
 
