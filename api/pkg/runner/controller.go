@@ -72,6 +72,8 @@ type Options struct {
 	// MaxModelInstances int
 
 	WebServer WebServer
+
+	MaxPullConcurrency int `envconfig:"RUNNER_MAX_PULL_CONCURRENCY" default:"4"`
 }
 
 type WebServer struct {
