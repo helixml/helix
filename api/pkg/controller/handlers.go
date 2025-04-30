@@ -122,6 +122,7 @@ func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, 
 			AllocatedMemory: runnerStatus.AllocatedMemory,
 			Labels:          runnerStatus.Labels,
 			Slots:           runnerSlots,
+			Models:          runnerStatus.Models,
 		})
 	}
 	queue, err := c.scheduler.Queue()
