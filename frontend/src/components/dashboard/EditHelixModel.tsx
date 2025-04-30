@@ -38,7 +38,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
   const isEditing = !!model;
   // Placeholder hooks - replace with your actual implementation
   const { mutateAsync: createModel, isPending: isCreating } = useCreateHelixModel();
-  const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel(model?.id || '');
+  const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel();
   const loading = isCreating || isUpdating;
 
   const [error, setError] = useState<string>('');
@@ -67,7 +67,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           runtime: model.runtime || TypesModelRuntimeType.ModelRuntimeTypeOllama,
           memory: model.memory ? model.memory / (1024 * 1024 * 1024) : 0, // Convert bytes to GB
           context_length: model.context_length || 0,
-          enabled: model.enabled !== undefined ? model.enabled : true, // Default to true if undefined
+          enabled: model.enabled !== undefined ? model.enabled : false, // Default to false if undefined
           hide: model.hide || false,
         });
       } else {
@@ -181,7 +181,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     try {
       if (isEditing && model) {
         // For update, use the existing model's ID (which is not editable)
-        await updateModel({ ...payloadBase, id: model.id });
+        await updateModel({ id: model.id || '', helixModel: payloadBase });
       } else {
         // For create, include the user-provided ID from the form
         await createModel({ ...payloadBase, id: formData.id.trim() });
