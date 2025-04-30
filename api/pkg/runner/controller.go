@@ -150,6 +150,7 @@ func NewRunner(
 
 func (r *Runner) Run(ctx context.Context) {
 	pool := pool.New().WithErrors()
+
 	log.Info().Msgf("Starting runner server on %s:%d", r.Options.WebServer.Host, r.Options.WebServer.Port)
 
 	pool.Go(func() error {
@@ -221,6 +222,7 @@ func (r *Runner) Run(ctx context.Context) {
 	})
 
 	pool.Go(func() error {
+		log.Info().Msg("starting helix model reconciler")
 		return r.startHelixModelReconciler(ctx)
 	})
 
