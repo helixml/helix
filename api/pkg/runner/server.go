@@ -189,6 +189,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		FreeMemory:      apiServer.gpuManager.GetFreeMemory(),
 		AllocatedMemory: allocatedMemory,
 		Labels:          apiServer.runnerOptions.Labels,
+		Models:          apiServer.listHelixModelsStatus(),
 	}
 
 	// Add debug logging to see memory values
