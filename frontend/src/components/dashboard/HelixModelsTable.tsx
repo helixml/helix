@@ -19,7 +19,7 @@ import {
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { TypesModel, TypesModelRuntimeType } from '../../api/api'; // Assuming TypesModel is the correct type
-import { useListHelixModels, useDeleteHelixModel } from '../../services/helixModelsService';
+import { useListHelixModels } from '../../services/helixModelsService';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
 
@@ -62,10 +62,6 @@ const HelixModelsTable: FC = () => {
 
   // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
-  
-  // Note: The useDeleteHelixModel hook requires an ID. 
-  // We'll call this hook inside the confirmation dialog, passing the selectedModel.id
-  // const deleteMutation = useDeleteHelixModel(selectedModel?.id || ''); // Example usage pattern
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, model: TypesModel) => {
     setAnchorEl(event.currentTarget);
