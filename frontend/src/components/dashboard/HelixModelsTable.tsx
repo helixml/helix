@@ -19,7 +19,7 @@ import {
   Switch,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import { TypesModel, TypesModelRuntimeType } from '../../api/api'; // Assuming TypesModel is the correct type
+import { TypesModel, TypesRuntime } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useUpdateHelixModel } from '../../services/helixModelsService';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
@@ -29,21 +29,21 @@ import EditHelixModel from './EditHelixModel';
 import DeleteHelixModelDialog from './DeleteHelixModelDialog';
 
 // Helper function to get the icon based on runtime
-const getRuntimeIcon = (runtime: TypesModelRuntimeType | undefined) => {
+const getRuntimeIcon = (runtime: TypesRuntime | undefined) => {
   switch (runtime) {
-    case TypesModelRuntimeType.ModelRuntimeTypeOllama:
+    case TypesRuntime.RuntimeOllama:
       return (
         <Tooltip title="Ollama">
           <span><OllamaIcon /></span>
         </Tooltip>
       );
-    case TypesModelRuntimeType.ModelRuntimeTypeVLLM:
+    case TypesRuntime.RuntimeVLLM:
       return (
         <Tooltip title="VLLM">
           <span><VllmIcon /></span>
         </Tooltip>
       );
-    case TypesModelRuntimeType.ModelRuntimeTypeDiffusers:
+    case TypesRuntime.RuntimeDiffusers:
       return (
         <Tooltip title="Diffusers (Hugging Face)">
           <span><HuggingFaceIcon /></span>
