@@ -10,6 +10,7 @@ import Paper from '@mui/material/Paper'
 import Divider from '@mui/material/Divider'
 import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
+import Tooltip from '@mui/material/Tooltip'
 
 import {
   TypesDashboardRunner
@@ -285,31 +286,41 @@ export const RunnerSummary: FC<{
             <Grid container spacing={1} sx={{ px: 1, py: 0.5 }}>
               {runner.models.map(modelStatus => (
                 <Grid item key={modelStatus.model_id}>
-                  <Chip 
-                    size="small"
-                    label={
-                      modelStatus.download_in_progress 
-                        ? `${modelStatus.model_id} (Downloading: ${modelStatus.download_percent}%)` 
-                        : modelStatus.model_id
-                    }
-                    sx={{ 
-                      borderRadius: '3px',
-                      backgroundColor: modelStatus.download_in_progress 
-                        ? 'rgba(255, 165, 0, 0.15)' // Orange tint for downloading
-                        : 'rgba(0, 200, 255, 0.08)',
-                      border: '1px solid',
-                      borderColor: modelStatus.download_in_progress
-                        ? 'rgba(255, 165, 0, 0.3)' // Orange border
-                        : 'rgba(0, 200, 255, 0.2)',
-                      color: modelStatus.download_in_progress
-                        ? 'rgba(255, 165, 0, 0.9)' // Brighter orange text
-                        : 'rgba(255, 255, 255, 0.85)',
-                      '& .MuiChip-label': {
-                        fontSize: '0.7rem',
-                        px: 1.2,
+                  <Tooltip title={modelStatus.error || ''} disableHoverListener={!modelStatus.error}>
+                    <Chip 
+                      size="small"
+                      label={
+                        modelStatus.error 
+                          ? `${modelStatus.model_id} (Error)`
+                          : modelStatus.download_in_progress 
+                            ? `${modelStatus.model_id} (Downloading: ${modelStatus.download_percent}%)` 
+                            : modelStatus.model_id
                       }
-                    }}
-                  />
+                      sx={{ 
+                        borderRadius: '3px',
+                        backgroundColor: modelStatus.error
+                          ? 'rgba(255, 0, 0, 0.15)' // Red tint for error
+                          : modelStatus.download_in_progress 
+                            ? 'rgba(255, 165, 0, 0.15)' // Orange tint for downloading
+                            : 'rgba(0, 200, 255, 0.08)',
+                        border: '1px solid',
+                        borderColor: modelStatus.error
+                          ? 'rgba(255, 0, 0, 0.3)' // Red border for error
+                          : modelStatus.download_in_progress
+                            ? 'rgba(255, 165, 0, 0.3)' // Orange border for downloading
+                            : 'rgba(0, 200, 255, 0.2)',
+                        color: modelStatus.error
+                          ? 'rgba(255, 0, 0, 0.9)' // Brighter red text for error
+                          : modelStatus.download_in_progress
+                            ? 'rgba(255, 165, 0, 0.9)' // Brighter orange text for downloading
+                            : 'rgba(255, 255, 255, 0.85)',
+                        '& .MuiChip-label': {
+                          fontSize: '0.7rem',
+                          px: 1.2,
+                        }
+                      }}
+                    />
+                  </Tooltip>
                 </Grid>
               ))}
             </Grid>
