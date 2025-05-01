@@ -3748,6 +3748,9 @@ const docTemplate = `{
                 "updated": {
                     "type": "string"
                 },
+                "used_memory": {
+                    "type": "integer"
+                },
                 "version": {
                     "type": "string"
                 }

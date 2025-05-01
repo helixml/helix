@@ -703,6 +703,7 @@ export interface TypesDashboardRunner {
   slots?: TypesRunnerSlot[];
   total_memory?: number;
   updated?: string;
+  used_memory?: number;
   version?: string;
 }
 
