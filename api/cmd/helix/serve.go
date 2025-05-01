@@ -308,7 +308,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
+	helixInference := openai.NewInternalHelixServer(cfg, postgresStore, ps, scheduler)
 
 	var logStores []logger.LogStore
 
