@@ -575,33 +575,14 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 	// First get a list of all runners
 	allRunners := s.controller.RunnerIDs()
 
-	// Reach out to each runner and get their total memory
-	runnerMemory := make(map[string]uint64)
-	for _, runnerID := range allRunners {
-		runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
+	filteredRunners, err := s.filterRunnersByMemory(work, allRunners)
+	if err != nil {
+		return "", err
 	}
-	withWorkContext(&log.Logger, work).Debug().Interface("runner_memory", runnerMemory).Msg("runner memory")
 
-	// Filter out runners that don't have enough memory to allocate the new workload
-	numRunnersWithNotEnoughTotalMemory := 0
-	largestRunnerMemory := uint64(0)
-	requiredMemory := work.model.Memory
-	filteredRunners := make([]string, 0)
-	for runnerID, memory := range runnerMemory {
-		if memory >= requiredMemory {
-			filteredRunners = append(filteredRunners, runnerID)
-		} else {
-			numRunnersWithNotEnoughTotalMemory++
-		}
-		if memory > largestRunnerMemory {
-			largestRunnerMemory = memory
-		}
-	}
-	withWorkContext(&log.Logger, work).Debug().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
-
-	// Error if no runners have enough memory
-	if numRunnersWithNotEnoughTotalMemory == len(allRunners) {
-		return "", fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
+	filteredRunners, err = s.filterRunnersByModel(work, filteredRunners)
+	if err != nil {
+		return "", err
 	}
 
 	// Error if there are no runners left
