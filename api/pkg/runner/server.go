@@ -16,7 +16,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -153,24 +152,20 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		// We need to get the memory requirements for each slot
 		// If we have a model for this slot, we can calculate memory requirements
 		if slot.Model != "" {
-			// Assume inference mode for slots (default mode)
-			mode := types.SessionModeInference
-
 			// Try to get the model
-			modelObj, err := model.GetModel(slot.Model)
-			if err == nil && modelObj != nil {
+			// modelObj, err := model.GetModel(slot.Model)
+			if slot.ModelMemoryRequirement > 0 {
 				// Add the memory requirements to our running total
-				allocatedMemory += modelObj.GetMemoryRequirements(mode)
+				allocatedMemory += slot.ModelMemoryRequirement
 				log.Debug().
 					Str("slot_id", id.String()).
 					Str("model", slot.Model).
-					Uint64("memory", modelObj.GetMemoryRequirements(mode)).
+					Uint64("memory", slot.ModelMemoryRequirement).
 					Msg("Found memory requirements for model")
 			} else {
 				log.Warn().
 					Str("slot_id", id.String()).
 					Str("model", slot.Model).
-					Err(err).
 					Msg("Could not get memory requirements for model")
 			}
 		} else {
@@ -255,12 +250,13 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	}
 
 	s := NewEmptySlot(CreateSlotParams{
-		RunnerOptions: apiServer.runnerOptions,
-		ID:            slotRequest.ID,
-		Runtime:       slotRequest.Attributes.Runtime,
-		Model:         slotRequest.Attributes.Model,
-		ContextLength: slotRequest.Attributes.ContextLength,
-		RuntimeArgs:   slotRequest.Attributes.RuntimeArgs,
+		RunnerOptions:          apiServer.runnerOptions,
+		ID:                     slotRequest.ID,
+		Runtime:                slotRequest.Attributes.Runtime,
+		Model:                  slotRequest.Attributes.Model,
+		ModelMemoryRequirement: slotRequest.Attributes.ModelMemoryRequirement,
+		ContextLength:          slotRequest.Attributes.ContextLength,
+		RuntimeArgs:            slotRequest.Attributes.RuntimeArgs,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 
