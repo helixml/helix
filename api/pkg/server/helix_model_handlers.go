@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -116,8 +117,17 @@ func (apiServer *HelixAPIServer) updateHelixModel(rw http.ResponseWriter, r *htt
 		return
 	}
 
+	existingModel, err := apiServer.Store.GetModel(r.Context(), modelID)
+	if err != nil {
+		log.Error().Err(err).Str("model_id", modelID).Msg("error getting helix model")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// Ensure the ID from the path is used, ignore any ID in the body
 	modelUpdates.ID = modelID
+	modelUpdates.Created = existingModel.Created
+	modelUpdates.Updated = time.Now()
 
 	updatedModel, err := apiServer.Store.UpdateModel(r.Context(), &modelUpdates)
 	if err != nil {
