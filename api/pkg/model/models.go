@@ -10,26 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func GetModel(modelName string) (Model, error) {
-	models, err := GetModels()
-	if err != nil {
-		return nil, err
-	}
-	modelName, err = TransformModelName(modelName)
-	if err != nil {
-		return nil, err
-	}
-	model, ok := models[modelName]
-	if !ok {
-		modelNames := []string{}
-		for modelName := range models {
-			modelNames = append(modelNames, modelName)
-		}
-		return nil, fmt.Errorf("no model for model name %s (available models: %v)", modelName, modelNames)
-	}
-	return model, nil
-}
-
 // what to do next: there's tremendous value in supporting all ollama models out of the box, so switch model names to being dynamic rather than hardcoded, so it's super easy to add new ones to the UI
 // then have a generic ollama model that can be instantiated anyhow
 // we need to maintain a mapping from known model names to optimal memory usage, though
@@ -80,11 +60,6 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 
 	// misnamed: axolotl runtime handles axolotl and cog/sd-scripts
 	return types.InferenceRuntimeAxolotl
-}
-
-func TransformModelName(modelName string) (string, error) {
-	// All other model names are valid for now.
-	return modelName, nil
 }
 
 // this will handle aliases and defaults
