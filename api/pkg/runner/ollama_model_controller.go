@@ -95,13 +95,14 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 	// Compare models
 	for _, model := range ollamaModels {
 		if !slices.Contains(currentModels, model.Name) {
-			log.Info().Msgf("model to pull %s", model.ID)
+			log.Info().Str("model_id", model.ID).Msg("model to pull")
 			modelsToPull = append(modelsToPull, model)
 		}
 	}
 
 	for _, currentModel := range currentModels {
 		// Already exists, set the status to downloaded
+		log.Info().Str("model_id", currentModel).Msg("existing model found")
 		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 			ModelID:            currentModel,
 			Runtime:            types.RuntimeOllama,
@@ -123,13 +124,18 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 			})
 
 			err = runtime.PullModel(ctx, model.ID, func(progress PullProgress) error {
-				log.Info().Msgf("pulling model %s: %d/%d", model.ID, progress.Completed, progress.Total)
+				log.Info().
+					Str("model_id", model.ID).
+					Int("progress_total", int(progress.Total)).
+					Int("progress_completed", int(progress.Completed)).
+					Str("progress_status", progress.Status).
+					Msg("pulling model")
 
 				r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 					ModelID:            model.ID,
 					Runtime:            types.RuntimeOllama,
 					DownloadInProgress: true,
-					DownloadPercent:    int(progress.Completed * 100 / progress.Total),
+					DownloadPercent:    getPercent(progress.Completed, progress.Total),
 				})
 
 				return nil
@@ -157,4 +163,11 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 	pool.Wait()
 
 	return nil
+}
+
+func getPercent(completed, total int64) int {
+	if total == 0 {
+		return 0
+	}
+	return int(completed * 100 / total)
 }
