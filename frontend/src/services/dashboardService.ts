@@ -17,5 +17,6 @@ export function useGetDashboardData() {
     },
     enabled: true,
     staleTime: 1000, // 1 second
+    refetchInterval: 1000, // Refetch every 1 second
   });
 }

@@ -19,6 +19,8 @@ import {
   SESSION_MODE_INFERENCE
 } from '../../types'
 
+import { TypesRunnerSlot } from '../../api/api'
+
 import {
   getColor,
   getHeadline,
@@ -29,7 +31,7 @@ import {
 } from '../../utils/session'
 
 export const ModelInstanceSummary: FC<{
-  slot: ISlot,
+  slot: TypesRunnerSlot,
   onViewSession: {
     (id: string): void,
   }
@@ -53,7 +55,7 @@ export const ModelInstanceSummary: FC<{
   // Get runtime specific color for the bullet
   const runtimeColor = useMemo(() => {
     // Convert runtime to lowercase to handle any case inconsistencies
-    const runtime = slot.runtime.toLowerCase();
+    const runtime = slot.runtime?.toLowerCase() ?? '';
     
     // Match color based on runtime
     if (runtime.includes('vllm')) {
