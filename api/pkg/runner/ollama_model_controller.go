@@ -14,6 +14,8 @@ import (
 )
 
 func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
+	log.Info().Msg("starting helix model reconciler")
+	defer log.Info().Msg("helix model reconciler stopped")
 
 	// Create ollama runtime, we will use it to pull/list models
 	runtimeParams := OllamaRuntimeParams{
@@ -29,7 +31,7 @@ func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
 		return fmt.Errorf("error starting ollama runtime: %w", err)
 	}
 
-	defer runningRuntime.Stop()
+	defer runningRuntime.Stop() //nolint:errcheck
 
 	for {
 		err := r.reconcileHelixModels(ctx, runningRuntime)
