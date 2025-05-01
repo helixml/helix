@@ -12,11 +12,11 @@ import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
 
 import {
-  IRunnerStatus
-} from '../../types'
+  TypesDashboardRunner
+} from '../../api/api'
 
 export const RunnerSummary: FC<{
-  runner: IRunnerStatus,
+  runner: TypesDashboardRunner,
   onViewSession: {
     (id: string): void,
   }
@@ -24,8 +24,11 @@ export const RunnerSummary: FC<{
   runner,
   onViewSession,
 }) => {
+  if (!runner) return null
+  if (!runner.total_memory) return null
+
   // Calculate memory values - we get total_memory and free_memory from the API
-  const actual_memory = runner.total_memory - runner.free_memory
+  const actual_memory = runner?.total_memory ? runner.total_memory - (runner?.free_memory ?? 0) : 0
   
   // Get allocated memory from the API if available, never fall back to actual memory
   // If there are no slots (model instances) or no explicit allocated_memory, set to 0
@@ -143,7 +146,7 @@ export const RunnerSummary: FC<{
                 <Chip 
                   key={k}
                   size="small"
-                  label={`${k}=${runner.labels[k]}`} 
+                  label={`${k}=${runner.labels?.[k]}`} 
                   sx={{ 
                     mr: 0.5,
                     mb: 0.5,
@@ -324,10 +327,15 @@ export const RunnerSummary: FC<{
           boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1)',
         }}>
           {runner.slots
-            ?.sort((a, b) => a.id.localeCompare(b.id))
+            ?.sort((a, b) => {
+              // Safely handle potentially undefined id properties
+              const idA = a.id || '';
+              const idB = b.id || '';
+              return idA.localeCompare(idB);
+            })
             .map(slot => (
               <ModelInstanceSummary
-                key={slot.id}
+                key={slot?.id}
                 slot={slot}
                 onViewSession={onViewSession}
               />
