@@ -23,30 +23,33 @@ type Workload struct {
 	WorkloadType        WorkloadType
 	llmInferenceRequest *types.RunnerLLMInferenceRequest
 	session             *types.Session
+	model               *types.Model
 }
 
-func NewLLMWorkload(work *types.RunnerLLMInferenceRequest) (*Workload, error) {
+func NewLLMWorkload(work *types.RunnerLLMInferenceRequest, model *types.Model) (*Workload, error) {
 	workload := &Workload{
 		WorkloadType:        WorkloadTypeLLMInferenceRequest,
 		llmInferenceRequest: work,
+		model:               model,
 	}
 	return validate(workload)
 }
 
-func NewSessionWorkload(work *types.Session) (*Workload, error) {
+func NewSessionWorkload(work *types.Session, model *types.Model) (*Workload, error) {
 	workload := &Workload{
 		WorkloadType: WorkloadTypeSession,
 		session:      work,
+		model:        model,
 	}
 	return validate(workload)
 }
 
 // Check model conversion so we don't have to do it later
 func validate(work *Workload) (*Workload, error) {
-	_, err := model.GetModel(stripHelixLoraModelName(work.ModelName().String()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get model: %v", err)
+	if work.ModelName() == "" {
+		return nil, fmt.Errorf("model name is empty")
 	}
+
 	return work, nil
 }
 
@@ -71,14 +74,6 @@ func (w *Workload) ModelName() model.Name {
 		return model.Name(w.session.ModelName)
 	}
 	panic(fmt.Sprintf("unknown workload type: %s", w.WorkloadType))
-}
-
-func (w *Workload) Model() model.Model {
-	model, err := model.GetModel(stripHelixLoraModelName(w.ModelName().String()))
-	if err != nil {
-		panic(fmt.Sprintf("failed to get model: %v", err)) // This should never happen because we checked it in the constructor
-	}
-	return model
 }
 
 func (w *Workload) Mode() types.SessionMode {

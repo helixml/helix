@@ -488,9 +488,9 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	var contextLength int64
 	var runtimeArgs map[string]interface{}
 
-	modelObj, err := model.GetModel(modelName)
+	modelObj, err := c.store.GetModel(context.Background(), modelName)
 	if err == nil {
-		contextLength = modelObj.GetContextLength()
+		contextLength = modelObj.ContextLength
 		if contextLength > 0 {
 			log.Debug().Str("model", modelName).Int64("context_length", contextLength).Msg("Using context length from model")
 		}
@@ -523,10 +523,11 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
-			Runtime:       slot.InitialWork().Runtime(),
-			Model:         slot.InitialWork().ModelName().String(),
-			ContextLength: contextLength,
-			RuntimeArgs:   runtimeArgs,
+			Runtime:                slot.InitialWork().Runtime(),
+			Model:                  slot.InitialWork().ModelName().String(),
+			ModelMemoryRequirement: slot.Memory(),
+			ContextLength:          contextLength,
+			RuntimeArgs:            runtimeArgs,
 		},
 	}
 
