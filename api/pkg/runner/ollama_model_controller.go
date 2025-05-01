@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/sourcegraph/conc/pool"
 
 	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
@@ -112,55 +111,71 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 	}
 
 	// Pull models, if any
-	pool := pool.New().WithMaxGoroutines(r.Options.MaxPullConcurrency)
+	// pool := pool.New().WithMaxGoroutines(r.Options.MaxPullConcurrency).WithErrors()
+
+	log.Info().Int("models_to_pull", len(modelsToPull)).Msg("pulling models")
 
 	for _, model := range modelsToPull {
-		pool.Go(func() {
+		log.Info().Str("model_id", model.ID).Msg("starting model pull")
+
+		// pool.Go(func() error {
+		// Recover panic
+		// defer func() {
+		// 	if r := recover(); r != nil {
+		// 		log.Error().Msgf("model pull panic: %v", r)
+		// 	}
+		// }()
+
+		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+			ModelID:            model.ID,
+			Runtime:            types.RuntimeOllama,
+			DownloadInProgress: true,
+			DownloadPercent:    0,
+		})
+
+		err = runtime.PullModel(ctx, model.ID, func(progress PullProgress) error {
+			log.Info().
+				Str("model_id", model.ID).
+				Int("progress_total", int(progress.Total)).
+				Int("progress_completed", int(progress.Completed)).
+				Str("progress_status", progress.Status).
+				Msg("pulling model")
+
 			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 				ModelID:            model.ID,
 				Runtime:            types.RuntimeOllama,
 				DownloadInProgress: true,
-				DownloadPercent:    0,
+				DownloadPercent:    getPercent(progress.Completed, progress.Total),
 			})
 
-			err = runtime.PullModel(ctx, model.ID, func(progress PullProgress) error {
-				log.Info().
-					Str("model_id", model.ID).
-					Int("progress_total", int(progress.Total)).
-					Int("progress_completed", int(progress.Completed)).
-					Str("progress_status", progress.Status).
-					Msg("pulling model")
-
-				r.server.setHelixModelsStatus(&types.RunnerModelStatus{
-					ModelID:            model.ID,
-					Runtime:            types.RuntimeOllama,
-					DownloadInProgress: true,
-					DownloadPercent:    getPercent(progress.Completed, progress.Total),
-				})
-
-				return nil
-			})
-			if err != nil {
-				log.Error().Err(err).Str("model_id", model.ID).Msg("error pulling model")
-				r.server.setHelixModelsStatus(&types.RunnerModelStatus{
-					ModelID:            model.ID,
-					Runtime:            types.RuntimeOllama,
-					DownloadInProgress: false,
-					DownloadPercent:    100,
-					Error:              err.Error(),
-				})
-				return
-			}
-			// Model pulled successfully, set the status to downloaded
+			return nil
+		})
+		if err != nil {
+			log.Error().Err(err).Str("model_id", model.ID).Msg("error pulling model")
 			r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 				ModelID:            model.ID,
 				Runtime:            types.RuntimeOllama,
 				DownloadInProgress: false,
 				DownloadPercent:    100,
+				Error:              err.Error(),
 			})
+			return err
+		}
+		// Model pulled successfully, set the status to downloaded
+		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
+			ModelID:            model.ID,
+			Runtime:            types.RuntimeOllama,
+			DownloadInProgress: false,
+			DownloadPercent:    100,
 		})
+		// return nil
+		// })
 	}
-	pool.Wait()
+	// err = pool.Wait()
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("error pulling models")
+	// 	return fmt.Errorf("error pulling models: %w", err)
+	// }
 
 	return nil
 }
