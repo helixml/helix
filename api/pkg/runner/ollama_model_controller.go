@@ -110,21 +110,10 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 		})
 	}
 
-	// Pull models, if any
-	// pool := pool.New().WithMaxGoroutines(r.Options.MaxPullConcurrency).WithErrors()
-
 	log.Info().Int("models_to_pull", len(modelsToPull)).Msg("pulling models")
 
 	for _, model := range modelsToPull {
 		log.Info().Str("model_id", model.ID).Msg("starting model pull")
-
-		// pool.Go(func() error {
-		// Recover panic
-		// defer func() {
-		// 	if r := recover(); r != nil {
-		// 		log.Error().Msgf("model pull panic: %v", r)
-		// 	}
-		// }()
 
 		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 			ModelID:            model.ID,
@@ -159,7 +148,8 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 				DownloadPercent:    100,
 				Error:              err.Error(),
 			})
-			return err
+			// Continue to the next model
+			continue
 		}
 		// Model pulled successfully, set the status to downloaded
 		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
@@ -168,14 +158,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 			DownloadInProgress: false,
 			DownloadPercent:    100,
 		})
-		// return nil
-		// })
 	}
-	// err = pool.Wait()
-	// if err != nil {
-	// 	log.Error().Err(err).Msg("error pulling models")
-	// 	return fmt.Errorf("error pulling models: %w", err)
-	// }
 
 	log.Info().Msg("models pulled")
 
