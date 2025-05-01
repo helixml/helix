@@ -688,6 +688,24 @@ export interface TypesCronTrigger {
   schedule?: string;
 }
 
+export interface TypesDashboardData {
+  queue?: TypesWorkloadSummary[];
+  runners?: TypesDashboardRunner[];
+}
+
+export interface TypesDashboardRunner {
+  allocated_memory?: number;
+  created?: string;
+  free_memory?: number;
+  id?: string;
+  labels?: Record<string, string>;
+  models?: TypesRunnerModelStatus[];
+  slots?: TypesRunnerSlot[];
+  total_memory?: number;
+  updated?: string;
+  version?: string;
+}
+
 export interface TypesDataPrepChunk {
   error?: string;
   index?: number;
@@ -1005,15 +1023,9 @@ export interface TypesModel {
   /** in bytes, required */
   memory?: number;
   name?: string;
-  runtime?: TypesModelRuntimeType;
+  runtime?: TypesRuntime;
   type?: TypesModelType;
   updated?: string;
-}
-
-export enum TypesModelRuntimeType {
-  ModelRuntimeTypeOllama = "ollama",
-  ModelRuntimeTypeVLLM = "vllm",
-  ModelRuntimeTypeDiffusers = "diffusers", // Added for diffusers support
 }
 
 export enum TypesModelType {
@@ -1259,6 +1271,35 @@ export interface TypesRunAPIActionResponse {
   error?: string;
   /** Raw response from the API */
   response?: string;
+}
+
+export interface TypesRunnerModelStatus {
+  download_in_progress?: boolean;
+  download_percent?: number;
+  error?: string;
+  model_id?: string;
+  runtime?: TypesRuntime;
+}
+
+export interface TypesRunnerSlot {
+  active?: boolean;
+  /** Context length used for the model, if specified */
+  context_length?: number;
+  id?: string;
+  model?: string;
+  ready?: boolean;
+  runtime?: TypesRuntime;
+  /** Runtime-specific arguments */
+  runtime_args?: Record<string, any>;
+  status?: string;
+  version?: string;
+}
+
+export enum TypesRuntime {
+  RuntimeOllama = "ollama",
+  RuntimeDiffusers = "diffusers",
+  RuntimeAxolotl = "axolotl",
+  RuntimeVLLM = "vllm",
 }
 
 export interface TypesSecret {
@@ -1656,6 +1697,17 @@ export interface TypesWebsiteCrawler {
   /** Apply readability middleware to the HTML content */
   readability?: boolean;
   user_agent?: string;
+}
+
+export interface TypesWorkloadSummary {
+  created?: string;
+  id?: string;
+  lora_dir?: string;
+  mode?: string;
+  model_name?: string;
+  runtime?: string;
+  summary?: string;
+  updated?: string;
 }
 
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
@@ -2203,6 +2255,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/context-menu`,
         method: "GET",
         query: query,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1DashboardList
+     * @request GET:/api/v1/dashboard
+     * @secure
+     */
+    v1DashboardList: (params: RequestParams = {}) =>
+      this.request<TypesDashboardData, any>({
+        path: `/api/v1/dashboard`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
