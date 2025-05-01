@@ -964,7 +964,7 @@ func (c *Controller) ErrorSession(ctx context.Context, session *types.Session, s
 func (c *Controller) AddSessionToQueue(session *types.Session) error {
 	model, err := c.Options.Store.GetModel(context.Background(), session.ModelName)
 	if err != nil {
-		return fmt.Errorf("error getting model: %w", err)
+		return fmt.Errorf("error getting model %s: %w", session.ModelName, err)
 	}
 
 	work, err := scheduler.NewSessionWorkload(session, model)
