@@ -327,6 +327,7 @@ export interface IRunnerStatus {
   version?: string,
   total_memory: number,
   free_memory: number,
+  used_memory: number,
   allocated_memory: number,
   labels: Record<string, string>,
   slots: ISlot[],
