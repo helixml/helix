@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math/rand"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -19,6 +20,7 @@ type GPUManager struct {
 	hasGPU        bool
 	gpuMemory     uint64
 	freeMemory    uint64
+	usedMemory    uint64
 	runnerOptions *Options
 }
 
@@ -31,6 +33,15 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g.hasGPU = g.detectGPU()
 	g.gpuMemory = g.fetchTotalMemory()
 
+	// Fetch free memory once to initialize values before background updates
+	g.freeMemory = g.fetchFreeMemory()
+	log.Info().
+		Bool("has_gpu", g.hasGPU).
+		Uint64("total_memory", g.gpuMemory).
+		Uint64("free_memory", g.freeMemory).
+		Uint64("used_memory", g.usedMemory).
+		Msg("GPU manager initialized")
+
 	// In dev CPU mode, log the configuration
 	if runnerOptions.DevelopmentCPUOnly {
 		log.Info().
@@ -42,13 +53,23 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	// Start a background goroutine to refresh the free memory. We need to do this because it takes
 	// about 8 seconds to query nvidia-smi, so on hot paths that's just too long.
 	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
-			// Keep spinning until the context is cancelled
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(100 * time.Millisecond):
+			case <-ticker.C:
 				g.freeMemory = g.fetchFreeMemory()
+				// Log occasional updates for debugging
+				if rand.Intn(20) == 0 { // ~5% chance to log an update
+					log.Debug().
+						Uint64("total_memory", g.gpuMemory).
+						Uint64("free_memory", g.freeMemory).
+						Uint64("used_memory", g.usedMemory).
+						Msg("GPU memory periodic update")
+				}
 			}
 		}
 	}()
@@ -80,6 +101,10 @@ func (g *GPUManager) GetFreeMemory() uint64 {
 	return g.freeMemory
 }
 
+func (g *GPUManager) GetUsedMemory() uint64 {
+	return g.usedMemory
+}
+
 func (g *GPUManager) fetchFreeMemory() uint64 {
 	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
 		return 0
@@ -98,16 +123,33 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 				if len(fields) >= 2 {
 					if mem, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
 						freeMemory := mem * 1024 // Convert kB to bytes
+
+						// Also get the used memory
+						cmd = exec.Command("grep", "MemTotal", "/proc/meminfo")
+						connectCmdStdErrToLogger(cmd)
+						totalOutput, totalErr := cmd.Output()
+						if totalErr == nil {
+							totalFields := strings.Fields(string(totalOutput))
+							if len(totalFields) >= 2 {
+								if totalMem, totalErr := strconv.ParseUint(totalFields[1], 10, 64); totalErr == nil {
+									totalMemory := totalMem * 1024 // Convert kB to bytes
+									g.usedMemory = totalMemory - freeMemory
+								}
+							}
+						}
+
 						log.Trace().
 							Str("platform", "linux").
 							Uint64("free_memory_bytes", freeMemory).
-							Msg("Using actual free system memory in development CPU-only mode")
+							Uint64("used_memory_bytes", g.usedMemory).
+							Msg("Using actual system memory in development CPU-only mode")
 						return freeMemory
 					}
 				}
 			}
 			log.Warn().Msg("Failed to read free system memory from /proc/meminfo, falling back to g.gpuMemory")
 		}
+		g.usedMemory = 0
 		return g.gpuMemory
 	}
 
@@ -120,10 +162,23 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 		// chosen to specify a lesser value, so we need to calculate the virtual free memory.
 		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 		connectCmdStdErrToLogger(cmd)
+		log.Debug().Msg("Running nvidia-smi to get used memory")
 		output, err := cmd.Output()
-		if err == nil {
-			if used, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err == nil {
+		if err != nil {
+			log.Error().Err(err).Msg("Error running nvidia-smi to get used memory")
+			g.usedMemory = 0
+		} else {
+			log.Debug().Str("nvidia_smi_output", string(output)).Msg("nvidia-smi output for used memory")
+			if used, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err != nil {
+				log.Error().Err(err).Str("output", string(output)).Msg("Error parsing nvidia-smi used memory output")
+				g.usedMemory = 0
+			} else {
 				actualUsedMemory := used * 1024 * 1024 // Convert MiB to bytes
+				g.usedMemory = actualUsedMemory
+				log.Debug().
+					Uint64("used_mib", used).
+					Uint64("used_bytes", actualUsedMemory).
+					Msg("Successfully parsed GPU used memory")
 				virtualFreeMemory := g.gpuMemory - actualUsedMemory
 				if virtualFreeMemory < freeMemory {
 					freeMemory = virtualFreeMemory
@@ -135,27 +190,35 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get Mac architecture")
 			freeMemory = 0
+			g.usedMemory = 0
 		}
 
 		switch arch {
 		case MacArchitectureIntel:
 			log.Error().Msg("Intel Mac architecture not supported, please get in touch if you need this")
 			freeMemory = 0
+			g.usedMemory = 0
 		case MacArchitectureApple:
 			// If it is an Apple Silicon based mac, then it's unified memory, so just return the
 			// amount of free memory
-			free, err := getMacSiliconFreeMemory()
+			free, totalMem, err := getMacSiliconMemory()
 			if err != nil {
 				log.Error().Err(err).Msg("failed to get Mac free memory")
+				g.usedMemory = 0
 				return 0
 			}
 			if free < freeMemory {
 				freeMemory = free
 			}
+			g.usedMemory = totalMem - free
 		}
 	case "windows":
 		log.Error().Msg("Windows not yet supported, please get in touch if you need this")
 		freeMemory = 0
+		g.usedMemory = 0
+	default:
+		freeMemory = 0
+		g.usedMemory = 0
 	}
 	return freeMemory
 }
@@ -314,20 +377,42 @@ func getMacArchitecture() (MacArchitecture, error) {
 	}
 }
 
-func getMacSiliconFreeMemory() (uint64, error) {
+func getMacSiliconMemory() (uint64, uint64, error) {
+	// Get page size
 	cmd := exec.Command("sysctl", "-n", "hw.pagesize")
 	connectCmdStdErrToLogger(cmd)
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get Mac free memory: %w", err)
+		return 0, 0, fmt.Errorf("failed to get Mac page size: %w", err)
 	}
 	pageSize := strings.TrimSpace(string(output))
+	pageSizeInt, err := strconv.ParseUint(pageSize, 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse page size: %w", err)
+	}
 
+	// Get total memory
+	cmd = exec.Command("sysctl", "hw.memsize")
+	connectCmdStdErrToLogger(cmd)
+	output, err = cmd.Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get Mac total memory: %w", err)
+	}
+	parts := strings.Split(string(output), ":")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("unexpected format for hw.memsize")
+	}
+	totalMemory, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse total memory: %w", err)
+	}
+
+	// Get free memory from vm_stat
 	cmd = exec.Command("vm_stat")
 	connectCmdStdErrToLogger(cmd)
 	output, err = cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get Mac free memory: %w", err)
+		return 0, 0, fmt.Errorf("failed to get Mac vm_stat: %w", err)
 	}
 
 	var freePages string
@@ -343,20 +428,17 @@ func getMacSiliconFreeMemory() (uint64, error) {
 	}
 
 	if freePages == "" {
-		return 0, fmt.Errorf("failed to find free pages in vm_stat output")
-	}
-
-	pageSizeInt, err := strconv.ParseUint(pageSize, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get Mac free memory: %w", err)
+		return 0, 0, fmt.Errorf("failed to find free pages in vm_stat output")
 	}
 
 	freePagesInt, err := strconv.ParseUint(freePages, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get Mac free memory: %w", err)
+		return 0, 0, fmt.Errorf("failed to parse free pages: %w", err)
 	}
 
-	return freePagesInt * pageSizeInt, nil
+	freeMemory := freePagesInt * pageSizeInt
+	// Used memory is total memory minus free memory
+	return freeMemory, totalMemory, nil
 }
 
 func connectCmdStdErrToLogger(cmd *exec.Cmd) {

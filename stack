@@ -6,21 +6,30 @@ export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
+export STOP_KEYCLOAK=${STOP_KEYCLOAK:=""}
 
 # Helper function to check for NVIDIA GPU and set appropriate variables
 function setup_runner_profile() {
-  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+  export FORCE_CPU=${FORCE_CPU:=""}
+  
+  if [[ -n "$FORCE_CPU" ]] || ! (command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null); then
+    # CPU mode
+    if [[ -n "$FORCE_CPU" ]]; then
+      echo "FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
+    else
+      echo "No NVIDIA GPU detected, running without GPU support"
+    fi
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  else
+    # GPU mode
     echo "NVIDIA GPU detected, using GPU support"
     export RUNNER_CONTAINER="runner_gpu"
     export RUNNER_PROFILE="--profile runner_gpu"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
-  else
-    echo "No NVIDIA GPU detected, running without GPU support"
-    export RUNNER_CONTAINER="runner"
-    export RUNNER_PROFILE="--profile runner"
-    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true"
-    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   fi
 }
 
@@ -125,7 +134,7 @@ function start() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml --profile \"$RUNNER_CONTAINER\" exec $RUNNER_CONTAINER bash" C-m
-    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} LOG_LEVEL=debug GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build GOTOOLCHAIN=auto ${VLLM_ENV_VARS} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner" C-m
+    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} LOG_LEVEL=debug GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build GOTOOLCHAIN=auto ${VLLM_ENV_VARS} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --runner-id dev-runner" C-m
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
@@ -137,30 +146,58 @@ function start() {
 }
 
 function stop() {
-  echo "Removing docker containers"
-  
-  # Setup runner profiles first
-  setup_runner_profile
-  
-  # Stop containers based on enabled profiles
-  if [[ -n "$WITH_RUNNER" ]]; then
-    if [[ -n "$WITH_DEMOS" ]]; then
-      # Both runner and demos
-      echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
-      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down
+  if [[ -n "$STOP_KEYCLOAK" ]]; then
+    echo "Removing all docker containers (including keycloak)"
+    
+    # Setup runner profiles first
+    setup_runner_profile
+    
+    # Stop containers based on enabled profiles
+    if [[ -n "$WITH_RUNNER" ]]; then
+      if [[ -n "$WITH_DEMOS" ]]; then
+        # Both runner and demos
+        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down
+      else
+        # Just runner
+        echo "Stopping services with runner ($RUNNER_CONTAINER) profile"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down
+      fi
+    elif [[ -n "$WITH_DEMOS" ]]; then
+      # Just demos
+      echo "Stopping services with demos profile"
+      docker compose -f docker-compose.dev.yaml --profile demos down
     else
-      # Just runner
-      echo "Stopping services with runner ($RUNNER_CONTAINER) profile"
-      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down
+      # Include all profiles when no environment variables are set
+      echo "Stopping all services (all profiles)"
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down
     fi
-  elif [[ -n "$WITH_DEMOS" ]]; then
-    # Just demos
-    echo "Stopping services with demos profile"
-    docker compose -f docker-compose.dev.yaml --profile demos down
   else
-    # Include all profiles when no environment variables are set
-    echo "Stopping all services (all profiles)"
-    docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down
+    echo "Removing docker containers (except keycloak)"
+    
+    # Setup runner profiles first
+    setup_runner_profile
+    
+    # Stop containers based on enabled profiles
+    if [[ -n "$WITH_RUNNER" ]]; then
+      if [[ -n "$WITH_DEMOS" ]]; then
+        # Both runner and demos
+        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except keycloak)"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v keycloak)
+      else
+        # Just runner
+        echo "Stopping services with runner ($RUNNER_CONTAINER) profile (except keycloak)"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v keycloak)
+      fi
+    elif [[ -n "$WITH_DEMOS" ]]; then
+      # Just demos
+      echo "Stopping services with demos profile (except keycloak)"
+      docker compose -f docker-compose.dev.yaml --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v keycloak)
+    else
+      # Include all profiles when no environment variables are set
+      echo "Stopping all services (all profiles, except keycloak)"
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v keycloak)
+    fi
   fi
   
   echo "Stopping tmux session $TMUX_SESSION..."

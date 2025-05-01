@@ -734,6 +734,7 @@ type DashboardRunner struct {
 	Version         string               `json:"version"`
 	TotalMemory     uint64               `json:"total_memory"`
 	FreeMemory      uint64               `json:"free_memory"`
+	UsedMemory      uint64               `json:"used_memory"`
 	AllocatedMemory uint64               `json:"allocated_memory"`
 	Labels          map[string]string    `json:"labels"`
 	Slots           []*RunnerSlot        `json:"slots"`
