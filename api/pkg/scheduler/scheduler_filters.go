@@ -3,6 +3,7 @@ package scheduler
 import (
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -42,6 +43,12 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 }
 
 func (s *Scheduler) filterRunnersByModel(work *Workload, runnerIDs []string) ([]string, error) {
+	// Currently filtering only for ollama models (dynamic)
+	// TODO: add support for pulling and reporting vllm, diffusers, etc.
+	if work.model.Runtime != types.RuntimeOllama {
+		return runnerIDs, nil
+	}
+
 	if len(runnerIDs) == 0 {
 		return nil, fmt.Errorf("no runners available")
 	}
