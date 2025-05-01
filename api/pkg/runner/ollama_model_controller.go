@@ -93,7 +93,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 
 	// Compare models
 	for _, model := range ollamaModels {
-		if !slices.Contains(currentModels, model.Name) {
+		if !slices.Contains(currentModels, model.ID) {
 			log.Info().Str("model_id", model.ID).Msg("model to pull")
 			modelsToPull = append(modelsToPull, model)
 		}
@@ -176,6 +176,8 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 	// 	log.Error().Err(err).Msg("error pulling models")
 	// 	return fmt.Errorf("error pulling models: %w", err)
 	// }
+
+	log.Info().Msg("models pulled")
 
 	return nil
 }
