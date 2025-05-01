@@ -320,26 +320,6 @@ export interface IModelInstanceState {
   status?: string,
 }
 
-export interface IRunnerStatus {
-  id: string,
-  created: string,
-  updated: string,
-  version?: string,
-  total_memory: number,
-  free_memory: number,
-  allocated_memory: number,
-  labels: Record<string, string>,
-  slots: ISlot[],
-  models: IRunnerModelStatus[],
-}
-
-export interface IRunnerModelStatus {
-  model_id: string,
-  runtime: string,
-  download_in_progress: boolean,
-  download_percent: number,
-}
-
 export interface ISessionFilterModel {
   mode: ISessionMode,
   model_name?: string,
@@ -363,22 +343,6 @@ export interface IGlobalSchedulingDecision {
   filter: ISessionFilter,
   mode: ISessionMode,
   model_name: string,
-}
-
-export interface IQueueItem {
-  id: string,
-  created: string,
-  updated: string,
-  model_name: string,
-  mode: string,
-  runtime: string,
-  lora_dir: string,
-  summary: string,
-}
-
-export interface IDashboardData {
-  queue: IQueueItem[],
-  runners: IRunnerStatus[],
 }
 
 export interface ISlot {
