@@ -585,7 +585,7 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 	// Filter out runners that don't have enough memory to allocate the new workload
 	numRunnersWithNotEnoughTotalMemory := 0
 	largestRunnerMemory := uint64(0)
-	requiredMemory := work.Model().GetMemoryRequirements(work.Mode())
+	requiredMemory := work.model.Memory
 	filteredRunners := make([]string, 0)
 	for runnerID, memory := range runnerMemory {
 		if memory >= requiredMemory {
@@ -657,7 +657,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 			return true
 		})
 
-		requiredMem := work.Model().GetMemoryRequirements(work.Mode())
+		requiredMem := work.model.Memory
 		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
 		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
 		// If there is enough free space on the runner, break out of the loop.
