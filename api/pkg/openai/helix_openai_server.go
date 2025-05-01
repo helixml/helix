@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -24,18 +25,38 @@ type InternalHelixServer struct {
 	cfg       *config.ServerConfig
 	pubsub    pubsub.PubSub // Used to get responses from the runners
 	scheduler *scheduler.Scheduler
+	store     store.Store
 }
 
-func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, scheduler *scheduler.Scheduler) *InternalHelixServer {
+func NewInternalHelixServer(cfg *config.ServerConfig, store store.Store, pubsub pubsub.PubSub, scheduler *scheduler.Scheduler) *InternalHelixServer {
 	return &InternalHelixServer{
 		cfg:       cfg,
+		store:     store,
 		pubsub:    pubsub,
 		scheduler: scheduler,
 	}
 }
 
 func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
-	return ListModels(ctx)
+	helixModels, err := c.store.ListModels(ctx, &store.ListModelsQuery{})
+	if err != nil {
+		return nil, fmt.Errorf("error listing models: %w", err)
+	}
+	var models []types.OpenAIModel
+	for _, model := range helixModels {
+		models = append(models, types.OpenAIModel{
+			ID:            model.ID,
+			Object:        "model",
+			OwnedBy:       "helix",
+			Name:          model.Name,
+			Description:   model.Description,
+			Hide:          model.Hide,
+			Type:          string(model.Type),
+			ContextLength: int(model.ContextLength),
+			Enabled:       model.Enabled,
+		})
+	}
+	return models, nil
 }
 
 func (c *InternalHelixServer) APIKey() string {
@@ -43,7 +64,12 @@ func (c *InternalHelixServer) APIKey() string {
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {
-	work, err := scheduler.NewLLMWorkload(req)
+	model, err := c.store.GetModel(context.Background(), req.Request.Model)
+	if err != nil {
+		return fmt.Errorf("error getting model: %w", err)
+	}
+
+	work, err := scheduler.NewLLMWorkload(req, model)
 	if err != nil {
 		return fmt.Errorf("error creating workload: %w", err)
 	}
