@@ -1096,6 +1096,8 @@ definitions:
         type: integer
       updated:
         type: string
+      used_memory:
+        type: integer
       version:
         type: string
     type: object
