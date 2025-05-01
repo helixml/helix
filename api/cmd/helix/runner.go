@@ -219,12 +219,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return fmt.Errorf("api token is required")
 	}
 
-	_, err := model.TransformModelName(options.Runner.FilterModelName)
-	if err != nil {
-		return err
-	}
-
-	_, err = types.ValidateSessionMode(options.Runner.FilterMode, true)
+	_, err := types.ValidateSessionMode(options.Runner.FilterMode, true)
 	if err != nil {
 		return err
 	}
