@@ -46,6 +46,7 @@ func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 			Hide:          m.GetHidden(),
 			Type:          "chat",
 			ContextLength: int(m.GetContextLength()),
+			Enabled:       true,
 		})
 	}
 
@@ -62,6 +63,7 @@ func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 			Description: m.GetDescription(),
 			Hide:        m.GetHidden(),
 			Type:        "image",
+			Enabled:     true,
 		})
 	}
 
@@ -80,6 +82,7 @@ func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
 			Hide:          m.GetHidden(),
 			Type:          "chat",
 			ContextLength: int(m.GetContextLength()),
+			Enabled:       true,
 		})
 	}
 
