@@ -1059,6 +1059,46 @@ definitions:
       schedule:
         type: string
     type: object
+  types.DashboardData:
+    properties:
+      queue:
+        items:
+          $ref: '#/definitions/types.WorkloadSummary'
+        type: array
+      runners:
+        items:
+          $ref: '#/definitions/types.DashboardRunner'
+        type: array
+    type: object
+  types.DashboardRunner:
+    properties:
+      allocated_memory:
+        type: integer
+      created:
+        type: string
+      free_memory:
+        type: integer
+      id:
+        type: string
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      models:
+        items:
+          $ref: '#/definitions/types.RunnerModelStatus'
+        type: array
+      slots:
+        items:
+          $ref: '#/definitions/types.RunnerSlot'
+        type: array
+      total_memory:
+        type: integer
+      updated:
+        type: string
+      version:
+        type: string
+    type: object
   types.DataPrepChunk:
     properties:
       error:
@@ -1571,20 +1611,12 @@ definitions:
       name:
         type: string
       runtime:
-        $ref: '#/definitions/types.ModelRuntimeType'
+        $ref: '#/definitions/types.Runtime'
       type:
         $ref: '#/definitions/types.ModelType'
       updated:
         type: string
     type: object
-  types.ModelRuntimeType:
-    enum:
-    - ollama
-    - vllm
-    type: string
-    x-enum-varnames:
-    - ModelRuntimeTypeOllama
-    - ModelRuntimeTypeVLLM
   types.ModelType:
     enum:
     - chat
@@ -2025,6 +2057,55 @@ definitions:
         description: Raw response from the API
         type: string
     type: object
+  types.RunnerModelStatus:
+    properties:
+      download_in_progress:
+        type: boolean
+      download_percent:
+        type: integer
+      error:
+        type: string
+      model_id:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+    type: object
+  types.RunnerSlot:
+    properties:
+      active:
+        type: boolean
+      context_length:
+        description: Context length used for the model, if specified
+        type: integer
+      id:
+        type: string
+      model:
+        type: string
+      ready:
+        type: boolean
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      runtime_args:
+        additionalProperties: {}
+        description: Runtime-specific arguments
+        type: object
+      status:
+        type: string
+      version:
+        type: string
+    type: object
+  types.Runtime:
+    enum:
+    - ollama
+    - diffusers
+    - axolotl
+    - vllm
+    type: string
+    x-enum-varnames:
+    - RuntimeOllama
+    - RuntimeDiffusers
+    - RuntimeAxolotl
+    - RuntimeVLLM
   types.Secret:
     properties:
       app_id:
@@ -2679,6 +2760,25 @@ definitions:
       user_agent:
         type: string
     type: object
+  types.WorkloadSummary:
+    properties:
+      created:
+        type: string
+      id:
+        type: string
+      lora_dir:
+        type: string
+      mode:
+        type: string
+      model_name:
+        type: string
+      runtime:
+        type: string
+      summary:
+        type: string
+      updated:
+        type: string
+    type: object
 host: app.tryhelix.ai
 info:
   contact:
@@ -3130,6 +3230,15 @@ paths:
       summary: contextMenuHandler
       tags:
       - ui
+  /api/v1/dashboard:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DashboardData'
+      security:
+      - BearerAuth: []
   /api/v1/helix-models:
     get:
       description: List all available Helix models, optionally filtering by type,

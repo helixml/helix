@@ -949,7 +949,14 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	return false
 }
 
-// admin is required by the auth middleware
+// dashboard godoc
+// @Summary Get dashboard data
+// @Description Get dashboard data
+// @Tags    dashboard
+
+// @Success 200 {object} types.DashboardData
+// @Router /api/v1/dashboard [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
 	return apiServer.Controller.GetDashboardData(req.Context())
 }

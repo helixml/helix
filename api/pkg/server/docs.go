@@ -721,6 +721,23 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dashboard": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DashboardData"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/helix-models": {
             "get": {
                 "security": [
@@ -3675,6 +3692,67 @@ const docTemplate = `{
                 }
             }
         },
+        "types.DashboardData": {
+            "type": "object",
+            "properties": {
+                "queue": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkloadSummary"
+                    }
+                },
+                "runners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DashboardRunner"
+                    }
+                }
+            }
+        },
+        "types.DashboardRunner": {
+            "type": "object",
+            "properties": {
+                "allocated_memory": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "free_memory": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RunnerModelStatus"
+                    }
+                },
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RunnerSlot"
+                    }
+                },
+                "total_memory": {
+                    "type": "integer"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "types.DataPrepChunk": {
             "type": "object",
             "properties": {
@@ -4397,7 +4475,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.ModelRuntimeType"
+                    "$ref": "#/definitions/types.Runtime"
                 },
                 "type": {
                     "$ref": "#/definitions/types.ModelType"
@@ -4406,17 +4484,6 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
-        },
-        "types.ModelRuntimeType": {
-            "type": "string",
-            "enum": [
-                "ollama",
-                "vllm"
-            ],
-            "x-enum-varnames": [
-                "ModelRuntimeTypeOllama",
-                "ModelRuntimeTypeVLLM"
-            ]
         },
         "types.ModelType": {
             "type": "string",
@@ -5043,6 +5110,76 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.RunnerModelStatus": {
+            "type": "object",
+            "properties": {
+                "download_in_progress": {
+                    "type": "boolean"
+                },
+                "download_percent": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "model_id": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                }
+            }
+        },
+        "types.RunnerSlot": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "context_length": {
+                    "description": "Context length used for the model, if specified",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "runtime_args": {
+                    "description": "Runtime-specific arguments",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "status": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Runtime": {
+            "type": "string",
+            "enum": [
+                "ollama",
+                "diffusers",
+                "axolotl",
+                "vllm"
+            ],
+            "x-enum-varnames": [
+                "RuntimeOllama",
+                "RuntimeDiffusers",
+                "RuntimeAxolotl",
+                "RuntimeVLLM"
+            ]
         },
         "types.Secret": {
             "type": "object",
@@ -5970,6 +6107,35 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "user_agent": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkloadSummary": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lora_dir": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "updated": {
                     "type": "string"
                 }
             }
