@@ -35,6 +35,7 @@ type RunnerStatus struct {
 	Version         string            `json:"version"`
 	TotalMemory     uint64            `json:"total_memory"`
 	FreeMemory      uint64            `json:"free_memory"`
+	UsedMemory      uint64            `json:"used_memory"`      // Actual used memory from nvidia-smi
 	AllocatedMemory uint64            `json:"allocated_memory"` // Memory allocated to slots/workloads
 	Labels          map[string]string `json:"labels"`
 }

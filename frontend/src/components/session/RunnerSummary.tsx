@@ -24,18 +24,21 @@ export const RunnerSummary: FC<{
   runner,
   onViewSession,
 }) => {
-  // Calculate memory values - we get total_memory and free_memory from the API
-  const actual_memory = runner.total_memory - runner.free_memory
-  
-  // Get allocated memory from the API if available, never fall back to actual memory
-  // If there are no slots (model instances) or no explicit allocated_memory, set to 0
+  // Get memory values with proper fallbacks to ensure we have valid numbers
+  const total_memory = runner.total_memory || 1  // Avoid division by zero
+  const used_memory = typeof runner.used_memory === 'number' ? runner.used_memory : 0
   const allocated_memory = (!runner.slots || runner.slots.length === 0 || !runner.allocated_memory) 
     ? 0 
     : runner.allocated_memory
   
-  // Calculate percentage for better visualization
-  const actualPercent = Math.round((actual_memory / runner.total_memory) * 100)
-  const allocatedPercent = Math.round((allocated_memory / runner.total_memory) * 100)
+  // Calculate percentages with safeguards against NaN or Infinity
+  const actualPercent = isFinite(Math.round((used_memory / total_memory) * 100)) 
+    ? Math.round((used_memory / total_memory) * 100) 
+    : 0
+    
+  const allocatedPercent = isFinite(Math.round((allocated_memory / total_memory) * 100))
+    ? Math.round((allocated_memory / total_memory) * 100)
+    : 0
 
   return (
     <Paper
@@ -179,7 +182,7 @@ export const RunnerSummary: FC<{
                     fontWeight: 600,
                   }}
                 >
-                  Actual: { prettyBytes(actual_memory) } ({actualPercent}%)
+                  Actual: { prettyBytes(used_memory) } ({actualPercent}%)
                 </Typography>
                 <Typography 
                   variant="caption" 
@@ -188,7 +191,7 @@ export const RunnerSummary: FC<{
                     fontWeight: 500,
                   }}
                 >
-                  Total: { prettyBytes(runner.total_memory) }
+                  Total: { prettyBytes(total_memory) }
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -221,7 +224,7 @@ export const RunnerSummary: FC<{
               {/* Allocated memory bar */}
               <LinearProgress
                 variant="determinate"
-                value={100 * allocated_memory / runner.total_memory}
+                value={100 * allocated_memory / total_memory}
                 sx={{ 
                   width: '100%',
                   height: 12,
@@ -239,7 +242,7 @@ export const RunnerSummary: FC<{
               {/* Actual memory bar */}
               <LinearProgress
                 variant="determinate"
-                value={100 * actual_memory / runner.total_memory}
+                value={100 * used_memory / total_memory}
                 sx={{ 
                   position: 'absolute', 
                   width: '100%', 
