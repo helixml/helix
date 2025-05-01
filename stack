@@ -126,7 +126,7 @@ function start() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml --profile \"$RUNNER_CONTAINER\" exec $RUNNER_CONTAINER bash" C-m
-    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} LOG_LEVEL=debug GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build GOTOOLCHAIN=auto ${VLLM_ENV_VARS} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner" C-m
+    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD} LOG_LEVEL=debug GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build GOTOOLCHAIN=auto ${VLLM_ENV_VARS} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --runner-id dev-runner" C-m
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
