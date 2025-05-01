@@ -101,7 +101,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 
 	for _, currentModel := range currentModels {
 		// Already exists, set the status to downloaded
-		log.Info().Str("model_id", currentModel).Msg("existing model found")
+		log.Debug().Str("model_id", currentModel).Msg("existing model found")
 		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 			ModelID:            currentModel,
 			Runtime:            types.RuntimeOllama,
@@ -110,7 +110,9 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 		})
 	}
 
-	log.Info().Int("models_to_pull", len(modelsToPull)).Msg("pulling models")
+	if len(modelsToPull) > 0 {
+		log.Info().Int("models_to_pull", len(modelsToPull)).Msg("pulling models")
+	}
 
 	for _, model := range modelsToPull {
 		log.Info().Str("model_id", model.ID).Msg("starting model pull")
@@ -159,8 +161,6 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 			DownloadPercent:    100,
 		})
 	}
-
-	log.Info().Msg("models pulled")
 
 	return nil
 }
