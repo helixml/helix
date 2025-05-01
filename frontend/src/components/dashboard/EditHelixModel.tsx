@@ -19,7 +19,7 @@ import {
   FormHelperText,
 } from '@mui/material';
 // Use actual types from the API definition
-import { TypesModel, TypesModelType, TypesModelRuntimeType } from '../../api/api';
+import { TypesModel, TypesModelType, TypesRuntime } from '../../api/api';
 import { useCreateHelixModel, useUpdateHelixModel } from '../../services/helixModelsService';
 
 interface EditHelixModelDialogProps {
@@ -48,7 +48,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     name: '',
     description: '',
     type: TypesModelType.ModelTypeChat as TypesModelType,
-    runtime: TypesModelRuntimeType.ModelRuntimeTypeOllama as TypesModelRuntimeType,
+    runtime: TypesRuntime.RuntimeOllama as TypesRuntime,
     memory: 0, // Store memory in GB
     context_length: 0, // Initialize context length
     enabled: true,
@@ -64,7 +64,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           name: model.name || '',
           description: model.description || '',
           type: model.type || TypesModelType.ModelTypeChat,
-          runtime: model.runtime || TypesModelRuntimeType.ModelRuntimeTypeOllama,
+          runtime: model.runtime || TypesRuntime.RuntimeOllama,
           memory: model.memory ? model.memory / (1024 * 1024 * 1024) : 0, // Convert bytes to GB
           context_length: model.context_length || 0,
           enabled: model.enabled !== undefined ? model.enabled : false, // Default to false if undefined
@@ -77,7 +77,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           name: '',
           description: '',
           type: TypesModelType.ModelTypeChat,
-          runtime: TypesModelRuntimeType.ModelRuntimeTypeOllama,
+          runtime: TypesRuntime.RuntimeOllama,
           memory: 0, // Default GB
           context_length: 0,
           enabled: true,
@@ -118,7 +118,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: value as TypesModelType | TypesModelRuntimeType, // Cast based on the field name
+      [name]: value as TypesModelType | TypesRuntime, // Cast based on the field name
     }));
     setError('');
   };
@@ -282,9 +282,9 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
               label="Runtime"
             >
               {/* Use enum values */}
-              <MenuItem value={TypesModelRuntimeType.ModelRuntimeTypeOllama}>Ollama</MenuItem>
-              <MenuItem value={TypesModelRuntimeType.ModelRuntimeTypeVLLM}>vLLM</MenuItem>
-              <MenuItem value={TypesModelRuntimeType.ModelRuntimeTypeDiffusers}>Diffusers (Image)</MenuItem>
+              <MenuItem value={TypesRuntime.RuntimeOllama}>Ollama</MenuItem>
+              <MenuItem value={TypesRuntime.RuntimeVLLM}>vLLM</MenuItem>
+              <MenuItem value={TypesRuntime.RuntimeDiffusers}>Diffusers (Image)</MenuItem>
               {/* Add more runtime options if they become available in the enum */}
             </Select>
           </FormControl>
