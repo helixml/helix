@@ -62,10 +62,11 @@ func (t Runtime) String() string {
 }
 
 type CreateRunnerSlotAttributes struct {
-	Runtime       Runtime        `json:"runtime"`
-	Model         string         `json:"model"`
-	ContextLength int64          `json:"context_length,omitempty"` // Optional: Context length to use for the model
-	RuntimeArgs   map[string]any `json:"runtime_args,omitempty"`   // Optional: Runtime-specific arguments
+	Runtime                Runtime        `json:"runtime"`
+	Model                  string         `json:"model"`
+	ModelMemoryRequirement uint64         `json:"model_memory_requirement,omitempty"` // Optional: Memory requirement of the model
+	ContextLength          int64          `json:"context_length,omitempty"`           // Optional: Context length to use for the model
+	RuntimeArgs            map[string]any `json:"runtime_args,omitempty"`             // Optional: Runtime-specific arguments
 }
 
 type CreateRunnerSlotRequest struct {
