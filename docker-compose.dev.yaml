@@ -214,7 +214,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2024-12-07a-empty
+        TAG: 2025-04-29a-small
         # Builds vllm in CPU-only mode per https://github.com/vllm-project/vllm/discussions/8090
         DEVELOPMENT_CPU_ONLY: "true"
     environment:
@@ -234,7 +234,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2024-12-07a-empty
+        TAG: 2025-04-29a-small
     environment:
       # Prevent toolchain downloads
       - GOTOOLCHAIN=local 

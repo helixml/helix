@@ -138,6 +138,18 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Str("filter_model_name", apiServer.runnerOptions.FilterModelName).
 		Msg("Runner filter model information")
 
+	// Get GPU memory info before doing anything else
+	totalMem := apiServer.gpuManager.GetTotalMemory()
+	freeMem := apiServer.gpuManager.GetFreeMemory()
+	usedMem := apiServer.gpuManager.GetUsedMemory()
+
+	log.Debug().
+		Str("runner_id", apiServer.runnerOptions.ID).
+		Uint64("total_memory_bytes", totalMem).
+		Uint64("free_memory_bytes", freeMem).
+		Uint64("used_memory_bytes", usedMem).
+		Msg("Raw GPU memory values")
+
 	// Count slots for debugging
 	slotCount := 0
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
@@ -183,6 +195,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Version:         data.GetHelixVersion(),
 		TotalMemory:     apiServer.gpuManager.GetTotalMemory(),
 		FreeMemory:      apiServer.gpuManager.GetFreeMemory(),
+		UsedMemory:      apiServer.gpuManager.GetUsedMemory(),
 		AllocatedMemory: allocatedMemory,
 		Labels:          apiServer.runnerOptions.Labels,
 		Models:          apiServer.listHelixModelsStatus(),
@@ -193,6 +206,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Str("runner_id", apiServer.runnerOptions.ID).
 		Uint64("total_memory", status.TotalMemory).
 		Uint64("free_memory", status.FreeMemory).
+		Uint64("used_memory", status.UsedMemory).
 		Uint64("allocated_memory", status.AllocatedMemory).
 		Int("slot_count", slotCount).
 		Int("models", len(apiServer.models)).
