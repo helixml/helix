@@ -7,6 +7,10 @@ import (
 )
 
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {
+	if len(runnerIDs) == 0 {
+		return nil, fmt.Errorf("no runners available")
+	}
+
 	var filteredRunners []string
 
 	runnerMemory := make(map[string]uint64)
