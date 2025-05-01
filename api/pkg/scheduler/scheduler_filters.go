@@ -42,25 +42,26 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 }
 
 func (s *Scheduler) filterRunnersByModel(work *Workload, runnerIDs []string) ([]string, error) {
-	var filteredRunners []string
+	if len(runnerIDs) == 0 {
+		return nil, fmt.Errorf("no runners available")
+	}
 
-	numRunnersWithoutModel := 0
+	var filteredRunners []string
 
 	for _, runnerID := range runnerIDs {
 		status, err := s.controller.GetStatus(runnerID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get runner status: %w", err)
 		}
+
 		for _, modelStatus := range status.Models {
 			if !modelStatus.DownloadInProgress && modelStatus.ModelID == work.model.ID {
 				filteredRunners = append(filteredRunners, runnerID)
-			} else {
-				numRunnersWithoutModel++
 			}
 		}
 	}
 
-	if numRunnersWithoutModel == len(runnerIDs) {
+	if len(filteredRunners) == 0 {
 		return nil, fmt.Errorf("no runner has the model %s", work.model.ID)
 	}
 
