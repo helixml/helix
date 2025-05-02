@@ -48,7 +48,6 @@ func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
 }
 
 func (r *Runner) reconcileHelixModels(ctx context.Context, ollamaRuntime Runtime) error {
-	log.Info().Msg("reconciling helix models")
 
 	err := r.reconcileOllamaHelixModels(ctx, ollamaRuntime)
 	if err != nil {
@@ -81,7 +80,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 		ollamaModels = append(ollamaModels, model)
 	}
 
-	log.Info().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
+	log.Debug().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
 
 	// List models from ollama
 	currentModels, err := retry.DoWithData(func() ([]string, error) {
