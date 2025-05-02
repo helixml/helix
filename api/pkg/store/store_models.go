@@ -181,9 +181,19 @@ func (s *PostgresStore) UpdateModel(ctx context.Context, model *types.Model) (*t
 		return nil, fmt.Errorf("id not specified")
 	}
 
+	// Check if model exists
+	existingModel, err := s.GetModel(ctx, model.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingModel == nil {
+		return nil, fmt.Errorf("model not found")
+	}
+
 	model.Updated = time.Now()
 
-	err := s.gdb.WithContext(ctx).Save(model).Error
+	err = s.gdb.WithContext(ctx).Save(model).Error
 	if err != nil {
 		return nil, err
 	}
