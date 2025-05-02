@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,7 +16,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -33,6 +34,12 @@ type HelixRunnerAPIServer struct {
 	cliContext    context.Context
 	slots         *xsync.MapOf[uuid.UUID, *Slot]
 	gpuManager    *GPUManager
+
+	modelStatusMu sync.Mutex
+	modelStatus   map[string]*types.RunnerModelStatus
+
+	modelsMu sync.Mutex
+	models   []*types.Model
 }
 
 func NewHelixRunnerAPIServer(
@@ -55,6 +62,10 @@ func NewHelixRunnerAPIServer(
 		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(ctx, runnerOptions),
+		modelStatusMu: sync.Mutex{},
+		modelStatus:   make(map[string]*types.RunnerModelStatus),
+		modelsMu:      sync.Mutex{},
+		models:        []*types.Model{},
 	}, nil
 }
 
@@ -87,6 +98,8 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.Use(server.ErrorLoggingMiddleware)
 	subRouter.HandleFunc("/healthz", apiServer.healthz).Methods(http.MethodGet)
 	subRouter.HandleFunc("/status", apiServer.status).Methods(http.MethodGet)
+	subRouter.HandleFunc("/helix-models", apiServer.listHelixModelsHandler).Methods(http.MethodGet) // List current models
+	subRouter.HandleFunc("/helix-models", apiServer.setHelixModelsHandler).Methods(http.MethodPost) // Which models to pull
 	subRouter.HandleFunc("/slots", apiServer.createSlot).Methods(http.MethodPost)
 	subRouter.HandleFunc("/slots", apiServer.listSlots).Methods(http.MethodGet)
 	subRouter.HandleFunc("/slots/{slot_id}", apiServer.getSlot).Methods(http.MethodGet)
@@ -151,24 +164,20 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		// We need to get the memory requirements for each slot
 		// If we have a model for this slot, we can calculate memory requirements
 		if slot.Model != "" {
-			// Assume inference mode for slots (default mode)
-			mode := types.SessionModeInference
-
 			// Try to get the model
-			modelObj, err := model.GetModel(slot.Model)
-			if err == nil && modelObj != nil {
+			// modelObj, err := model.GetModel(slot.Model)
+			if slot.ModelMemoryRequirement > 0 {
 				// Add the memory requirements to our running total
-				allocatedMemory += modelObj.GetMemoryRequirements(mode)
+				allocatedMemory += slot.ModelMemoryRequirement
 				log.Debug().
 					Str("slot_id", id.String()).
 					Str("model", slot.Model).
-					Uint64("memory", modelObj.GetMemoryRequirements(mode)).
+					Uint64("memory", slot.ModelMemoryRequirement).
 					Msg("Found memory requirements for model")
 			} else {
 				log.Warn().
 					Str("slot_id", id.String()).
 					Str("model", slot.Model).
-					Err(err).
 					Msg("Could not get memory requirements for model")
 			}
 		} else {
@@ -189,6 +198,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		UsedMemory:      apiServer.gpuManager.GetUsedMemory(),
 		AllocatedMemory: allocatedMemory,
 		Labels:          apiServer.runnerOptions.Labels,
+		Models:          apiServer.listHelixModelsStatus(),
 	}
 
 	// Add debug logging to see memory values
@@ -199,8 +209,11 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Uint64("used_memory", status.UsedMemory).
 		Uint64("allocated_memory", status.AllocatedMemory).
 		Int("slot_count", slotCount).
+		Int("models", len(apiServer.models)).
+		Any("models_status", apiServer.modelStatus).
 		Msg("Runner status memory values")
 
+	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(status)
 	if err != nil {
 		log.Error().Err(err).Msg("error encoding status response")
@@ -251,12 +264,13 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	}
 
 	s := NewEmptySlot(CreateSlotParams{
-		RunnerOptions: apiServer.runnerOptions,
-		ID:            slotRequest.ID,
-		Runtime:       slotRequest.Attributes.Runtime,
-		Model:         slotRequest.Attributes.Model,
-		ContextLength: slotRequest.Attributes.ContextLength,
-		RuntimeArgs:   slotRequest.Attributes.RuntimeArgs,
+		RunnerOptions:          apiServer.runnerOptions,
+		ID:                     slotRequest.ID,
+		Runtime:                slotRequest.Attributes.Runtime,
+		Model:                  slotRequest.Attributes.Model,
+		ModelMemoryRequirement: slotRequest.Attributes.ModelMemoryRequirement,
+		ContextLength:          slotRequest.Attributes.ContextLength,
+		RuntimeArgs:            slotRequest.Attributes.RuntimeArgs,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 
@@ -396,4 +410,71 @@ func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
 		oldValue.Active = false
 		return oldValue, false
 	})
+}
+
+// listHelixModels - returns current model status
+func (apiServer *HelixRunnerAPIServer) listHelixModelsHandler(w http.ResponseWriter, _ *http.Request) {
+	log.Info().Msg("listing helix models")
+
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(apiServer.modelStatus)
+}
+
+// setHelixModels - sets the helix models, used to sync from controller to runner currently enabled
+// Helix models
+func (apiServer *HelixRunnerAPIServer) setHelixModelsHandler(w http.ResponseWriter, r *http.Request) {
+	var models []*types.Model
+
+	err := json.NewDecoder(r.Body).Decode(&models)
+	if err != nil {
+		log.Error().Err(err).Msg("error decoding helix models")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Debug().Int("models_count", len(models)).Msg("setting helix models")
+
+	apiServer.setHelixModels(models)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (apiServer *HelixRunnerAPIServer) listHelixModels() []*types.Model {
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+
+	return apiServer.models
+}
+
+func (apiServer *HelixRunnerAPIServer) setHelixModels(models []*types.Model) {
+	apiServer.modelsMu.Lock()
+	defer apiServer.modelsMu.Unlock()
+	apiServer.models = models
+}
+
+func (apiServer *HelixRunnerAPIServer) listHelixModelsStatus() []*types.RunnerModelStatus {
+	apiServer.modelStatusMu.Lock()
+	defer apiServer.modelStatusMu.Unlock()
+
+	var resp []*types.RunnerModelStatus
+	for _, status := range apiServer.modelStatus {
+		resp = append(resp, status)
+	}
+
+	// Sort by model_id
+	sort.Slice(resp, func(i, j int) bool {
+		return resp[i].ModelID < resp[j].ModelID
+	})
+
+	return resp
+}
+
+func (apiServer *HelixRunnerAPIServer) setHelixModelsStatus(status *types.RunnerModelStatus) {
+	apiServer.modelStatusMu.Lock()
+	defer apiServer.modelStatusMu.Unlock()
+
+	apiServer.modelStatus[status.ModelID] = status
 }

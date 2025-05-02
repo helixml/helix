@@ -134,7 +134,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		log.Err(err).Msg("error creating chat completion")
+		log.Err(err).
+			Str("model", req.Model).
+			Str("provider", opts.Provider).
+			Msg("error creating chat completion")
 		return nil, nil, err
 	}
 
@@ -155,7 +158,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		Str("app_id", opts.AppID).
 		Int("oauth_token_count", len(opts.OAuthTokens)).
 		Bool("has_oauth_manager", c.Options.OAuthManager != nil).
-		Msg("TRACE: ChatCompletionStream called with app ID")
+		Msg("ChatCompletionStream called")
 
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
@@ -243,7 +246,11 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	stream, err := client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
-		log.Err(err).Msg("error creating chat completion stream")
+		log.
+			Err(err).
+			Str("model", req.Model).
+			Str("provider", opts.Provider).
+			Msg("error creating chat completion stream")
 		return nil, nil, err
 	}
 
@@ -1756,7 +1763,7 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 				return c.evalAndAddOAuthTokens(ctx, client, opts, user)
 			}
 
-			log.Info().Msg("No app ID specified in options or context, skipping OAuth token retrieval")
+			log.Debug().Msg("No app ID specified in options or context, skipping OAuth token retrieval")
 		}
 		if c.Options.OAuthManager == nil {
 			log.Warn().Msg("OAuth manager is not available")

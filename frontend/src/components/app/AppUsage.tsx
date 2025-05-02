@@ -152,7 +152,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
-        <Typography variant="h6">Usage tokens</Typography>
+        <Typography variant="h6">Usage tokens (last 7 days)</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
           Refresh
         </Button>

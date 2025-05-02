@@ -15,16 +15,17 @@ import (
 // the horrible logic involved with starting and destroying a ModelInstance.
 // E.g. axolotl expects a session, whereas ollama expects an LLMInferenceRequest.
 type Slot struct {
-	ID              uuid.UUID // Same as scheduler.Slot
-	RunnerID        string    // Same as scheduler.Slot
-	Model           string    // The model assigned to this slot
-	ContextLength   int64     // Optional context length override for the model
-	IntendedRuntime types.Runtime
-	RuntimeArgs     map[string]any // Runtime-specific arguments
-	Active          bool           // True if the slot is active
-	Ready           bool           // True if the slot is ready to be used
-	runnerOptions   *Options
-	runningRuntime  Runtime
+	ID                     uuid.UUID // Same as scheduler.Slot
+	RunnerID               string    // Same as scheduler.Slot
+	Model                  string    // The model assigned to this slot
+	ModelMemoryRequirement uint64    // The memory requirement of the model (bytes)
+	ContextLength          int64     // Optional context length override for the model
+	IntendedRuntime        types.Runtime
+	RuntimeArgs            map[string]any // Runtime-specific arguments
+	Active                 bool           // True if the slot is active
+	Ready                  bool           // True if the slot is ready to be used
+	runnerOptions          *Options
+	runningRuntime         Runtime
 }
 
 type PullProgress struct {
@@ -38,6 +39,7 @@ type Runtime interface {
 	Stop() error
 	PullModel(ctx context.Context, model string, progress func(PullProgress) error) error
 	Warm(ctx context.Context, model string) error
+	ListModels(ctx context.Context) ([]string, error)
 	Version() string
 	Status(ctx context.Context) string // To hold general status information like ollama ps output
 	Runtime() types.Runtime
@@ -45,12 +47,13 @@ type Runtime interface {
 }
 
 type CreateSlotParams struct {
-	RunnerOptions *Options
-	ID            uuid.UUID
-	Runtime       types.Runtime
-	Model         string
-	ContextLength int64          // Optional context length override
-	RuntimeArgs   map[string]any // Runtime-specific arguments
+	RunnerOptions          *Options
+	ID                     uuid.UUID
+	Runtime                types.Runtime
+	Model                  string
+	ModelMemoryRequirement uint64
+	ContextLength          int64          // Optional context length override
+	RuntimeArgs            map[string]any // Runtime-specific arguments
 	// RuntimeArgs can include:
 	// - "model": string - Override the model to use
 	// - "args": []string - Additional command line arguments to pass to the runtime
@@ -60,16 +63,17 @@ type CreateSlotParams struct {
 
 func NewEmptySlot(params CreateSlotParams) *Slot {
 	return &Slot{
-		ID:              params.ID,
-		RunnerID:        params.RunnerOptions.ID,
-		Model:           params.Model,
-		ContextLength:   params.ContextLength,
-		IntendedRuntime: params.Runtime,
-		RuntimeArgs:     params.RuntimeArgs,
-		Active:          false,
-		Ready:           false,
-		runnerOptions:   params.RunnerOptions,
-		runningRuntime:  nil, // This is set during creation
+		ID:                     params.ID,
+		RunnerID:               params.RunnerOptions.ID,
+		Model:                  params.Model,
+		ModelMemoryRequirement: params.ModelMemoryRequirement,
+		ContextLength:          params.ContextLength,
+		IntendedRuntime:        params.Runtime,
+		RuntimeArgs:            params.RuntimeArgs,
+		Active:                 false,
+		Ready:                  false,
+		runnerOptions:          params.RunnerOptions,
+		runningRuntime:         nil, // This is set during creation
 	}
 }
 

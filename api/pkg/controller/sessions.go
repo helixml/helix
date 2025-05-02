@@ -962,7 +962,12 @@ func (c *Controller) ErrorSession(ctx context.Context, session *types.Session, s
 // we mark the session as "preparing" here to give text fine tuning
 // a chance to sort itself out in the background
 func (c *Controller) AddSessionToQueue(session *types.Session) error {
-	work, err := scheduler.NewSessionWorkload(session)
+	model, err := c.Options.Store.GetModel(context.Background(), session.ModelName)
+	if err != nil {
+		return fmt.Errorf("error getting model %s: %w", session.ModelName, err)
+	}
+
+	work, err := scheduler.NewSessionWorkload(session, model)
 	if err != nil {
 		return fmt.Errorf("error creating workload: %w", err)
 	}

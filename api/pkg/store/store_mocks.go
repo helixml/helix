@@ -178,6 +178,21 @@ func (mr *MockStoreMockRecorder) CreateLLMCall(ctx, call any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateLLMCall", reflect.TypeOf((*MockStore)(nil).CreateLLMCall), ctx, call)
 }
 
+// CreateModel mocks base method.
+func (m *MockStore) CreateModel(ctx context.Context, model *types.Model) (*types.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateModel", ctx, model)
+	ret0, _ := ret[0].(*types.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateModel indicates an expected call of CreateModel.
+func (mr *MockStoreMockRecorder) CreateModel(ctx, model any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateModel", reflect.TypeOf((*MockStore)(nil).CreateModel), ctx, model)
+}
+
 // CreateOAuthConnection mocks base method.
 func (m *MockStore) CreateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error) {
 	m.ctrl.T.Helper()
@@ -499,6 +514,20 @@ func (m *MockStore) DeleteKnowledgeVersion(ctx context.Context, id string) error
 func (mr *MockStoreMockRecorder) DeleteKnowledgeVersion(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).DeleteKnowledgeVersion), ctx, id)
+}
+
+// DeleteModel mocks base method.
+func (m *MockStore) DeleteModel(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteModel", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteModel indicates an expected call of DeleteModel.
+func (mr *MockStoreMockRecorder) DeleteModel(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteModel", reflect.TypeOf((*MockStore)(nil).DeleteModel), ctx, id)
 }
 
 // DeleteOAuthConnection mocks base method.
@@ -908,6 +937,21 @@ func (mr *MockStoreMockRecorder) GetLicenseKey(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLicenseKey", reflect.TypeOf((*MockStore)(nil).GetLicenseKey), ctx)
 }
 
+// GetModel mocks base method.
+func (m *MockStore) GetModel(ctx context.Context, id string) (*types.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetModel", ctx, id)
+	ret0, _ := ret[0].(*types.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetModel indicates an expected call of GetModel.
+func (mr *MockStoreMockRecorder) GetModel(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModel", reflect.TypeOf((*MockStore)(nil).GetModel), ctx, id)
+}
+
 // GetOAuthConnection mocks base method.
 func (m *MockStore) GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error) {
 	m.ctrl.T.Helper()
@@ -1314,6 +1358,21 @@ func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, q)
 }
 
+// ListModels mocks base method.
+func (m *MockStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListModels", ctx, q)
+	ret0, _ := ret[0].([]*types.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListModels indicates an expected call of ListModels.
+func (mr *MockStoreMockRecorder) ListModels(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockStore)(nil).ListModels), ctx, q)
+}
+
 // ListOAuthConnections mocks base method.
 func (m *MockStore) ListOAuthConnections(ctx context.Context, query *ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error) {
 	m.ctrl.T.Helper()
@@ -1581,6 +1640,21 @@ func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state t
 func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message)
+}
+
+// UpdateModel mocks base method.
+func (m *MockStore) UpdateModel(ctx context.Context, model *types.Model) (*types.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateModel", ctx, model)
+	ret0, _ := ret[0].(*types.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateModel indicates an expected call of UpdateModel.
+func (mr *MockStoreMockRecorder) UpdateModel(ctx, model any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateModel", reflect.TypeOf((*MockStore)(nil).UpdateModel), ctx, model)
 }
 
 // UpdateOAuthConnection mocks base method.
