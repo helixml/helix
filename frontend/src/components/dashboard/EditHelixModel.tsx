@@ -288,7 +288,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
             >
               {/* Use enum values */}
               <MenuItem value={TypesRuntime.RuntimeOllama}>Ollama</MenuItem>
-              <MenuItem value={TypesRuntime.RuntimeVLLM} disabled>vLLM (coming soon)</MenuItem>
+              <MenuItem value={TypesRuntime.RuntimeVLLM}>vLLM</MenuItem>
               <MenuItem value={TypesRuntime.RuntimeDiffusers} disabled>Diffusers (Image) (coming soon)</MenuItem>
               {/* Add more runtime options if they become available in the enum */}
             </Select>
@@ -357,7 +357,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                    control={<Switch checked={formData.auto_pull} onChange={handleSwitchChange} name="auto_pull" disabled={loading} />}
                    label="Auto Pull"
                 />
-                 <FormHelperText>Automatically pull the latest version of this model if available (Ollama only).</FormHelperText>
+                 <FormHelperText>Automatically pull this model when it's not already downloaded.</FormHelperText>
           </Stack>
 
         </Stack>
