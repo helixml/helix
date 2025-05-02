@@ -179,6 +179,30 @@ const HelixModelsTable: FC = () => {
     });
   };
 
+  // Placeholder for the API call to update the model's auto_pull status
+  const handleToggleAutoPull = (model: TypesModel) => {
+    if (!model.id) {
+      console.error("Cannot toggle model auto_pull status: model ID is missing.");
+      return;
+    }
+    const updatedModel = {
+      ...model,
+      auto_pull: !(model.auto_pull ?? false), // Toggle auto_pull, default to false if undefined
+    };
+
+    // Call updateModel with id and data
+    updateModel({ id: model.id, helixModel: updatedModel }, {
+      onSuccess: () => {
+        refetch();
+        console.log(`Model ${model.id} auto_pull status updated successfully.`);
+      },
+      onError: (error) => {
+        console.error(`Failed to update model ${model.id} auto_pull status:`, error);
+        // TODO: Add user feedback for the error (e.g., Snackbar)
+      },
+    });
+  };
+
   // Filter models based on search query
   const filteredModels = helixModels.filter((model) => {
     const query = searchQuery.toLowerCase();
@@ -251,6 +275,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>Context Length</TableCell>
               <TableCell>Type</TableCell>
               <TableCell>Enabled</TableCell>
+              <TableCell>Auto pull</TableCell>
               <TableCell>Created At</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
@@ -284,6 +309,13 @@ const HelixModelsTable: FC = () => {
                   <Switch
                     checked={model.enabled ?? false}
                     onChange={() => handleToggleEnable(model)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Switch
+                    checked={model.auto_pull ?? false} // Default to false if undefined
+                    onChange={() => handleToggleAutoPull(model)}
+                    disabled={isUpdating} // Optionally disable while updating
                   />
                 </TableCell>
                 <TableCell>
