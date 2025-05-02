@@ -413,7 +413,7 @@ func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
 }
 
 // listHelixModels - returns current model status
-func (apiServer *HelixRunnerAPIServer) listHelixModelsHandler(w http.ResponseWriter, ) *http.Request) {
+func (apiServer *HelixRunnerAPIServer) listHelixModelsHandler(w http.ResponseWriter, _ *http.Request) {
 	log.Info().Msg("listing helix models")
 
 	apiServer.modelsMu.Lock()
