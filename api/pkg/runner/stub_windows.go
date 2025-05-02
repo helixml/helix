@@ -59,6 +59,10 @@ func (a *AxolotlRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
+func (a *AxolotlRuntime) ListModels(_ context.Context) ([]string, error) {
+	return nil, fmt.Errorf("axolotl runtime is not supported on windows")
+}
+
 var _ Runtime = &DiffusersRuntime{}
 
 type DiffusersRuntime struct {
@@ -102,6 +106,10 @@ func (d *DiffusersRuntime) Warm(_ context.Context, _ string) error {
 
 func (d *DiffusersRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
+}
+
+func (d *DiffusersRuntime) ListModels(_ context.Context) ([]string, error) {
+	return nil, fmt.Errorf("diffusers runtime is not supported on windows")
 }
 
 type OllamaRuntime struct {
@@ -164,6 +172,10 @@ func (a *OllamaRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
+func (a *OllamaRuntime) ListModels(_ context.Context) ([]string, error) {
+	return nil, fmt.Errorf("ollama runtime is not supported on windows")
+}
+
 type VLLMRuntime struct {
 	version       string
 	cacheDir      string
@@ -221,4 +233,8 @@ func (v *VLLMRuntime) Warm(_ context.Context, _ string) error {
 
 func (v *VLLMRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) ListModels(_ context.Context) ([]string, error) {
+	return nil, fmt.Errorf("vLLM runtime is not supported on windows")
 }
