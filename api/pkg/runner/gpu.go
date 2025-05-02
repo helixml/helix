@@ -162,20 +162,20 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 		// chosen to specify a lesser value, so we need to calculate the virtual free memory.
 		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 		connectCmdStdErrToLogger(cmd)
-		log.Debug().Msg("Running nvidia-smi to get used memory")
+		log.Trace().Msg("Running nvidia-smi to get used memory")
 		output, err := cmd.Output()
 		if err != nil {
 			log.Error().Err(err).Msg("Error running nvidia-smi to get used memory")
 			g.usedMemory = 0
 		} else {
-			log.Debug().Str("nvidia_smi_output", string(output)).Msg("nvidia-smi output for used memory")
+			log.Trace().Str("nvidia_smi_output", string(output)).Msg("nvidia-smi output for used memory")
 			if used, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err != nil {
 				log.Error().Err(err).Str("output", string(output)).Msg("Error parsing nvidia-smi used memory output")
 				g.usedMemory = 0
 			} else {
 				actualUsedMemory := used * 1024 * 1024 // Convert MiB to bytes
 				g.usedMemory = actualUsedMemory
-				log.Debug().
+				log.Trace().
 					Uint64("used_mib", used).
 					Uint64("used_bytes", actualUsedMemory).
 					Msg("Successfully parsed GPU used memory")
