@@ -170,6 +170,14 @@ const Citation: React.FC<CitationProps> = ({
         return bestMatch;
     }, [normalizeText]);
 
+    // Function to truncate filename if it's too long
+    const truncateFilename = (filename: string, maxLength = 25) => {
+        if (!filename || filename.length <= maxLength) return filename;
+        const extension = filename.lastIndexOf('.') > -1 ? filename.slice(filename.lastIndexOf('.')) : '';
+        const name = filename.slice(0, filename.lastIndexOf('.'));
+        return `${name.slice(0, maxLength - extension.length - 3)}...${extension}`;
+    };
+
     return (
         <Box
             className={`citation-box${isStreaming ? ' streaming' : ''} ${className}`}
@@ -574,51 +582,39 @@ const Citation: React.FC<CitationProps> = ({
                                     minWidth: 0,
                                 }}
                             >
-                                <Box
-                                    component="a"
-                                    href={excerpt.fileUrl}
-                                    target="_blank"
-                                    sx={{
-                                        color: theme.palette.mode === 'light' ? '#333' : '#bbb',
-                                        textDecoration: 'none',
-                                        fontWeight: 500,
-                                        opacity: 0.85,
-                                        transition: 'all 0.2s ease',
-                                        padding: '3px 8px',
-                                        borderRadius: '4px',
-                                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                                        display: 'inline-flex',
-                                        flexDirection: isImage(excerpt.filename) ? 'column' : 'row',
-                                        alignItems: 'center',
-                                        gap: isImage(excerpt.filename) ? '4px' : '5px',
-                                        maxWidth: '100%',
-                                        '&:hover': {
-                                            opacity: 1,
-                                            backgroundColor: 'rgba(88, 166, 255, 0.2)',
-                                            textDecoration: isImage(excerpt.filename) ? 'none' : 'underline',
-                                            '& > span': {
-                                                textDecoration: isImage(excerpt.filename) ? 'underline' : 'none',
-                                            }
-                                        }
-                                    }}
-                                >
-                                    {isImage(excerpt.filename) && (
-                                        <img
-                                            src={excerpt.fileUrl}
-                                            alt={`${excerpt.filename} preview`}
+                                {isImage(excerpt.filename) ? (
+                                    <Box
+                                        sx={{
+                                            display: 'inline-flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            maxWidth: '100%',
+                                        }}
+                                    >
+                                        <a 
+                                            href={originalSourceFromExcerpt(excerpt) || excerpt.fileUrl}
+                                            target="_blank"
                                             style={{
-                                                maxWidth: '200px',
-                                                maxHeight: '200px',
-                                                height: 'auto',
-                                                verticalAlign: 'middle',
-                                                borderRadius: '3px'
+                                                textDecoration: 'none',
+                                                cursor: 'pointer'
                                             }}
-                                        />
-                                    )}
-                                    {isImage(excerpt.filename) ? (
+                                        >
+                                            <img
+                                                src={excerpt.fileUrl}
+                                                alt={`${excerpt.filename} preview`}
+                                                style={{
+                                                    maxWidth: '200px',
+                                                    maxHeight: '200px',
+                                                    height: 'auto',
+                                                    verticalAlign: 'middle',
+                                                    borderRadius: '3px'
+                                                }}
+                                            />
+                                        </a>
                                         <Box
                                             component="a"
-                                            href={originalSourceFromExcerpt(excerpt)}
+                                            href={originalSourceFromExcerpt(excerpt) || excerpt.fileUrl}
                                             target="_blank"
                                             sx={{
                                                 display: 'inline-flex',
@@ -649,10 +645,35 @@ const Citation: React.FC<CitationProps> = ({
                                                 textOverflow: 'ellipsis',
                                                 minWidth: 0,
                                             }}>
-                                                {originalFilenameForExcerpt(excerpt)}
+                                                {truncateFilename(originalFilenameForExcerpt(excerpt) || excerpt.filename)}
                                             </Box>
                                         </Box>
-                                    ) :
+                                    </Box>
+                                ) : (
+                                    <Box
+                                        component="a"
+                                        href={excerpt.fileUrl}
+                                        target="_blank"
+                                        sx={{
+                                            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+                                            textDecoration: 'none',
+                                            fontWeight: 500,
+                                            opacity: 0.85,
+                                            transition: 'all 0.2s ease',
+                                            padding: '3px 8px',
+                                            borderRadius: '4px',
+                                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            maxWidth: '100%',
+                                            '&:hover': {
+                                                opacity: 1,
+                                                backgroundColor: 'rgba(88, 166, 255, 0.2)',
+                                                textDecoration: 'underline',
+                                            }
+                                        }}
+                                    >
                                         <Box component="span" sx={{
                                             whiteSpace: 'nowrap',
                                             overflow: 'hidden',
@@ -661,11 +682,10 @@ const Citation: React.FC<CitationProps> = ({
                                             textAlign: 'center',
                                             width: 'auto',
                                         }}>
-                                            {excerpt.filename}
+                                            {truncateFilename(excerpt.filename)}
                                         </Box>
-                                    }
-
-                                </Box>
+                                    </Box>
+                                )}
                             </Container>
                         )}
                     </Box>
