@@ -575,12 +575,7 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 	// First get a list of all runners
 	allRunners := s.controller.RunnerIDs()
 
-	filteredRunners, err := s.filterRunnersByMemory(work, allRunners)
-	if err != nil {
-		return "", err
-	}
-
-	filteredRunners, err = s.filterRunnersByModel(work, filteredRunners)
+	filteredRunners, err := s.filterRunners(work, allRunners)
 	if err != nil {
 		return "", err
 	}
