@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
@@ -241,12 +240,4 @@ func (w *Workload) ToLLMInferenceRequest() *types.RunnerLLMInferenceRequest {
 // TODO(Phil): Once I've figured this out I should move it to a more consistent location
 func buildHelixLoraModelName(baseModelName model.Name, sessionID string, loraDir string) string {
 	return fmt.Sprintf("%s?%s?%s", baseModelName, sessionID, loraDir)
-}
-
-func stripHelixLoraModelName(modelName string) string {
-	splits := strings.Split(modelName, "?")
-	if len(splits) != 3 {
-		return modelName
-	}
-	return splits[0]
 }
