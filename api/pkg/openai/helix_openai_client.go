@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/system"
@@ -27,67 +26,6 @@ type HelixClient interface {
 var _ HelixClient = &InternalHelixServer{}
 
 var chatCompletionTimeout = 180 * time.Second
-
-func ListModels(_ context.Context) ([]types.OpenAIModel, error) {
-	ollamaModels, err := model.GetDefaultOllamaModels()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Ollama models: %w", err)
-	}
-
-	helixModels := make([]types.OpenAIModel, 0, len(ollamaModels))
-
-	for _, m := range ollamaModels {
-		helixModels = append(helixModels, types.OpenAIModel{
-			ID:            m.ModelName().String(),
-			Object:        "model",
-			OwnedBy:       "helix",
-			Name:          m.GetHumanReadableName(),
-			Description:   m.GetDescription(),
-			Hide:          m.GetHidden(),
-			Type:          "chat",
-			ContextLength: int(m.GetContextLength()),
-			Enabled:       true,
-		})
-	}
-
-	diffusersModels, err := model.GetDefaultDiffusersModels()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Diffusers models: %w", err)
-	}
-	for _, m := range diffusersModels {
-		helixModels = append(helixModels, types.OpenAIModel{
-			ID:          m.ModelName().String(),
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        m.GetHumanReadableName(),
-			Description: m.GetDescription(),
-			Hide:        m.GetHidden(),
-			Type:        "image",
-			Enabled:     true,
-		})
-	}
-
-	// Add VLLM models
-	vllmModels, err := model.GetDefaultVLLMModels()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get VLLM models: %w", err)
-	}
-	for _, m := range vllmModels {
-		helixModels = append(helixModels, types.OpenAIModel{
-			ID:            m.ModelName().String(),
-			Object:        "model",
-			OwnedBy:       "helix",
-			Name:          m.GetHumanReadableName(),
-			Description:   m.GetDescription(),
-			Hide:          m.GetHidden(),
-			Type:          "chat",
-			ContextLength: int(m.GetContextLength()),
-			Enabled:       true,
-		})
-	}
-
-	return helixModels, nil
-}
 
 func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	ctx, cancel := context.WithTimeout(requestCtx, chatCompletionTimeout)
@@ -348,8 +286,13 @@ func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, embeddingReq
 		},
 	}
 
+	model, err := c.store.GetModel(context.Background(), string(embeddingRequest.Model))
+	if err != nil {
+		return resp, fmt.Errorf("error getting model: %w", err)
+	}
+
 	// Enqueue the request for processing
-	work, err := scheduler.NewLLMWorkload(req)
+	work, err := scheduler.NewLLMWorkload(req, model)
 	if err != nil {
 		return resp, fmt.Errorf("error creating workload: %w", err)
 	}

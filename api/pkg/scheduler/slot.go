@@ -112,7 +112,7 @@ func (s *Slot) SetRunning() {
 }
 
 func (s *Slot) Memory() uint64 {
-	return s.initialWork.Model().GetMemoryRequirements(s.initialWork.Mode())
+	return s.initialWork.model.Memory
 }
 
 func (s *Slot) InitialWork() *Workload {

@@ -24,15 +24,16 @@ import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import Window from '../components/widgets/Window'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
+import { useGetDashboardData } from '../services/dashboardService'
 import useRouter from '../hooks/useRouter'
 import {
-  IDashboardData,
-  IQueueItem,
   ISession,
   ISessionSummary
 } from '../types'
+import { TypesWorkloadSummary, TypesDashboardRunner } from '../api/api'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
+import HelixModelsTable from '../components/dashboard/HelixModelsTable'
 import Chip from '@mui/material/Chip'
 
 const START_ACTIVE = true
@@ -46,7 +47,6 @@ const Dashboard: FC = () => {
 
   const [viewingSession, setViewingSession] = useState<ISession>()
   const [active, setActive] = useState(START_ACTIVE)
-  const [data, setData] = useState<IDashboardData>()
   const [activeTab, setActiveTab] = useState(0)
   const [sessionFilter, setSessionFilter] = useState('')
 
@@ -81,24 +81,7 @@ const Dashboard: FC = () => {
     session_id,
   ])
 
-  useEffect(() => {
-    if (!account.user) return
-    const loadDashboard = async () => {
-      if (!activeRef.current) return
-      const data = await api.get<IDashboardData>(`/api/v1/dashboard`)
-      if (!data) return
-      setData(originalData => {
-        return JSON.stringify(data) == JSON.stringify(originalData) ? originalData : data
-      })
-    }
-    const intervalId = setInterval(loadDashboard, 1000)
-    if (activeRef.current) loadDashboard()
-    return () => {
-      clearInterval(intervalId)
-    }
-  }, [
-    account.user,
-  ])
+  const { data: dashboardData, isLoading: isLoadingDashboardData } = useGetDashboardData()
 
   useEffect(() => {
     switch (tab) {
@@ -113,6 +96,9 @@ const Dashboard: FC = () => {
         break
       case 'runners':
         setActiveTab(3)
+        break
+      case 'helix_models':
+        setActiveTab(4)
         break
       default:
         setActiveTab(0)
@@ -140,6 +126,9 @@ const Dashboard: FC = () => {
       case 3:
         router.setParams({ tab: 'runners' })
         break
+      case 4:
+        router.setParams({ tab: 'helix_models' })
+        break
       default:
         router.removeParams(['tab'])
     }
@@ -161,7 +150,7 @@ const Dashboard: FC = () => {
   }
 
   if (!account.user) return null
-  if (!data) return null
+  if (isLoadingDashboardData) return null
 
   return (
     <Page
@@ -210,6 +199,7 @@ const Dashboard: FC = () => {
             <Tab label="Inference Providers" />
             <Tab label="OAuth Providers" />
             <Tab label="Runners" />
+            <Tab label="Helix Models" />
           </Tabs>
         </Box>
 
@@ -297,7 +287,7 @@ const Dashboard: FC = () => {
                   label="Live Updates?" />
               </FormGroup>
               
-              <JsonWindowLink data={data}>
+              <JsonWindowLink data={dashboardData}>
                 view data
               </JsonWindowLink>
             </Box>
@@ -341,10 +331,10 @@ const Dashboard: FC = () => {
                     }}
                   >
                     Queue
-                    {data.queue.length > 0 && (
+                    {dashboardData && dashboardData?.queue?.length && dashboardData?.queue?.length > 0 && (
                       <Chip
                         size="small"
-                        label={data.queue.length}
+                        label={dashboardData.queue.length}
                         sx={{
                           ml: 2,
                           height: 22,
@@ -363,7 +353,7 @@ const Dashboard: FC = () => {
                   </Typography>
                 </Box>
 
-                {data.queue.length === 0 && (
+                {dashboardData && dashboardData?.queue?.length === 0 && (
                   <Box sx={{ 
                     py: 4, 
                     textAlign: 'center',
@@ -376,7 +366,7 @@ const Dashboard: FC = () => {
                   </Box>
                 )}
                 
-                {data.queue.map((item: IQueueItem) => {
+                {dashboardData && dashboardData?.queue?.map((item: TypesWorkloadSummary) => {
                   return (
                     <SessionSummary
                       key={item.id}
@@ -431,7 +421,7 @@ const Dashboard: FC = () => {
                   }}
                   spacing={3}
                 >
-                  {data.runners?.length === 0 && (
+                  {dashboardData && dashboardData?.runners?.length === 0 && (
                     <Grid item xs={12}>
                       <Box sx={{ 
                         py: 4, 
@@ -446,7 +436,7 @@ const Dashboard: FC = () => {
                     </Grid>
                   )}
 
-                  {data.runners?.map((runner) => {
+                  {dashboardData && dashboardData?.runners?.map((runner: TypesDashboardRunner) => {
                     return (
                       <Grid item xs={12} key={runner.id}>
                         <RunnerSummary
@@ -459,6 +449,18 @@ const Dashboard: FC = () => {
                 </Grid>
               </Box>
             </Box>
+          </Box>
+        )}
+
+        {activeTab === 4 && (
+          <Box
+            sx={{
+              width: '100%',
+              height: 'calc(100vh - 200px)',
+              overflow: 'auto',
+            }}
+          >
+            <HelixModelsTable />
           </Box>
         )}
 

@@ -146,7 +146,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     if (allModels.length > 0) {
       // If no model is selected, select the first one of the right type
       if (!selectedModelId) {
-        const firstModel = allModels.find(model => model.type === effectiveType);
+        const firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
         if (firstModel && firstModel.id) {
           onSelectModel(firstModel.provider?.name || '', firstModel.id);
         }

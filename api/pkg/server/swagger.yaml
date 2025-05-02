@@ -1059,6 +1059,48 @@ definitions:
       schedule:
         type: string
     type: object
+  types.DashboardData:
+    properties:
+      queue:
+        items:
+          $ref: '#/definitions/types.WorkloadSummary'
+        type: array
+      runners:
+        items:
+          $ref: '#/definitions/types.DashboardRunner'
+        type: array
+    type: object
+  types.DashboardRunner:
+    properties:
+      allocated_memory:
+        type: integer
+      created:
+        type: string
+      free_memory:
+        type: integer
+      id:
+        type: string
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      models:
+        items:
+          $ref: '#/definitions/types.RunnerModelStatus'
+        type: array
+      slots:
+        items:
+          $ref: '#/definitions/types.RunnerSlot'
+        type: array
+      total_memory:
+        type: integer
+      updated:
+        type: string
+      used_memory:
+        type: integer
+      version:
+        type: string
+    type: object
   types.DataPrepChunk:
     properties:
       error:
@@ -1550,6 +1592,46 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
+  types.Model:
+    properties:
+      auto_pull:
+        description: Whether to automatically pull the model if missing in the runner
+        type: boolean
+      context_length:
+        type: integer
+      created:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      hide:
+        type: boolean
+      id:
+        description: for example 'phi3.5:3.8b-mini-instruct-q8_0'
+        type: string
+      memory:
+        description: in bytes, required
+        type: integer
+      name:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      type:
+        $ref: '#/definitions/types.ModelType'
+      updated:
+        type: string
+    type: object
+  types.ModelType:
+    enum:
+    - chat
+    - image
+    - embed
+    type: string
+    x-enum-varnames:
+    - ModelTypeChat
+    - ModelTypeImage
+    - ModelTypeEmbed
   types.OpenAIMessage:
     properties:
       content:
@@ -1980,6 +2062,55 @@ definitions:
         description: Raw response from the API
         type: string
     type: object
+  types.RunnerModelStatus:
+    properties:
+      download_in_progress:
+        type: boolean
+      download_percent:
+        type: integer
+      error:
+        type: string
+      model_id:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+    type: object
+  types.RunnerSlot:
+    properties:
+      active:
+        type: boolean
+      context_length:
+        description: Context length used for the model, if specified
+        type: integer
+      id:
+        type: string
+      model:
+        type: string
+      ready:
+        type: boolean
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      runtime_args:
+        additionalProperties: {}
+        description: Runtime-specific arguments
+        type: object
+      status:
+        type: string
+      version:
+        type: string
+    type: object
+  types.Runtime:
+    enum:
+    - ollama
+    - diffusers
+    - axolotl
+    - vllm
+    type: string
+    x-enum-varnames:
+    - RuntimeOllama
+    - RuntimeDiffusers
+    - RuntimeAxolotl
+    - RuntimeVLLM
   types.Secret:
     properties:
       app_id:
@@ -2634,6 +2765,25 @@ definitions:
       user_agent:
         type: string
     type: object
+  types.WorkloadSummary:
+    properties:
+      created:
+        type: string
+      id:
+        type: string
+      lora_dir:
+        type: string
+      mode:
+        type: string
+      model_name:
+        type: string
+      runtime:
+        type: string
+      summary:
+        type: string
+      updated:
+        type: string
+    type: object
 host: app.tryhelix.ai
 info:
   contact:
@@ -3085,6 +3235,146 @@ paths:
       summary: contextMenuHandler
       tags:
       - ui
+  /api/v1/dashboard:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DashboardData'
+      security:
+      - BearerAuth: []
+  /api/v1/helix-models:
+    get:
+      description: List all available Helix models, optionally filtering by type,
+        name, or runtime.
+      parameters:
+      - description: Filter by model type (e.g., chat, embedding)
+        in: query
+        name: type
+        type: string
+      - description: Filter by model name
+        in: query
+        name: name
+        type: string
+      - description: Filter by model runtime (e.g., ollama, vllm)
+        in: query
+        name: runtime
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Model'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List Helix models
+      tags:
+      - models
+    post:
+      description: Create a new Helix model configuration. Requires admin privileges.
+      parameters:
+      - description: Model configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Model'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Model'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a new Helix model
+      tags:
+      - models
+  /api/v1/helix-models/{id}:
+    delete:
+      description: Delete a Helix model configuration. Requires admin privileges.
+      parameters:
+      - description: Model ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a Helix model
+      tags:
+      - models
+    put:
+      description: Update an existing Helix model configuration. Requires admin privileges.
+      parameters:
+      - description: Model ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated model configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Model'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Model'
+        "400":
+          description: Invalid request body or missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "404":
+          description: Model not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update an existing Helix model
+      tags:
+      - models
   /api/v1/knowledge:
     get:
       responses:

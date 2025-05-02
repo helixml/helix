@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/spf13/cobra"
 )
 
@@ -24,15 +25,23 @@ func newQapairCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load server config: %v", err)
 			}
+
 			ps, err := pubsub.New(&serverConfig)
 			if err != nil {
 				return err
 			}
+
 			scheduler, err := scheduler.NewScheduler(cmd.Context(), &serverConfig, nil)
 			if err != nil {
 				return err
 			}
-			helixInference := openai.NewInternalHelixServer(&serverConfig, ps, scheduler)
+
+			postgresStore, err := store.NewPostgresStore(serverConfig.Store)
+			if err != nil {
+				return err
+			}
+
+			helixInference := openai.NewInternalHelixServer(&serverConfig, postgresStore, ps, scheduler)
 			client, err := createDataPrepOpenAIClient(&serverConfig, helixInference)
 			if err != nil {
 				return err

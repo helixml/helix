@@ -29,15 +29,24 @@ type StreamingResponse struct {
 }
 
 type RunnerStatus struct {
-	ID              string            `json:"id"`
-	Created         time.Time         `json:"created"`
-	Updated         time.Time         `json:"updated"`
-	Version         string            `json:"version"`
-	TotalMemory     uint64            `json:"total_memory"`
-	FreeMemory      uint64            `json:"free_memory"`
-	UsedMemory      uint64            `json:"used_memory"`      // Actual used memory from nvidia-smi
-	AllocatedMemory uint64            `json:"allocated_memory"` // Memory allocated to slots/workloads
-	Labels          map[string]string `json:"labels"`
+	ID              string               `json:"id"`
+	Created         time.Time            `json:"created"`
+	Updated         time.Time            `json:"updated"`
+	Version         string               `json:"version"`
+	TotalMemory     uint64               `json:"total_memory"`
+	FreeMemory      uint64               `json:"free_memory"`
+	UsedMemory      uint64               `json:"used_memory"`
+	AllocatedMemory uint64               `json:"allocated_memory"` // Memory allocated to slots/workloads
+	Labels          map[string]string    `json:"labels"`
+	Models          []*RunnerModelStatus `json:"models"`
+}
+
+type RunnerModelStatus struct {
+	ModelID            string  `json:"model_id"`
+	Runtime            Runtime `json:"runtime"`
+	DownloadInProgress bool    `json:"download_in_progress"`
+	DownloadPercent    int     `json:"download_percent"`
+	Error              string  `json:"error"`
 }
 
 type Runtime string
@@ -49,11 +58,16 @@ const (
 	RuntimeVLLM      Runtime = "vllm"
 )
 
+func (t Runtime) String() string {
+	return string(t)
+}
+
 type CreateRunnerSlotAttributes struct {
-	Runtime       Runtime        `json:"runtime"`
-	Model         string         `json:"model"`
-	ContextLength int64          `json:"context_length,omitempty"` // Optional: Context length to use for the model
-	RuntimeArgs   map[string]any `json:"runtime_args,omitempty"`   // Optional: Runtime-specific arguments
+	Runtime                Runtime        `json:"runtime"`
+	Model                  string         `json:"model"`
+	ModelMemoryRequirement uint64         `json:"model_memory_requirement,omitempty"` // Optional: Memory requirement of the model
+	ContextLength          int64          `json:"context_length,omitempty"`           // Optional: Context length to use for the model
+	RuntimeArgs            map[string]any `json:"runtime_args,omitempty"`             // Optional: Runtime-specific arguments
 }
 
 type CreateRunnerSlotRequest struct {

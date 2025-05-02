@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
@@ -36,11 +37,13 @@ type RunnerController struct {
 	fs          filestore.FileStore
 	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
 	statusCache *LockingRunnerMap[types.RunnerStatus]
+	store       store.Store
 }
 
 type RunnerControllerConfig struct {
 	PubSub pubsub.PubSub
 	FS     filestore.FileStore
+	Store  store.Store
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -48,6 +51,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		ctx:         ctx,
 		ps:          cfg.PubSub,
 		fs:          cfg.FS,
+		store:       cfg.Store,
 		runners:     []string{},
 		mu:          &sync.RWMutex{},
 		slotsCache:  NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
@@ -135,6 +139,12 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 	// Add the runner to the cluster if it is not already in the cluster.
 	if !slices.Contains(c.runners, id) {
 		c.runners = append(c.runners, id)
+
+		// Reconcile runner models immediately
+		err := c.SetModels(id)
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
+		}
 	}
 }
 
@@ -478,9 +488,9 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	var contextLength int64
 	var runtimeArgs map[string]interface{}
 
-	modelObj, err := model.GetModel(modelName)
+	modelObj, err := c.store.GetModel(context.Background(), modelName)
 	if err == nil {
-		contextLength = modelObj.GetContextLength()
+		contextLength = modelObj.ContextLength
 		if contextLength > 0 {
 			log.Debug().Str("model", modelName).Int64("context_length", contextLength).Msg("Using context length from model")
 		}
@@ -513,10 +523,11 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
-			Runtime:       slot.InitialWork().Runtime(),
-			Model:         slot.InitialWork().ModelName().String(),
-			ContextLength: contextLength,
-			RuntimeArgs:   runtimeArgs,
+			Runtime:                slot.InitialWork().Runtime(),
+			Model:                  slot.InitialWork().ModelName().String(),
+			ModelMemoryRequirement: slot.Memory(),
+			ContextLength:          contextLength,
+			RuntimeArgs:            runtimeArgs,
 		},
 	}
 
@@ -592,6 +603,35 @@ func (c *RunnerController) GetHealthz(runnerID string) error {
 	}, defaultRequestTimeout)
 	if err != nil {
 		return fmt.Errorf("error getting healthz: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
+}
+
+func (c *RunnerController) SetModels(runnerID string) error {
+	enabled := true
+	// Fetch all enabled models
+	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{
+		Enabled: &enabled,
+	})
+	if err != nil {
+		return fmt.Errorf("error listing models: %w", err)
+	}
+
+	bts, err := json.Marshal(models)
+	if err != nil {
+		return fmt.Errorf("error marshalling models: %w", err)
+	}
+
+	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
+		Method: "POST",
+		URL:    "/api/v1/helix-models",
+		Body:   bts,
+	}, defaultRequestTimeout)
+	if err != nil {
+		return fmt.Errorf("error setting models: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("runner %s is not healthy", runnerID)

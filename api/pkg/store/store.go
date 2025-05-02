@@ -222,6 +222,12 @@ type Store interface {
 
 	GetDecodedLicense(ctx context.Context) (*license.License, error)
 
+	CreateModel(ctx context.Context, model *types.Model) (*types.Model, error)
+	UpdateModel(ctx context.Context, model *types.Model) (*types.Model, error)
+	GetModel(ctx context.Context, id string) (*types.Model, error)
+	ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error)
+	DeleteModel(ctx context.Context, id string) error
+
 	// OAuth Provider methods
 	// ListOAuthProvidersQuery contains filters for listing OAuth providers
 	// ListOAuthConnectionsQuery contains filters for listing OAuth connections

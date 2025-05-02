@@ -314,6 +314,13 @@ func (s *Scheduler) reconcileRunnersOnce() {
 
 			// Delete all slots belonging to this runner
 			s.deleteRunnerSlots(runnerID)
+			continue
+		}
+
+		// Set the models on the runner
+		err = s.controller.SetModels(runnerID)
+		if err != nil {
+			log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to set models on runner, skipping...")
 		}
 	}
 }
@@ -568,33 +575,9 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 	// First get a list of all runners
 	allRunners := s.controller.RunnerIDs()
 
-	// Reach out to each runner and get their total memory
-	runnerMemory := make(map[string]uint64)
-	for _, runnerID := range allRunners {
-		runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
-	}
-	withWorkContext(&log.Logger, work).Debug().Interface("runner_memory", runnerMemory).Msg("runner memory")
-
-	// Filter out runners that don't have enough memory to allocate the new workload
-	numRunnersWithNotEnoughTotalMemory := 0
-	largestRunnerMemory := uint64(0)
-	requiredMemory := work.Model().GetMemoryRequirements(work.Mode())
-	filteredRunners := make([]string, 0)
-	for runnerID, memory := range runnerMemory {
-		if memory >= requiredMemory {
-			filteredRunners = append(filteredRunners, runnerID)
-		} else {
-			numRunnersWithNotEnoughTotalMemory++
-		}
-		if memory > largestRunnerMemory {
-			largestRunnerMemory = memory
-		}
-	}
-	withWorkContext(&log.Logger, work).Debug().Interface("filtered_runners", filteredRunners).Msg("filtered runners")
-
-	// Error if no runners have enough memory
-	if numRunnersWithNotEnoughTotalMemory == len(allRunners) {
-		return "", fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
+	filteredRunners, err := s.filterRunners(work, allRunners)
+	if err != nil {
+		return "", err
 	}
 
 	// Error if there are no runners left
@@ -650,7 +633,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 			return true
 		})
 
-		requiredMem := work.Model().GetMemoryRequirements(work.Mode())
+		requiredMem := work.model.Memory
 		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
 		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
 		// If there is enough free space on the runner, break out of the loop.

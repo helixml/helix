@@ -717,6 +717,228 @@
                 }
             }
         },
+        "/api/v1/dashboard": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DashboardData"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/helix-models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all available Helix models, optionally filtering by type, name, or runtime.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "List Helix models",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by model type (e.g., chat, embedding)",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by model name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by model runtime (e.g., ollama, vllm)",
+                        "name": "runtime",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Model"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new Helix model configuration. Requires admin privileges.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Create a new Helix model",
+                "parameters": [
+                    {
+                        "description": "Model configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/helix-models/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing Helix model configuration. Requires admin privileges.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Update an existing Helix model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated model configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Model"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Model not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a Helix model configuration. Requires admin privileges.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Delete a Helix model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -3466,6 +3688,70 @@
                 }
             }
         },
+        "types.DashboardData": {
+            "type": "object",
+            "properties": {
+                "queue": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkloadSummary"
+                    }
+                },
+                "runners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DashboardRunner"
+                    }
+                }
+            }
+        },
+        "types.DashboardRunner": {
+            "type": "object",
+            "properties": {
+                "allocated_memory": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "free_memory": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RunnerModelStatus"
+                    }
+                },
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RunnerSlot"
+                    }
+                },
+                "total_memory": {
+                    "type": "integer"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "used_memory": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "types.DataPrepChunk": {
             "type": "object",
             "properties": {
@@ -4158,6 +4444,63 @@
                 "MessageContentTypeText"
             ]
         },
+        "types.Model": {
+            "type": "object",
+            "properties": {
+                "auto_pull": {
+                    "description": "Whether to automatically pull the model if missing in the runner",
+                    "type": "boolean"
+                },
+                "context_length": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "hide": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "for example 'phi3.5:3.8b-mini-instruct-q8_0'",
+                    "type": "string"
+                },
+                "memory": {
+                    "description": "in bytes, required",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ModelType"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ModelType": {
+            "type": "string",
+            "enum": [
+                "chat",
+                "image",
+                "embed"
+            ],
+            "x-enum-varnames": [
+                "ModelTypeChat",
+                "ModelTypeImage",
+                "ModelTypeEmbed"
+            ]
+        },
         "types.OpenAIMessage": {
             "type": "object",
             "properties": {
@@ -4770,6 +5113,76 @@
                     "type": "string"
                 }
             }
+        },
+        "types.RunnerModelStatus": {
+            "type": "object",
+            "properties": {
+                "download_in_progress": {
+                    "type": "boolean"
+                },
+                "download_percent": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "model_id": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                }
+            }
+        },
+        "types.RunnerSlot": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "context_length": {
+                    "description": "Context length used for the model, if specified",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "runtime_args": {
+                    "description": "Runtime-specific arguments",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "status": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Runtime": {
+            "type": "string",
+            "enum": [
+                "ollama",
+                "diffusers",
+                "axolotl",
+                "vllm"
+            ],
+            "x-enum-varnames": [
+                "RuntimeOllama",
+                "RuntimeDiffusers",
+                "RuntimeAxolotl",
+                "RuntimeVLLM"
+            ]
         },
         "types.Secret": {
             "type": "object",
@@ -5697,6 +6110,35 @@
                     "type": "boolean"
                 },
                 "user_agent": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkloadSummary": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lora_dir": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "updated": {
                     "type": "string"
                 }
             }
