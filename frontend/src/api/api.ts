@@ -1014,6 +1014,8 @@ export enum TypesMessageContentType {
 }
 
 export interface TypesModel {
+  /** Whether to automatically pull the model if missing in the runner */
+  auto_pull?: boolean;
   context_length?: number;
   created?: string;
   description?: string;

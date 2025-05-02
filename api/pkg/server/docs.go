@@ -4451,6 +4451,10 @@ const docTemplate = `{
         "types.Model": {
             "type": "object",
             "properties": {
+                "auto_pull": {
+                    "description": "Whether to automatically pull the model if missing in the runner",
+                    "type": "boolean"
+                },
                 "context_length": {
                     "type": "integer"
                 },
