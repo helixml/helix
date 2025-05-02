@@ -312,11 +312,16 @@ const HelixModelsTable: FC = () => {
                   />
                 </TableCell>
                 <TableCell>
-                  <Switch
-                    checked={model.auto_pull ?? false} // Default to false if undefined
-                    onChange={() => handleToggleAutoPull(model)}
-                    disabled={isUpdating} // Optionally disable while updating
-                  />
+                  <Tooltip title={model.runtime !== TypesRuntime.RuntimeOllama ? "This runtime currently doesn't support automatic pulls" : ""}>
+                    {/* Wrap the Switch in a span if it's disabled for Tooltip to work correctly */}
+                    <span>
+                      <Switch
+                        checked={model.auto_pull ?? false} // Default to false if undefined
+                        onChange={() => handleToggleAutoPull(model)}
+                        disabled={isUpdating || model.runtime !== TypesRuntime.RuntimeOllama}
+                      />
+                    </span>
+                  </Tooltip>
                 </TableCell>
                 <TableCell>
                   <Tooltip title={formatFullDate(model.created)}>
