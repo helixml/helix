@@ -7,6 +7,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// filterRunners - filter runners by available memory, models.
+func (s *Scheduler) filterRunners(work *Workload, runnerIDs []string) ([]string, error) {
+	filteredRunners, err := s.filterRunnersByMemory(work, runnerIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredRunners, err = s.filterRunnersByModel(work, filteredRunners)
+	if err != nil {
+		return nil, err
+	}
+
+	return filteredRunners, nil
+}
+
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {
 	if len(runnerIDs) == 0 {
 		return nil, fmt.Errorf("no runners available")
