@@ -159,3 +159,237 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 	require.ErrorIs(t, err, ErrModelWontFit, "Expected ErrModelWontFit error")
 	require.Nil(t, filteredRunners, "Expected no runners to be returned")
 }
+
+func Test_filterRunnersByModel_NoRunners(t *testing.T) {
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
+		PubSub: ps,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+		RunnerController: ctrl,
+	})
+	require.NoError(t, err)
+
+	workload := &Workload{
+		model: &types.Model{
+			ID:      "test-model",
+			Runtime: types.RuntimeOllama,
+		},
+	}
+
+	filteredRunners, err := scheduler.filterRunnersByModel(workload, []string{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no runners available")
+	require.Nil(t, filteredRunners)
+}
+
+func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
+		PubSub: ps,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+		RunnerController: ctrl,
+	})
+	require.NoError(t, err)
+
+	workload := &Workload{
+		model: &types.Model{
+			ID:      "test-model",
+			Runtime: types.RuntimeVLLM, // Not Ollama
+		},
+	}
+
+	runnerIDs := []string{"runner-1", "runner-2"}
+	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
+
+	require.NoError(t, err)
+	require.NotNil(t, filteredRunners)
+	require.ElementsMatch(t, runnerIDs, filteredRunners, "Should return all runners if runtime is not Ollama")
+}
+
+func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
+		PubSub: ps,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+		RunnerController: ctrl,
+	})
+	require.NoError(t, err)
+
+	modelID := "test-ollama-model"
+	runnerIDs := []string{"runner-1", "runner-2"}
+
+	// Mock status cache for runners
+	for _, runnerID := range runnerIDs {
+		ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+			return types.RunnerStatus{
+				Models: []*types.RunnerModelStatus{
+					{
+						ModelID:            modelID,
+						DownloadInProgress: false,
+						Runtime:            types.RuntimeOllama,
+					},
+				},
+			}, nil
+		}, CacheConfig{
+			updateInterval: 1 * time.Second,
+		}))
+	}
+
+	workload := &Workload{
+		model: &types.Model{
+			ID:      modelID,
+			Runtime: types.RuntimeOllama,
+		},
+	}
+
+	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
+	require.NoError(t, err)
+	require.NotNil(t, filteredRunners)
+	require.ElementsMatch(t, runnerIDs, filteredRunners, "All runners should have the model")
+}
+
+func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
+		PubSub: ps,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+		RunnerController: ctrl,
+	})
+	require.NoError(t, err)
+
+	modelID := "test-ollama-model"
+	runnerWithModel := "runner-1"
+	runnerWithoutModel := "runner-2"
+	runnerDownloading := "runner-3"
+	runnerIDs := []string{runnerWithModel, runnerWithoutModel, runnerDownloading}
+
+	// Mock status for runner-1 (has model)
+	ctrl.statusCache.Set(runnerWithModel, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            modelID,
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	// Mock status for runner-2 (different model)
+	ctrl.statusCache.Set(runnerWithoutModel, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            "different-model",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	// Mock status for runner-3 (downloading)
+	ctrl.statusCache.Set(runnerDownloading, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            modelID,
+					DownloadInProgress: true, // Downloading
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	workload := &Workload{
+		model: &types.Model{
+			ID:      modelID,
+			Runtime: types.RuntimeOllama,
+		},
+	}
+
+	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
+	require.NoError(t, err)
+	require.NotNil(t, filteredRunners)
+	require.Len(t, filteredRunners, 1)
+	require.Equal(t, runnerWithModel, filteredRunners[0], "Only runner-1 should have the model ready")
+}
+
+func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
+		PubSub: ps,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+		RunnerController: ctrl,
+	})
+	require.NoError(t, err)
+
+	modelID := "test-ollama-model"
+	runnerWithoutModel := "runner-1"
+	runnerDownloading := "runner-2"
+	runnerIDs := []string{runnerWithoutModel, runnerDownloading}
+
+	// Mock status for runner-1 (different model)
+	ctrl.statusCache.Set(runnerWithoutModel, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            "different-model",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	// Mock status for runner-2 (downloading)
+	ctrl.statusCache.Set(runnerDownloading, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            modelID,
+					DownloadInProgress: true, // Downloading
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	workload := &Workload{
+		model: &types.Model{
+			ID:      modelID,
+			Runtime: types.RuntimeOllama,
+		},
+	}
+
+	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no runner has the model "+modelID)
+	require.Nil(t, filteredRunners, "Expected no runners to be returned")
+}
