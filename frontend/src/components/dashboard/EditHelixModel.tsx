@@ -17,6 +17,7 @@ import {
   Switch,
   FormControlLabel,
   FormHelperText,
+  Link,
 } from '@mui/material';
 // Use actual types from the API definition
 import { TypesModel, TypesModelType, TypesRuntime } from '../../api/api';
@@ -230,7 +231,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
               required
               autoComplete="off"
               placeholder="e.g., llama3:70b-instruct-q4_0 or custom-model-name"
-              helperText="Unique identifier for the model (may be provider-specific)."
+              helperText={<>Unique identifier for the model (may be provider-specific). Find models at <Link href="https://ollama.com/search" target="_blank" rel="noopener noreferrer">https://ollama.com/search</Link></>}
               disabled={loading}
             />
           )}
@@ -287,8 +288,8 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
             >
               {/* Use enum values */}
               <MenuItem value={TypesRuntime.RuntimeOllama}>Ollama</MenuItem>
-              <MenuItem value={TypesRuntime.RuntimeVLLM}>vLLM</MenuItem>
-              <MenuItem value={TypesRuntime.RuntimeDiffusers}>Diffusers (Image)</MenuItem>
+              <MenuItem value={TypesRuntime.RuntimeVLLM} disabled>vLLM (coming soon)</MenuItem>
+              <MenuItem value={TypesRuntime.RuntimeDiffusers} disabled>Diffusers (Image) (coming soon)</MenuItem>
               {/* Add more runtime options if they become available in the enum */}
             </Select>
           </FormControl>
