@@ -53,6 +53,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     context_length: 0, // Initialize context length
     enabled: true,
     hide: false,
+    auto_pull: false, // Add auto_pull state
   });
 
   // Initialize form data when the dialog opens or the model changes
@@ -69,6 +70,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           context_length: model.context_length || 0,
           enabled: model.enabled !== undefined ? model.enabled : false, // Default to false if undefined
           hide: model.hide || false,
+          auto_pull: model.auto_pull || false, // Initialize auto_pull
         });
       } else {
         // Reset for creating a new model
@@ -82,6 +84,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           context_length: 0,
           enabled: true,
           hide: false,
+          auto_pull: false, // Default auto_pull to false
         });
       }
       setError(''); // Clear errors when dialog opens/changes mode
@@ -175,13 +178,14 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
       memory: Math.round(formData.memory * 1024 * 1024 * 1024), // Convert GB to Bytes
       context_length: formData.context_length > 0 ? formData.context_length : undefined,
       enabled: formData.enabled,
+      auto_pull: formData.auto_pull,
       hide: formData.hide,
     };
 
     try {
       if (isEditing && model) {
         // For update, use the existing model's ID (which is not editable)
-        await updateModel({ id: model.id || '', helixModel: payloadBase });
+        await updateModel({ id: model.id || '', helixModel: { ...payloadBase } });
       } else {
         // For create, include the user-provided ID from the form
         await createModel({ ...payloadBase, id: formData.id.trim() });
@@ -346,6 +350,14 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                  />
                   <FormHelperText>Hide this model from the default selection lists (still usable if selected directly).</FormHelperText>
            </Stack>
+
+           <Stack direction="row" spacing={2} justifyContent="start">
+               <FormControlLabel                  
+                   control={<Switch checked={formData.auto_pull} onChange={handleSwitchChange} name="auto_pull" disabled={loading} />}
+                   label="Auto Pull"
+                />
+                 <FormHelperText>Automatically pull the latest version of this model if available (Ollama only).</FormHelperText>
+          </Stack>
 
         </Stack>
       </DialogContent>
