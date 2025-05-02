@@ -158,7 +158,7 @@ func (d *DiffusersRuntime) PullModel(ctx context.Context, modelName string, _ fu
 	return d.DiffusersClient.Pull(ctx, modelName)
 }
 
-func (d *DiffusersRuntime) ListModels(ctx context.Context) ([]string, error) {
+func (d *DiffusersRuntime) ListModels(_ context.Context) ([]string, error) {
 	return []string{}, nil // TODO: implement
 }
 

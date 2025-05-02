@@ -228,7 +228,7 @@ func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFun
 	})
 }
 
-func (v *VLLMRuntime) ListModels(ctx context.Context) ([]string, error) {
+func (v *VLLMRuntime) ListModels(_ context.Context) ([]string, error) {
 	return []string{}, nil // TODO: implement
 }
 

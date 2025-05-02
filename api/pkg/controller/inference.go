@@ -166,7 +166,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	if assistant.Provider != "" {
-		fmt.Println("assistant.Provider", assistant.Provider)
 		opts.Provider = assistant.Provider
 	}
 

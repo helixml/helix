@@ -191,7 +191,7 @@ func (d *AxolotlRuntime) PullModel(_ context.Context, model string, progress fun
 	return nil
 }
 
-func (d *AxolotlRuntime) ListModels(ctx context.Context) ([]string, error) {
+func (d *AxolotlRuntime) ListModels(_ context.Context) ([]string, error) {
 	return []string{}, nil // TODO: implement
 }
 
