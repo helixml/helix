@@ -287,7 +287,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "phi3:instruct", // https://ollama.com/library/phi3:instruct
 			Name:          "Phi-3",
-			Memory:        MB * 2300,
+			Memory:        GB * 29,
 			ContextLength: 131072,
 			Description:   "Fast and good for everyday tasks",
 			Hide:          true,
