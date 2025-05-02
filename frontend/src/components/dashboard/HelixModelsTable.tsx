@@ -28,6 +28,51 @@ import { OllamaIcon, VllmIcon, HuggingFaceIcon } from '../icons/ProviderIcons';
 import EditHelixModel from './EditHelixModel';
 import DeleteHelixModelDialog from './DeleteHelixModelDialog';
 
+// Helper function to format date for tooltip
+const formatFullDate = (dateString: string | undefined): string => {
+  if (!dateString) return 'N/A';
+  try {
+    const date = new Date(dateString);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const day = date.getDate();
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+
+    let daySuffix = 'th';
+    if (day % 10 === 1 && day !== 11) {
+      daySuffix = 'st';
+    } else if (day % 10 === 2 && day !== 12) {
+      daySuffix = 'nd';
+    } else if (day % 10 === 3 && day !== 13) {
+      daySuffix = 'rd';
+    }
+
+    return `${hours}:${minutes} ${day}${daySuffix} ${month}, ${year}`;
+  } catch (error) {
+    console.error("Error formatting date:", dateString, error);
+    return 'Invalid Date';
+  }
+};
+
+// Helper function to format date shortly for the column
+const formatShortDate = (dateString: string | undefined): string => {
+  if (!dateString) return 'N/A';
+  try {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0'); // Month is 0-indexed
+    const day = date.getDate().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  } catch (error) {
+    console.error("Error formatting short date:", dateString, error);
+    return 'Invalid Date';
+  }
+};
+
 // Helper function to get the icon based on runtime
 const getRuntimeIcon = (runtime: TypesRuntime | undefined) => {
   switch (runtime) {
@@ -206,6 +251,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>Context Length</TableCell>
               <TableCell>Type</TableCell>
               <TableCell>Enabled</TableCell>
+              <TableCell>Created At</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -239,6 +285,11 @@ const HelixModelsTable: FC = () => {
                     checked={model.enabled ?? false}
                     onChange={() => handleToggleEnable(model)}
                   />
+                </TableCell>
+                <TableCell>
+                  <Tooltip title={formatFullDate(model.created)}>
+                    <span>{formatShortDate(model.created)}</span>
+                  </Tooltip>
                 </TableCell>
                 <TableCell>
                   <IconButton
