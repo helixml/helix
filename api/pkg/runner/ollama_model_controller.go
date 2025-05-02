@@ -68,11 +68,13 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 		if model.Runtime != types.RuntimeOllama {
 			continue
 		}
-		if !model.Enabled {
+		if !model.AutoPull {
+			log.Debug().Str("model_id", model.ID).Msg("model auto pull disabled")
 			continue
 		}
 		// If model requires more memory than we have, skip it
 		if model.Memory > r.Options.MemoryBytes {
+			log.Debug().Str("model_id", model.ID).Msg("model memory limit exceeded")
 			continue
 		}
 
