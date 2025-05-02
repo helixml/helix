@@ -335,7 +335,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
               />
            )}
             
-           <Stack direction="row" spacing={2} justifyContent="start">
+           <Stack direction="row" spacing={2} justifyContent="start" alignItems="center">
                 <FormControlLabel
                     control={<Switch checked={formData.enabled} onChange={handleSwitchChange} name="enabled" disabled={loading} />}
                     label="Enabled"
@@ -343,7 +343,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                  <FormHelperText>Allow users to select and use this model.</FormHelperText>
             </Stack>
              
-            <Stack direction="row" spacing={2} justifyContent="start">
+            <Stack direction="row" spacing={2} justifyContent="start" alignItems="center">
                 <FormControlLabel
                     control={<Switch checked={formData.hide} onChange={handleSwitchChange} name="hide" disabled={loading} />}
                     label="Hide"
@@ -351,7 +351,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                   <FormHelperText>Hide this model from the default selection lists (still usable if selected directly).</FormHelperText>
            </Stack>
 
-           <Stack direction="row" spacing={2} justifyContent="start">
+           <Stack direction="row" spacing={2} justifyContent="start" alignItems="center">
                <FormControlLabel                  
                    control={<Switch checked={formData.auto_pull} onChange={handleSwitchChange} name="auto_pull" disabled={loading} />}
                    label="Auto Pull"
