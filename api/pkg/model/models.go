@@ -442,6 +442,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--task", "embed",
 				"--max-model-len", "8192",
 				"--trust-remote-code",
+				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
 			},
 			Hide: false,
 		},

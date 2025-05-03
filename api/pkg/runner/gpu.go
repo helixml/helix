@@ -64,7 +64,7 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 				g.freeMemory = g.fetchFreeMemory()
 				// Log occasional updates for debugging
 				if rand.Intn(20) == 0 { // ~5% chance to log an update
-					log.Debug().
+					log.Trace().
 						Uint64("total_memory", g.gpuMemory).
 						Uint64("free_memory", g.freeMemory).
 						Uint64("used_memory", g.usedMemory).
