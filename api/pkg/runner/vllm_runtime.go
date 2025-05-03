@@ -528,6 +528,10 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 
 	cmd := commander.CommandContext(ctx, vllmPath, args...)
 
+	// Set the working directory to /vllm
+	cmd.Dir = "/vllm"
+	log.Debug().Str("workdir", cmd.Dir).Msg("Set vLLM working directory")
+
 	// Set only the specific environment variables needed
 	// This is more secure than inheriting all parent environment variables
 	env := []string{
@@ -625,6 +629,10 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 				// Restart the process
 				log.Info().Str("model", model).Int("port", port).Msg("Restarting vLLM process after unexpected exit")
 				newCmd := commander.CommandContext(ctx, vllmPath, args...)
+
+				// Set the same working directory for the restarted command
+				newCmd.Dir = "/vllm"
+				log.Debug().Str("workdir", newCmd.Dir).Msg("Set vLLM working directory for restarted process")
 
 				// Set the same environment variables
 				newCmd.Env = env

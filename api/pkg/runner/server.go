@@ -435,7 +435,7 @@ func (apiServer *HelixRunnerAPIServer) setHelixModelsHandler(w http.ResponseWrit
 		return
 	}
 
-	log.Debug().Int("models_count", len(models)).Msg("setting helix models")
+	log.Trace().Int("models_count", len(models)).Msg("setting helix models")
 
 	apiServer.setHelixModels(models)
 

@@ -45,6 +45,21 @@ COPY . .
 ARG APP_VERSION="v0.0.0+unknown"
 RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
+# Stage for downloading vLLM templates
+FROM alpine:latest as vllm-templates
+ARG VLLM_VERSION
+
+# Install git to clone the repository
+RUN apk add --no-cache git curl
+
+# Clone the vLLM repository at the specific version to get the example templates
+WORKDIR /tmp
+RUN git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git
+# Create templates directory and copy all jinja templates
+RUN mkdir -p /vllm-templates
+RUN if [ -d "/tmp/vllm/examples" ]; then \
+        cp /tmp/vllm/examples/*.jinja /vllm-templates/ 2>/dev/null || true; \
+    fi
 
 ### RUNNER CONTAINER
 
@@ -87,6 +102,18 @@ RUN cd /workspace/axolotl && \
         echo "Installing vLLM with GPU support (version ${VLLM_VERSION})" && \
         pip3 install vllm==${VLLM_VERSION}; \
     fi
+
+# Create the examples directory in the vLLM package where it will look for templates
+RUN mkdir -p /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples
+
+# Copy the example templates to the vLLM package examples directory  
+COPY --from=vllm-templates /vllm-templates/* /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples/
+
+# Create a clean /vllm directory with examples subdirectory
+RUN mkdir -p /vllm/examples
+
+# Copy templates directly to /vllm/examples where the Go code will look for them
+COPY --from=vllm-templates /vllm-templates/* /vllm/examples/
 
 RUN mkdir -p /workspace/helix
 
