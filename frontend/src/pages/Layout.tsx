@@ -46,17 +46,78 @@ const Layout: FC<{
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
-      return false
+      return false;
     }
     // Return false if version is "<unknown>"
     if (account.serverConfig.version === "<unknown>") {
-      return false
+      return false;
     }
-    // Return false if version doesn't have 2 dots (not semver)
-    if ((account.serverConfig.version.match(/\./g) || []).length !== 2) {
-      return false
+    
+    // Parse versions for comparison
+    const parseVersion = (versionString: string) => {
+      // Check if it's a pre-release version (contains hyphen)
+      const isPreRelease = versionString.includes('-');
+      
+      // Extract base version and pre-release info
+      let baseVersion = versionString;
+      let preRelease = '';
+      
+      if (isPreRelease) {
+        const parts = versionString.split('-');
+        baseVersion = parts[0];
+        preRelease = parts[1];
+      }
+      
+      // Parse version numbers
+      const versionParts = baseVersion.split('.')
+        .map(part => parseInt(part, 10));
+      
+      // Ensure we have a valid semver
+      if (versionParts.length !== 3 || versionParts.some(isNaN)) {
+        return null;
+      }
+      
+      return {
+        major: versionParts[0],
+        minor: versionParts[1],
+        patch: versionParts[2],
+        isPreRelease,
+        preRelease
+      };
+    };
+    
+    const currentVersion = parseVersion(account.serverConfig.version);
+    const latestVersion = parseVersion(account.serverConfig.latest_version);
+    
+    // If either version is invalid, fallback to simple comparison
+    if (!currentVersion || !latestVersion) {
+      return account.serverConfig.version !== account.serverConfig.latest_version;
     }
-    return account.serverConfig.version !== account.serverConfig.latest_version
+    
+    // Compare major, minor, patch
+    if (currentVersion.major !== latestVersion.major) {
+      return currentVersion.major < latestVersion.major;
+    }
+    if (currentVersion.minor !== latestVersion.minor) {
+      return currentVersion.minor < latestVersion.minor;
+    }
+    if (currentVersion.patch !== latestVersion.patch) {
+      return currentVersion.patch < latestVersion.patch;
+    }
+    
+    // If we get here, the base versions are equal, so we need to check pre-release status
+    // If current is pre-release and latest is not, then latest is newer
+    if (currentVersion.isPreRelease && !latestVersion.isPreRelease) {
+      return true;
+    }
+    
+    // If latest is pre-release and current is not, then latest is not newer
+    if (!currentVersion.isPreRelease && latestVersion.isPreRelease) {
+      return false;
+    }
+    
+    // If both are pre-release or both are not, use simple string comparison as fallback
+    return account.serverConfig.version !== account.serverConfig.latest_version;
   }, [account.serverConfig?.version, account.serverConfig?.latest_version])
 
   let sidebarMenu = null
