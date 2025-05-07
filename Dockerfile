@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -buil
 
 ### Frontend Base ###
 #--------------------
-FROM node:23-alpine AS ui-base
+FROM node:24-alpine AS ui-base
 WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
