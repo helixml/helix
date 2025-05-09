@@ -52,13 +52,13 @@ controlplane:
 
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Dashboard
-  providers:
-    vllm:
-      baseUrl: "http://vllm-gte.default.svc.cluster.local/v1"
-      apiKey: "EMPTY"
-    openai:
-      baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
-      apiKey: "EMPTY"
+  # providers:
+  #   vllm:
+  #     baseUrl: "http://vllm-gte.default.svc.cluster.local/v1"
+  #     apiKey: "EMPTY"
+  #   openai:
+  #     baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
+  #     apiKey: "EMPTY"
 
 # Environment variables that will be added to the configmap
 envVariables:
@@ -130,3 +130,12 @@ pgvector:
 persistence: # for api filestore
   enabled: true
   size: 8Gi
+
+# To enable ingress, set the following values:
+# ingress:
+#   enabled: false  
+#   hosts:
+#     - host: helix.acme.com
+#       paths:
+#         - path: /
+#           pathType: ImplementationSpecific
