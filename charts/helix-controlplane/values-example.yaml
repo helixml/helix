@@ -21,7 +21,7 @@ controlplane:
   haystack:
     enabled: true
     # Option 1: Direct DSN specification
-    pgvectorDsn: "postgresql://postgres:pgvector@my-helix-controlplane-pgvector:5432/postgres"
+    # pgvectorDsn: "postgresql://postgres:pgvector@my-helix-controlplane-pgvector:5432/postgres"
     # Or: Option 2: Reference DSN from existing secret
     # existingSecret: "helix-pgvector-creds"
     # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
