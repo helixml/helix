@@ -65,6 +65,9 @@ spec:
               containerPort: 5432
               protocol: TCP
           env:
+            # The storage backing the PVC is a filesystem (e.g., ext4) sometimes include a lost+found directory by default.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata # Setting PGDATA to the subdirectory
             - name: POSTGRES_DB
               value: {{ .Values.pgvector.auth.database | default "postgres" }}
             - name: POSTGRES_USER
