@@ -7,6 +7,8 @@ import useSessions from '../hooks/useSessions';
 interface NewInferenceParams {
   type: ISessionType;
   message: string;
+  image?: string;
+  image_filename?: string;
   appId?: string;
   assistantId?: string;
   ragSourceId?: string;
@@ -207,6 +209,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     loraDir = '',
     sessionId = '',
     orgId = '',
+    image = undefined,
+    image_filename = undefined,
   }: NewInferenceParams): Promise<ISession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -221,8 +225,46 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       return newMap;
     });
 
+    // Construct the content parts first
+    const currentContentParts: any[] = [];
+    let determinedContentType: string = "text"; // Default for MessageContent.content_type
+
+    // Add text part if message is provided
+    if (message) {
+        currentContentParts.push({
+            type: 'text',
+            text: message,
+        });
+    }
+
+    if (image && image_filename) { // Ensure image data and filename are present
+      currentContentParts.push({
+        type: 'image_url',
+        image_url: {
+          url: image, // image is the base64 data URI
+        },
+      });
+      // If an image is present, the content type is multimodal.
+      // Using "multimodal_text" based on Go struct comments; adjust if backend expects a different value.
+      determinedContentType = "multimodal_text";
+    } else if (!message) {
+      // Handle case where neither message nor image is provided, if necessary.
+      // For now, this might result in empty currentContentParts.
+      // Consider throwing an error or ensuring UI prevents this state.
+      console.warn("NewInference called with no message and no image.");
+    }
+    // If only a message (no image), determinedContentType remains "text".
+
+
+    // This is the payload for Message.Content, matching the Go types.MessageContent struct
+    const messagePayloadContent = {
+        content_type: determinedContentType,
+        parts: currentContentParts,
+    };
+
+    // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
-      type,
+      type, // This is ISessionType (e.g. text, image) for the overall session/request
       stream: true,
       app_id: appId,
       organization_id: orgId,
@@ -232,13 +274,12 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       model: modelName,
       lora_dir: loraDir,
       session_id: sessionId,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [message]
+      messages: [
+        {
+          role: 'user',
+          content: messagePayloadContent as any, // Use the correctly structured object, cast to any to bypass TS type mismatch
         },
-      }]
+      ],
     };
 
     try {
