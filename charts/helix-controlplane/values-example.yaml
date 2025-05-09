@@ -64,11 +64,11 @@ controlplane:
 envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
-  # Database
-  POSTGRES_HOST: my-helix-controlplane-postgresql
-  POSTGRES_USER: helix
-  POSTGRES_PASSWORD: oh-hallo-insecure-password
-  POSTGRES_DATABASE: helix
+  # NOTE: If uncommenting, then set Values.postgresql.enabled to false  
+  # POSTGRES_HOST: my-helix-controlplane-postgresql
+  # POSTGRES_USER: helix
+  # POSTGRES_PASSWORD: oh-hallo-insecure-password
+  # POSTGRES_DATABASE: helix
   # Runners
   RUNNER_TOKEN: oh-hallo-insecure-token
   # Keycloak location
@@ -83,11 +83,16 @@ envVariables:
   # ids that are admins or the word "all" if you want to allow all users to be admins
   ADMIN_USER_IDS: "all"
 
-# Environment variables driven from secrets that will be set in the main pod
+# Environment variables driven from secrets that will be set in the main pod.
 secretEnvVariables:
+  # Get your License key from https://deploy.helix.ml/licenses
+  # Create the license secret with:
+  #
+  #   kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
+  # 
   LICENSE_KEY: 
-    secretName: foo
-    secretKey: bar
+    secretName: helix-license
+    secretKey: license
     
 tika:
   enabled: false
