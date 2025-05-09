@@ -171,6 +171,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	messageContent := startReq.MessageContent()
+
 	var (
 		session    *types.Session
 		newSession bool
@@ -256,6 +258,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			State:     types.InteractionStateComplete,
 			Finished:  true,
 			Message:   message,
+			Content:   messageContent,
 		},
 		&types.Interaction{
 			ID:       system.GenerateUUID(),
