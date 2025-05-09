@@ -255,6 +255,9 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.controlplane.haystack.existingSecret }}
                   key: {{ .Values.controlplane.haystack.existingSecretDsnKey | default "dsn" }}
+            {{- else }}
+            - name: PGVECTOR_DSN
+              value: "postgresql://{{ .Values.pgvector.user }}:{{ .Values.pgvector.password }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.database }}"
             {{- end }}
             {{- end }}
             {{- with .Values.controlplane.haystack.env }}
