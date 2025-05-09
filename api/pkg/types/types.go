@@ -272,13 +272,8 @@ func (s *SessionChatRequest) Message() (string, bool) {
 	if len(s.Messages) == 0 {
 		return "", false
 	}
-	// Assuming we are interested in the first message in the request
 	msg := s.Messages[0]
-	// Ensure msg and msg.Content are not nil, and Parts is not empty
 	if msg == nil || len(msg.Content.Parts) == 0 {
-		// If msg.Content could be nil (e.g. if Message.Content was *MessageContent),
-		// an additional check `msg.Content == nil` would be needed.
-		// Given `Content MessageContent`, it won't be nil itself, but its fields might be zero-valued.
 		return "", false
 	}
 
@@ -286,24 +281,30 @@ func (s *SessionChatRequest) Message() (string, bool) {
 		if part == nil {
 			continue
 		}
-		// Case 1: Part is a simple string
-		if text, ok := part.(string); ok {
-			return text, true
-		}
 
-		// Case 2 & 3: Part is an object (which json.Unmarshal turns into map[string]interface{} for `any`)
-		if partMap, ok := part.(map[string]interface{}); ok {
+		switch p := part.(type) {
+		case string: // Case 1: Part is a simple string
+			return p, true
+		case TextPart: // Handle TextPart struct directly
+			return p.Text, true
+		// Note: ImageURLPart struct doesn't need explicit handling here if we are only looking for text.
+		// It will fall through the default case of the switch, and the loop will continue.
+		case map[string]interface{}: // Case 2: Part is a generic map (e.g., from JSON unmarshal)
 			// Check for {"type": "text", "text": "..."}
-			if typeVal, typeOk := partMap["type"].(string); typeOk && typeVal == "text" {
-				if textVal, textOk := partMap["text"].(string); textOk {
+			if typeVal, typeOk := p["type"].(string); typeOk && typeVal == "text" {
+				if textVal, textOk := p["text"].(string); textOk {
 					return textVal, true
 				}
 			}
-			// If partMap["type"] is "image_url", this function skips it as it's looking for the first text message.
+			// If partMap["type"] is "image_url" or another non-text type,
+			// this map is skipped, and the loop continues to the next part.
 		}
 	}
 
-	return "", true // No text found, but we found a part
+	// If the loop completes, it means no text part was found.
+	// The original code returned `"", true` if parts existed but no text was found.
+	// This is consistent with Test_SessionChatRequest_ImageURL expecting "", true.
+	return "", true
 }
 
 func (s *SessionChatRequest) MessageContent() MessageContent {
