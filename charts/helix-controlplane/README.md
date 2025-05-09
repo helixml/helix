@@ -65,10 +65,6 @@ helm upgrade --install helix \
 
 Use port-forward to access the service.
 
-## Ingress
-
-When configuring ingress, adjust both global.serverUrl to your domain name and keycloak's frontend URL to the same domain name. This is important for the redirects to work.
-
 ## Connecting runners
 
 You can connect runners through [Docker](https://docs.helixml.tech/helix/private-deployment/docker/), [Docker Compose](https://github.com/helixml/helix/blob/main/docker-compose.runner.yaml), [Synpse](https://cloud.synpse.net/templates?id=helix-runner), [Runpod](https://docs.helixml.tech/helix/private-deployment/runpod/), [LambdaLabs](https://docs.helixml.tech/helix/private-deployment/lambdalabs/) or [Kubernetes chart](../helix-runner) 
